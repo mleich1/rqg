@@ -190,6 +190,10 @@ sub next {
       EXECUTE_QUERY: foreach my $executor (@$executors) {
          my $execution_result = $executor->execute($query);
 
+         if (not defined $execution_result) {
+            Carp::cluck("ALARM: undef execution_result got for query ->$query<-")
+         }
+
          # If the server has crashed but we expect server restarts during the test, we will wait and retry
          if ((   $execution_result->status() == STATUS_SERVER_CRASHED
               or $execution_result->status() == STATUS_SERVER_KILLED

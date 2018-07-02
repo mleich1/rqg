@@ -36,6 +36,9 @@ use Digest::MD5;
 
 use constant RARE_QUERY_THRESHOLD  => 5;
 use constant MAX_ROWS_THRESHOLD    => 7000000;
+# Taken over from Reporter Deadlock.
+# We must have patience on some overloaded box.
+use constant CONNECT_TIMEOUT       => 30;
 
 my %reported_errors;
 
@@ -676,6 +679,7 @@ sub get_connection {
    my $executor = shift;
 
    my $dbh = DBI->connect($executor->dsn(), undef, undef, {
+        mysql_connect_timeout  => CONNECT_TIMEOUT,
         PrintError             => 0,
         RaiseError             => 0,
         AutoCommit             => 1,
@@ -817,7 +821,10 @@ sub execute {
       if ($status) {
          say("ERROR: Executor::MySQL::execute Getting a connection for $executor_role failed " .
              "with $status. Will return that status : " . status2text($status) . "($status).");
-         return $status;
+         return GenTest::Result->new(
+            query       => '/* During connect attempt */',
+            status      => $status,
+         );
       }
       $dbh = $executor->dbh();
    }
@@ -969,7 +976,8 @@ sub execute {
       } elsif (($err_type == STATUS_SERVER_CRASHED) ||
                ($err_type == STATUS_SERVER_KILLED)    ) {
          my $query_for_print= shorten_message($query);
-         say("Executor::MySQL::execute: Query: $query_for_print failed: $err " . $sth->errstr()) if not ($execution_flags & EXECUTOR_FLAG_SILENT);
+         say("Executor::MySQL::execute: Query: $query_for_print failed: $err " . $sth->errstr())
+                       if not ($execution_flags & EXECUTOR_FLAG_SILENT);
          # Lets assume some evil and complicated scenario (lost connection but no real crash)
          # ----------------------------------------------------------------------------------
          # Query from generator is a multi statement query like
@@ -995,7 +1003,16 @@ sub execute {
          #    - a single query failed
          #    etc.
          # So check first if a connect is possible.
+         # Experiment because of observation 2018-06-22
+         #    Even with mysql_connect_timeout => 20 added the distance between message about
+         #    connection lost and connect attempt failed < 1s seen.
+         # First (because easier to handle) hypothesis:
+         #    The server is extreme busy with freeing whatever temporary used resources belonging
+         #    to connection gone.
+         #    2018-07-02 Up till today I have never seen a false alarm from here again.
+         sleep 1;
          my $check_dbh = DBI->connect($executor->dsn(), undef, undef, {
+             mysql_connect_timeout  => CONNECT_TIMEOUT,
              PrintError             => 0,
              RaiseError             => 0,
              AutoCommit             => 0,
@@ -1091,7 +1108,9 @@ sub execute {
              MAX_ROWS_THRESHOLD() . ") rows. Killing it ...");
          $executor->[EXECUTOR_RETURNED_ROW_COUNTS]->{'>MAX_ROWS_THRESHOLD'}++;
 
-         my $kill_dbh = DBI->connect($executor->dsn(), undef, undef, { PrintError => 1 });
+         my $kill_dbh = DBI->connect($executor->dsn(), undef, undef, {
+                                     mysql_connect_timeout  => CONNECT_TIMEOUT,
+                                     PrintError => 1 });
          $kill_dbh->do("KILL QUERY " . $executor->connectionId());
          $kill_dbh->disconnect();
          $sth->finish();
@@ -1129,17 +1148,21 @@ sub execute {
       }
    }
 
-   if ( (rqg_debug()) && (! ($execution_flags & EXECUTOR_FLAG_SILENT)) ) {
-      if ($query =~ m{^\s*select}sio) {
-         $executor->explain($query);
+   if ($result->status() == STATUS_OK or $result->status() == STATUS_SKIP) {
+      # Now we have excluded certain classes of failing statements where all what follows
+      # makes no sense up till additional trouble with not initilized values etc.
+      if ( (rqg_debug()) && (! ($execution_flags & EXECUTOR_FLAG_SILENT)) ) {
+         if ($query =~ m{^\s*select}sio) {
+            $executor->explain($query);
 
-         if ($result->status() != STATUS_SKIP) {
-            my $row_group = $result->rows() > 100 ? '>100' : ($result->rows() > 10 ? ">10" : sprintf("%5d",$sth->rows()) );
-            $executor->[EXECUTOR_RETURNED_ROW_COUNTS]->{$row_group}++;
+            if ($result->status() != STATUS_SKIP) {
+               my $row_group = $result->rows() > 100 ? '>100' : ($result->rows() > 10 ? ">10" : sprintf("%5d",$sth->rows()) );
+               $executor->[EXECUTOR_RETURNED_ROW_COUNTS]->{$row_group}++;
+            }
+         } elsif ($query =~ m{^\s*(update|delete|insert|replace)}sio) {
+            my $row_group = $affected_rows > 100 ? '>100' : ($affected_rows > 10 ? ">10" : sprintf("%5d",$affected_rows) );
+            $executor->[EXECUTOR_AFFECTED_ROW_COUNTS]->{$row_group}++;
          }
-      } elsif ($query =~ m{^\s*(update|delete|insert|replace)}sio) {
-         my $row_group = $affected_rows > 100 ? '>100' : ($affected_rows > 10 ? ">10" : sprintf("%5d",$affected_rows) );
-         $executor->[EXECUTOR_AFFECTED_ROW_COUNTS]->{$row_group}++;
       }
    }
 

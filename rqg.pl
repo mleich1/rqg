@@ -39,6 +39,8 @@
 
 use Carp;
 
+my $start_time = time();
+
 # FIXME: I AM QUITE UNSURE IF THE RQG_HOME CHECKING AND SETTING WORKS LIKE INTENDED.
 # Note: /work/RQG_mleich1 is the one and only RQG source directory
 #       RQG_HOME is not set
@@ -562,25 +564,13 @@ say("Starting \n# $0 \\ \n# ".join(" \\ \n# ", @ARGV_saved));
 # Calculate master and slave ports based on MTR_BUILD_THREAD (MTR Version 1 behaviour)
 #
 
+$build_thread = Auxiliary::check_and_set_build_thread($build_thread);
 if (not defined $build_thread) {
-   if (defined $ENV{MTR_BUILD_THREAD}) {
-      $build_thread = $ENV{MTR_BUILD_THREAD};
-      say("INFO: Setting build_thread to '$build_thread' picked from process environment (MTR_BUILD_THREAD).");
-   } else {
-      $build_thread = DEFAULT_MTR_BUILD_THREAD;
-      say("INFO: Setting build_thread to the RQG default '$build_thread'.");
-   }
-} else {
-   say("INFO: build_thread : $build_thread");
-}
-
-if ( $build_thread eq 'auto' ) {
-   say ("ERROR: Please set the environment variable MTR_BUILD_THREAD to a value <> 'auto' " .
-        "(recommended) or unset it (will take the default value " . DEFAULT_MTR_BUILD_THREAD .").");
    my $status = STATUS_ENVIRONMENT_FAILURE;
    say("$0 will exit with exit status " . status2text($status) . "($status)");
    safe_exit($status);
 }
+
 
 my @ports = (10000 + 10 * $build_thread, 10000 + 10 * $build_thread + 2, 10000 + 10 * $build_thread + 4);
 
@@ -1740,12 +1730,12 @@ sub exit_test {
       }
       say("DEBUG: The RQG vardir '$vardirs[0]' was removed.");
    } else {
-      if(not File::Path::rmtree($vardirs[0])) {
-         say("ERROR: Removal of the tree '$vardirs[0]' failed. : $!.");
-         my $status = STATUS_ENVIRONMENT_FAILURE;
-         run_end($status);
-      }
-      say("DEBUG: The RQG vardir '$vardirs[0]' was removed.");
+#     if(not File::Path::rmtree($vardirs[0])) {
+#        say("ERROR: Removal of the tree '$vardirs[0]' failed. : $!.");
+#        my $status = STATUS_ENVIRONMENT_FAILURE;
+#        run_end($status);
+#     }
+#     say("DEBUG: The RQG vardir '$vardirs[0]' was removed.");
    }
    run_end($status);
 }

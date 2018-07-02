@@ -28,6 +28,12 @@ use GenTest::Reporter;
 use GenTest::Incident;
 use GenTest::CallbackPlugin;
 
+#-----------------------------------------------------------------------
+# Some notes (sorry if its for you too banal or obvious):
+# 1. Backtrace is not a periodic reporter.
+#    So it does not matter if the periodic reporting process is alive.
+# 2. Backtrace will be called if ever only around end.
+
 sub report {
     if (defined $ENV{RQG_CALLBACK}) {
         return callbackReport(@_);
@@ -88,6 +94,10 @@ sub nativeReport {
    my $message_begin = "ALARM: Reporter::Backtrace $wait_time" . "s waited but the server";
    if ( $server_running ) {
       say("$message_begin process has not disappeared.");
+      # It does not make sense to wait longer.
+      say("INFO: Most probably false alarm. Will return STATUS_OK,undef.");
+      say("INFO: Reporter 'Backtrace' ------------------------------ End");
+      return STATUS_OK,undef;
    }
    if ( not $aborted_found ) {
       say("$message_begin error_log remains without 'Aborted (core dumped)'.");
