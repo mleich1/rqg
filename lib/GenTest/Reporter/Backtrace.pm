@@ -103,39 +103,83 @@ sub nativeReport {
         say("INFO: Reporter 'Backtrace' ------------------------------ End");
         return STATUS_OK,undef;
     }
-    if ( not $aborted_found ) {
-        say("$message_begin error_log remains without 'Aborted (core dumped)'.");
-    }
     if ( -e $pid_file ) {
         say("INFO: Reporter::Backtrace The pid_file '$pid_file' did not disappear.");
     }
+    if ( not $aborted_found ) {
+        say("$message_begin error_log remains without 'Aborted (core dumped)'.");
+    }
 
-    my $core = <$datadir/core*>;
-    if (defined $core) {
-        say("INFO: The core file name computed is '$core'");
-    } else {
-        $core = </cores/core.$pid> if $^O eq 'darwin';
+    # Observation: 2018-07-04
+    # -----------------------
+    # Some threads lose their connection + attempt to connect to server again failed.
+    # So they stop with status STATUS_SERVER_CRASHED.
+    # 04T18:34:06 [190727] GenTest: child 190727 is being stopped with status STATUS_SERVER_CRASHED
+    # 04T18:34:09 [188964] Process with pid 190772 for Thread5 ended with status STATUS_SERVER_CRASHED
+    # 04T18:34:09 [188964] Killing remaining worker process with pid 190727...
+    # ...
+    # 04T18:34:09 [188964] Killing remaining worker process with pid 190872...
+    # 04T18:34:10 [188964] Killing periodic reporting process with pid 190620...
+    # 04T18:34:10 [190620] GenTest: child 190620 is being stopped with status STATUS_OK
+    # 04T18:34:10 [188964] For pid 190620 reporter status STATUS_OK
+    # 04T18:34:10 [188964] Kill GenTest::ErrorFilter(190619)
+    # 04T18:34:10 [188964] Server crash reported, initiating post-crash analysis...
+    # --------- Contents of /dev/shm/vardir/1530722017/13/1/data//../mysql.err -------------
+    # The usual stuff including the typical "poor" backtrace in mysql.err.
+    # ...
+    # 04T18:34:10 [188964] | Writing a core file at /dev/shm/vardir/1530722017/13/1/data/
+    # 04T18:34:10 [188964] | Aborted (core dumped)
+    # 04T18:34:10 [188964] ----------------------------------
+    # 04T18:34:10 [188964] INFO: Reporter 'Backtrace' ------------------------------ Begin
+    # 04T18:34:11 [188964] DEBUG: server pid : 190034 , server_running : 0
+    # 04T18:34:11 [188964] DEBUG: Aborted + core dumped found in server error log.
+    # 04T18:34:11 [188964] INFO: Reporter::Backtrace The pid_file '.../mysql.pid' did not disappear.
+    # 04T18:34:11 [188964] DEBUG: The core file name is not defined.
+    # 04T18:34:11 [188964] DEBUG: The core file name is not defined.
+    # 04T18:34:11 [188964] Will return STATUS_OK,undef
+    # 04T18:34:11 [188964] INFO: Reporter 'Backtrace' ------------------------------ End
+    # So the reporter gave up before a core file became visible.
+    # And the RQG run ended with
+    # STATUS_SERVER_CRASHED --> STATUS_CRITICAL_FAILURE (100) because there was no core file.
+    # Around 04T18:34:20 one of the concurrent RQG runs ended with finding a core, get
+    # backtrace and throw STATUS_SERVER_CRASHED.
+    # Conclusion: Wait longer for the core file showing up.
+    # Per first try: Polling for the core helped 100%.
+    #
+
+    my $wait_timeout   = 90;
+    my $start_time     = Time::HiRes::time();
+    my $max_end_time   = $start_time + $wait_timeout;
+    my $core;
+    while (not defined $core and Time::HiRes::time() < $max_end_time) {
+        sleep 1;
+        $core = <$datadir/core*>;
         if (defined $core) {
-            say("INFO: The core file name computed is '$core'");
+            # say("DEBUG: The core file name computed is '$core'");
         } else {
-            $core = <$datadir/vgcore*> if defined $reporter->properties->valgrind;
+            $core = </cores/core.$pid> if $^O eq 'darwin';
             if (defined $core) {
-                say("INFO: The core file name computed is '$core'");
+                # say("DEBUG: The core file name computed is '$core'");
             } else {
-                say("DEBUG: The core file name is not defined.");
+                $core = <$datadir/vgcore*> if defined $reporter->properties->valgrind;
+                if (defined $core) {
+                    # say("DEBUG: The core file name computed is '$core'");
+                } else {
+                    # say("DEBUG: The core file name is not defined.");
+                }
             }
         }
     }
     if (not defined $core) {
-        say("DEBUG: The core file name is not defined.");
+        say("INFO: Even after $wait_timeout" . "s waiting: The core file name is not defined.");
         say("Will return STATUS_OK,undef");
         say("INFO: Reporter 'Backtrace' ------------------------------ End");
         return STATUS_OK, undef;
     }
-    say("INFO: The core file name computed is '$core'");
+    say("INFO: The core file name computed is '$core'.");
     $core = File::Spec->rel2abs($core);
     if (-f $core) {
-        say("INFO: Core file '$core' found.")
+        say("INFO: The core file '$core' exists.")
     } else {
         say("WARNING: Core file not found!");
         # AFAIR:
