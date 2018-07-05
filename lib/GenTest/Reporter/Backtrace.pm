@@ -74,22 +74,24 @@ sub nativeReport {
 
     # Do not look for a core file in case the server pid exists.
     my $server_running = 1;
-    my $aborted_found  = 0;
+    my $core_dumped_found  = 0;
     my $wait_timeout   = 180;
     my $start_time     = Time::HiRes::time();
     my $max_end_time   = $start_time + $wait_timeout;
-    while ($server_running and not $aborted_found and (Time::HiRes::time() < $max_end_time)) {
+    while ($server_running and not $core_dumped_found and (Time::HiRes::time() < $max_end_time)) {
         sleep 1;
         $server_running = kill (0, $pid);
         say("DEBUG: server pid : $pid , server_running : $server_running");
 
-        if ($aborted_found == 0) {
+        if ($core_dumped_found == 0) {
             open(LOGFILE, "$error_log") or Carp::cluck("Error on open Server error file $error_log");
             while(<LOGFILE>) {
-                $aborted_found = 1 if(/Aborted .core dumped./);
-                if(/Aborted .core dumped./) {
-                    say("DEBUG: Aborted + core dumped found in server error log.");
+                if( /\(core dumped\)/ ) {
+                    $core_dumped_found = 1;
+                    say("DEBUG: '(core dumped)' found in server error log.");
                 }
+                # Segmentation fault (core dumped)
+                # Aborted (core dumped)
             }
             close LOGFILE;
         }
@@ -106,8 +108,8 @@ sub nativeReport {
     if ( -e $pid_file ) {
         say("INFO: Reporter::Backtrace The pid_file '$pid_file' did not disappear.");
     }
-    if ( not $aborted_found ) {
-        say("$message_begin error_log remains without 'Aborted (core dumped)'.");
+    if ( not $core_dumped_found ) {
+        say("$message_begin error_log remains without '... (core dumped)'.");
     }
 
     # Observation: 2018-07-04
