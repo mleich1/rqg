@@ -98,32 +98,32 @@ sub extractFromFiles {
 # - Some string even if empty ('')
 # - undef if hitting an error
 
-   my ($grammar, $grammar_files) = @_;
+    my ($grammar, $grammar_files) = @_;
 
-   $grammar->[GRAMMAR_STRING] = '';
-   foreach my $grammar_file (@$grammar_files) {
-      # For experimenting.
-      # $grammar_file = '/otto';
-      if (not open (GF, $grammar_file)) {
-         say("ERROR: Unable to open() grammar file '$grammar_file': $!.  Will return undef.");
-         return undef;
-      }
-      say "Reading grammar from file $grammar_file";
-      my $grammar_string;
-      my $result = read (GF, $grammar_string, -s $grammar_file);
-      if (not defined $result) {
-         say("ERROR: Unable to read() '$grammar_file': $!. Will return undef.");
-         return undef;
-      } else {
-         say("DEBUG: $result bytes from grammar file '$grammar_file' read.");
-      }
-      if (0 == $result) {
-         say("WARN: The grammar file '$grammar_file' is empty.");
-      }
-      $grammar->[GRAMMAR_STRING] .= $grammar_string;
-   }
+    $grammar->[GRAMMAR_STRING] = '';
+    foreach my $grammar_file (@$grammar_files) {
+        # For experimenting.
+        # $grammar_file = '/otto';
+        if (not open (GF, $grammar_file)) {
+            say("ERROR: Unable to open() grammar file '$grammar_file': $!.  Will return undef.");
+            return undef;
+        }
+        say "Reading grammar from file $grammar_file";
+        my $grammar_string;
+        my $result = read (GF, $grammar_string, -s $grammar_file);
+        if (not defined $result) {
+            say("ERROR: Unable to read() '$grammar_file': $!. Will return undef.");
+            return undef;
+        } else {
+            # say("DEBUG: $result bytes from grammar file '$grammar_file' read.");
+        }
+        if (0 == $result) {
+            say("WARN: The grammar file '$grammar_file' is empty.");
+        }
+        $grammar->[GRAMMAR_STRING] .= $grammar_string;
+    }
 
-   return $grammar->[GRAMMAR_STRING];
+    return $grammar->[GRAMMAR_STRING];
 
 }
 
@@ -145,7 +145,7 @@ sub parseFromString {
 
 	# Strip comments. Note that this is not Perl-code safe, since perl fragments
 	# can contain both comments with # and the $# expression. A proper lexer will fix this
-	
+
 	$grammar_string =~ s{#.*$}{}iomg;
 
 	# Join lines ending in \
@@ -215,7 +215,7 @@ sub parseFromString {
     my %thread_init_adds = ();
 
 	foreach my $rule_string (@rule_strings) {
-        say("DEBUG: rule_string : ->" . $rule_string . "<-");
+        # say("DEBUG: rule_string : ->" . $rule_string . "<-");
 		my ($rule_name, $components_string) = $rule_string =~ m{^(.*?)\s*:(.*)$}sio;
 
         if (not defined $rule_name) {
@@ -302,7 +302,7 @@ sub parseFromString {
 			# Remove leading whitespace
 			$component_string =~ s{^\s+}{}sgio;
 			$component_string =~ s{\s+$}{}sgio;
-		
+
 			# Rempove repeating whitespaces
 			$component_string =~ s{\s+}{ }sgio;
 
@@ -312,7 +312,7 @@ sub parseFromString {
 			$component_string =~ s{([_a-z0-9'"`\{\}\$\[\]]+)}{|$1|}sgio;
 
 			# Revert overzealous splitting that splits things like _varchar(32) into several tokens
-		
+
 			$component_string =~ s{([a-z0-9_]+)\|\(\|(\d+)\|\)}{$1($2)|}sgo;
 
 			# Remove leading and trailing pipes
@@ -357,7 +357,7 @@ sub parseFromString {
 					my $bracket_count = ($component_parts[$pos] =~ tr/{//);
 					$nesting_level = $nesting_level + $bracket_count;
 				}
-				
+
 				if ($component_parts[$pos] =~ m{\}}so) {
 					my $bracket_count = ($component_parts[$pos] =~ tr/}//);
 					$nesting_level = $nesting_level - $bracket_count;
