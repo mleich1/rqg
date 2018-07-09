@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
+# Copyright (c) 2018, MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -16,6 +16,22 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301
 # USA
+#
+
+# Note about history and future of this script:
+# ---------------------------------------------
+# The concept and code here is only in some portions based on
+#    util/simplify-grammar.pl
+# There we have GNU General Public License version 2 too and
+# Copyright (c) 2008, 2011 Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2013, Monty Program Ab.
+# Copyright (c) 2018, MariaDB Corporation Ab.
+#
+# The amount of parameters (call line + config file) is in the moment
+# not that stable.
+# On the long run the script rql_batch.pl will be extended and replace
+# the current script.
+#
 
 use strict;
 use lib 'lib';
@@ -45,7 +61,8 @@ use Time::HiRes;
 # Usage
 # =====
 # To adjust parameters to your use case and environment:
-# 
+#
+# (mleich) What follows is partially outdated. Sorry
 # 1. Copy simplify-grammar_template.cfg to for example 1.cfg
 # 2. Adjust the settings in 1.cfg
 # 3. Execute: perl util/simplify-grammar.pl --config=1.cfg
@@ -55,7 +72,7 @@ use Time::HiRes;
 # The GenTest::Simplifier::Grammar module provides progressively simpler grammars.
 # We define an "oracle" function which runs those grammars through RQG, and we
 # report if RQG returns the desired status code (for example STATUS_SERVER_CRASHED)
-# 
+#
 # IOW, RQG grammar simplification with an "oracle" function based on:
 # 1. RQG exit status codes (-> desired_status_codes)
 # 2. expected RQG protocol output (-> expected_output)
@@ -81,6 +98,7 @@ if (not GetOptions(
     'whitelist_patterns:s@',
     'blacklist_statuses:s@',
     'blacklist_patterns:s@',
+    'grammar=s',
     'parallel=i',
     'workdir=s',
     'vardir=s',
@@ -250,6 +268,7 @@ my $simplifier = GenTest::Simplifier::Grammar->new(
                              Auxiliary::RQG_VERDICT_REPLAY . "'";
         if ($content =~ m{$search_pattern}s) {
             File::Copy::copy($current_grammar, $workdir . "/best_grammar.yy");
+            say("INFO: Replay with grammar '$current_grammar'");
             return ORACLE_ISSUE_STILL_REPEATABLE;
         } else {
             return ORACLE_ISSUE_NO_LONGER_REPEATABLE;
