@@ -61,9 +61,6 @@ sub simplify {
 		* Double check the seed and mask values ('seed' and 'mask')
 		* Vary the seed value ('seed')
 		Various config (simplifier setup, grammar, ...) and non-repeatability issues may result in this error.
-		Also, check the grammar for the existence of 'thread1:' clauses (besides 'query:'). At the moment,
-		simplify-grammar.pl is unable to deal with these type of clauses. It may thus help to move any rules 
-		from such a 'thread1:' clause to the 'query:' clause, and see if the issue is still repeatable.
 		");
 		return undef;
 	}
@@ -76,34 +73,45 @@ sub simplify {
 	# loops in the grammar files.
 	#
 
-	foreach my $trial (0..1) {
-		$simplifier->[SIMPLIFIER_GRAMMAR_OBJ] = GenTest::Grammar->new(
-			grammar_string	=> $grammar_string,
-			grammar_flags	=> $simplifier->[SIMPLIFIER_GRAMMAR_FLAGS]
-		);
+    foreach my $trial (0..1) {
+        $simplifier->[SIMPLIFIER_GRAMMAR_OBJ] = GenTest::Grammar->new(
+            grammar_string  => $grammar_string,
+            grammar_flags   => $simplifier->[SIMPLIFIER_GRAMMAR_FLAGS]
+        );
 
-		return undef if not defined $simplifier->[SIMPLIFIER_GRAMMAR_OBJ];
+        return undef if not defined $simplifier->[SIMPLIFIER_GRAMMAR_OBJ];
 
-		$simplifier->[SIMPLIFIER_RULES_VISITED] = {};
+        my @top_rule_list = $simplifier->[SIMPLIFIER_GRAMMAR_OBJ]->top_rule_list();
+        if (0 == scalar @top_rule_list) {
+            say("ERROR: We had trouble. Will return undef.");
+            return undef;
+        } else {
+            say("DEBUG: The top rule list is " .
+                join (', ', $simplifier->[SIMPLIFIER_GRAMMAR_OBJ]->top_rule_list()));
+        }
 
-		$simplifier->descend('query');
+        $simplifier->[SIMPLIFIER_RULES_VISITED] = {};
+        foreach my $top_rule (@top_rule_list) {
+            say("DEBUG: Starting the attack in top level rule '$top_rule'.");
+            $simplifier->descend($top_rule);
+        }
 
-		foreach my $rule (keys %{$simplifier->[SIMPLIFIER_GRAMMAR_OBJ]->rules()}) {
-			if (not exists $simplifier->[SIMPLIFIER_RULES_VISITED]->{$rule}) {
-			#	say("Rule $rule is not referenced any more. Removing from grammar.");
-				$simplifier->[SIMPLIFIER_GRAMMAR_OBJ]->deleteRule($rule);
-			}
-		}
+        foreach my $rule (keys %{$simplifier->[SIMPLIFIER_GRAMMAR_OBJ]->rules()}) {
+            if (not exists $simplifier->[SIMPLIFIER_RULES_VISITED]->{$rule}) {
+                say("DEBUG: Rule $rule is not referenced any more. Removing from grammar.");
+                $simplifier->[SIMPLIFIER_GRAMMAR_OBJ]->deleteRule($rule);
+            }
+        }
 
-		$grammar_string = $simplifier->[SIMPLIFIER_GRAMMAR_OBJ]->toString();
-	}
-	
-	if ($simplifier->oracle($grammar_string) == ORACLE_ISSUE_NO_LONGER_REPEATABLE) {
-		carp("Final grammar failed to reproduce the same issue.");
-		return undef;
-	} else {
-		return $grammar_string;
-	} 
+        $grammar_string = $simplifier->[SIMPLIFIER_GRAMMAR_OBJ]->toString();
+    }
+
+    if ($simplifier->oracle($grammar_string) == ORACLE_ISSUE_NO_LONGER_REPEATABLE) {
+        carp("Final grammar failed to reproduce the same issue.");
+        return undef;
+    } else {
+        return $grammar_string;
+    }
 }
 
 sub descend {

@@ -397,6 +397,96 @@ sub rules {
 	return $_[0]->[GRAMMAR_RULES];
 }
 
+sub top_rule_list {
+
+# Return
+# - a list of the top level rules ordered according to needs in grammar simplification
+# or
+# - undef in case of error.
+#
+# Notes
+# -----
+# - Selected properties of top level rules:
+#   1. The generator starts in such a rule for generating a single action or sequence of actions.
+#      (action == Action in Perl and/or SQL statement).
+#   2. The grammar simplifier is not allowed to remove a top level rule.
+#   3. The grammar simplification process and also tests with sequences of grammar derivates
+#      generated via masking begin usually with top level rules.
+# - Why return undef in case of failure and not an exit or croak?
+#   RQG tools calling this routine might have initiated RQG runs which are ongoing.
+#   So in case we abort here than we are unable to make some fast and perfect clean
+#   (kill processes, reap exit status, remove valueless files etc.) stop of that activity.
+#   Per experience with RQG over years the sloppy aborts at wrong places or often a disaster for
+#   successing tests.
+# - What is the ordering of the top level rules used for?
+#   Per experience over the last six years grammar simplification is faster if starting in the
+#   most frequent used rules.
+#   query
+#      Nearly all queries of threads which do not have their own top level rule thread<n>.
+#   thread<n>
+#      Nearly all queries of thread <n>
+#   query_connect/thread_connect
+#      Once per connect/reconnect of any thread having not his own thread<n>_connect.
+#   thread<n>_connect
+#      Once per connect/reconnect of thread <n>
+#   query_init
+#      Once per RQG run of threads which do not have ...
+#   thread<n>_init
+#      Once ...
+#   The ordering assumes what in average of many grammar is more efficient during simplification.
+#   Most statements are generated via starting with 'query', ....
+#   Of course there could be some crashing generated in some other top level rule but that's in
+#   average serious less likely.
+#
+
+    my $grammar = shift;
+    my $rules = $grammar->rules();
+
+    my %top_rule_hash;
+    my @top_rule_list;
+
+    my $error_reaction = "Will return undef.";
+
+    # rule_name is key in %$rules
+    foreach my $rule_name (keys %{$rules}) {
+        if      ($rule_name eq 'query') {
+            $top_rule_hash{$rule_name} = 1;
+        } elsif ($rule_name =~ m{^thread[1-9][0-9]*$}) {
+            $top_rule_hash{$rule_name} = 2;
+        } elsif ($rule_name eq "query_connect" or $rule_name eq "thread_connect") {
+            $top_rule_hash{$rule_name} = 3;
+        } elsif ($rule_name =~ m{^thread[1-9][0-9]*_connect$}) {
+            $top_rule_hash{$rule_name} = 4;
+        } elsif ($rule_name eq "query_init") {
+            $top_rule_hash{$rule_name} = 5;
+        } elsif ($rule_name =~ m{^thread[1-9][0-9]*_init$}) {
+            $top_rule_hash{$rule_name} = 6;
+        }
+    }
+    my $num_elements1 = scalar(keys(%top_rule_hash));
+    if (0 == $num_elements1) {
+        Carp::cluck("INTERNAL ERROR: \$num_elements1 is 0. $error_reaction");
+        return undef;
+    }
+
+    foreach my $reverse_weight (1..6) {
+        foreach my $rule_name (keys %top_rule_hash) {
+            if ($reverse_weight == %top_rule_hash{$rule_name}) {
+                delete $top_rule_hash{$rule_name};
+                push @top_rule_list, $rule_name;
+            }
+        }
+    }
+    my $num_elements2 = scalar @top_rule_list;
+    if ($num_elements1 != $num_elements2) {
+        Carp::cluck("INTERNAL ERROR: \$num_elements2 ($num_elements2) does not equal " .
+                    "\$num_elements1 ($num_elements1). $error_reaction");
+        return undef;
+    }
+    return @top_rule_list;
+}
+
+
 sub deleteRule {
 	delete $_[0]->[GRAMMAR_RULES]->{$_[1]};
 }
