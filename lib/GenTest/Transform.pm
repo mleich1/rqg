@@ -193,7 +193,18 @@ sub transformExecuteValidate {
                     # Then move on...
                     # We "cheat" by returning STATUS_OK, as the validator would otherwise try to access the result.
                     cleanup($executor, $cleanup_block);
-                    return STATUS_OK;
+                    # FIXME (mleich):
+                    # Observation 2018-07-09
+                    # The server was around crashing, some thread had no problem on simple execute, run than the
+                    # validator --> transformer, harvested STATUS_SERVER_CRASHED here,
+                    # tried probably reconnect and failed than in meta data caching with perl error.
+                    # So for experimenting some half hearted approach
+                    # This was the original:                return STATUS_OK;
+                    if ($part_result->status() == STATUS_SERVER_CRASHED) {
+                        return STATUS_SERVER_CRASHED;
+                    } else {
+                        return STATUS_OK;
+                    }
                 }
                 say("---------- TRANSFORM ISSUE ----------");
                 say("Transform ".ref($transformer)." failed: ".$part_result->err()." ".$part_result->errstr().
