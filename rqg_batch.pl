@@ -380,17 +380,27 @@ my $logToStd = !osWindows() && !$noLog;
 # say("DEBUG: logToStd is ->$logToStd<-");
 
 if (not defined $workers) {
-    $workers = 1;
-} else {
-    if ((not defined $trials) and (not defined $exhaustive)) {
-        croak("ERROR: When using --parallel, also add either or both of these options:\n" .
-              "       --run-all-combinations-once (exhaustive run) \n" .
-              "       and/or\n" .
-              "       --trials=x (random run).\n" .
-              "       (Both options combined gives a non-random exhaustive run, yet limited by " .
-              "the number of trials.)");
+    if (osWindows()) {
+       $workers = 1;
+    } else {
+       my $result = `nproc`;
+       if (not defined $result) {
+          say("DEBUG: nproc gave undef as result");
+          $workers = 1;
+       } else {
+          $workers = $result;
+       }
     }
-    $logToStd = 0;
+    say("INFO: The maximum number of parallel RQG runs was not defined. Setting it to $workers.");
+};
+
+if ((not defined $trials) and (not defined $exhaustive) and (not $max_runtime)) {
+    say("INFO: Neither --run-all-combinations-once nor --trials=<number> nor " .
+        "--max_runtime=<number> was assigned.\n" .
+        "      Setting max_runtime to 7200s and trials to 999 in order to have limits at all.");
+    # $logToStd = 0;
+    $max_runtime = 7200;
+    $trials      = 999;
 }
 
 my $worker_id;
@@ -409,7 +419,7 @@ for my $worker_num (1..$workers) {
 # Some RQG run having ended (process is gone) with verdict 'init' and status != 'complete'
 # is suspicious. This lets fear that whatever especially internal error has caused some
 # evil outcome. Therefore this should be usually reported.
-# But some RQG run being stopped (SIGKILL) intentional has a good chance to show the same
+# But some RQG run being stopped (KILL) intentional has a good chance to show the same
 # suspicious properties but from known harmless reason.
 # So no message about fearing an internal error if $intentional_stop == 0.
 my $intentional_stop = 0;
@@ -744,29 +754,29 @@ exit;
 my $trial_counter = 0;
 
 sub doExhaustive {
-   my ($level, @idx) = @_;
-   if ($level < $comb_count) {
-      my @alts;
-      foreach my $i (0..$#{$combinations->[$level]}) {
-         push @alts, $i;
-      }
-      $prng->shuffleArray(\@alts) if !$noshuffle;
+    my ($level, @idx) = @_;
+    if ($level < $comb_count) {
+        my @alts;
+        foreach my $i (0..$#{$combinations->[$level]}) {
+            push @alts, $i;
+        }
+        $prng->shuffleArray(\@alts) if !$noshuffle;
 
-      foreach my $alt (@alts) {
-         push @idx, $alt;
-         return doExhaustive($level + 1, @idx) if $trial_counter < $trials;
-         pop @idx;
-      }
-   } else {
-      $trial_counter++;
-      my @comb;
-      foreach my $i (0 .. $#idx) {
-         push @comb, $combinations->[$i]->[$idx[$i]];
-      }
-      my $comb_str = join(' ', @comb);
-      next if $trial_counter < $start_combination;
-      return doCombination($trial_counter, $comb_str, "combination");
-   }
+        foreach my $alt (@alts) {
+            push @idx, $alt;
+            return doExhaustive($level + 1, @idx) if $trial_counter < $trials;
+            pop @idx;
+        }
+    } else {
+        $trial_counter++;
+        my @comb;
+        foreach my $i (0 .. $#idx) {
+            push @comb, $combinations->[$i]->[$idx[$i]];
+        }
+        my $comb_str = join(' ', @comb);
+        next if $trial_counter < $start_combination;
+        return doCombination($trial_counter, $comb_str, "combination");
+    }
 }
 
 ## ----------------------------------------------------
@@ -784,37 +794,54 @@ sub doRandom {
 ## ----------------------------------------------------
 sub doCombination {
 
-   my ($trial_id,$comb_str,$comment) = @_;
+    my ($trial_id,$comb_str,$comment) = @_;
 
-   # No default masking!!
-   my $command = "$comb_str ";
+    # No default masking!!
+    my $command = "$comb_str ";
 
-   $command .= " --queries=100000000"                       if $comb_str !~ /--queries=/;
-#  $command .= " --mask=$mask"                              if $comb_str !~ /-mask/;
+    # This line comes from combinations.pl.
+    # Advantage:
+    #   I prefer using duration or similar as runtime limiter.
+    #   A big enough number of queries prevents that queries acts finally as limiter.
+    #   A not too huge number could prevent we waste too much on some grammar generating wrong SQL.
+    #   Trials needs than to be limited too.
+    # Disadvantage:
+    #   Inconsistency to the concept of having one default for queries and that for all tools.
+    $command .= " --queries=100000000"                       if $comb_str !~ /--queries=/;
+    #
+    # combinations.pl added here as default masking based on experiencing good results and/or hopes.
+    # Per my experience with concurrency tests and grammar simplifiers I can only confirm the
+    # opposite for the style (affect the top level rule only which was usually too intrusive) of
+    # masking applied here.
+    # FIXME:
+    # Offer the option to apply automatic masking with incrementing the level as soon as we
+    # generate a grammar having the same md5sum like some already tried one.
+    # And that for ONE initial grammar only.
+    # $command .= " --mask=$mask"                              if $comb_str !~ /-mask/;
 
-   $command .= " --duration=$duration"                      if $duration ne '';
-   foreach my $s (1..$servers) {
-      $command .= " --basedir" . $s . "=" . $basedirs[$s-1] . " " if $basedirs[$s-1] ne '';
-   }
-   $command .= " --gendata=$gendata "                       if $gendata ne '';
-   $command .= " --grammar=$grammar "                       if $grammar ne '';
-   $command .= " --seed=$seed "                             if $comb_str !~ /--seed=/;
-   $command .= " --no-mask "                                if defined $no_mask;
-   $command .= " --threads=$threads "                       if defined $threads;
-   $command .= " --testname=$testname "                     if $testname ne '';
-   $command .= " --xml-output=$xml_output "                 if $xml_output ne '';
-   $command .= " --report-xml-tt"                           if defined $report_xml_tt;
-   $command .= " --report-xml-tt-type=$report_xml_tt_type " if $report_xml_tt_type ne '';
-   $command .= " --report-xml-tt-dest=$report_xml_tt_dest " if $report_xml_tt_dest ne '';
+    $command .= " --duration=$duration"                      if $duration ne '';
+    foreach my $s (1..$servers) {
+        $command .= " --basedir" . $s . "=" . $basedirs[$s-1] . " " if $basedirs[$s-1] ne '';
+    }
+    $command .= " --gendata=$gendata "                       if $gendata ne '';
+    $command .= " --grammar=$grammar "                       if $grammar ne '';
+    $command .= " --seed=$seed "                             if $comb_str !~ /--seed=/;
+    $command .= " --no-mask "                                if defined $no_mask;
+    $command .= " --threads=$threads "                       if defined $threads;
+    $command .= " --testname=$testname "                     if $testname ne '';
+    $command .= " --xml-output=$xml_output "                 if $xml_output ne '';
+    $command .= " --report-xml-tt"                           if defined $report_xml_tt;
+    $command .= " --report-xml-tt-type=$report_xml_tt_type " if $report_xml_tt_type ne '';
+    $command .= " --report-xml-tt-dest=$report_xml_tt_dest " if $report_xml_tt_dest ne '';
 
-   my $tm = time();
-   $command =~ s/--seed=time/--seed=$tm/g;
+    my $tm = time();
+    $command =~ s/--seed=time/--seed=$tm/g;
 
-   $command =~ s{[\t\r\n]}{ }sgio;
+    $command =~ s{[\t\r\n]}{ }sgio;
 
-   $commands[$trial_id] = $command;
+    $commands[$trial_id] = $command;
 
-   $command =~ s{"}{\\"}sgio;
+    $command =~ s{"}{\\"}sgio;
 
 #  # '_epoch' time directory creator extension (only activated if '_epoch' is used anywhere in the command line)
 #  if ($command =~ m/_epoch/) {
@@ -826,12 +853,11 @@ sub doCombination {
 #     $command =~ s/_epoch/$epochcreadir/sgo;
 #  }
 
-   while ($command =~ s/\s\s/ /g) {};
-   $command =~ s/^\s*//;
+    while ($command =~ s/\s\s/ /g) {};
+    $command =~ s/^\s*//;
 #  say("[$worker_id] in doCombinations $command\n");
 
-   return $command;
-
+    return $command;
 
 }
 
@@ -1011,32 +1037,43 @@ sub help() {
    "         Be a replacement for\n"                                                               .
    "         (immediate) combinations.pl, bughunt.pl, runall-trials.pl\n"                          .
    "         (soon)      simplify-grammar.pl\n"                                                    .
-   "Terms used:\n"                                                                    .
-   "combination string\n"                                                                    .
+   "Terms used:\n"                                                                                 .
+   "combination string\n"                                                                          .
    "      A fragment of a RQG call generated by rqg_batch.pl based on config file content.\n"      .
-   "      rqg_batch.pl might transform and especially append more settings.\n"                     .
+   "      rqg_batch.pl might transform and especially append more settings depending on\n"         .
+   "      content in command line and defaults..\n"                                                .
    "      The final string is later used for calling the RQG runner.\n"                            .
-   "Default\n"                                                                               .
+   "Default\n"                                                                                     .
    "      What you get in case you do not assign some corresponding --<parameter>=<value>.\n"      .
-   "RQG Worker\n"                                                                               .
+   "RQG Worker\n"                                                                                  .
    "      A child process which runs prepare play ground, perform RQG run, clean up and exit.\n"   .
+   "Regular finished RQG run\n"                                                                    .
+   "      A RQG run which ended regular with success or failure (crash, perl error ...).\n"        .
+   "      rpl_batch.pl might stop (KILL) RQG runs because of technical reasons.\n"                 .
+   "      Such stopped runs will be restarted with the same setup as soon as possible.\n"          .
+   "\n"                                                                                            .
+   "--run-all-combinations-once\n"                                                                 .
+   "      Generate a deterministic sequence of combinations.\n"                                    .
+   "      --start-combination=<m>\n'"                                                              .
+   "             Start the execution with the m'th  combination.\n"                                .
    "--trials=<n>\n"                                                                                .
-   "      rqg_batch.pl will exit if this number of trials(RQG runs) is reached.\n"              .
+   "      rqg_batch.pl will exit if this number of regular finished trials(RQG runs) is reached.\n".
    "      n = 1 --> Write the output of the RQG runner to screen and do not cleanup at end.\n"     .
-   "                Maybe currently not working.                                             \n"   .
+   "                Maybe currently not working or in future removed.                        \n"   .
    "--max_runtime=<n>\n"                                                                           .
    "      Stop ongoing RQG runs if the total runtime in seconds has exceeded this value,\n"        .
    "      give a summary and exit.\n"                                                              .
    "--parallel=<n>\n"                                                                              .
    "      Maximum number of parallel RQG Workers performing RQG runs.\n"                           .
-   "      (Default) All OS: If supported <return of nproc - 1> otherwise 1.\n\n"                   .
+   "      (Default) All OS: If supported <return of OS command nproc> otherwise 1.\n\n"            .
    "      WARNING - WARNING - WARNING -  WARNING - WARNING - WARNING - WARNING - WARNING\n"        .
-   "          Please be aware that OS/user/hardware resources are limited.\n"                      .
+   "         Please be aware that OS/user/hardware resources are limited.\n"                       .
    "         Extreme resource consumption (high value for <n> and/or fat RQG tests) could result\n".
-   "          in some very slow reacting testing box up till OS crashes.\n"                        .
-   "         Critical candidates: open files, max user processes, free space in tmpfs\n\n"         .
-   "Not assignable --queries\n"                                                                   .
-   "       But if its not in the combination string than --queries=100000000 will be appended.\n"  .
+   "         in some very slow reacting testing box up till OS crashes.\n"                         .
+   "         Critical candidates: open files, max user processes, free space in tmpfs\n"           .
+   "         Future improvement of rpl_batch.pl will reduce these risks drastic.\n\n"              .
+   "Not assignable --queries\n"                                                                    .
+   "      But if its not in the combination string than --queries=100000000 will be appended.\n"   .
    "also not passed through to the RQG runner.\n"                                                  .
    "          If neither --no_mask, --mask or --mask-level is in the combination string than "     .
    "a --mask=.... will be appended to it.\n"                                                       .
@@ -1053,7 +1090,7 @@ sub help() {
    "--discard_logs\n"                                                                              .
    "      Remove even the logs of RQG runs with the verdict '" . Auxiliary::RQG_VERDICT_IGNORE     .
    "'\n"                                                                                           .
-   "--stop_on_replay\n"                                                                             .
+   "--stop_on_replay\n"                                                                            .
    "      As soon as the first RQG run achieved the verdict '" . Auxiliary::RQG_VERDICT_REPLAY     .
    " , stop all active RQG runners, cleanup, give a summary and exit.\n\n"                         .
    "--script_debug\n"                                                                              .
@@ -1085,7 +1122,14 @@ sub help() {
    "What to do on Linux in the rare case (RQG core or runner broken) that this somehow fails?\n"   .
    "    killall -9 perl ; killall -9 mysqld ; rm -rf /dev/shm/vardir/*\n"                          .
    "-------------------------------------------------------------------------------------------\n" .
-   "How to cause some rapid (*) stop of the ongoing rqg_batch.pl run without using killall ...?\n" .
+   "How to cause some non-random run with fixed range of combinations covered?\n"                  .
+   "Assign\n"                                                                                      .
+   "   --run-all-combinations-once --> Generation of a deterministic sequence of combinations\n"   .
+   "with optional\n"                                                                               .
+   "   --start_combination<m> --> Omit trying the first <m - 1> combinations.\n"                   .
+   "The range of combinations covered could be limited/extended via trials and/or max_runtime.\n"  .
+   "In case none of them is set than the rqg_batch.pl run ends after the RQG run with the last \n" .
+   "not yet tried combination has finished regular.\n"                                             .
    "-------------------------------------------------------------------------------------------\n" .
    "Impact of RQG_HOME if found in environment and the current working directory:\n"               .
    "Around its start rqg_batch.pl searches for RQG components in <CWD>/lib and ENV(\$RQG_HOME)/lib\n" .
