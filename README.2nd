@@ -142,9 +142,26 @@ Collection of hints (under construction)
        - A client which belongs to some old long gone test fiddles in the server of our
          current test.
        - Reach tmpfs full far way more often
-       - Server for test Y starts somehow on data belonging to the the server of the 
+       - Server for test Y starts somehow on data belonging to the the server of the
          already gone test X instead of his own data.
 
+TODO (incomplete list):
+1. Correct the simplifier algorithm or implement earlier a total new one.
+   The illegal action:
+   The simplifier tries to remove even the last component of a rule.
+   This could be tolerated in case we simplify a crash.
+   But this is strict forbidden in case we simplify for the following theoretical scenario:
+      rule_no_change:
+          rule_1(modify data) ; rule_2(revert the modification);
+      followed by validate that the sequence has "Something" not changed.
+      "Something": Number of rows in table A or SUM(column_a) or
+                   column_b WHERE column_pk = 13 or ...
+      And we had the evil case that there was a change though it should not.
+   The current simplifier will maybe shrink one of the rules 'rule_1' or 'rule_2' to "empty" and
+   than the validator will kick in and "cry" his alarm which gets than valuated as success in
+   simplification.
+   Impact: The final result of grammar simplification will be nothing else than garbage.
 
-Matthias 2018-05
+
+Matthias 2018-07
 
