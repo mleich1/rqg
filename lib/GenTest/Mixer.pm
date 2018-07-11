@@ -342,8 +342,8 @@ sub next {
          #   of remaing queries" has some significant impact on funtional coverage.
          if ($execution_result->status() > STATUS_CRITICAL_FAILURE) {
             say("$mixer_role in Mixer : Critical failure " .
-                status2text($execution_result->status()) . " (" . $execution_result->err() . ") " .
-                "reported at dsn " . $executor->dsn());
+                status2text($execution_result->status()) . " (" . $execution_result->status() .
+                "), Error " . $execution_result->err() . " reported at dsn " . $executor->dsn());
             last query;
          }
 
