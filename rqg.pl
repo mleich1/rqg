@@ -39,6 +39,8 @@
 
 use Carp;
 
+my $script_debug = 0;
+
 my $start_time = time();
 
 # FIXME: I AM QUITE UNSURE IF THE RQG_HOME CHECKING AND SETTING WORKS LIKE INTENDED.
@@ -92,34 +94,34 @@ print("DEBUG: \$0 ->$0<-\n" .
       "       start_cwd     ->$start_cwd<-\n");
 
 if (defined $rqg_home_env) {
-   if ($rqg_home_env ne $rqg_home_call) {
-      print("ERROR: RQG_HOME found in environment ('$rqg_home_env') and RQG_HOME computed from " .
-            "the RQG call ('$rqg_home_call') differ.\n");
-      Auxiliary::help_rqg_home();
-      exit 2;
-   } else {
-      $rqg_home = $rqg_home_env;
-      say("DEBUG: rqg_home '$rqg_home' taken from environment might be usable.\n");
-   }
+    if ($rqg_home_env ne $rqg_home_call) {
+        print("ERROR: RQG_HOME found in environment ('$rqg_home_env') and RQG_HOME computed from " .
+              "the RQG call ('$rqg_home_call') differ.\n");
+        Auxiliary::help_rqg_home();
+        exit 2;
+    } else {
+        $rqg_home = $rqg_home_env;
+        say("DEBUG: rqg_home '$rqg_home' taken from environment might be usable.\n");
+    }
 } else {
-   # RQG_HOME is not set
-   if ($rqg_home_call ne $start_cwd) {
-      # We will maybe not able to find the libs and harvest
-      # Perl BEGIN failed--compilation aborted ... immediate.
-      print("ERROR: RQG_HOME was not found in environment and RQG_HOME computed from the "  .
-            "RQG call ('$rqg_home_call') is not equal to the current working directory.\n");
-      Auxiliary::help_rqg_home();
-      exit 2;
-   } else {
-      $rqg_home = $start_cwd;
-      print("DEBUG: rqg_home '$rqg_home' computed usable\n");
-   }
+    # RQG_HOME is not set
+    if ($rqg_home_call ne $start_cwd) {
+        # We will maybe not able to find the libs and harvest
+        # Perl BEGIN failed--compilation aborted ... immediate.
+        print("ERROR: RQG_HOME was not found in environment and RQG_HOME computed from the "  .
+              "RQG call ('$rqg_home_call') is not equal to the current working directory.\n");
+        Auxiliary::help_rqg_home();
+        exit 2;
+    } else {
+        $rqg_home = $start_cwd;
+        print("DEBUG: rqg_home '$rqg_home' computed usable\n");
+    }
 }
 say("DEBUG: rqg_home might be ->$rqg_home<-");
 if (not -e $rqg_home . "/lib/GenTest.pm") {
-   print("ERROR: The rqg_home ('$rqg_home') determined does not look like the root of a " .
-         "RQG install.\n");
-         exit 2;
+    print("ERROR: The rqg_home ('$rqg_home') determined does not look like the root of a " .
+          "RQG install.\n");
+    exit 2;
 }
 $ENV{'RQG_HOME'} = $rqg_home;
 say("INFO: Environment variable 'RQG_HOME' set to '$rqg_home'");
@@ -150,6 +152,11 @@ use DBServer::MySQL::MySQLd;
 use DBServer::MySQL::ReplMySQLd;
 use DBServer::MySQL::GaleraMySQLd;
 
+
+#--------------------
+use GenTest::Grammar;
+#--------------------
+
 # TODO:
 # Direct
 # - nearly all output to $rqg_workdir/rqg.log
@@ -172,22 +179,22 @@ $| = 1;
 my $logger;
 eval
 {
-   require Log::Log4perl;
-   Log::Log4perl->import();
-   $logger = Log::Log4perl->get_logger('randgen.gentest');
+    require Log::Log4perl;
+    Log::Log4perl->import();
+    $logger = Log::Log4perl->get_logger('randgen.gentest');
 };
 
 $| = 1;
 if (osWindows()) {
-   $SIG{CHLD} = "IGNORE";
+    $SIG{CHLD} = "IGNORE";
 }
 
 if (defined $ENV{RQG_HOME}) {
-   if (osWindows()) {
-      $ENV{RQG_HOME} = $ENV{RQG_HOME}.'\\';
-   } else {
-      $ENV{RQG_HOME} = $ENV{RQG_HOME}.'/';
-   }
+    if (osWindows()) {
+        $ENV{RQG_HOME} = $ENV{RQG_HOME}.'\\';
+    } else {
+        $ENV{RQG_HOME} = $ENV{RQG_HOME}.'/';
+    }
 }
 
 use Getopt::Long;
@@ -242,7 +249,7 @@ my @ARGV_saved = @ARGV;
 # must be prevented!!
 #
 
-say("DEBUG: Before reading commannd line options");
+say("DEBUG: Before reading commannd line options") if $script_debug ;
 
 # Take the options assigned in command line and
 # - fill them into the of variables allowed in command line
@@ -350,66 +357,68 @@ if (not GetOptions(
     'blacklist_patterns:s@'       => \@blacklist_patterns,
     'archiver_call:s'             => \$archiver_call,
     )) {
-   help();
-   exit STATUS_CONFIG_ERROR;
+    help();
+    exit STATUS_CONFIG_ERROR;
 };
 
 say("DEBUG: After reading command line options");
 
 if ( defined $help ) {
-   help();
-   exit STATUS_OK;
+    help();
+    exit STATUS_OK;
 }
 
 if (STATUS_OK != Auxiliary::check_normalize_set_black_white_lists (
       ' The RQG run ended with status ', # $status_prefix,
       \@blacklist_statuses, \@blacklist_patterns,
       \@whitelist_statuses, \@whitelist_patterns)) {
-   say("ERROR: Setting the values for blacklist and whitelist search failed.");
-   # my $status = STATUS_CONFIG_ERROR;
-   my $status = STATUS_ENVIRONMENT_FAILURE;
-   say("$0 will exit with exit status " . status2text($status) . "($status)");
-   safe_exit($status);
+    say("ERROR: Setting the values for blacklist and whitelist search failed.");
+    # my $status = STATUS_CONFIG_ERROR;
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    say("$0 will exit with exit status " . status2text($status) . "($status)");
+    safe_exit($status);
 }
 
 # FIXME: Make $workdir mandatory??
 if (not defined $workdir) {
-   $workdir = Cwd::getcwd() . "/workdir_" . $$;
-   say("INFO: The RQG workdir was not defined. Setting it to '$workdir' and removing+creating it.");
-   if(-d $workdir) {
-      if(not File::Path::rmtree($workdir)) {
-         say("ERROR: Removal of the tree '$workdir' failed. : $!.");
-         my $status = STATUS_ENVIRONMENT_FAILURE;
-         say("$0 will exit with exit status " . status2text($status) . "($status)");
-         safe_exit($status);
-      }
-      say("DEBUG: The already existing RQG workdir '$workdir' was removed.");
-   }
-   if (mkdir $workdir) {
-      say("DEBUG: The RQG workdir '$workdir' was created.");
-   } else {
-      say("ERROR: Creating the RQG workdir '$workdir' failed : $!.");
-      my $status = STATUS_ENVIRONMENT_FAILURE;
-      say("$0 will exit with exit status " . status2text($status) . "($status)");
-      safe_exit($status);
-   }
+    $workdir = Cwd::getcwd() . "/workdir_" . $$;
+    say("INFO: The RQG workdir was not defined. Setting it to '$workdir' and removing+creating it.");
+    if(-d $workdir) {
+        if(not File::Path::rmtree($workdir)) {
+            say("ERROR: Removal of the tree '$workdir' failed. : $!.");
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            say("$0 will exit with exit status " . status2text($status) . "($status)");
+            safe_exit($status);
+        }
+        say("DEBUG: The already existing RQG workdir '$workdir' was removed.");
+    }
+    if (mkdir $workdir) {
+        say("DEBUG: The RQG workdir '$workdir' was created.");
+    } else {
+        say("ERROR: Creating the RQG workdir '$workdir' failed : $!.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("$0 will exit with exit status " . status2text($status) . "($status)");
+        safe_exit($status);
+    }
 
-   my $result = Auxiliary::make_rqg_infrastructure($workdir);
-   if ($result) {
-      say("ERROR: Auxiliary::make_rqg_infrastructure failed with $result.");
-      my $status = STATUS_ENVIRONMENT_FAILURE;
-      say("$0 will exit with exit status " . status2text($status) . "($status)");
-      safe_exit($status);
-   }
+    my $result = Auxiliary::make_rqg_infrastructure($workdir);
+    if ($result) {
+        say("ERROR: Auxiliary::make_rqg_infrastructure failed with $result.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("$0 will exit with exit status " . status2text($status) . "($status)");
+        safe_exit($status);
+    }
 } else {
-   my $result = Auxiliary::check_rqg_infrastructure($workdir);
-   if ($result) {
-      say("ERROR: Auxiliary::check_rqg_infrastructure failed with $result.");
-      my $status = STATUS_ENVIRONMENT_FAILURE;
-      say("$0 will exit with exit status " . status2text($status) . "($status)");
-      safe_exit($status);
-   }
+    my $result = Auxiliary::check_rqg_infrastructure($workdir);
+    if ($result) {
+        say("ERROR: Auxiliary::check_rqg_infrastructure failed with $result.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("$0 will exit with exit status " . status2text($status) . "($status)");
+        safe_exit($status);
+    }
 }
+
+#### ATTENTION: $workdir relative path observed.
 
 say("INFO: RQG workdir : '$workdir' and infrastructure is prepared.");
 ####################################################################################################
@@ -419,10 +428,10 @@ say("INFO: RQG workdir : '$workdir' and infrastructure is prepared.");
 # Shift from init -> start
 my $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_START);
 if (STATUS_OK != $return){
-   say("ERROR: Setting the phase of the RQG run failed.");
-   my $status = STATUS_ENVIRONMENT_FAILURE;
-   say("$0 will exit with exit status " . status2text($status) . "($status)");
-   safe_exit($status);
+    say("ERROR: Setting the phase of the RQG run failed.");
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    say("$0 will exit with exit status " . status2text($status) . "($status)");
+    safe_exit($status);
 }
 # For debugging of Auxiliary::set_rqg_phase
 # $return = Auxiliary::get_rqg_phase($workdir);
@@ -432,127 +441,141 @@ if (STATUS_OK != $return){
 say("INFO: RQG archiver_call : " . $archiver_call);
 
 if (defined $scenario) {
-   system("perl $ENV{RQG_HOME}/run-scenario.pl @ARGV_saved");
-   exit $? >> 8;
+    system("perl $ENV{RQG_HOME}/run-scenario.pl @ARGV_saved");
+    exit $? >> 8;
 }
 
 # FIXME:
 # There is some heavy distinction between STDOUT and STDERR.
 # In my RQG testing I was rather unhappy with that.
 if (defined $logfile && defined $logger) {
-   setLoggingToFile($logfile);
+    setLoggingToFile($logfile);
 } else {
-   # FIXME: What is this branch good for and how does a logconf look like?
-   if (defined $logconf && defined $logger) {
-      setLogConf($logconf);
-   }
+    # FIXME: What is this branch good for and how does a logconf look like?
+    if (defined $logconf && defined $logger) {
+        setLogConf($logconf);
+    }
 }
+
+# FIXME:
+# $gendata gets precharged with '' at begin.
+# Could it flipped to undef at all?
+# The handling of $skip_gendata is not 100% required but maybe recommended.
+#
+# For testing/debugging:
+# $gendata = Auxiliary::unify_gendata();
+# $gendata = Auxiliary::unify_gendata($gendata);
+# $gendata = Auxiliary::unify_gendata(undef, undef);
+# $gendata = Auxiliary::unify_gendata($gendata, undef);
+# $gendata = Auxiliary::unify_gendata($gendata, 'omo');
+# $gendata = Auxiliary::unify_gendata($gendata, $workdir . "/rqg.log");
+# $gendata = Auxiliary::unify_gendata($gendata, '/');
+if (defined $skip_gendata) {
+    $gendata = '';
+} else {
+    $gendata = Auxiliary::unify_gendata($gendata, $workdir);
+    if (not defined $gendata) {
+        help();
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        run_end($status);
+    }
+}
+my $gendata_sql_ref = Auxiliary::unify_gendata_sql(\@gendata_sql_files, $workdir);
+if (not defined $gendata_sql_ref) {
+    help();
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    run_end($status);
+}
+@gendata_sql_files = @$gendata_sql_ref;
+
+my $redefine_ref = Auxiliary::unify_redefine(\@redefine_files, $workdir);
+if (not defined $redefine_ref) {
+    help();
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    run_end($status);
+}
+@redefine_files = @$redefine_ref;
 
 if (not defined $grammar_file) {
-   say("ERROR: Grammar file is not defined.");
-   help();
-   my $status = STATUS_ENVIRONMENT_FAILURE;
-   say("$0 will exit with exit status " . status2text($status) . "($status)");
-   safe_exit($status);
-}
-
-# FIXME: Is gendata not defined possible.
-if ($gendata eq '' or $gendata eq '1') {
-   # Do nothing.
+    say("ERROR: Grammar file is not defined.");
+    help();
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    say("$0 will exit with exit status " . status2text($status) . "($status)");
+    run_end($status);
 } else {
-   # We run gendata with a ZZ grammar. So the value in $gendata is a file which must exist.
-   if (not -f $gendata) {
-      sayError("The file '$gendata' assigned to gendata does not exist or is no plain file.");
-      help();
-      my $status = STATUS_ENVIRONMENT_FAILURE;
-      run_end($status);
-   }
+    if (! -f $grammar_file) {
+        say("ERROR: Grammar file '$grammar_file' does not exist or is not a plain file.");
+        help();
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("$0 will exit with exit status " . status2text($status) . "($status)");
+        run_end($status);
+    }
 }
 
-if (@gendata_sql_files) {
-   # There might be several gendata_sql_files put into $gendata_sql_files[0]
-   Auxiliary::print_list("DEBUG: Initial gendata_sql_files files ", @gendata_sql_files);
-   my $list_ref = Auxiliary::input_to_list(@gendata_sql_files);
-   if(defined $list_ref) {
-      @gendata_sql_files = @$list_ref;
-   } else {
-      say("ERROR: Auxiliary::input_to_list hit problems we cannot handle. " .
-          "Will exit with STATUS_ENVIRONMENT_FAILURE.");
-      my $status = STATUS_ENVIRONMENT_FAILURE;
-      run_end($status);
-   }
-   my $not_found = 0;
-   foreach my $file (@gendata_sql_files) {
-      if (not -f $file) {
-         say("ERROR: The gendata_sql file '$file' does not exist or is not a plain file.");
-         $not_found = 1;
-      } else {
-         # say("DEBUG: The gendata_sql file '$file' exists.");
-      }
-   }
-   if ($not_found) {
-      say("ERROR: One or more gendata_sql files did not exist or were not a plain file. " .
-          "Will exit with STATUS_ENVIRONMENT_FAILURE.");
-      my $status = STATUS_ENVIRONMENT_FAILURE;
-      run_end($status);
-   }
+# Consolidation of the settings for masking
+# Goal for the final setting which is used later
+#    $no_mask = undef
+#    $mask_level is defined
+#    $mask       is defined
+if (not defined $no_mask) {
+    if (defined $mask and $mask > 0 and not defined $mask_level) {
+        say("DEBUG: mask is > 0 and mask_level is undef. Therefore setting mask_level=1.");
+        $mask_level = 1;
+    } elsif (not defined $mask) {
+        say("DEBUG: mask is not defined. Therefore setting mask_level = 0 and mask = 0.");
+        $mask_level = 0;
+        $mask       = 0;
+    }
+} else {
+    say("DEBUG: no_mask is defind. Therefore setting mask_level=0 , mask=0 and no_mask=undef.");
+    $mask_level = 0;
+    $mask       = 0;
+    $no_mask    = undef;
 }
 
-if (@redefine_files) {
-   # There might be several redefine_files put into $redefine_files[0]
-   Auxiliary::print_list("DEBUG: Initial redefine files ", @redefine_files);
-   my $list_ref = Auxiliary::input_to_list(@redefine_files);
-   if(defined $list_ref) {
-      @redefine_files = @$list_ref;
-   } else {
-      say("ERROR: Auxiliary::input_to_list hit problems we cannot handle. " .
-          "Will exit with STATUS_ENVIRONMENT_FAILURE.");
-      my $status = STATUS_ENVIRONMENT_FAILURE;
-      run_end($status);
-   }
-   my $not_found = 0;
-   foreach my $file (@redefine_files) {
-      if (not -f $file) {
-         say("ERROR: The redefine file '$file' does not exist or is not a plain file.");
-         $not_found = 1;
-      } else {
-         # say("DEBUG: The redefine file '$file' exists.");
-      }
-   }
-   if ($not_found) {
-      say("ERROR: One or more redefine_files files did not exist or were not a plain file. " .
-          "Will exit with STATUS_ENVIRONMENT_FAILURE.");
-      my $status = STATUS_ENVIRONMENT_FAILURE;
-      run_end($status);
-   }
-}
-
+my $return = Auxiliary::unify_grammar($grammar_file, $redefine_ref, $workdir,
+                                      $skip_recursive_rules, $mask, $mask_level);
+if (STATUS_OK != $return) {
+    say("ERROR: unify_grammar failed with $return.");
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    say("$0 will exit with exit status " . status2text($status) . "($status)");
+    run_end($status);
+};
+# The effective grammar rqg.yy which incorporates any masking and redefines was generated
+# and the filename assigned to $grammar.
+# Therefore assigning
+#   @redefine_files=()
+# Using undef instead would be wrong. Grammar::extractFromFiles would get called with
+#     $grammar_file, @redefine_files    assigned which is than
+# $grammar_file (defined+right value) and undef.
+# The latter leads to failure.
+@redefine_files = ();
 
 if (defined $sqltrace) {
-   # --sqltrace may have a string value (optional).
-   # Allowed values for --sqltrace:
-   my %sqltrace_legal_values = (
+    # --sqltrace may have a string value (optional).
+    # Allowed values for --sqltrace:
+    my %sqltrace_legal_values = (
       'MarkErrors'    => 1  # Prefixes invalid SQL statements for easier post-processing
-   );
+    );
 
-   if (length($sqltrace) > 0) {
-      # A value is given, check if it is legal.
-      if (not exists $sqltrace_legal_values{$sqltrace}) {
-          say("ERROR: Invalid value for --sqltrace option: '$sqltrace'.\n"               .
-              "       Valid values are: " . join(', ', keys(%sqltrace_legal_values))     .
-              "       No value means that default/plain sqltrace will be used.");
-         my $status = STATUS_ENVIRONMENT_FAILURE;
-         run_end($status);
-      } else {
-         say("INFO: Sqltracing '$sqltrace' enabled.");
-      }
-   } else {
-      # If no value is given, GetOpt will assign the value '' (empty string).
-      # We interpret this as plain tracing (no marking of errors, prefixing etc.).
-      # Better to use 1 instead of empty string for comparisons later.
-      $sqltrace = 1;
-      say("INFO: Default/plain sqltracing enabled.");
-   }
+    if (length($sqltrace) > 0) {
+        # A value is given, check if it is legal.
+        if (not exists $sqltrace_legal_values{$sqltrace}) {
+            say("ERROR: Invalid value for --sqltrace option: '$sqltrace'.\n"               .
+                "       Valid values are: " . join(', ', keys(%sqltrace_legal_values))     .
+                "       No value means that default/plain sqltrace will be used.");
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            run_end($status);
+        } else {
+            say("INFO: Sqltracing '$sqltrace' enabled.");
+        }
+    } else {
+        # If no value is given, GetOpt will assign the value '' (empty string).
+        # We interpret this as plain tracing (no marking of errors, prefixing etc.).
+        # Better to use 1 instead of empty string for comparisons later.
+        $sqltrace = 1;
+        say("INFO: Default/plain sqltracing enabled.");
+    }
 }
 
 
@@ -566,9 +589,9 @@ say("Starting \n# $0 \\ \n# ".join(" \\ \n# ", @ARGV_saved));
 
 $build_thread = Auxiliary::check_and_set_build_thread($build_thread);
 if (not defined $build_thread) {
-   my $status = STATUS_ENVIRONMENT_FAILURE;
-   say("$0 will exit with exit status " . status2text($status) . "($status)");
-   safe_exit($status);
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    say("$0 will exit with exit status " . status2text($status) . "($status)");
+    safe_exit($status);
 }
 
 
@@ -577,21 +600,21 @@ my @ports = (10000 + 10 * $build_thread, 10000 + 10 * $build_thread + 2, 10000 +
 say("INFO: master_port : $ports[0] slave_port : $ports[1] ports : @ports MTR_BUILD_THREAD : $build_thread ");
 
 if (not defined $rpl_mode or $rpl_mode eq '') {
-   $rpl_mode = Auxiliary::RQG_RPL_NONE;
-   say("INFO: rpl_mode was not defined or eq '' and therefore set to '$rpl_mode'.");
+    $rpl_mode = Auxiliary::RQG_RPL_NONE;
+    say("INFO: rpl_mode was not defined or eq '' and therefore set to '$rpl_mode'.");
 }
 my $result = Auxiliary::check_value_supported (
                 'rpl_mode', Auxiliary::RQG_RPL_ALLOWED_VALUE_LIST, $rpl_mode);
 if ($result != STATUS_OK) {
-   Auxiliary::print_list("The values supported for 'rpl_mode' are :" ,
-                         Auxiliary::RQG_RPL_ALLOWED_VALUE_LIST);
-   my $status = STATUS_ENVIRONMENT_FAILURE;
-   say("$0 will exit with exit status " . status2text($status) . "($status)");
-   safe_exit($status);
+    Auxiliary::print_list("The values supported for 'rpl_mode' are :" ,
+                          Auxiliary::RQG_RPL_ALLOWED_VALUE_LIST);
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    say("$0 will exit with exit status " . status2text($status) . "($status)");
+    safe_exit($status);
 }
 my $number_of_servers = 0;
 if ($rpl_mode eq Auxiliary::RQG_RPL_NONE) {
-   $number_of_servers = 1;
+    $number_of_servers = 1;
 } elsif (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
          ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
          ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)            or
@@ -599,12 +622,12 @@ if ($rpl_mode eq Auxiliary::RQG_RPL_NONE) {
          ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
          ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)       or
          ($rpl_mode eq Auxiliary::RQG_RPL_RQG2)        ) {
-   $number_of_servers = 2;
+    $number_of_servers = 2;
 } elsif ($rpl_mode eq Auxiliary::RQG_RPL_RQG3) {
-   $number_of_servers = 3;
+    $number_of_servers = 3;
 } else {
-   # Galera lands here.
-   $number_of_servers = 0;
+    # Galera lands here.
+    $number_of_servers = 0;
 }
 say("INFO: Number of servers involved = $number_of_servers. (0 means unknown)");
 
@@ -643,11 +666,11 @@ say("INFO: Number of servers involved = $number_of_servers. (0 means unknown)");
 Auxiliary::print_list("INFO: Early RQG basedirs ",  @basedirs);
 if ((not defined $basedirs[0] or $basedirs[0] eq '') and
     (not defined $basedirs[1] or $basedirs[1] eq '')    ) {
-   # We need in minimum the server 1 and for it a basedir.
-   say("ERROR: Neither basedir nor basedir1 is defined.");
-   help();
-   my $status = STATUS_ENVIRONMENT_FAILURE;
-   run_end($status);
+    # We need in minimum the server 1 and for it a basedir.
+    say("ERROR: Neither basedir nor basedir1 is defined.");
+    help();
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    run_end($status);
 }
 # Attention:
 # We cannot treat basedirs like for example blacklist_patterns because of the following reasons:
@@ -670,25 +693,24 @@ if ((not defined $basedirs[0] or $basedirs[0] eq '') and
 # Treat the case that only $basedirs[0] was assigned
 # FIXME: Is what follows correct?
 if ($#basedirs == 0) {
-   if (not defined $basedirs[0] or $basedirs[0] eq '') {
-      say("\nERROR: Neither basedir nor basedir1 is defined\n.");
-      help();
-         say("ERROR: Removal of the tree '$vardirs[0]' failed. : $!.");
-      my $status = STATUS_ENVIRONMENT_FAILURE;
-      run_end($status);
-   } else {
-      # There might be several basedirs put into $basedirs[0]
-      Auxiliary::print_list("DEBUG: Initial RQG basedirs ", @basedirs);
-      my $list_ref = Auxiliary::input_to_list(@basedirs);
-      if(defined $list_ref) {
-         @basedirs = @$list_ref;
-      } else {
-         say("ERROR: Auxiliary::input_to_list hit problems we cannot handle. " .
-             "Will exit with STATUS_ENVIRONMENT_FAILURE.");
-         my $status = STATUS_ENVIRONMENT_FAILURE;
-         run_end($status);
-      }
-   }
+    if (not defined $basedirs[0] or $basedirs[0] eq '') {
+        say("\nERROR: Neither basedir nor basedir1 is defined\n.");
+        help();
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        run_end($status);
+    } else {
+        # There might be several basedirs put into $basedirs[0]
+        Auxiliary::print_list("DEBUG: Initial RQG basedirs ", @basedirs);
+        my $list_ref = Auxiliary::input_to_list(@basedirs);
+        if(defined $list_ref) {
+            @basedirs = @$list_ref;
+        } else {
+            say("ERROR: Auxiliary::input_to_list hit problems we cannot handle. " .
+                "Will exit with STATUS_ENVIRONMENT_FAILURE.");
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            run_end($status);
+        }
+    }
 }
 
 #
@@ -697,8 +719,8 @@ if ($#basedirs == 0) {
 #    than set $basedirs[0] = $basedirs[1].
 if ((not defined $basedirs[0] or $basedirs[0] eq '') and
     (defined $basedirs[1] and $basedirs[1] ne '')       ) {
-   say("DEBUG: \$basedirs[0] is not defined or eq ''. Setting it to \$basedirs[1] '$basedirs[1]'.");
-   $basedirs[0] = $basedirs[1];
+    say("DEBUG: \$basedirs[0] is not defined or eq ''. Setting it to \$basedirs[1] '$basedirs[1]'.");
+    $basedirs[0] = $basedirs[1];
 }
 # 2. Set any required $basedirs[n] but not defined or eq '' = $basedirs[0].
 #    This should also cover the old coding
@@ -711,28 +733,28 @@ if ((not defined $basedirs[0] or $basedirs[0] eq '') and
 #
 # Current code might work wrong in case of upgrade test or Galera.
 foreach my $i (1..3) {
-   if ($i <= $number_of_servers) {
-      if (not defined $basedirs[$i] or $basedirs[$i] eq '') {
-         say("DEBUG: \$basedirs[$i] is not defined or ''. " .
-             "Setting it to \$basedirs[0] : '\$basedirs[0]'.");
-         $basedirs[$i] = $basedirs[0];
-      };
-   } else {
-      # $i is bigger than $number_of_servers
-      if (defined $basedirs[$i] and $basedirs[$i] ne '') {
-         say("WARN: \$basedirs[$i] is defined and ne ''. Setting it to undef.");
-         $basedirs[$i] = undef;
-      };
-   }
+    if ($i <= $number_of_servers) {
+        if (not defined $basedirs[$i] or $basedirs[$i] eq '') {
+            say("DEBUG: \$basedirs[$i] is not defined or ''. " .
+                "Setting it to \$basedirs[0] : '\$basedirs[0]'.");
+            $basedirs[$i] = $basedirs[0];
+        };
+    } else {
+        # $i is bigger than $number_of_servers
+        if (defined $basedirs[$i] and $basedirs[$i] ne '') {
+            say("WARN: \$basedirs[$i] is defined and ne ''. Setting it to undef.");
+            $basedirs[$i] = undef;
+        };
+    }
 }
 Auxiliary::print_list("INFO: Final RQG basedirs ", @basedirs);
 foreach my $i (0..3) {
-   if ((defined $basedirs[$i] and $basedirs[$i] ne '') and
-       (not -d $basedirs[$i])                             ) {
-      say("ERROR: $basedirs[$i] is defined and ne '' but does not exist or is not a directory.");
-      my $status = STATUS_ENVIRONMENT_FAILURE;
-      run_end($status);
-   }
+    if ((defined $basedirs[$i] and $basedirs[$i] ne '') and
+        (not -d $basedirs[$i])                             ) {
+        say("ERROR: $basedirs[$i] is defined and ne '' but does not exist or is not a directory.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        run_end($status);
+    }
 }
 
 # Other semantics ?
@@ -740,27 +762,27 @@ foreach my $i (0..3) {
 # $vardirs[>0] set == The RQG runner will use that vardir. Create/destroy would be ok but what if start-dirty?
 # rmtree or not? What if somebody assigns some valuable dir?
 if (not defined $vardirs[0] or $vardirs[0] eq '') {
-   say("INFO: 'vardirs' is not defined or eq ''. But we need some vardir for the RQG run and its servers.");
-   $vardirs[0] = $workdir . "/vardir";
-   say("INFO: Setting 'vardirs' to its default '$vardirs[0]'.");
-   if(-d $vardirs[0]) {
-      if(not File::Path::rmtree($vardirs[0])) {
-         say("ERROR: Removal of the tree '$vardirs[0]' failed. : $!.");
-         my $status = STATUS_ENVIRONMENT_FAILURE;
-         run_end($status);
-      }
-      say("DEBUG: The already existing RQG vardir '$vardirs[0]' was removed.");
-   }
-   if (mkdir $vardirs[0]) {
-      say("DEBUG: The RQG vardir '$vardirs[0]' was created.");
-   } else {
-      say("ERROR: Creating the RQG vardir '$vardirs[0]' failed : $!.");
-      my $status = STATUS_ENVIRONMENT_FAILURE;
-      run_end($status);
-   }
+    say("INFO: 'vardirs' is not defined or eq ''. But we need some vardir for the RQG run and its servers.");
+    $vardirs[0] = $workdir . "/vardir";
+    say("INFO: Setting 'vardirs' to its default '$vardirs[0]'.");
+    if(-d $vardirs[0]) {
+        if(not File::Path::rmtree($vardirs[0])) {
+            say("ERROR: Removal of the tree '$vardirs[0]' failed. : $!.");
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            run_end($status);
+        }
+        say("DEBUG: The already existing RQG vardir '$vardirs[0]' was removed.");
+    }
+    if (mkdir $vardirs[0]) {
+        say("DEBUG: The RQG vardir '$vardirs[0]' was created.");
+    } else {
+        say("ERROR: Creating the RQG vardir '$vardirs[0]' failed : $!.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        run_end($status);
+    }
 }
 foreach my $number (1..$number_of_servers) {
-   $vardirs[$number] = $vardirs[0] . '/' . $number;
+    $vardirs[$number] = $vardirs[0] . '/' . $number;
 }
 Auxiliary::print_list("INFO: Final RQG vardirs ",  @vardirs);
 
@@ -822,11 +844,11 @@ foreach my $i (1..3) {
             @{$mysqld_options[$i]} = ( defined $mysqld_options[$i]
             ? ( @{$mysqld_options[0]}, @{$mysqld_options[$i]} )
             : @{$mysqld_options[0]}
-   );
-   $debug_server[$i] = $debug_server[0] if not defined $debug_server[$i] or $debug_server[$i] eq '';
-   $vcols[$i]        = $vcols[0]        if not defined $vcols[$i]        or $vcols[$i]        eq '';
-   $views[$i]        = $views[0]        if not defined $views[$i]        or $views[$i]        eq '';
-   $engine[$i]       = $engine[0]       if not defined $engine[$i]       or $engine[$i]       eq '';
+    );
+    $debug_server[$i] = $debug_server[0] if not defined $debug_server[$i] or $debug_server[$i] eq '';
+    $vcols[$i]        = $vcols[0]        if not defined $vcols[$i]        or $vcols[$i]        eq '';
+    $views[$i]        = $views[0]        if not defined $views[$i]        or $views[$i]        eq '';
+    $engine[$i]       = $engine[0]       if not defined $engine[$i]       or $engine[$i]       eq '';
 }
 
 shift @mysqld_options;
@@ -860,15 +882,15 @@ foreach my $path ("$basedirs[0]/client/RelWithDebInfo",
                   "$basedirs[0]/client/Debug",
                   "$basedirs[0]/client",
                   "$basedirs[0]/bin") {
-   if (-e $path) {
-      $client_basedir = $path;
-      last;
-   }
+    if (-e $path) {
+        $client_basedir = $path;
+        last;
+    }
 }
 if (not defined $client_basedir) {
-   say("ERROR: No client_basedir found. Maybe your basedir content is incomplete.");
-   my $status = STATUS_ENVIRONMENT_FAILURE;
-   run_end($status);
+    say("ERROR: No client_basedir found. Maybe your basedir content is incomplete.");
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    run_end($status);
 }
 
 #-----------------------
@@ -880,24 +902,24 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
      ($rpl_mode eq Auxiliary::RQG_RPL_MIXED_NOSYNC)     or
      ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
      ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         )) {
-   say("INFO: The RQG run is with replication where the setting of debug_server[1] gets applied " .
-       "to master and slave server.");
-   if (defined $debug_server[2]) {
-      say("WARNING: debug_server[2] is set to $debug_server[2] but that will be ignored.");
-   }
-   say("Setting debug_server[2] = debug_server[1].");
-   $debug_server[2] = $debug_server[1];
+    say("INFO: The RQG run is with replication where the setting of debug_server[1] gets applied " .
+        "to master and slave server.");
+    if (defined $debug_server[2]) {
+        say("WARNING: debug_server[2] is set to $debug_server[2] but that will be ignored.");
+    }
+    say("Setting debug_server[2] = debug_server[1].");
+    $debug_server[2] = $debug_server[1];
 }
 
 #-----------------------
 my @subdir_list;
 my $extension;
 if (osWindows()) {
-   @subdir_list = ("sql/Debug", "sql/RelWithDebInfo", "sql/Release", "bin");
-   $extension = ".exe";
+    @subdir_list = ("sql/Debug", "sql/RelWithDebInfo", "sql/Release", "bin");
+    $extension   = ".exe";
 } else {
-   @subdir_list = ("sql", "libexec", "bin", "sbin");
-   $extension = "";
+    @subdir_list = ("sql", "libexec", "bin", "sbin");
+    $extension   = "";
 }
 Auxiliary::print_list("DEBUG: subdir_list " , @subdir_list);
 Auxiliary::print_list("DEBUG: Basedirs ", @basedirs);
@@ -907,89 +929,89 @@ my $all_binaries_exist = 1;
 my $return;
 # I prefer to check all possible assignments and not only for the servers needed.
 foreach my $i (0..3) {
-   if (defined $basedirs[$i]) {
-      my $found = 0;
-      if (defined $debug_server[$i]) {
-         my $name = "mysqld-debug" . $extension;
-         my $return = Auxiliary::find_file_at_places($basedirs[$i], \@subdir_list, $name);
-         if (defined $return) {
-            say("DEBUG: Server binary found : '$return'.");
-            $found = 1;
-            next;
-         } else {
-            say("DEBUG: No server binary named '$name' in '$basedirs[$i]' found.");
-            $name = "mysqld" . $extension;
-            say("DEBUG: Looking for a server binary named '$name'.");
-            $return = Auxiliary::find_file_at_places($basedirs[$i], \@subdir_list, $name);
-            if (not defined $return) {
-               say("DEBUG: Also no server binary named '$name'.");
-            } else{
-               say("DEBUG: Server binary found : '$return'.");
-               # FIXME:
-               # The code which follows is taken out of lib/DBServer/... because there it
-               # gets applied too late (just before server start) for some good work flow.
-               # RULE: Check as much as possible BEFORE ANY serious intrusive action like
-               #       start a server.
-               # But here its also non ideal because the text patterns for debug server detection
-               # might differ for different DBS.
-               my $command = "$return --version";
-               my $result = `$command 2>&1`;
-               if ($result =~ /debug/sig) {
-                  say("DEBUG: Server binary '$return' is compiled with debug.");
-                  $found = 1;
-                  next;
-               } else {
-                  say("DEBUG: Server binary '$return' is compiled without debug.");
-               }
+    if (defined $basedirs[$i]) {
+        my $found = 0;
+        if (defined $debug_server[$i]) {
+            my $name = "mysqld-debug" . $extension;
+            my $return = Auxiliary::find_file_at_places($basedirs[$i], \@subdir_list, $name);
+            if (defined $return) {
+                say("DEBUG: Server binary found : '$return'.");
+                $found = 1;
+                next;
+            } else {
+                say("DEBUG: No server binary named '$name' in '$basedirs[$i]' found.");
+                $name = "mysqld" . $extension;
+                say("DEBUG: Looking for a server binary named '$name'.");
+                $return = Auxiliary::find_file_at_places($basedirs[$i], \@subdir_list, $name);
+                if (not defined $return) {
+                    say("DEBUG: Also no server binary named '$name'.");
+                } else{
+                    say("DEBUG: Server binary found : '$return'.");
+                    # FIXME:
+                    # The code which follows is taken out of lib/DBServer/... because there it
+                    # gets applied too late (just before server start) for some good work flow.
+                    # RULE: Check as much as possible BEFORE ANY serious intrusive action like
+                    #       start a server.
+                    # But here its also non ideal because the text patterns for debug server detection
+                    # might differ for different DBS.
+                    my $command = "$return --version";
+                    my $result = `$command 2>&1`;
+                    if ($result =~ /debug/sig) {
+                        say("DEBUG: Server binary '$return' is compiled with debug.");
+                        $found = 1;
+                        next;
+                    } else {
+                        say("DEBUG: Server binary '$return' is compiled without debug.");
+                    }
+                }
             }
-         }
-         if ($found == 0) {
-            say("ERROR: 'debug_server[$i]' was assigned, but no server binary compiled with " .
-                "debug in $basedirs[$i]' found.");
-            $all_binaries_exist = 0;
-         }
-      } else {
-         my $name = "mysqld" . $extension;
-         $return = Auxiliary::find_file_at_places($basedirs[$i], \@subdir_list, $name);
-         if (defined $return) {
-            say("DEBUG: Server binary found : '$return'.");
-            $found = 1;
-            next;
-         } else {
-            say("DEBUG: No server binary named '$name' in '$basedirs[$i]' found.");
-            $name = "mysqld-debug" . $extension;
-            say("DEBUG: Looking for a server binary named '$name'.");
-            $return = Auxiliary::find_file_at_places($basedirs[$i], \@subdir_list, $name);
-            if (not defined $return) {
-               say("DEBUG: Also no server binary named '$name' in '$basedirs[$i]' found.");
-            } else{
-               say("DEBUG: Server binary found : '$return'.");
-               $found = 1;
+            if ($found == 0) {
+                say("ERROR: 'debug_server[$i]' was assigned, but no server binary compiled with " .
+                    "debug in $basedirs[$i]' found.");
+                $all_binaries_exist = 0;
             }
-         }
-         if ($found == 0) {
-            say("ERROR: No server binary in $basedirs[$i]' found.");
+        } else {
+            my $name = "mysqld" . $extension;
+            $return = Auxiliary::find_file_at_places($basedirs[$i], \@subdir_list, $name);
+            if (defined $return) {
+                say("DEBUG: Server binary found : '$return'.");
+                $found = 1;
+                next;
+            } else {
+                say("DEBUG: No server binary named '$name' in '$basedirs[$i]' found.");
+                $name = "mysqld-debug" . $extension;
+                say("DEBUG: Looking for a server binary named '$name'.");
+                $return = Auxiliary::find_file_at_places($basedirs[$i], \@subdir_list, $name);
+                if (not defined $return) {
+                    say("DEBUG: Also no server binary named '$name' in '$basedirs[$i]' found.");
+                } else{
+                    say("DEBUG: Server binary found : '$return'.");
+                    $found = 1;
+                }
+            }
+            if ($found == 0) {
+                say("ERROR: No server binary in $basedirs[$i]' found.");
+                $all_binaries_exist = 0;
+            }
+        }
+        #
+        if ($found == 0) {
+            say("ERROR: 'debug_server[$i] was assigned, but no server compiled with debug found.");
             $all_binaries_exist = 0;
-         }
-      }
-      #
-      if ($found == 0) {
-         say("ERROR: 'debug_server[$i] was assigned, but no server compiled with debug found.");
-         $all_binaries_exist = 0;
-      }
-   } # End of checking defined $basedirs[$i]
+        }
+    } # End of checking defined $basedirs[$i]
 }
 if ($all_binaries_exist != 1) {
-   say("ERROR: One or more server binaries were not found or had wrong properties.");
-   say("HINT: Is the binary in some out of source build?");
+    say("ERROR: One or more server binaries were not found or had wrong properties.");
+    say("HINT: Is the binary in some out of source build?");
 
-   my $status = STATUS_ENVIRONMENT_FAILURE;
-   run_end($status);
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    run_end($status);
 }
 
 if (defined $seed and $seed eq 'time') {
-   $seed = time();
-   say("Converted --seed=time to --seed=$seed");
+    $seed = time();
+    say("Converted --seed=time to --seed=$seed");
 }
 
 my $cmd = $0 . " " . join(" ", @ARGV_saved);
@@ -999,15 +1021,15 @@ say("INFO: Final command line: \nperl $cmd");
 my $cnf_array_ref;
 
 if ($genconfig) {
-   unless (-e $genconfig) {
-      say("ERROR: Specified config template '$genconfig' does not exist");
-      my $status = STATUS_ENVIRONMENT_FAILURE;
-      run_end($status);
-   }
-   $cnf_array_ref = GenTest::App::GenConfig->new(spec_file => $genconfig,
-                                                 seed      => $seed,
-                                                 debug     => $debug
-   );
+    unless (-e $genconfig) {
+        say("ERROR: Specified config template '$genconfig' does not exist");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        run_end($status);
+    }
+    $cnf_array_ref = GenTest::App::GenConfig->new(spec_file => $genconfig,
+                                                  seed      => $seed,
+                                                  debug     => $debug
+    );
 }
 
 
@@ -1033,9 +1055,9 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
      ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
      ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         )) {
 
-   say("DEBUG: We run with MariaDB replication");
+    say("DEBUG: We run with MariaDB replication");
 
-   $rplsrv = DBServer::MySQL::ReplMySQLd->new(
+    $rplsrv = DBServer::MySQL::ReplMySQLd->new(
                  master_basedir      => $basedirs[1],
                  slave_basedir       => $basedirs[2],
                  master_vardir       => $vardirs[1],
@@ -1052,21 +1074,21 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                  use_gtid            => $use_gtid,
                  config              => $cnf_array_ref,
                  user                => $user
-   );
+    );
 
-   my $status = $rplsrv->startServer();
+    my $status = $rplsrv->startServer();
 
-   if ($status > DBSTATUS_OK) {
-      if (osWindows()) {
-         say(system("dir ".unix2winPath($rplsrv->master->datadir)));
-         say(system("dir ".unix2winPath($rplsrv->slave->datadir)));
-      } else {
-         say(system("ls -l ".$rplsrv->master->datadir));
-         say(system("ls -l ".$rplsrv->slave->datadir));
-      }
-      my $status = STATUS_ENVIRONMENT_FAILURE;
-      sayError("Could not start replicating server pair.");
-      exit_test($status);
+    if ($status > DBSTATUS_OK) {
+        if (osWindows()) {
+            say(system("dir ".unix2winPath($rplsrv->master->datadir)));
+            say(system("dir ".unix2winPath($rplsrv->slave->datadir)));
+        } else {
+            say(system("ls -l ".$rplsrv->master->datadir));
+            say(system("ls -l ".$rplsrv->slave->datadir));
+        }
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        sayError("Could not start replicating server pair.");
+        exit_test($status);
     }
 
     $dsns[0]   = $rplsrv->master->dsn($database,$user);
@@ -1076,21 +1098,21 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
 
 } elsif (defined $galera and $galera ne '') {
 
-   if (osWindows()) {
-      sayError("Galera is not supported on Windows (yet).");
-      my $status = STATUS_CONFIG_ERROR;
-      run_end($status);
-   }
+    if (osWindows()) {
+        sayError("Galera is not supported on Windows (yet).");
+        my $status = STATUS_CONFIG_ERROR;
+        run_end($status);
+    }
 
-   unless ($galera =~ /^[ms]+$/i) {
-      sayError("--galera option should contain a combination of M and S, indicating masters " .
-               "and slaves\n" .
-               "Value got : '$galera'");
-      my $status = STATUS_CONFIG_ERROR;
-      run_end($status);
-   }
+    unless ($galera =~ /^[ms]+$/i) {
+        sayError("--galera option should contain a combination of M and S, indicating masters " .
+                 "and slaves\n" .
+                 "Value got : '$galera'");
+        my $status = STATUS_CONFIG_ERROR;
+        run_end($status);
+    }
 
-   $rplsrv = DBServer::MySQL::GaleraMySQLd->new(
+    $rplsrv = DBServer::MySQL::GaleraMySQLd->new(
         basedir            => $basedirs[0],
         parent_vardir      => $vardirs[0],
         debug_server       => $debug_server[1],
@@ -1101,86 +1123,86 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         general_log        => 1,
         start_dirty        => $start_dirty,
         node_count         => length($galera)
-   );
+    );
 
-   my $status = $rplsrv->startServer();
+    my $status = $rplsrv->startServer();
 
-   if ($status > DBSTATUS_OK) {
-      stopServers($status);
-      sayError("Could not start Galera cluster");
-      # FIXME: What about bw_list matching and archiving?
-      my $status = STATUS_ENVIRONMENT_FAILURE;
-      exit_test($status);
-   }
+    if ($status > DBSTATUS_OK) {
+        stopServers($status);
+        sayError("Could not start Galera cluster");
+        # FIXME: What about bw_list matching and archiving?
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        exit_test($status);
+    }
 
-   my $galera_topology = $galera;
-   my $i = 0;
-   while ($galera_topology =~ s/^(\w)//) {
-      if (lc($1) eq 'm') {
-         $dsns[$i] = $rplsrv->nodes->[$i]->dsn($database, $user);
-      }
-      $server[$i] = $rplsrv->nodes->[$i];
-      $i++;
-   }
+    my $galera_topology = $galera;
+    my $i = 0;
+    while ($galera_topology =~ s/^(\w)//) {
+        if (lc($1) eq 'm') {
+            $dsns[$i] = $rplsrv->nodes->[$i]->dsn($database, $user);
+        }
+        $server[$i] = $rplsrv->nodes->[$i];
+        $i++;
+    }
 
 } elsif (defined $upgrade_test) {
 
-   say("DEBUG: We are running an upgrade test.");
+    say("DEBUG: We are running an upgrade test.");
 
-   # There are 'normal', 'crash', 'recovery' and 'undo' modes.
-   # 'normal' will be used by default
-   $upgrade_test= 'normal' if $upgrade_test !~ /(?:crash|undo|recovery)/i;
+    # There are 'normal', 'crash', 'recovery' and 'undo' modes.
+    # 'normal' will be used by default
+    $upgrade_test= 'normal' if $upgrade_test !~ /(?:crash|undo|recovery)/i;
 
-   $upgrade_test= lc($upgrade_test);
+    $upgrade_test= lc($upgrade_test);
 
-   # recovery is an alias for 'crash' test when the basedir before and after is the same
-   # undo-recovery is an alias for 'undo' test when the basedir before and after is the same
-   if ($upgrade_test =~ /recovery/) {
-      $basedirs[2] = $basedirs[1] = $basedirs[0];
-   }
-   if ($upgrade_test =~ /undo/ and not $restart_timeout) {
-      $restart_timeout= int($duration / 2);
-   }
+    # recovery is an alias for 'crash' test when the basedir before and after is the same
+    # undo-recovery is an alias for 'undo' test when the basedir before and after is the same
+    if ($upgrade_test =~ /recovery/) {
+        $basedirs[2] = $basedirs[1] = $basedirs[0];
+    }
+    if ($upgrade_test =~ /undo/ and not $restart_timeout) {
+        $restart_timeout= int($duration / 2);
+    }
 
-   # server0 is the "old" server (before upgrade).
-   # We will initialize and start it now
-   $server[0] = DBServer::MySQL::MySQLd->new(basedir          => $basedirs[1],
-                                             vardir           => $vardirs[1],
-                                             debug_server     => $debug_server[0],
-                                             port             => $ports[0],
-                                             start_dirty      => $start_dirty,
-                                             valgrind         => $valgrind,
-                                             valgrind_options => \@valgrind_options,
-                                             server_options   => $mysqld_options[0],
-                                             general_log      => 1,
-                                             config           => $cnf_array_ref,
-                                             user             => $user);
+    # server0 is the "old" server (before upgrade).
+    # We will initialize and start it now
+    $server[0] = DBServer::MySQL::MySQLd->new(basedir          => $basedirs[1],
+                                              vardir           => $vardirs[1],
+                                              debug_server     => $debug_server[0],
+                                              port             => $ports[0],
+                                              start_dirty      => $start_dirty,
+                                              valgrind         => $valgrind,
+                                              valgrind_options => \@valgrind_options,
+                                              server_options   => $mysqld_options[0],
+                                              general_log      => 1,
+                                              config           => $cnf_array_ref,
+                                              user             => $user);
 
-   my $status = $server[0]->startServer;
+    my $status = $server[0]->startServer;
 
-   if ($status > DBSTATUS_OK) {
-      stopServers($status);
-      if (osWindows()) {
-         say(system("dir " . unix2winPath($server[0]->datadir)));
-      } else {
-         say(system("ls -l " . $server[0]->datadir));
-      }
-      sayError("Could not start the old server in the upgrade test");
-      my $status = STATUS_CRITICAL_FAILURE;
-      say("$0 will exit with exit status " . status2text($status) . "($status)");
-      exit_test($status);
-   }
+    if ($status > DBSTATUS_OK) {
+        stopServers($status);
+        if (osWindows()) {
+            say(system("dir " . unix2winPath($server[0]->datadir)));
+        } else {
+            say(system("ls -l " . $server[0]->datadir));
+        }
+        sayError("Could not start the old server in the upgrade test");
+        my $status = STATUS_CRITICAL_FAILURE;
+        say("$0 will exit with exit status " . status2text($status) . "($status)");
+        exit_test($status);
+    }
 
-   $dsns[0] = $server[0]->dsn($database,$user);
+    $dsns[0] = $server[0]->dsn($database,$user);
 
-   if ((defined $dsns[0]) && (defined $engine[0])) {
-      my $dbh = DBI->connect($dsns[0], undef, undef, { mysql_multi_statements => 1, RaiseError => 1 } );
-      $dbh->do("SET GLOBAL default_storage_engine = '$engine[0]'");
-   }
+    if ((defined $dsns[0]) && (defined $engine[0])) {
+        my $dbh = DBI->connect($dsns[0], undef, undef, { mysql_multi_statements => 1, RaiseError => 1 } );
+        $dbh->do("SET GLOBAL default_storage_engine = '$engine[0]'");
+    }
 
-   # server1 is the "new" server (after upgrade).
-   # We will initialize it, but won't start it yet
-   $server[1] = DBServer::MySQL::MySQLd->new(
+    # server1 is the "new" server (after upgrade).
+    # We will initialize it, but won't start it yet
+    $server[1] = DBServer::MySQL::MySQLd->new(
                    basedir           => $basedirs[2],
                    vardir            => $vardirs[1],        # Same vardir as for the first server!
                    debug_server      => $debug_server[1],
@@ -1193,28 +1215,28 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                    config            => $cnf_array_ref,
                    user              => $user);
 
-   $dsns[1] = $server[1]->dsn($database,$user);
+    $dsns[1] = $server[1]->dsn($database,$user);
 
 } else {
 
-   # "Simple" test with either
-   # - one server
-   # - two or three servers and checks maybe (some variants might be not yet supported) like
-   #   a) same or different (origin like MariaDB, MySQL, versions like 10.1, 10.2) servers
-   #      - show the same reaction (pass/fail) when running the same SQL statement
-   #      - show logical the same result sets when running the same SELECTs
-   #      - have finally the same content in user defined tables and similar
-   #      Basically some RQG builtin statement based replication is used.
-   #   b) same server binaries
-   #      Show logical the same result sets when running some SELECT on the first server
-   #      and transformed SELECTs on some other server
-   #
-   my $max_id = $number_of_servers - 1;
-   say("DEBUG: max_id is $max_id");
+    # "Simple" test with either
+    # - one server
+    # - two or three servers and checks maybe (some variants might be not yet supported) like
+    #   a) same or different (origin like MariaDB, MySQL, versions like 10.1, 10.2) servers
+    #      - show the same reaction (pass/fail) when running the same SQL statement
+    #      - show logical the same result sets when running the same SELECTs
+    #      - have finally the same content in user defined tables and similar
+    #      Basically some RQG builtin statement based replication is used.
+    #   b) same server binaries
+    #      Show logical the same result sets when running some SELECT on the first server
+    #      and transformed SELECTs on some other server
+    #
+    my $max_id = $number_of_servers - 1;
+    say("DEBUG: max_id is $max_id");
 
-   foreach my $server_id (0.. $max_id) {
+    foreach my $server_id (0.. $max_id) {
 
-   $server[$server_id] = DBServer::MySQL::MySQLd->new(
+        $server[$server_id] = DBServer::MySQL::MySQLd->new(
                             basedir            => $basedirs[$server_id+1],
                             vardir             => $vardirs[$server_id+1],
                             debug_server       => $debug_server[$server_id],
@@ -1227,41 +1249,41 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                             config             => $cnf_array_ref,
                             user               => $user);
 
-   if (not defined $server[$server_id]) {
-         say("ERROR: Preparing the server[$server_id] for the start failed.");
-         my $status = STATUS_ENVIRONMENT_FAILURE;
-         say("$0 will exit with exit status " . status2text($status) . "($status)");
-         exit_test(STATUS_ENVIRONMENT_FAILURE);
-   }
+        if (not defined $server[$server_id]) {
+            say("ERROR: Preparing the server[$server_id] for the start failed.");
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            say("$0 will exit with exit status " . status2text($status) . "($status)");
+            exit_test(STATUS_ENVIRONMENT_FAILURE);
+        }
 
-   my $status = $server[$server_id]->startServer;
+        my $status = $server[$server_id]->startServer;
 
-   if ($status > DBSTATUS_OK) {
-         stopServers($status);
-         if (osWindows()) {
-             say(system("dir " . unix2winPath($server[$server_id]->datadir)));
-         } else {
-             say(system("ls -l " . $server[$server_id]->datadir));
-         }
-         sayError("Could not start all servers");
-         my $status = STATUS_CRITICAL_FAILURE;
-         say("$0 will exit with exit status " . status2text($status) . "($status)");
-         exit_test($status);
-   }
+        if ($status > DBSTATUS_OK) {
+            stopServers($status);
+            if (osWindows()) {
+                say(system("dir " . unix2winPath($server[$server_id]->datadir)));
+            } else {
+                say(system("ls -l " . $server[$server_id]->datadir));
+            }
+            sayError("Could not start all servers");
+            my $status = STATUS_CRITICAL_FAILURE;
+            say("$0 will exit with exit status " . status2text($status) . "($status)");
+            exit_test($status);
+        }
 
-   # FIXME: Isn't that questionable? We are in the non
-   # MariaDB replication or Galera or Upgrade branch.
-   # if (($server_id == 0) || ($rpl_mode eq Auxiliary::RQG_RPL_NONE) ) {
-   $dsns[$server_id] = $server[$server_id]->dsn($database, $user);
-   say("DEBUG: dsns[$server_id] defined.");
+        # FIXME: Isn't that questionable? We are in the non
+        # MariaDB replication or Galera or Upgrade branch.
+        # if (($server_id == 0) || ($rpl_mode eq Auxiliary::RQG_RPL_NONE) ) {
+        $dsns[$server_id] = $server[$server_id]->dsn($database, $user);
+        say("DEBUG: dsns[$server_id] defined.");
 
-   if ((defined $dsns[$server_id]) and
-          (defined $engine[$server_id] and $engine[$server_id] ne '')) {
-         my $dbh = DBI->connect($dsns[$server_id], undef, undef,
-                                { mysql_multi_statements => 1, RaiseError => 1 } );
-         $dbh->do("SET GLOBAL default_storage_engine = '$engine[$server_id]'");
-      }
-   }
+        if ((defined $dsns[$server_id]) and
+            (defined $engine[$server_id] and $engine[$server_id] ne '')) {
+            my $dbh = DBI->connect($dsns[$server_id], undef, undef,
+                                   { mysql_multi_statements => 1, RaiseError => 1 } );
+            $dbh->do("SET GLOBAL default_storage_engine = '$engine[$server_id]'");
+        }
+    }
 }
 
 #
@@ -1271,15 +1293,15 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
 # User is responsible for actually attaching the debugger if so desired.
 #
 if ($wait_debugger) {
-   say("Pausing test to allow attaching debuggers etc. to the server process.");
-   my @pids;   # there may be more than one server process
-   foreach my $server_id (0..$#server) {
-      $pids[$server_id] = $server[$server_id]->serverpid;
-   }
-   say('Number of servers started: ' . ($#server + 1));
-   say('Server PID: ' . join(', ', @pids));
-   say("Press ENTER to continue the test run...");
-   my $keypress = <STDIN>;
+    say("Pausing test to allow attaching debuggers etc. to the server process.");
+    my @pids;   # there may be more than one server process
+    foreach my $server_id (0..$#server) {
+        $pids[$server_id] = $server[$server_id]->serverpid;
+    }
+    say('Number of servers started: ' . ($#server + 1));
+    say('Server PID: ' . join(', ', @pids));
+    say("Press ENTER to continue the test run...");
+    my $keypress = <STDIN>;
 }
 
 
@@ -1341,6 +1363,7 @@ my $gentestProps = GenTest::Properties->new(
 ]
     );
 
+
 # FIXME: Replace with some general routine in Auxiliary
 ## For backward compatability
 if ($#validators == 0 and $validators[0] =~ m/,/) {
@@ -1375,6 +1398,9 @@ $gentestProps->duration($duration) if defined $duration;
 $gentestProps->dsn(\@dsns) if @dsns;
 $gentestProps->grammar($grammar_file);
 $gentestProps->property('skip-recursive-rules', $skip_recursive_rules);
+if (@redefine_files) {
+    $gentestProps->redefine(\@redefine_files);
+}
 $gentestProps->redefine(\@redefine_files) if @redefine_files;
 $gentestProps->seed($seed) if defined $seed;
 $gentestProps->mask($mask) if (defined $mask) && (not defined $no_mask);
@@ -1413,6 +1439,10 @@ $gentestProps->servers(\@server) if @server;
 $gentestProps->property('annotate-rules',$annotate_rules) if defined $annotate_rules;
 $gentestProps->property('upgrade-test',$upgrade_test) if $upgrade_test;
 
+say("---------------------------------------------------------------");
+$gentestProps->printProps;
+say("---------------------------------------------------------------");
+
 
 # Push certain information into environment variables so that grammars but also reporters
 # and validators could exploit that in case the information is not somewhere else available.
@@ -1424,10 +1454,9 @@ $ENV{RQG_THREADS}= $threads;
 # The pids of the servers started.
 #    Good for crash testing and similar.
 foreach my $server_id (0..$#server) {
-   my $varname = "SERVER_PID" . ($server_id + 1);
-   $ENV{$varname} = $server[$server_id]->serverpid;
+    my $varname = "SERVER_PID" . ($server_id + 1);
+    $ENV{$varname} = $server[$server_id]->serverpid;
 }
-
 
 my $gentest = GenTest::App::GenTest->new(config => $gentestProps);
 
@@ -1446,16 +1475,16 @@ my $final_result   = STATUS_OK;
 
 # The branch is just for the optics :-).
 if ($final_result == STATUS_OK) {
-   $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENDATA);
-   $gentest_result = $gentest->doGenData();
-   say("GenData returned status " . status2text($gentest_result) . " ($gentest_result)");
-   $final_result = $gentest_result;
+    $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENDATA);
+    $gentest_result = $gentest->doGenData();
+    say("GenData returned status " . status2text($gentest_result) . " ($gentest_result)");
+    $final_result = $gentest_result;
 }
 if ($gentest_result == STATUS_OK) {
-   $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENTEST);
-   $gentest_result = $gentest->doGenTest();
-   say("GenTest returned status " . status2text($gentest_result) . " ($gentest_result)");
-   $final_result = $gentest_result;
+    $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENTEST);
+    $gentest_result = $gentest->doGenTest();
+    say("GenTest returned status " . status2text($gentest_result) . " ($gentest_result)");
+    $final_result = $gentest_result;
 }
 
 # If
@@ -1472,71 +1501,72 @@ if (($gentest_result == STATUS_OK)                       and
     ($rpl_mode ne Auxiliary::RQG_RPL_MIXED_NOSYNC)       and
     ($rpl_mode ne Auxiliary::RQG_RPL_ROW_NOSYNC)            ) {
 
-#
-# Compare master and slave, or all masters
-#
-   $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_SERVER_COMPARE);
+    #
+    # Compare master and slave, or all masters
+    #
+    $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_SERVER_COMPARE);
 
-   my $diff_result = STATUS_OK;
-   if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)   or
-       ($rpl_mode ne Auxiliary::RQG_RPL_MIXED)       or
-       ($rpl_mode ne Auxiliary::RQG_RPL_ROW)           ) {
-      $diff_result = $rplsrv->waitForSlaveSync;
-      if ($diff_result != STATUS_OK) {
-         # FIXME: Shouldn't that be rather STATUS_REPLICATION_FAILURE or similar?
-         # But we get only DBSTATUS_FAILURE or DBSTATUS_OK returned!
-         say("ERROR: waitForSlaveSync failed with $diff_result. Setting final_result to STATUS_REPLICATION_FAILURE.");
-         $final_result = STATUS_REPLICATION_FAILURE ;
-      }
-      # FIXME:
-      # waitForSlaveSync with success does not reveal that the data content of master and
-      # slave is in sync like wanted. Just the processing chain behaved like wished.
-   } else {
-      # We run with RQG builtin statement based replication or Galera?
-      my @dump_files;
-      foreach my $i (0..$#server) {
-         # FIXME: Why the appended pid '$$'?
-         # Any server needs his own exlusive dumpfile. This is ensured by the '$i'.
-         # As soon as the caller takes care that any running rqg.pl uses his own exclusive
-         # $rqg_vardir and $rqg_wordir + dumpfiles in $rqg_vardir it must be clash free.
-         $dump_files[$i] = tmpdir()."server_".abs($$)."_".$i.".dump";
-         # FIXME: 1. There could be more user defined schemas than 'test'.
-         #        2. What about other user defined objects like views , users, ....?
-         my $dump_result = $server[$i]->dumpdb($database,$dump_files[$i]);
-         if ( $dump_result > 0 ) {
-            $final_result = $dump_result >> 8;
-            last;
-         }
-      }
-      if ($final_result == STATUS_OK) {
-         say("INFO: Comparing SQL dumps...");
-         foreach my $i (1..$#server) {
-            ### 0 vs. 1 , 0 vs. 2 ...
-            ### my $diff = system("diff -u $dump_files[$i - 1] $dump_files[$i]");
-            ### The IMHO better solution: 0 vs. 1 , 0 vs. 2 , 0 vs. 3
-            my $diff = system("diff -u $dump_files[0] $dump_files[$i]");
-            if ($diff == STATUS_OK) {
-               say("No differences were found between servers 0 and $i.");
-               # Make free space as soon ass possible.
-               say("DEBUG: Deleting the dump file of server $i.");
-               unlink($dump_files[$i]);
-            } else {
-               sayError("Found differences between servers 0 and $i. Setting final_result " .
-                        "to STATUS_CONTENT_MISMATCH");
-               $diff_result  = STATUS_CONTENT_MISMATCH;
-               $final_result = $diff_result;
+    my $diff_result = STATUS_OK;
+    if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)   or
+        ($rpl_mode ne Auxiliary::RQG_RPL_MIXED)       or
+        ($rpl_mode ne Auxiliary::RQG_RPL_ROW)           ) {
+        $diff_result = $rplsrv->waitForSlaveSync;
+        if ($diff_result != STATUS_OK) {
+            # FIXME: Shouldn't that be rather STATUS_REPLICATION_FAILURE or similar?
+            # But we get only DBSTATUS_FAILURE or DBSTATUS_OK returned!
+            say("ERROR: waitForSlaveSync failed with $diff_result. ".
+                "Setting final_result to STATUS_REPLICATION_FAILURE.");
+            $final_result = STATUS_REPLICATION_FAILURE ;
+        }
+        # FIXME:
+        # waitForSlaveSync with success does not reveal that the data content of master and
+        # slave is in sync like wanted. Just the processing chain behaved like wished.
+    } else {
+        # We run with RQG builtin statement based replication or Galera?
+        my @dump_files;
+        foreach my $i (0..$#server) {
+            # FIXME: Why the appended pid '$$'?
+            # Any server needs his own exlusive dumpfile. This is ensured by the '$i'.
+            # As soon as the caller takes care that any running rqg.pl uses his own exclusive
+            # $rqg_vardir and $rqg_wordir + dumpfiles in $rqg_vardir it must be clash free.
+            $dump_files[$i] = tmpdir() . "server_" . abs($$) . "_" . $i . ".dump";
+            # FIXME: 1. There could be more user defined schemas than 'test'.
+            #        2. What about other user defined objects like views , users, ....?
+            my $dump_result = $server[$i]->dumpdb($database,$dump_files[$i]);
+            if ( $dump_result > 0 ) {
+                $final_result = $dump_result >> 8;
+                last;
             }
-         }
-      }
-      if ($final_result == STATUS_OK) {
-         # In case we have no diffs than even the dump of the first server is no more needed.
-         unlink($dump_files[0]);
-      } else {
-         # FIXME:
-         # ok we have a diff. But maybe the dumps of the second and third server are equal
-         # and than we could remove one.
-      }
-   }
+        }
+        if ($final_result == STATUS_OK) {
+            say("INFO: Comparing SQL dumps...");
+            foreach my $i (1..$#server) {
+                ### 0 vs. 1 , 0 vs. 2 ...
+                ### my $diff = system("diff -u $dump_files[$i - 1] $dump_files[$i]");
+                ### The IMHO better solution: 0 vs. 1 , 0 vs. 2 , 0 vs. 3
+                my $diff = system("diff -u $dump_files[0] $dump_files[$i]");
+                if ($diff == STATUS_OK) {
+                    say("No differences were found between servers 0 and $i.");
+                    # Make free space as soon ass possible.
+                    say("DEBUG: Deleting the dump file of server $i.");
+                    unlink($dump_files[$i]);
+                } else {
+                    sayError("Found differences between servers 0 and $i. Setting final_result " .
+                             "to STATUS_CONTENT_MISMATCH");
+                    $diff_result  = STATUS_CONTENT_MISMATCH;
+                    $final_result = $diff_result;
+                }
+            }
+        }
+        if ($final_result == STATUS_OK) {
+            # In case we have no diffs than even the dump of the first server is no more needed.
+            unlink($dump_files[0]);
+        } else {
+            # FIXME:
+            # ok we have a diff. But maybe the dumps of the second and third server are equal
+            # and than we could remove one.
+        }
+    }
 }
 
 say("RESULT: The RQG run ended with status " . status2text($final_result) . " ($final_result)");
@@ -1550,53 +1580,60 @@ exit;
 
 # FIXME: Implement a solution for storing binaries
 if ($final_result != STATUS_OK and $store_binaries) {
-   foreach my $i ($#server) {
-      my $file = $server[$i]->binary;
-      my $to =   $vardirs[$i];
-      say("HERE: trying to copy $file to $to");
-      if (osWindows()) {
-         system("xcopy \"$file\" \"".$to."\"") if -e $file and $to;
-         $file =~ s/\.exe/\.pdb/;
-         system("xcopy \"$file\" \"".$to."\"") if -e $file and $to;
-      } else {
-         system("cp $file " . $to) if -e $file and $to;
-      }
-   }
+    foreach my $i ($#server) {
+        my $file = $server[$i]->binary;
+        my $to =   $vardirs[$i];
+        say("HERE: trying to copy $file to $to");
+        if (osWindows()) {
+            system("xcopy \"$file\" \"".$to."\"") if -e $file and $to;
+            $file =~ s/\.exe/\.pdb/;
+            system("xcopy \"$file\" \"".$to."\"") if -e $file and $to;
+        } else {
+            system("cp $file " . $to) if -e $file and $to;
+        }
+    }
 }
 exit_test($final_result);
 
 sub stopServers {
-   # FIXME: What is the $status good for?
-   my $status = shift;
-   if ($skip_shutdown) {
-      say("Server shutdown is skipped upon request");
-      return;
-   }
-   say("Stopping server(s)...");
-   if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
-       ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
-       ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)            or
-       ($rpl_mode eq Auxiliary::RQG_RPL_MIXED_NOSYNC)     or
-       ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
-       ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         ) {
-      $rplsrv->stopServer($status);
-   } elsif (defined $upgrade_test) {
-      $server[1]->stopServer;
-   } else {
-      foreach my $srv (@server) {
-         if ($srv) {
-            $srv->stopServer;
-         }
-      }
-   }
+    # FIXME: What is the $status good for?
+    my $status = shift;
+    if ($skip_shutdown) {
+        say("Server shutdown is skipped upon request");
+        return;
+    }
+    say("Stopping server(s)...");
+    if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
+        ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
+        ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)            or
+        ($rpl_mode eq Auxiliary::RQG_RPL_MIXED_NOSYNC)     or
+        ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
+        ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         ) {
+        $rplsrv->stopServer($status);
+    } elsif (defined $upgrade_test) {
+        $server[1]->stopServer;
+    } else {
+        foreach my $srv (@server) {
+            if ($srv) {
+                $srv->stopServer;
+            }
+        }
+    }
 }
 
 sub help {
 
     print <<EOF
 Copyright (c) 2010,2011 Oracle and/or its affiliates. All rights reserved. Use is subject to license terms.
+Copyright (c) 2018 MariaDB Corporation Ab.
 
 $0 - Run a complete random query generation test, including server start with replication and master/slave verification
+     Sorry, the description here is partially outdated.
+
+     How to catch output but also avoid trouble with the white and blacklist matching?
+     Sorry the shape of the command lines is not really satisfying.
+     perl rqg.pl ... --logfile=<RQG log> # Output to screen and logfile
+     perl rqg.pl ... --workdir="\$WORKDIR" > \$WORKDIR/rqg.log 2>&1
 
     Options related to one standalone MySQL server:
 
@@ -1640,7 +1677,7 @@ $0 - Run a complete random query generation test, including server start with re
     --duration  : Duration of the test in seconds (default $default_duration seconds);
     --validator : The validators to use
     --reporter  : The reporters to use
-    --transformer: The transformers to use (turns on --validator=transformer). Accepts comma separated list
+    --transformer : The transformers to use (turns on --validator=transformer). Accepts comma separated list
     --querytimeout: The timeout to use for the QueryTimeout reporter
     --gendata   : Generate data option. Passed to gentest.pl / GenTest. Takes a data template (.zz file)
                   as an optional argument. Without an argument, indicates the use of GendataSimple (default)
@@ -1695,56 +1732,61 @@ EOF
 }
 
 sub exit_test {
-   my $status = shift;
+    my $status = shift;
 
-   # FIXME:
-   # Report problems in case stopServers met trouble.
-   stopServers($status);
 
-   say(Auxiliary::MATCHING_END);
-   $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_ANALYZE);
+    # FIXME:
+    # Ensure to report problems in case stopServers met trouble.
+    stopServers($status);
 
-   if (not defined $logfile) {
-      $logfile = $workdir . '/rqg.log';
-   }
-   my $verdict = Auxiliary::calculate_verdict($logfile);
-   if (not defined $verdict) {
-      say("ERROR: Something in the verdict determination worked wrong");
-   }
-   say("VERDICT: $verdict");
-   my $result = Auxiliary::set_final_rqg_verdict($workdir, $verdict);
+    say(Auxiliary::MATCHING_END);
+    my $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_ANALYZE);
 
-   if ($verdict ne Auxiliary::RQG_VERDICT_IGNORE) {
-      $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_ARCHIVING);
-      if (STATUS_OK !=  Auxiliary::archive_results($workdir, $vardirs[0])) {
-         say("ERROR: Archiving the remainings of the RQG test failed.");
-         my $status = STATUS_ENVIRONMENT_FAILURE;
-         run_end($status);
-      } else {
-         say("INFO: Archive '" . $workdir . "/archive.tgz' created.");
-      }
-      if(not File::Path::rmtree($vardirs[0])) {
-         say("ERROR: Removal of the tree '$vardirs[0]' failed. : $!.");
-         my $status = STATUS_ENVIRONMENT_FAILURE;
-         run_end($status);
-      }
-      say("DEBUG: The RQG vardir '$vardirs[0]' was removed.");
-   } else {
+    # It is intentional that the time for analysis and archiving is not included.
+    say("INFO: Total RQG runtime in s : " . (time() - $start_time));
+
+    if (not defined $logfile) {
+        $logfile = $workdir . '/rqg.log';
+    }
+
+    my $verdict = Auxiliary::calculate_verdict($logfile);
+    if (not defined $verdict) {
+        say("ERROR: Something in the verdict determination worked wrong");
+    }
+    say("VERDICT: $verdict");
+    $return = Auxiliary::set_final_rqg_verdict($workdir, $verdict);
+
+    if ($verdict ne Auxiliary::RQG_VERDICT_IGNORE) {
+        $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_ARCHIVING);
+        if (STATUS_OK !=  Auxiliary::archive_results($workdir, $vardirs[0])) {
+            say("ERROR: Archiving the remainings of the RQG test failed.");
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            run_end($status);
+        } else {
+            say("INFO: Archive '" . $workdir . "/archive.tgz' created.");
+        }
+        if(not File::Path::rmtree($vardirs[0])) {
+            say("ERROR: Removal of the tree '$vardirs[0]' failed. : $!.");
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            run_end($status);
+        }
+        say("DEBUG: The RQG vardir '$vardirs[0]' was removed.");
+    } else {
 #     if(not File::Path::rmtree($vardirs[0])) {
 #        say("ERROR: Removal of the tree '$vardirs[0]' failed. : $!.");
 #        my $status = STATUS_ENVIRONMENT_FAILURE;
 #        run_end($status);
 #     }
 #     say("DEBUG: The RQG vardir '$vardirs[0]' was removed.");
-   }
-   run_end($status);
+    }
+    run_end($status);
 }
 
 sub run_end {
-   my ($status) = @_;
-   $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_COMPLETE);
-   say("$0 will exit with exit status " . status2text($status) . "($status)");
-   safe_exit($status);
+    my ($status) = @_;
+    $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_COMPLETE);
+    say("$0 will exit with exit status " . status2text($status) . "($status)");
+    safe_exit($status);
 }
 
 sub help_vardir {
