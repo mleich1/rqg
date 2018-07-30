@@ -143,8 +143,8 @@ sub nativeReport {
     # So the reporter gave up before a core file became visible.
     # And the RQG run ended with
     # STATUS_SERVER_CRASHED --> STATUS_CRITICAL_FAILURE (100) because there was no core file.
-    # Around 04T18:34:20 one of the concurrent RQG runs ended with finding a core, get
-    # backtrace and throw STATUS_SERVER_CRASHED.
+    # Around 04T18:34:20 one of the concurrent RQG runs with the same grammars etc. ended with
+    # finding a core, getting a backtrace and throwing STATUS_SERVER_CRASHED.
     # Conclusion: Wait longer for the core file showing up.
     # Per first try: Polling for the core helped 100%.
     #
