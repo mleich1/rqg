@@ -148,17 +148,23 @@ sub make_file {
 #
 # Purpose
 # -------
-# Make an empty plain file.
+# Make an plain file.
 #
 # Return values
 # -------------
 # STATUS_OK      -- Success
 # STATUS_FAILURE -- No success
 #
-    my ($my_file) = @_;
+    my ($my_file, $my_string) = @_;
     if (not open (MY_FILE, '>', $my_file)) {
         say("ERROR: Open file '>$my_file' failed : $!");
         return STATUS_FAILURE;
+    }
+    if (defined $my_string) {
+        if (not print MY_FILE $my_string) {
+            say("ERROR: Print to file '$my_file' failed : $!");
+            return STATUS_FAILURE;
+        }
     }
     if (not close (MY_FILE)) {
         say("ERROR: Close file '$my_file' failed : $!");
@@ -193,13 +199,13 @@ sub make_rqg_infrastructure {
     my $my_file;
     my $result;
     $my_file = $workdir . '/rqg.log';
-    $result  = make_file ($my_file);
+    $result  = make_file ($my_file, undef);
     return $result if $result;
     $my_file = $workdir . '/rqg_phase.init';
-    $result  = make_file ($my_file);
+    $result  = make_file ($my_file, undef);
     return $result if $result;
     $my_file = $workdir . '/rqg_verdict.init';
-    $result  = make_file ($my_file);
+    $result  = make_file ($my_file, undef);
     return $result if $result;
     return STATUS_OK;
 }
@@ -1890,6 +1896,405 @@ sub surround_quote_check {
         return 'bad quotes';
     }
 }
+
+sub get_string_after_pattern {
+# Purpose explained by example
+# ----------------------------
+# The RQG log contains
+# 2018-07-29T13:39:25 [26141] INFO: Total RQG runtime in s : 55
+# and we are interested in the 55 for whatever purposes.
+#
+# if (not defined $logfile) {
+#     $logfile = $workdir . '/rqg.log';
+# }
+# my $content = Auxiliary::get_string_after_pattern($logfile, "INFO: Total RQG runtime in s : ");
+#
+# Note:
+# In case there
+# - are several lines with that pattern than we pick the string from the last line.
+# - is after the pattern stuff like 'abc def' than we catch only the 'abc'.
+#
+# Return values
+# -------------
+# undef    -- trouble with getting the content of the file at all
+# ''       -- No trouble with the file but either
+#             - most likely   : A line with the pattern does not exist.
+#             - very unlikely : The line ends direct after the pattern or only spaces follow.
+#
+
+    my ($file, $pattern) = @_;
+    if (@_ != 2) {
+        Carp::confess("INTERNAL ERROR: Auxiliary::get_string_after_pattern : 2 Parameters (file, " .
+                      "pattern) are required.");
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    }
+
+    $content = Auxiliary::getFileSlice($file, 100000000);
+    if (not defined $content) {
+        say("ERROR: Trouble getting the content of '$file'. Will return undef");
+        return undef;
+    }
+
+    if ($content=~ s|.*$pattern([a-zA-Z0-9_/\.]+).*|$1|s) {
+        return $content;
+    } else {
+        return '';
+    }
+
+}
+
+# The unify_* routines
+# ====================
+# In case the RQG runners get all time already compacted grammar files with the same names assigned
+#    <RQG workdir>/rqg.zz
+#    <RQG workdir>/rqg.yy
+#    <RQG workdir>/rqg.sql
+# than we have a lot advantages compared to
+# 1. grabbing
+#    - maybe one ZZ grammar
+#    - maybe several SQL files
+#    - one YY grammar
+#    - maybe several redefine files
+#    scattered over various directories
+# 2. applying masking if required in addition
+# Some short summary of advantages:
+# - archiving <RQG workdir>/rqg.* picks all relevant files for attempts to replay the scenario.
+#   By that we are at least safe against modifications of
+#   - the original files like conf/mariadb/table_stress.yy after the run
+#   - the masking algorithm
+# - <RQG workdir>/rqg.yy gives a complete but shortest possible overview about what GenTest will
+#   do at runtime. The information scattered over many files is extreme uncomfortable and being
+#   forced to guess/calculate what masking will cause is ugly too.
+# - The grammar simplifier needs to work most time on some compacted grammar anyway.
+#
+# Required workflow when wanting to go the "unified way" within
+# - some RQG batch runner like rqg_batch.pl
+#   - combinations (supported)
+#     Here that batch runner could let the RQG runner (rqg.pl) do that job.
+#   - grammar simplification (implemented soon)
+#     rqg_batch.pl must do that job because it controls the complete simplification process.
+#   - variations of RQG parameters (implemented somewhere in future)
+#     Its more efficient in case rqg_batch.pl does that job.
+# - some RQG runner like rqg.pl (see there)
+#   0. Omit fiddling with @gendata_sql_files and @redefine_files regarding
+#         If there is one element only but that contains several files than decompose to array.
+#         Example: --gendata_sql="'A','B'"
+#      because the unify_* will do that.
+#   1. If relevant    $gendata = Auxiliary::unify_gendata($gendata, $workdir);
+#   2. If relevant    $gendata_sql_ref = Auxiliary::unify_gendata_sql(\@gendata_sql_files, $workdir);
+#   3. If relevant    $redefine_ref = Auxiliary::unify_redefine(\@redefine_files, $workdir);
+#   4. Handle the settings for masking + check that the main grammar exists
+#                     $return = Auxiliary::unify_grammar($grammar_file, $redefine_ref, $workdir,
+#                                     $skip_recursive_rules, $mask, $mask_level);
+#   FIXME: Maybe join unify_redefine and unify_grammar.
+#
+# Return values
+# -------------
+# undef == trouble --> Its recommended that the caller cleans up and simialar and aborts than
+#                      with STATUS_ENVIRONMENT_FAILURE.
+# valid value for the parameter
+#
+sub unify_gendata {
+    my ($gendata, $workdir) = @_;
+
+    if (@_ != 2) {
+        Carp::confess("INTERNAL ERROR: unify_gendata : 2 Parameters (gendata, " .
+                      "workdir) are required.");
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    }
+    if (not defined $gendata) {
+        Carp::confess("INTERNAL ERROR: unify_gendata : Parameter gendata is not defined.");
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    }
+    if (not defined $workdir) {
+        Carp::confess("INTERNAL ERROR: unify_gendata : Parameter workdir is not defined.");
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    } else {
+        if (! -d $workdir) {
+            Carp::confess("INTERNAL ERROR: unify_gendata : workdir '$workdir' does not exist " .
+                          "or is not a directory.");
+            # This accident could roughly only happen when coding RQG or its tools.
+            # Already started servers need to be killed manually!
+        }
+    }
+
+    if ($gendata eq '' or $gendata eq '1') {
+        # Do nothing.
+    } else {
+        # We run gendata with a ZZ grammar. So the value in $gendata is a file which must exist.
+        if (not -f $gendata) {
+            sayError("The file '$gendata' assigned to gendata does not exist or is no plain file.");
+            return undef;
+            help();
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            run_end($status);
+       } else {
+            # use File::Copy
+            my $gendata_file = $workdir . "/rqg.zz";
+            if ($gendata ne $gendata_file) {
+                if (not File::Copy::copy($gendata, $gendata_file)) {
+                    say("ERROR: Copying '$gendata' to '$gendata_file' failed: $!");
+                    my $status = STATUS_ENVIRONMENT_FAILURE;
+                    say("$0 will exit with exit status " . status2text($status) . "($status)");
+                    safe_exit($status);
+                }
+                $gendata = $gendata_file;
+            } else {
+                # The file assigned is already what we need.
+                # Most probably rqg.pl was called by some tool which already placed that file there.
+                # So do nothing.
+            }
+        }
+    }
+    return $gendata;
+}
+
+sub unify_gendata_sql {
+# FIXME: Clean up of code
+    my ($gendata_sql_ref, $workdir) = @_;
+    if (@_ != 2) {
+        Carp::confess("INTERNAL ERROR: unify_gendata_sql : 2 Parameters (gendata_sql_ref, " .
+                      "workdir) are required.");
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    }
+    if (not defined $gendata_sql_ref) {
+        Carp::confess("INTERNAL ERROR: unify_gendata_sql : Parameter gendata_sql_ref is not defined.");
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    }
+    if (not defined $workdir) {
+        Carp::confess("INTERNAL ERROR: unify_gendata_sql : Parameter workdir is not defined.");
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    } else {
+        if (! -d $workdir) {
+            Carp::confess("INTERNAL ERROR: unify_gendata_sql : workdir '$workdir' does not exist " .
+                          "or is not a directory.");
+            # This accident could roughly only happen when coding RQG or its tools.
+            # Already started servers need to be killed manually!
+        }
+    }
+
+    @gendata_sql_files = @$gendata_sql_ref;
+    if (0 == scalar @gendata_sql_files) {
+        return $gendata_sql_ref;
+    } else {
+        # There might be several gendata_sql_files put into $gendata_sql_files[0]
+        Auxiliary::print_list("DEBUG: Initial gendata_sql_files files ", @gendata_sql_files);
+        my $list_ref = Auxiliary::input_to_list(@gendata_sql_files);
+        if(defined $list_ref) {
+            @gendata_sql_files = @$list_ref;
+        } else {
+            return undef;
+        }
+        my $not_found = 0;
+        my $is_used   = 0;
+        foreach my $file (@gendata_sql_files) {
+            $is_used   = 1;
+            if (not -f $file) {
+                say("ERROR: The gendata_sql file '$file' does not exist or is not a plain file.");
+                $not_found = 1;
+            } else {
+                # say("DEBUG: The gendata_sql file '$file' exists.");
+            }
+        }
+        if ($not_found) {
+            return undef;
+        }
+        my $gendata_sql_file = $workdir . "/rqg.sql";
+        if (not -f $gendata_sql_file and $is_used) {
+            foreach my $file (@gendata_sql_files) {
+                if (not -f $gendata_sql_file) {
+                    if (not File::Copy::copy($file, $gendata_sql_file)) {
+                        say("ERROR: Copying '$file' to '$gendata_sql_file' failed: $!");
+                        return undef;
+                    }
+                } else {
+                    my $content = Auxiliary::getFileSlice($file, 100000000);
+                    if (not defined $content) {
+                        say("ERROR: Getting the content of the file '$file' failed." .
+                            "Will exit with STATUS_ENVIRONMENT_FAILURE.");
+                        return undef;
+                    } else {
+                        if (not STATUS_OK ==
+                                Auxiliary::append_string_to_file($gendata_sql_file, $content)) {
+                            say("ERROR: Appending the content of '$file' to '$gendata_sql_file' " .
+                                "failed.");
+                            return undef;
+                        }
+                    }
+                }
+            }
+            @gendata_sql_files = ( $gendata_sql_file );
+        }
+    }
+    return \@gendata_sql_files;
+}
+
+
+
+sub unify_redefine {
+# FIXME: Clean up of code
+    my ($redefine_ref, $workdir) = @_;
+    if (@_ != 2) {
+        Carp::confess("INTERNAL ERROR: unify_redefine : 2 Parameters (redefine_ref, " .
+                      "workdir) are required.");
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    }
+    if (not defined $redefine_ref) {
+        Carp::confess("INTERNAL ERROR: unify_redefine : Parameter redefine_ref is not defined.");
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    }
+    if (not defined $workdir) {
+        Carp::confess("INTERNAL ERROR: unify_redefine : Parameter workdir is not defined.");
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    } else {
+        if (! -d $workdir) {
+            Carp::confess("INTERNAL ERROR: unify_redefine : workdir '$workdir' does not exist " .
+                          "or is not a directory.");
+            # This accident could roughly only happen when coding RQG or its tools.
+            # Already started servers need to be killed manually!
+        }
+    }
+
+    @redefine_files = @$redefine_ref;
+    if (0 == scalar @redefine_files) {
+        return $redefine_ref;
+    } else {
+        # There might be several redefine_files put into $redefine_files[0]
+        Auxiliary::print_list("DEBUG: Initial redefine_files files ", @redefine_files);
+        my $list_ref = Auxiliary::input_to_list(@redefine_files);
+        if(defined $list_ref) {
+            @redefine_files = @$list_ref;
+        } else {
+            return undef;
+        }
+        my $not_found = 0;
+        my $is_used   = 0;
+        foreach my $file (@redefine_files) {
+            $is_used   = 1;
+            if (not -f $file) {
+                say("ERROR: The redefine file '$file' does not exist or is not a plain file.");
+                $not_found = 1;
+            } else {
+                # say("DEBUG: The redefine file '$file' exists.");
+            }
+        }
+        if ($not_found) {
+            return undef;
+        }
+        my $redefine_file = $workdir . "/tmp_rqg_redefine.yy";
+        if (not -f $redefine_file and $is_used) {
+            foreach my $file (@redefine_files) {
+                if (not -f $redefine_file) {
+                    if (not File::Copy::copy($file, $redefine_file)) {
+                        say("ERROR: Copying '$file' to '$redefine_file' failed: $!");
+                        return undef;
+                    }
+                } else {
+                    my $content = Auxiliary::getFileSlice($file, 100000000);
+                    if (not defined $content) {
+                        say("ERROR: Getting the content of the file '$file' failed." .
+                            "Will return undef.");
+                        return undef;
+                    } else {
+                        if (not STATUS_OK ==
+                                Auxiliary::append_string_to_file($redefine_file, $content)) {
+                            say("ERROR: Appending the content of '$file' to '$redefine_file' " .
+                                "failed. Will return undef.");
+                            return undef;
+                        }
+                    }
+                }
+            }
+            @redefine_files = ( $redefine_file );
+        }
+    }
+    return \@redefine_files;
+}
+
+sub unify_grammar {
+    my ($grammar_file, $redefine_ref, $workdir, $skip_recursive_rules, $mask, $mask_level) = @_;
+
+    if (@_ != 6) {
+        Carp::confess("INTERNAL ERROR: unify_grammar : 6 Parameters (grammar, redefine_ref, " .
+                      "workdir, skip_recursive_rules, mask_level, mask) are required.");
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    }
+    if (not defined $grammar_file) {
+        Carp::confess("INTERNAL ERROR: unify_grammar : Parameter grammar is not defined.");
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    } else {
+        if (! -f $grammar_file) {
+            say("ERROR: Grammar file '$grammar_file' does not exist or is not a plain file.\n" .
+                "Will return STATUS_ENVIRONMENT_FAILURE.");
+            return STATUS_ENVIRONMENT_FAILURE;
+        }
+    }
+    if (not defined $redefine_ref) {
+        Carp::confess("INTERNAL ERROR: unify_grammar : Parameter redefine_ref is not defined.");
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    }
+    @redefine_files = @$redefine_ref;
+    if (not defined $workdir) {
+        Carp::confess("INTERNAL ERROR: unify_grammar : Parameter workdir is not defined.");
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    } else {
+        if (! -d $workdir) {
+            Carp::confess("INTERNAL ERROR: unify_grammar : workdir '$workdir' does not exist " .
+                          "or is not a directory.");
+            # This accident could roughly only happen when coding RQG or its tools.
+            # Already started servers need to be killed manually!
+        }
+    }
+
+    my $grammar_obj = GenTest::Grammar->new(
+        grammar_files => [ $grammar_file, ( @redefine_files ) ],
+        grammar_flags => (defined $skip_recursive_rules ? GRAMMAR_FLAG_SKIP_RECURSIVE_RULES : undef )
+    );
+    if ($mask > 0 and $mask_level > 0) {
+        my @top_rule_list = $grammar_obj->top_rule_list();
+        if (0 == scalar @top_rule_list) {
+            say("ERROR: We had trouble. Will return STATUS_ENVIRONMENT_FAILURE.");
+            return STATUS_ENVIRONMENT_FAILURE;
+        } else {
+            my $grammar1          = $grammar_obj->toString;
+            say("DEBUG: The top rule list is '" . join ("', '", @top_rule_list) . "'.");
+            my $top_grammar       = $grammar_obj->topGrammar($mask_level, @top_rule_list);
+            my $masked_top        = $top_grammar->mask($mask);
+            my $final_grammar_obj = $grammar_obj->patch($masked_top);
+            my $grammar2          = $final_grammar_obj->toString;
+            # For experimenting/debugging
+            #   Auxiliary::make_file('k1', $grammar1);
+            #   Auxiliary::make_file('k2', $grammar2);
+            $grammar_obj          = $final_grammar_obj;
+        }
+    }
+    my $grammar_string = $grammar_obj->toString;
+    $grammar_file   = $workdir . "/rqg.yy";
+    if (STATUS_OK != Auxiliary::make_file($grammar_file, $grammar_string)) {
+        say("ERROR: We had trouble. Will return STATUS_ENVIRONMENT_FAILURE.");
+        return STATUS_ENVIRONMENT_FAILURE;
+    } else {
+        return STATUS_OK;
+    }
+
+}
+
+
+
 
 1;
 
