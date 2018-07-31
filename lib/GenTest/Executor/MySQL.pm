@@ -99,6 +99,10 @@ my @errors = (
     "Column '.*?' is not updatable"
 );
 
+# FIXME:
+# Perl warns
+# Unrecognized escape \d passed through at lib/GenTest/Executor/MySQL.pm line 92.
+
 my @patterns = map { qr{$_}i } @errors;
 
 use constant EXECUTOR_MYSQL_AUTOCOMMIT => 20;
@@ -1064,7 +1068,8 @@ sub execute {
             start_time      => $start_time,
             end_time        => $end_time,
             performance     => $performance
-        );
+      );
+
    } elsif ((not defined $sth->{NUM_OF_FIELDS}) || ($sth->{NUM_OF_FIELDS} == 0)) {
       $result = GenTest::Result->new(
             query           => $query,
@@ -1150,12 +1155,21 @@ sub execute {
 
    if ($result->status() == STATUS_OK or $result->status() == STATUS_SKIP) {
       # Now we have excluded certain classes of failing statements where all what follows
-      # makes no sense up till additional trouble with not initilized values etc.
+      # makes no sense up till additional trouble with not initialized values etc.
+      #
+      # EXPLAIN on for example DELETE works. But no idea if an explain on that would be valuable
+      # or if the counters collected here are of serious value at all.
+      #
+      # An EXPLAIN SELECT ... INTO @<user_variable> harvests systematic that the return of
+      # $result->rows() is not defined. So exclude that kind of SELECT.
       if ( (rqg_debug()) && (! ($execution_flags & EXECUTOR_FLAG_SILENT)) ) {
-         if ($query =~ m{^\s*select}sio) {
+         if (($query =~ m{^\s*select}sio) and (not $query =~ m{^\s*select\s.*into @}sio)) {
             $executor->explain($query);
 
             if ($result->status() != STATUS_SKIP) {
+               if (not defined $result->rows()) {
+                  say("WARNING: \$result->rows() provides an undef value and status is : " . $result->status());
+               }
                my $row_group = $result->rows() > 100 ? '>100' : ($result->rows() > 10 ? ">10" : sprintf("%5d",$sth->rows()) );
                $executor->[EXECUTOR_RETURNED_ROW_COUNTS]->{$row_group}++;
             }
