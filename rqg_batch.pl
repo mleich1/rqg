@@ -663,7 +663,7 @@ while(1) {
             File::Path::rmtree($rqg_workdir);
             make_path($rqg_workdir);
             Auxiliary::make_rqg_infrastructure($rqg_workdir);
-            system("find $rqg_workdir") if $script_debug;
+            # system("find $rqg_workdir");
             say("DEBUG: [$free_worker] setting RQG workdir to '$rqg_workdir'.") if $script_debug;
             $command .= " --workdir=$rqg_workdir";
 
@@ -876,10 +876,11 @@ while(1) {
     #    ($intentional_stop == 0))
     while (1) {
         my $active_workers = reap_workers();
-        # Leave loop if $intentional_stop > 0 which is either
-        # - verdict 'replay' got and stop_on_replay is set
-        # or
-        # - reason (for terminate the run fulfilled)
+        # 1. The user created $exit_file for signalling rqg_batch.pl that it should stop.
+        exit_file_check($exit_file);
+        last if $intentional_stop;
+        # 2. The assigned max_runtime is exceeded.
+        runtime_exceeded($batch_end_time);
         last if $intentional_stop;
         # FIXME: Modify later to   last if ($active_workers < $workers and "load not too high")
         last if ($active_workers < $workers);
