@@ -757,6 +757,19 @@ foreach my $i (0..3) {
     }
 }
 
+my $status = Auxiliary::get_git_info($rqg_home, '$rqg_home');
+if ($status > STATUS_CRITICAL_FAILURE) {
+    Carp::cluck("ERROR: get_git_info1 returned a critical failure. Will exit with that status.");
+    run_end($status);
+} elsif (STATUS_OK != $status) {
+    say("DEBUG: Trouble with git. But no reason to abort.");
+} else {
+    $status = Auxiliary::get_git_info($basedirs[0], '$basedirs[0]');
+    $status = Auxiliary::get_git_info($basedirs[1], '$basedirs[1]');
+    $status = Auxiliary::get_git_info($basedirs[2], '$basedirs[2]');
+    $status = Auxiliary::get_git_info($basedirs[3], '$basedirs[3]');
+}
+
 # Other semantics ?
 # $vardirs[0] set == The RQG runner creates and destroys the required vardirs as subdirs below $vardirs[0].
 # $vardirs[>0] set == The RQG runner will use that vardir. Create/destroy would be ok but what if start-dirty?
@@ -856,24 +869,6 @@ shift @debug_server;
 shift @vcols;
 shift @views;
 shift @engine;
-
-#foreach my $dir (cwd(), @basedirs) {
-## calling bzr usually takes a few seconds...
-#    if (defined $dir) {
-#        my $bzrinfo = GenTest::BzrInfo->new(
-#            dir => $dir
-#        );
-#        my $revno = $bzrinfo->bzrRevno();
-#        my $revid = $bzrinfo->bzrRevisionId();
-#
-#        if ((defined $revno) && (defined $revid)) {
-#            say("$dir Revno: $revno");
-#            say("$dir Revision-Id: $revid");
-#        } else {
-#            say($dir.' does not look like a bzr branch, cannot get revision info.');
-#        }
-#    }
-#}
 
 my $client_basedir;
 

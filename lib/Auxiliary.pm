@@ -1441,30 +1441,48 @@ sub getFileSlice {
 } # End sub getFileSlice
 
 
+my $git_supported;
 sub get_git_info {
-    my ($directory) = @_;
 
-    # Code just for testing the current routine
-    # say("Auxiliary::get_git_info() ---");
-    # Auxiliary::get_git_info();
-    # say("Auxiliary::get_git_info(undef) ---");
-    # Auxiliary::get_git_info(undef);
-    # say("Auxiliary::get_git_info('/tmp/does_not_exist') ---");
-    # Auxiliary::get_git_info('/tmp/does_not_exist');
-    # say("Auxiliary::get_git_info($0) ---");
-    # Auxiliary::get_git_info($0);
-    # say("Auxiliary::get_git_info('/tmp') ---");
-    # Auxiliary::get_git_info('/tmp');
-    #
+    my ($directory, $parameter_name) = @_;
 
-    my $cmd ;             # For commands run through system ...
-    my $result ;          # For the return of system ...
-    my $git_output_file ; # For the output of git commands
-    my $fail = 0;
+    my $cmd;             # For commands run through system ...
+
+    if (not defined $git_supported) {
+        # For experimenting/debugging
+        ## -> failed to execute
+        # $cmd = "nogit --version 2>&1";
+        ## -> exited with value 2
+        # $cmd = "git --version 2>&1 > /";
+        ## -> exited with value 129
+        # $cmd = "git --caramba 2>&1";
+        ## -> DEBUG: ... exited with value 0 but messages 'cannot open .... Permission denied'
+        # $cmd = "fdisk -l 2>&1";
+          $cmd = "git --version 2>&1";
+        my $return = `$cmd`;
+        if ($? == -1) {
+            say("WARNING: '$cmd' failed to execute: $!");
+            $git_supported = 0;
+            return STATUS_FAILURE;
+        } elsif ($? & 127) {
+            say("WARNING: '$cmd' died with signal " . ($? & 127));
+            $git_supported = 0;
+            return STATUS_FAILURE;
+        } elsif (($? >> 8) != 0) {
+            say("WARNING: '$cmd' exited with value " . ($? >> 8));
+            $git_supported = 0;
+            return STATUS_FAILURE;
+        } else {
+            say("DEBUG: '$cmd' exited with value " . ($? >> 8));
+            $git_supported = 1;
+        }
+    } elsif (0 == $git_supported) {
+        return STATUS_FAILURE;
+    }
+
     if (not defined $directory) {
-        say("ERROR: Auxiliary::get_git_info : No parameter or undef was assigned. " .
-            "Will return STATUS_INTERNAL_ERROR");
-        return STATUS_INTERNAL_ERROR;
+        # Ok, we are this time tolerant because $basedirs[2] etc. could be undef.
+        return STATUS_OK;
     }
     if (not -e $directory) {
         say("ERROR: Auxiliary::get_git_info : The assigned '$directory' does not exist. " .
@@ -1478,57 +1496,27 @@ sub get_git_info {
     }
 
     my $cwd = Cwd::cwd();
-    $git_output_file = $cwd . "/rqg-git-version-info." . $$;
-    $cmd = "git --version > $git_output_file 2>&1";
-    $result = system($cmd) >> 8;
-    # my $cmd = "nogit --version > $git_output_file";
-    #   sh: 1: nogit: not found
-    # 127 PGM does not exist
-    # my $cmd = "git --version > /";
-    #   sh: 1: cannot create /: Is a directory
-    #   2 Create failed because of directory there
-    # my $cmd = "git --version > /27";
-    #   sh: 1: cannot create /27: Permission denied
-    #   2 Create failed because of permission
-    # my $cmd = "git --whatever_version > $git_output_file";
-    #   Unknown option: --whatever_version
-    # 129 PGM denies service/wrong used
-    # Be in some directory like '/tmp' which is not controlled by GIT
-    #   fatal: Not a git repository (or any of the parent directories): .git
-    # 128 No GIT deriectory
-    if ($result != STATUS_OK) {
-        if ($result == 127) {
-            say("INFO: GIT binary not found. Will return STATUS_OK");
-            unlink($git_output_file);
-            return STATUS_OK;
-        } else {
-            say("ERROR: Trouble with GIT or similar. Will return STATUS_INTERNAL_ERROR");
-            sayFile($git_output_file);
-            unlink($git_output_file);
-            return STATUS_INTERNAL_ERROR;
-        }
-    }
-    unlink($git_output_file);
     if (not chdir($directory))
     {
         say("ALARM: chdir to '$directory' failed with : $!\n" .
             "       Will return STATUS_ENVIRONMENT_FAILURE");
         return STATUS_ENVIRONMENT_FAILURE;
     }
-#   my $cmd = "git branch  > $git_output_file 2>&1";
-#   system($cmd);
-#   my $cmd = "git show -s >> $git_output_file 2>&1";
-#   system($cmd);
     # git show --pretty='format:%D %H  %cI' -s
     # HEAD -> experimental, origin/experimental ce3c84fc53216162ef8cc9fdcce7aed24887e305  2018-05-04T12:39:45+02:00
     # %s would show the title of the last commit but that could be longer than wanted.
-    $cmd = "git show --pretty='format:%D %H %cI' -s > $git_output_file 2>&1";
-    system ($cmd);
-    sayFile ($git_output_file);
-    unlink ($git_output_file);
-
+    $cmd = "git show --pretty='format:%D %H %cI' -s 2>&1";
+    my $val= `$cmd`;
+    say("GIT: $parameter_name('$directory') $val");
     chdir($cwd);
     return STATUS_OK;
+
+
+    # Note:
+    # The output for    Auxiliary::get_git_info1('/', 'ROOT')   is
+    #    ROOT('/') fatal: Not a git repository (or any of the parent directories): .git
+    # and we should be able to live with that.
+
 } # End sub get_git_info
 
 
