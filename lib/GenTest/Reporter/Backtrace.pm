@@ -149,9 +149,9 @@ sub nativeReport {
     # Per first try: Polling for the core helped 100%.
     #
 
-    my $wait_timeout   = 90;
-    my $start_time     = Time::HiRes::time();
-    my $max_end_time   = $start_time + $wait_timeout;
+    $wait_timeout   = 90;
+    $start_time     = Time::HiRes::time();
+    $max_end_time   = $start_time + $wait_timeout;
     my $core;
     while (not defined $core and Time::HiRes::time() < $max_end_time) {
         sleep 1;
