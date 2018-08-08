@@ -9,7 +9,7 @@ This RQG version is focussed on taking care that
 - parallel RQG test runs on the same box have a lower risk to clash on the same
   ressources and use a smaller amount of ressources possible
 - grammar simplification becomes faster
-- some RQG run with "perl -w" throws far significant less warnings than today.
+- some RQG run with "perl -w" throws significant less warnings than today.
 
 The "start" was a fork of https://github.com/elenst/rqg 2018-04-11.
 The forking was done in order to avoid any thinkable damage to Elena's RQG
@@ -27,16 +27,15 @@ Please excuse
 - that some
      git blame ....
   shows me surprising frequent as last person who modified a line.
-  I could not resist to adjust the code to my personal standards regarding
-  readability.
+  I could not resist to adjust the code to my personal standards regarding readability.
   When looking for the last person making more probable significant changes use
      git blame -w .....
   which ignores at least changes around white spaces.
 
 Collection of hints (under construction)
 ----------------------------------------
-1. Please be aware that the name of the exit statuses of the RQG runner (runall*.pl ...) are
-   not 100% accurate regarding some bad effect met or its reason.
+1. Please be aware that the name of the exit statuses of the RQG runner (rqg.pl, runall*.pl ...)
+   are not 100% accurate regarding some bad effect met or its reason.
    Sometimes the name is nothing more than a more or less qualified (~ pick the most likely
    reason) guess.
    Just one example of some thinkable scenario:
@@ -94,11 +93,14 @@ Collection of hints (under construction)
    - no use of tabs because authors frequent
      - mix tabs and spaces which looks than ugly in case you go with some diffent tabstop value
      - do not agree on how many spaces a tabstop should be
-   - indentation unit of 3 white spaces
+   - indentation unit of 4 white spaces
      I am aware that a few spaces more would increase the readability.
-     But more spaces would also frequent cause that the line length limit of 100 is exceeded.
+     But more spaces would also frequent cause that the line length limit of 100 is reached and
+     than we need serious more lines for the logical same code.
    - Avoid dense code like: $m+1 or $part1.$part2."ABC"
    - Comments must have one or more white spaces after '#'
+   - Placing '=', '.', ';', '=>' for several text lines in the same column helps frequent to
+     avoid forgotten chars, accidents like ':' instead of ';' and similar.
 4. Other preferences
    - Messages should be mostly complete sentences.
    - Messages about serious failures should start with "ERROR: "
@@ -145,23 +147,180 @@ Collection of hints (under construction)
        - Server for test Y starts somehow on data belonging to the the server of the
          already gone test X instead of his own data.
 
+DONE (incomplete and arbitrary sorted list):
+1. Introduce the capability to define a
+   - whitelist desired statuses + desired text patterns
+   - blacklist unwanted statuses + unwanted text patterns
+   including defaults (STATUS_ANY is desired and STATUS_OK is unwanted).
+2. Implement a routine which processes a file (log of RQG run) and  gives a verdict based on
+   these lists.
+3. Implement some new RQG runner (rqg.pl) which
+   1. performs a RQG run according to the setup supplied
+   2. calculates the verdict after the RQG run finished
+   3. performs a (hopefully) perfect cleanup including archiving according to the verdict got
+4. Implement a new RQG tool (rqg_batch.pl) which performs a batch of RQG runs according to the
+   setup supplied. rqg_batch.pl uses rqg.pl.
+   This tool replaces (at least at my work)
+   - immediate bughunt.pl, combinations.pl
+   - in future also util/simplify-grammar.pl
+   Certain features for efficient job management will get added in future.
+5. Implement some new grammar simplifier (util/new-simplify-grammar.pl) who supports massive
+   parallelization by exploiting rqg_batch.pl.
+   This is some intermediate solution because the new far way superior grammar simplification
+   mechanism to be implemented somewhere in future requires informations at runtime and
+   functionality to priorize future jobs or stop ongoing jobs which is best placed in rqg_batch.pl.
+6. rqg.pl, rqg_batch.pl and util/new-simplify-grammar.pl follow some extreme strict regulations
+   regarding placement of files, cleanup etc.
+7. Extend the grammar simplification algorithm so that all top level rules get simplified.
+   Old state: Only the rule 'query' gets considered up till that the simplifier might
+              not work if other top level rules exist and play an important role.
+   New state: All currently supported top level rules get considered.
+              query, thread<n>, *_init, *_connect
+8. Introduce the grammar rule class *_connect. To be executed for every (re)connect.
+   This was required for better testing of SQL affected by KILL QUERY, KILL <session> issued
+   by some concurrent session etc.
+9. Certain improvements up till fixes within the RQG core in order to support RQG concurrency
+   testing, testing with massive parallelization better and to reduce the fraction of false alarms.
+10. Implement routines which cause that the final gendata, gentest call works
+    - with the files
+        rqg.yy , rqg.sql (might not exist), rqg.zz (might not exist)
+      only
+    - without giving $no_mask, $mask, $mask_level any attention because any impact of masking
+      is already in the content of rqg.yy
+    This is required for the grammar simplifier but gives also advantages in other situations
+    like archiving of data for replay attempts in future.
+11. Correct the simplifier algorithm (--> lib/GenTest/Simplifier/Grammar1.pm)
+    The illegal actions:
+    1. The simplifier tries to remove even the last non "empty string" component/alternative
+       of a grammar rule.
+       Examples:
+          rule_1 : SELECT 13 ; # last non "empty string" component which would get "attacked"
+                               # == attempt to remove the value!
+
+          rule_2  : ;          # last "empty string" component. The simplifier would inline
+                               # that rule and by that the empty string == no removal of value.
+
+       But this is strict forbidden in case we simplify for the following theoretical scenario:
+    2. The simplifier tries to remove parts of components.
+       Example observed:
+          Snip of some component: , REPEAT ( CAST ( $my_int AS CHAR(1)), @fill_amount ) )
+          Attempts to remove (between the arrows):
+          ->) ) ;<-  ->fill_amount<- ->)), @<- ->1<- ->(<- ->CHAR<- -> <- ->AS<- -> <-
+          ->$my_int<- ->( <- ->CAST<- ->(<- ->REPEAT<- ->,<-
+    Both cases could be tolerated in case we simplify a crash but the are plain illegal in case
+    we simplify for something different.
+    Example of evil impact in some artificial scenario:
+        rule_no_change:
+            rule_1(modify data) ; rule_2(revert the modification);
+        followed by validate that the sequence has "Something" not changed.
+        "Something": Number of rows in table A or SUM(column_a) or
+                     column_b WHERE column_pk = 13 or ...
+        And we had the interesting case that there was a change though it should not.
+        The current simplifier will maybe shrink one of the rules 'rule_1' or 'rule_2' to "empty"
+        and than the validator will kick in and "cry" his alarm which gets than valuated as success
+        in simplification.
+        Impact: The final result of grammar simplification will be nothing else than garbage.
+    This happens frequent but there must be some simplification algorithm which could be used
+    for all the other cases too.
+12. Use wthing the grammar simplifier some more dynamic amount of walk through the grammar rounds
+    (--> lib/GenTest/Simplifier/Grammar1.pm)
+
 TODO (incomplete list):
-1. Correct the simplifier algorithm or implement earlier a total new one.
-   The illegal action:
-   The simplifier tries to remove even the last component of a rule.
-   This could be tolerated in case we simplify a crash.
-   But this is strict forbidden in case we simplify for the following theoretical scenario:
-      rule_no_change:
-          rule_1(modify data) ; rule_2(revert the modification);
-      followed by validate that the sequence has "Something" not changed.
-      "Something": Number of rows in table A or SUM(column_a) or
-                   column_b WHERE column_pk = 13 or ...
-      And we had the evil case that there was a change though it should not.
-   The current simplifier will maybe shrink one of the rules 'rule_1' or 'rule_2' to "empty" and
-   than the validator will kick in and "cry" his alarm which gets than valuated as success in
-   simplification.
-   Impact: The final result of grammar simplification will be nothing else than garbage.
+-----------------------
+-- Add to rqg_batch.pl
+   - permanent observation of ressources
+     Decide based on these results if to maybe
+     - stop the rpl_batch.pl run including killing all ongoing RQG runs because not solvable
+       trouble is direct ahead -- avoid OS breakdown ...
+     - stop(KILL) some already ongoing RQG run because that would avoid to run into predicted
+       trouble
+     - do nothing than observing the system
+     - start some additional RQG run because the forecast regarding resources is positive
+   - job queues
+     This is at least for some far way superior new grammar simplification mechanism required.
+-- Implement some new far way superior grammar simplification mechanism which is a combination of
+   1. Some more efficient algorithm for deciding which never tried simplification to check first.
+      Base will be a weight according the likelihood that some rulle will be used for the generation
+      of a statements.
+      In short: Simplify the top level rules first.
+      Per experience the current algorithm focuses far way too fast on simplifying rare used rules.
+      Simplifying the most frequent used grammar rules first gives a speedup of ~ 100%.
+      This tendency is also valid if using "masking" as simplification method. Just the
+      average speedup is there a bit smaller and the handling is complex.
+   2. Have different simplifications concurrent in testing
+      The current util/new-simplify-grammar.pl just tries n times the same simplification in
+      parallel which is
+      - not plain bad because we need frequent several attempts and so we exploit all available
+        resources
+      - per experience a quite inefficient use of these resources because the likelihood to
+        replay differs dramatic up till that certain grammars are not capable to replay at all.
+      Checking different grammars simplified based on masking, stop all runs on replay, compute
+      a new "competition" is not the greatest solution but it performed surprising good and beats
+      the current algorithm.
+   3. The fact that we could have several different grammars which have replayed is a side effect of
+      2. and the archiving which costs some time.
+      Aborting all runs which were started invoking the result of X but before Y was finished
+      and restarting with X and Y applied is no good solution because
+      - a replay might require either the grammar components removed in X or in Y
+      - abort runs means also annihilate all already done investments (Imagine that a long
+        lasting gendata was just finished)
+      - aborting runs is error prone and therefore risky
+      In case we memorize (requires adding bookkeeping) what the second replayer Y made like
+         That run tried with
+         dml:
+             INSERT ... |
+             UPDATE ... | <======= This removed
+             DELETE ... ;
+      than we could apply that in some next grammar simplification attempt.
+      This is maybe also doable in case of masking but extreme complicated because there we have
+      most probably just the information about mask-level, mask and maybe the md5sum or something
+      similar describing the grammar.
+   4. Add maybe the option to not remove components of rules which contain the keywords DROP or
+      DELETE.
+      Background:
+      As soon as we remove such components we are non rare faced with some serious growth of the
+      storage space consumption which is counter productive in many aspects
+      1. It might cause some OS breakdown in case of placing the vardir on a filesystem of type
+         tmpfs as long as we have no load/resource control mechanism which prevents trouble.
+      2. Especially without but also with a load/resource control mechanism we are faced with
+         that the current MariaDB and also MySQL the server tend to assert with
+            InnoDB error 28 (no space on disk)
+         and the debugger analyzing the core file (reporter Backtrace) reports frequent
+            BFD: Warning: .....data/core is truncated:
+                          expected core file size >= 959647744, found: 55398400.
+         I have no fixed opinion regarding if its better to assert with core or to make something
+         like an emergency shutdown of the server without core.
+         Even a clever RQG resource control and emergency shutdowns can prevent that maybe
+         even one RQG test with one server consumes all available storage space.
+         And the result of the test is of no value.
+         So as long as we do not jeopardize the goal of the test its better to prevent avoid
+         that trouble by all means we have.
+-- Improve RQG components like reporters and validators as soon as I am forced to use them and
+   meet trouble.
+   This might sound banal but per my experience many parts of RQG are the opposite of well prepared
+   for meeting the rough conditions of tests invoking KILL QUERY up till KILL <session> and
+   that even on some heavy loaded testing box.
+-- Remove empty statements from grammars.
+   Example:   SELECT 13 ; ;
+-- Ugly observation (2018-08)
+   During grammar simplification range_access.yy shows some disastrous runtime behaviour.
+   After quite short runtime the perl processes for the threads consumed more memory than
+   the DB server. I guess this problem is caused by the"stack" feature of RQG.
+   No idea who will fix that problem.
+-- https://jira.mariadb.org/browse/MDEV-16863 Extend the RQG infrastructure for backup testing
+   Given the fact that we already have some crowd of RQG tests checking roughly all kinds ofcw
+   concurrent DDL (stresses backup significant) it seems to be recommended to implement some
+   periodic reporter doing the following:
+   - the server is under serious load by arbitrary DDL (existing YY grammars)
+   - run parallel in a loop
+   1. Hot backup of data of running server 1
+   2. Prepare the data backed up for restore + restore to other place than server 1
+   3. Start some additional server 2 on that data
+   4. Run check table in server 2
+   5. If no trouble during 4. shutdown of server 2 + destroy his data + run next loop round.
+      If trouble terminate the test.
 
 
-Matthias 2018-07
+
+Matthias 2018-08
 
