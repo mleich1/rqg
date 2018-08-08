@@ -52,6 +52,8 @@ use File::Copy;
 use lib 'lib';
 use lib "$ENV{RQG_HOME}/lib";
 use Auxiliary;
+use Verdict;
+use Batch;
 use GenTest;
 use GenTest::Random;
 use GenTest::Constants;
@@ -252,7 +254,6 @@ my $command_line= "$0 ".join(" ", @ARGV);
 
 $| = 1;
 
-my $script_debug     = 1;
 my $batch_start_time = time();
 
 
@@ -266,8 +267,8 @@ my $start_cwd     = Cwd::getcwd();
 # FIXME: Harden that
 # rqg_batch.pl and RQG_HOME if assigned must be from the same universe
 if (defined $rqg_home_env) {
-    print ("WARNING: The variable RQG_HOME with the value '$rqg_home_env' was found in the " .
-           "environment.\n");
+    print("WARNING: The variable RQG_HOME with the value '$rqg_home_env' was found in the " .
+          "environment.\n");
     if (osWindows()) {
         $ENV{RQG_HOME} = $ENV{RQG_HOME}.'\\';
     } else {
@@ -307,7 +308,7 @@ my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar
     $seed, $testname, $xml_output, $report_xml_tt, $report_xml_tt_type, $max_runtime,
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
     $workers, $new, $servers, $noshuffle, $workdir, $discard_logs, $help, $runner,
-    $stop_on_replay, $runid, $threads);
+    $stop_on_replay, $script_debug, $runid, $threads);
 
 # my @basedirs    = ('', '');
 my @basedirs;
@@ -358,6 +359,7 @@ my $discard_logs  = 0;
 # - fill them into the variables allowed in command line
 # - abort in case of meeting some not supported options
 my $opt_result = {};
+sub help();
 
 if (not GetOptions(
     $opt_result,
@@ -405,12 +407,6 @@ if (not GetOptions(
 
 say("INFO: Command line: " . $command_line);
 
-# debug
-# dryrun
-# script
-
-# trials=0 --> Dry run
-
 # Counter for statistics
 # ----------------------
 my $runs_started          = 0;
@@ -432,9 +428,16 @@ if (not defined $dryrun) {
 } else {
     $dryrun = 1;
 }
+if (not defined $script_debug) {
+    $script_debug = 0;
+} else {
+    $script_debug = 1;
+    say("DEBUG: script_debug is enabled.");
+}
 
 if (not defined $config_file) {
     say("ERROR: The mandatory config file is not defined.");
+    help();
     exit STATUS_ENVIRONMENT_FAILURE;
 }
 if (not -e $config_file) {
@@ -482,7 +485,7 @@ say("DEBUG: Command line options to be appended the call of the RQG runner: ->" 
     $command_append . "<-") if $script_debug;
 
 if (not defined $start_combination) {
-   say("DEBUG: start-combination was not assigned. Setting it to the default 1.");
+   say("DEBUG: start-combination was not assigned. Setting it to the default 1.") if $script_debug;
    $start_combination = 1;
 }
 
@@ -497,7 +500,8 @@ say("INFO: Number of possible combinations                      : $total");
 # This handling of seed affects mainly the generation of random combinations.
 if (not defined $seed) {
     $seed = 1;
-    say("INFO: seed is not defined. Setting it to the default 1.");
+    say("INFO: seed (used for generation of combinations only) is not defined. " .
+        "Setting it to the default 1.");
 }
 if ($seed eq 'time') {
     $seed = time();
@@ -513,8 +517,8 @@ if (not defined $max_runtime) {
     say("INFO: Setting the maximum runtime to the default of $max_runtime" . "s ($max_days days).");
 }
 my $batch_end_time = $batch_start_time + $max_runtime;
-my ($workdir, $vardir) = Auxiliary::make_multi_runner_infrastructure ($workdir, $vardir, $runid,
-                                                                      $symlink);
+($workdir, $vardir) = Batch::make_multi_runner_infrastructure ($workdir, $vardir, $runid,
+                                                               $symlink);
 # Note: In case of hitting an error make_multi_runner_infrastructure exits.
 # Note: File::Copy::copy works only file to file. And so we might extract the name.
 #       But using uniform file names isn't that bad.
@@ -541,7 +545,7 @@ if (not defined $workers) {
     } else {
        my $result = `nproc`;
        if (not defined $result) {
-          say("DEBUG: nproc gave undef as result");
+          say("DEBUG: nproc gave undef as result") if $script_debug;
           $workers = 1;
        } else {
           chomp $result; # Remove the '\n'
@@ -596,6 +600,7 @@ my $total_status = STATUS_OK;
 my $trial_num = 1; # This is the number of the next trial if started at all.
                    # That also implies that incrementing must be after getting a valid command.
 while(1) {
+    say("DEBUG: Begin of while(1) loop.") if $script_debug;
     # First handle all cases for giving up.
     # 1. The user created $exit_file for signalling rqg_batch.pl that it should stop.
     # For experimenting:
@@ -647,11 +652,11 @@ while(1) {
             # @try_first_queue empty , @try_queue empty too and extending impossible.
             # == All possible orders were generated.
             #    Some might be in execution and all other must be in @try_over_queue.
-            say("DEBUG: No order got");
+            say("DEBUG: No order got") if $script_debug;
             last;
         } else {
             # We have now a free/non busy RQG runner and a job
-            say("DEBUG: Valid order $order got");
+            say("DEBUG: Valid order $order got") if $script_debug;
             my $command = $order_array[$order][ORDER_PROPERTY1];
 
             say("DEBUG: RQG worker [$free_worker] should run order $order ->$command<-") if $script_debug;
@@ -841,11 +846,12 @@ while(1) {
                 }
                 # No fractions of seconds because its not needed and makes prints too long.
                 $worker_array[$free_worker][WORKER_START] = time();
-                say("$workerspec forked and worker has taken over.");
+                say("$workerspec forked and worker has taken over.") if $script_debug;
                 $trial_num++;
                 $just_forked = 1;
                 # $free_worker = -1;
-                worker_array_dump() if $script_debug;
+                # worker_array_dump() if $script_debug;
+                say("DEBUG: After start of RQG worker.") if $script_debug;
             }
 
 #           if ($just_forked) {
@@ -874,6 +880,7 @@ while(1) {
     # or
     #   ((load too high for taking the risk to start another worker) and
     #    ($intentional_stop == 0))
+    say("DEBUG: Before entering 'wait for free RQG worker'.") if $script_debug;
     while (1) {
         my $active_workers = reap_workers();
         # 1. The user created $exit_file for signalling rqg_batch.pl that it should stop.
@@ -886,6 +893,7 @@ while(1) {
         last if ($active_workers < $workers);
         sleep 1;
     }
+    say("DEBUG: After leaving 'wait for free RQG worker'.") if $script_debug;
 
     # FIXME: Refine
     sleep 0.3;
@@ -894,13 +902,15 @@ while(1) {
 
 
 say("INFO: Phase of search for combination and bring it into execution is over.");
-# We start with a moderate poll time in seconds because
+# We start with a moderate sleep time in seconds because
 # - not too much load intended ==> value minimum >= 0.2
-# - not too long because other checks for bad states (not yet implemented) of the testing
-#   environment will be added  ==> maximum <= 1,0
+# - not too long because checks for bad states (partially not yet implemented) of the testing
+#   environment need to happen frequent enough ==> maximum <= 1,0
+# As soon as the checks require in sum some significant runtime >= 1s the sleep should be removed.
 my $poll_time = 1;
 # Poll till all tests are gone
 while (reap_workers()) {
+    say("DEBUG: At begin of loop waiting till all RQG worker have finished.") if $script_debug;
     # First handle all cases for giving up.
     # 1. The user created $exit_file for signalling rqg_batch.pl that it should stop.
     # For experimenting:
@@ -913,21 +923,20 @@ while (reap_workers()) {
     # 2. The assigned max_runtime is exceeded.
     runtime_exceeded($batch_end_time);
     $poll_time = 0.1 if $intentional_stop;
-    exit_file_check($exit_file);
     sleep $poll_time;
 }
-dump_queues();
-dump_orders();
+Batch::dump_queues();
+Batch::dump_orders();
 
 say("\n\n"                                                                                         .
     "STATISTICS: Number of RQG runs -- Verdict\n"                                                  .
-    "STATISTICS: $verdict_replay -- '" . Auxiliary::RQG_VERDICT_REPLAY . "'-- "                    .
+    "STATISTICS: $verdict_replay -- '" . Verdict::RQG_VERDICT_REPLAY . "'-- "                    .
                  "Replay of desired effect (Whitelist match, no Blacklist match)\n"                .
-    "STATISTICS: $verdict_interest -- '" . Auxiliary::RQG_VERDICT_INTEREST . "'-- "                .
+    "STATISTICS: $verdict_interest -- '" . Verdict::RQG_VERDICT_INTEREST . "'-- "                .
                  "Otherwise interesting effect (no Whitelist match, no Blacklist match)\n"         .
-    "STATISTICS: $verdict_ignore -- '" . Auxiliary::RQG_VERDICT_IGNORE . "'-- "                    .
+    "STATISTICS: $verdict_ignore -- '" . Verdict::RQG_VERDICT_IGNORE . "'-- "                    .
                  "Effect is not of interest(Blacklist match or STATUS_OK)\n"                       .
-    "STATISTICS: $verdict_init -- '" . Auxiliary::RQG_VERDICT_INIT . "'-- "                        .
+    "STATISTICS: $verdict_init -- '" . Verdict::RQG_VERDICT_INIT . "'-- "                        .
                  "RQG run too incomplete (maybe stopped)\n"                                        .
     "STATISTICS: $verdict_collected -- Some verdict made.\n")                                      ;
 say("STATISTICS: Total runtime in seconds : " . (time() - $batch_start_time))                      ;
@@ -940,10 +949,10 @@ say("HINT:       As long as this was the last run of rqg_batch.pl the symlink\n"
     "                 $symlink\n"                                                                  .
     "            will point to this workdir.\n")                                                   ;
 say("RESULT:     The highest exit status of some RQG run was : $total_status")                     ;
-my $best_verdict = Auxiliary::RQG_VERDICT_INIT;
-$best_verdict = Auxiliary::RQG_VERDICT_IGNORE   if 0 < $verdict_ignore;
-$best_verdict = Auxiliary::RQG_VERDICT_INTEREST if 0 < $verdict_interest;
-$best_verdict = Auxiliary::RQG_VERDICT_REPLAY   if 0 < $verdict_replay;
+my $best_verdict = Verdict::RQG_VERDICT_INIT;
+$best_verdict = Verdict::RQG_VERDICT_IGNORE   if 0 < $verdict_ignore;
+$best_verdict = Verdict::RQG_VERDICT_INTEREST if 0 < $verdict_interest;
+$best_verdict = Verdict::RQG_VERDICT_REPLAY   if 0 < $verdict_replay;
 say("RESULT:     The best verdict reached was : '$best_verdict'");
 exit STATUS_OK;
 
@@ -1007,7 +1016,7 @@ sub doCombination {
 
     my ($trial_id, $comb_str, $comment) = @_;
 
-    say("trial_id : $trial_id");
+    say("trial_id : $trial_id") if $script_debug;
 
     my $command = "$comb_str ";
 
@@ -1056,6 +1065,7 @@ sub reap_workers {
     }
     for my $worker_num (1..$workers) {
         next if -1 == $worker_array[$worker_num][WORKER_PID];
+        my $worker_process_group = getpgrp($worker_array[$worker_num][WORKER_PID]);
         my $kid = waitpid($worker_array[$worker_num][WORKER_PID], WNOHANG);
         my $exit_status = $? > 0 ? ($? >> 8) : 0;
         if (not defined $kid) {
@@ -1067,11 +1077,30 @@ sub reap_workers {
             my $order_id = $worker_array[$worker_num][WORKER_ORDER_ID];
             if ($kid == $worker_array[$worker_num][WORKER_PID]) {
 
+                # The usual behaviour of batch tools is to
+                # - conclude that certain resources like ports are free based on the fact that
+                #   some RQG worker process had finished
+                # - initiate some next RQG run causing that some database servers get started.
+                # Some painful and too frequent made experience is that these servers meet
+                # other servers having these resources already in use and that even though the
+                # calculation of the ports is correct.
+                # The reasons for such problems are that servers of such previous RQG runs were
+                # not stopped because of
+                # - (too frequent) bad habit of the RQG core to exit with croak instead of
+                #   taking care of the child processes first
+                # - (rather rare) temporary mistakes which could happen during RQG core and tool
+                #   code development leading to Perl gives up because of fatal errors at runtime.
+                # - (unknown) trouble with user limits, OS resources etc.
+                # Summary:
+                # We should rather assume the worst case, child processes are not already dead,
+                # and make some radical cleanup.
+                kill 'KILL', $worker_process_group;
+
                 my $rqg_appendix  = "/" . $worker_num;
                 my $rqg_vardir    = "$vardir"  . $rqg_appendix;
                 my $rqg_workdir   = "$workdir" . $rqg_appendix;
 
-                my $verdict       = Auxiliary::get_rqg_verdict($rqg_workdir);
+                my $verdict       = Verdict::get_rqg_verdict($rqg_workdir);
                 $verdict_collected++;
                 say("INFO: Worker [$worker_num] with (process) exit status " .
                     "'$exit_status' and verdict '$verdict' reaped.");
@@ -1083,25 +1112,25 @@ sub reap_workers {
                 my $save_arc_cmd  = "mv $rqg_workdir" . "/archive.tgz $target_prefix" . ".tgz";
                 my $clean_cmd     = "rm -rf $rqg_vardir $rqg_workdir";
 
-                if ($verdict eq Auxiliary::RQG_VERDICT_IGNORE) {
+                if ($verdict eq Verdict::RQG_VERDICT_IGNORE) {
                     if (not $discard_logs) {
                         system($save_log_cmd);
                     }
                     $verdict_ignore++;
                     $order_array[$order_id][ORDER_EFFORTS_INVESTED]++;
                     $order_array[$order_id][ORDER_EFFORTS_LEFT]--;
-                } elsif ($verdict eq Auxiliary::RQG_VERDICT_INTEREST or
-                         $verdict eq Auxiliary::RQG_VERDICT_REPLAY) {
+                } elsif ($verdict eq Verdict::RQG_VERDICT_INTEREST or
+                         $verdict eq Verdict::RQG_VERDICT_REPLAY) {
                     system($save_log_cmd);
                     system($save_arc_cmd);
-                    if ($verdict eq Auxiliary::RQG_VERDICT_INTEREST) {
+                    if ($verdict eq Verdict::RQG_VERDICT_INTEREST) {
                         $verdict_interest++;
                     } else {
                         $verdict_replay++;
                     }
                     $order_array[$order_id][ORDER_EFFORTS_INVESTED]++;
                     $order_array[$order_id][ORDER_EFFORTS_LEFT]--;
-                } elsif ($verdict eq Auxiliary::RQG_VERDICT_INIT) {
+                } elsif ($verdict eq Verdict::RQG_VERDICT_INIT) {
                     if ($intentional_stop) {
                         # The RQG worker was most probably stopped with SIGKILL.
                         # So treat the result as harmless.
@@ -1109,7 +1138,7 @@ sub reap_workers {
                     } else {
                         # The RQG run died already at begin.
                         # This should usually never happen and is than most probably systematic.
-                        say("INTERNAL ERROR: Final Verdict is Auxiliary::RQG_VERDICT_INIT which " .
+                        say("INTERNAL ERROR: Final Verdict is Verdict::RQG_VERDICT_INIT which " .
                             "should not happen.");
                         system($save_log_cmd);
                         system($save_arc_cmd);
@@ -1138,7 +1167,7 @@ sub reap_workers {
 
                 dump_orders() if $script_debug;
 
-                if (defined $stop_on_replay and Auxiliary::RQG_VERDICT_REPLAY eq $verdict) {
+                if (defined $stop_on_replay and Verdict::RQG_VERDICT_REPLAY eq $verdict) {
                     $intentional_stop = 1;
                     say("INFO: We had '$verdict' and should stop on replay. Stopping all RQG Worker.");
                     stop_workers();
@@ -1300,10 +1329,10 @@ sub help() {
    "      The RQG runner to be used. The value assigned must be without path.\n"                   .
    "      (Default) rqg.pl in RQG_HOME.\n"                                                         .
    "--discard_logs\n"                                                                              .
-   "      Remove even the logs of RQG runs with the verdict '" . Auxiliary::RQG_VERDICT_IGNORE     .
+   "      Remove even the logs of RQG runs with the verdict '" . Verdict::RQG_VERDICT_IGNORE       .
    "'\n"                                                                                           .
    "--stop_on_replay\n"                                                                            .
-   "      As soon as the first RQG run achieved the verdict '" . Auxiliary::RQG_VERDICT_REPLAY     .
+   "      As soon as the first RQG run achieved the verdict '" . Verdict::RQG_VERDICT_REPLAY       .
    " , stop all active RQG runners, cleanup, give a summary and exit.\n\n"                         .
    "--dryrun\n"                                                                                    .
    "      Run the complete mechanics except that the RQG worker forked\n"                          .
@@ -1411,14 +1440,14 @@ sub get_job {
     #     while (not defined $order_id and $not out_of_ideas) {
         $order_id = shift @try_first_queue;
         if (defined $order_id) {
-            say("DEBUG: Order $order_id picked from \@try_first_queue.");
+            say("DEBUG: Order $order_id picked from \@try_first_queue.") if $script_debug;
             last
         }
 
         # In case we are here than @try_first_queue was empty.
         $order_id = shift @try_queue;
         if (defined $order_id) {
-            say("DEBUG: Order $order_id picked from \@try_queue.");
+            say("DEBUG: Order $order_id picked from \@try_queue.") if $script_debug;
             last
         } else {
             if ( not generate_orders() ) {
@@ -1529,27 +1558,41 @@ sub cl_adjustment {
     # Offer the option to apply automatic masking with incrementing the level as soon as we
     # generate a grammar having the same md5sum like some already tried one.
     # And that for ONE initial grammar only.
-    # $command .= " --mask=$mask"                              if $comb_str !~ /-mask/;
+    # combinations.pl used $command .= " --mask=$mask" if $comb_str !~ /-mask/;
 
-    $command_append .= " --duration=$duration"                      if $duration           ne '';
+    $command_append .= " --duration=$duration"
+        if defined $duration and $duration ne '';
 
     #
-    # $command_append .= " --basedir='$basedirs[0]'"                if defined $basedirs[0];
-    $command_append .= " --basedir1='$basedirs[1]'"                 if defined $basedirs[1];
-    $command_append .= " --basedir2='$basedirs[2]'"                 if defined $basedirs[2];
-    $command_append .= " --basedir3='$basedirs[3]'"                 if defined $basedirs[3];
-    $command_append .= " --gendata=$gendata "                       if defined $gendata;
-    $command_append .= " --grammar=$grammar "                       if defined $grammar;
+    # $command_append .= " --basedir='$basedirs[0]'" if defined $basedirs[0];
+    $command_append .= " --basedir1='$basedirs[1]'"
+        if defined $basedirs[1];
+    $command_append .= " --basedir2='$basedirs[2]'"
+        if defined $basedirs[2];
+    $command_append .= " --basedir3='$basedirs[3]'"
+        if defined $basedirs[3];
+    $command_append .= " --gendata=$gendata "
+        if defined $gendata;
+    $command_append .= " --grammar=$grammar "
+        if defined $grammar;
     # In case seed is in the command line than it should rule.
-    # $command_append .= " --seed=$seed "                             if $comb_str !~ /--seed=/;
-    $command_append .= " --seed=$seed "                             if defined $seed;
-    $command_append .= " --no-mask "                                if defined $no_mask;
-    $command_append .= " --threads=$threads "                       if defined $threads;
-    $command_append .= " --testname=$testname "                     if $testname           ne '';
-    $command_append .= " --xml-output=$xml_output "                 if $xml_output         ne '';
-    $command_append .= " --report-xml-tt"                           if defined $report_xml_tt;
-    $command_append .= " --report-xml-tt-type=$report_xml_tt_type " if $report_xml_tt_type ne '';
-    $command_append .= " --report-xml-tt-dest=$report_xml_tt_dest " if $report_xml_tt_dest ne '';
+    # combinations.pl used $command_append .= " --seed=$seed " if $comb_str !~ /--seed=/;
+    $command_append .= " --seed=$seed "
+        if defined $seed;
+    $command_append .= " --no-mask "
+        if defined $no_mask;
+    $command_append .= " --threads=$threads "
+        if defined $threads;
+    $command_append .= " --testname=$testname "
+        if defined $testname and $testname ne '';
+    $command_append .= " --xml-output=$xml_output "
+        if defined $xml_output and $xml_output ne '';
+    $command_append .= " --report-xml-tt"
+        if defined $report_xml_tt;
+    $command_append .= " --report-xml-tt-type=$report_xml_tt_type "
+        if defined $report_xml_tt_type and $report_xml_tt_type ne '';
+    $command_append .= " --report-xml-tt-dest=$report_xml_tt_dest "
+        if defined $report_xml_tt_dest and $report_xml_tt_dest ne '';
 
     return $command_append;
 
@@ -1559,7 +1602,7 @@ my $generate_calls = 0;
 sub generate_orders {
 
     $generate_calls++;
-    say("DEBUG: Number of generate_orders calls : $generate_calls");
+    say("DEBUG: Number of generate_orders calls : $generate_calls") if $script_debug;
     if (0 != scalar @try_queue) {
         say("INTERNAL ERROR: in generate_orders : \@try_queue is not empty.");
                 exit(99);
@@ -1598,8 +1641,8 @@ sub generate_orders {
     }
 
     if (0 != scalar @try_queue) {
-        dump_orders();
-        dump_queues();
+        dump_orders() if $script_debug;
+        dump_queues() if $script_debug;
         return 1;
     } else {
         say("DEBUG: All possible orders were already generated. Will return 0.");
@@ -1633,9 +1676,16 @@ sub add_order {
     $order_array[$order_id_now][ORDER_PROPERTY3]        = $order_property3;
 
     push @try_queue, $order_id_now;
-    print_order($order_id_now);
+    print_order($order_id_now) if $script_debug;
 }
 
+
+sub init_job_management {
+    # max_runtime
+    # trials
+    # basedir
+    # vardir
+}
 
 
 

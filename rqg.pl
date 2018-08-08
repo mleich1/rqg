@@ -142,7 +142,8 @@ use constant STATUS_CONFIG_ERROR => 199;
 use strict;
 use GenTest;
 use Auxiliary;
-use GenTest::BzrInfo;
+use Verdict;
+# use GenTest::BzrInfo;
 use GenTest::Constants;
 use GenTest::Properties;
 use GenTest::App::GenTest;
@@ -299,6 +300,7 @@ if (not GetOptions(
     'gendata_advanced'            => \$gendata_advanced,
     'gendata-advanced'            => \$gendata_advanced,
     'skip-gendata'                => \$skip_gendata,
+    'skip_gendata'                => \$skip_gendata,
     'genconfig:s'                 => \$genconfig,
     'notnull'                     => \$notnull,
     'short_column_names'          => \$short_column_names,
@@ -368,7 +370,7 @@ if ( defined $help ) {
     exit STATUS_OK;
 }
 
-if (STATUS_OK != Auxiliary::check_normalize_set_black_white_lists (
+if (STATUS_OK != Verdict::check_normalize_set_black_white_lists (
       ' The RQG run ended with status ', # $status_prefix,
       \@blacklist_statuses, \@blacklist_patterns,
       \@whitelist_statuses, \@whitelist_patterns)) {
@@ -449,11 +451,18 @@ if (defined $scenario) {
 # There is some heavy distinction between STDOUT and STDERR.
 # In my RQG testing I was rather unhappy with that.
 if (defined $logfile && defined $logger) {
+    say("MLML with logfile and logger");
     setLoggingToFile($logfile);
 } else {
     # FIXME: What is this branch good for and how does a logconf look like?
     if (defined $logconf && defined $logger) {
+        say("MLML with logconf and logger");
         setLogConf($logconf);
+    } else {
+        say("MLML whatever");
+        if (not defined $logfile) {
+            $logfile = $workdir . '/rqg.log';
+        }
     }
 }
 
@@ -771,11 +780,14 @@ if ($status > STATUS_CRITICAL_FAILURE) {
 }
 
 # Other semantics ?
-# $vardirs[0] set == The RQG runner creates and destroys the required vardirs as subdirs below $vardirs[0].
-# $vardirs[>0] set == The RQG runner will use that vardir. Create/destroy would be ok but what if start-dirty?
+# $vardirs[0] set
+#    The RQG runner creates and destroys the required vardirs as subdirs below $vardirs[0].
+# $vardirs[>0] set
+#    The RQG runner will use that vardir. Create/destroy would be ok but what if start-dirty?
 # rmtree or not? What if somebody assigns some valuable dir?
 if (not defined $vardirs[0] or $vardirs[0] eq '') {
-    say("INFO: 'vardirs' is not defined or eq ''. But we need some vardir for the RQG run and its servers.");
+    say("INFO: 'vardirs' is not defined or eq ''. But we need some vardir for the RQG run and " .
+        "its servers.");
     $vardirs[0] = $workdir . "/vardir";
     say("INFO: Setting 'vardirs' to its default '$vardirs[0]'.");
     if(-d $vardirs[0]) {
@@ -858,10 +870,10 @@ foreach my $i (1..3) {
             ? ( @{$mysqld_options[0]}, @{$mysqld_options[$i]} )
             : @{$mysqld_options[0]}
     );
-    $debug_server[$i] = $debug_server[0] if not defined $debug_server[$i] or $debug_server[$i] eq '';
-    $vcols[$i]        = $vcols[0]        if not defined $vcols[$i]        or $vcols[$i]        eq '';
-    $views[$i]        = $views[0]        if not defined $views[$i]        or $views[$i]        eq '';
-    $engine[$i]       = $engine[0]       if not defined $engine[$i]       or $engine[$i]       eq '';
+    $debug_server[$i]= $debug_server[0] if not defined $debug_server[$i] or $debug_server[$i] eq '';
+    $vcols[$i]       = $vcols[0]        if not defined $vcols[$i]        or $vcols[$i]        eq '';
+    $views[$i]       = $views[0]        if not defined $views[$i]        or $views[$i]        eq '';
+    $engine[$i]      = $engine[0]       if not defined $engine[$i]       or $engine[$i]       eq '';
 }
 
 shift @mysqld_options;
@@ -889,6 +901,8 @@ if (not defined $client_basedir) {
 }
 
 #-----------------------
+# FIXME: Let a routine in Auxiliary figure out if its standard MariaDB replication.
+#
 # Master and slave get the same debug_server[1] applied.
 if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
     (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
@@ -917,7 +931,7 @@ if (osWindows()) {
     $extension   = "";
 }
 Auxiliary::print_list("DEBUG: subdir_list " , @subdir_list);
-Auxiliary::print_list("DEBUG: Basedirs ", @basedirs);
+Auxiliary::print_list("DEBUG: Basedirs "    , @basedirs);
 Auxiliary::print_list("DEBUG: debug_server ", @debug_server);
 
 my $all_binaries_exist = 1;
@@ -947,8 +961,8 @@ foreach my $i (0..3) {
                     # gets applied too late (just before server start) for some good work flow.
                     # RULE: Check as much as possible BEFORE ANY serious intrusive action like
                     #       start a server.
-                    # But here its also non ideal because the text patterns for debug server detection
-                    # might differ for different DBS.
+                    # But here its also non ideal because the text patterns for debug server
+                    # detection might differ for different DBS.
                     my $command = "$return --version";
                     my $result = `$command 2>&1`;
                     if ($result =~ /debug/sig) {
@@ -1028,7 +1042,7 @@ if ($genconfig) {
 }
 
 
-say(Auxiliary::MATCHING_START);
+say(Verdict::MATCHING_START);
 
 # FIXME:
 # Starting from here there should be NEARLY NO cases where the test aborts because some file is
@@ -1042,6 +1056,7 @@ my @server;
 my $rplsrv;
 
 say("DEBUG: rpl_mode is '$rpl_mode'");
+# FIXME: Let a routine in Auxiliary figure that out or figure out once and memorize result.
 if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
     (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
      ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
@@ -1734,7 +1749,7 @@ sub exit_test {
     # Ensure to report problems in case stopServers met trouble.
     stopServers($status);
 
-    say(Auxiliary::MATCHING_END);
+    say(Verdict::MATCHING_END);
     my $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_ANALYZE);
 
     # It is intentional that the time for analysis and archiving is not included.
@@ -1744,14 +1759,14 @@ sub exit_test {
         $logfile = $workdir . '/rqg.log';
     }
 
-    my $verdict = Auxiliary::calculate_verdict($logfile);
+    my $verdict = Verdict::calculate_verdict($logfile);
     if (not defined $verdict) {
-        say("ERROR: Something in the verdict determination worked wrong");
+        say("ERROR: Something in the verdict determination worked wrong.");
     }
     say("VERDICT: $verdict");
-    $return = Auxiliary::set_final_rqg_verdict($workdir, $verdict);
+    $return = Verdict::set_final_rqg_verdict($workdir, $verdict);
 
-    if ($verdict ne Auxiliary::RQG_VERDICT_IGNORE) {
+    if ($verdict ne Verdict::RQG_VERDICT_IGNORE) {
         $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_ARCHIVING);
         if (STATUS_OK !=  Auxiliary::archive_results($workdir, $vardirs[0])) {
             say("ERROR: Archiving the remainings of the RQG test failed.");

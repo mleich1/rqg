@@ -45,8 +45,9 @@ use GenTest;
 use GenTest::Constants;
 use GenTest::Grammar;
 use Auxiliary;
+use Verdict;
 use GenTest::Properties;
-use GenTest::Simplifier::Grammar;
+use GenTest::Simplifier::Grammar1; # We use the correct working simplifier only.
 use Time::HiRes;
 
 # Overview
@@ -69,7 +70,7 @@ use Time::HiRes;
 #
 # Technical information
 # =====================
-# The GenTest::Simplifier::Grammar module provides progressively simpler grammars.
+# The GenTest::Simplifier::Grammar1 module provides progressively simpler grammars.
 # We define an "oracle" function which runs those grammars through RQG, and we
 # report if RQG returns the desired status code (for example STATUS_SERVER_CRASHED)
 #
@@ -150,7 +151,7 @@ my $config = GenTest::Properties->new(
                'workdir'],
     );
 
-if (STATUS_OK != Auxiliary::check_normalize_set_black_white_lists (
+if (STATUS_OK != Verdict::check_normalize_set_black_white_lists (
                     ' The RQG run ended with status ', # $status_prefix,
                     $config->blacklist_statuses, $config->blacklist_patterns,
                     $config->whitelist_statuses, $config->whitelist_patterns)) {
@@ -160,13 +161,12 @@ if (STATUS_OK != Auxiliary::check_normalize_set_black_white_lists (
     say("$0 will exit with exit status " . status2text($status) . "($status)");
     safe_exit($status);
 }
-my $bw_option_string = Auxiliary::black_white_lists_to_option_string();
 
 # Dump settings
 say("SIMPLIFY RQG GRAMMAR BASED ON EXPECTED CONTENT WITHIN SOME FILE");
 say("---------------------------------------------------------------");
 $config->printProps;
-my $bw_option_string = Auxiliary::black_white_lists_to_option_string();
+my $bw_option_string = Verdict::black_white_lists_to_option_string();
 # say("DEBUG: bw_option_string ->$bw_option_string<-");
 say("---------------------------------------------------------------");
 
@@ -199,8 +199,8 @@ say("The ID of this run is $run_id.");
 
 my $initial_grammar;
 
-if ($config->property('mask') > 0) {
-    my $initial_grammar_obj = GenTest::Grammar->new( 'grammar_file'  => $config->grammar );
+if (defined $config->property('mask') and $config->property('mask') > 0) {
+    my $initial_grammar_obj = GenTest::Grammar1->new( 'grammar_file'  => $config->grammar );
     my $top_grammar = $initial_grammar_obj->topGrammar($config->property('mask-level'), "query", "query_init");
     my $masked_top = $top_grammar->mask($config->property('mask'));
     $initial_grammar = $initial_grammar_obj->patch($masked_top);
@@ -212,7 +212,7 @@ if ($config->property('mask') > 0) {
 
 my $iteration;
 
-my $simplifier = GenTest::Simplifier::Grammar->new(
+my $simplifier = GenTest::Simplifier::Grammar1->new(
     grammar_flags => $config->grammar_flags,
     oracle => sub {
         $iteration++;
@@ -245,7 +245,7 @@ my $simplifier = GenTest::Simplifier::Grammar->new(
         close(BATCH_CONF);
         # sayFile($batch_config_file);
         my $batch_cmd = "perl rqg_batch.pl --config=$batch_config_file"            .
-                        " --build_thread=$mtrbt --clean --discard_logs"            .
+                        " --build_thread=$mtrbt --discard_logs"                    .
                         " --grammar=$current_grammar --seed=random"                .
                         " --workdir=$workdir --vardir=$vardir --stop_on_replay"    .
                         " --parallel=$parallel --trials=$parallel"                 .
@@ -265,7 +265,7 @@ my $simplifier = GenTest::Simplifier::Grammar->new(
         my $content  =  Auxiliary::getFileSlice($current_batch_log, $config->search_var_size);
         # say("DEBUG: Log of the RQG batch iteration $iteration ->$content<-");
         my $search_pattern = "RESULT:     The best verdict reached was : '" .
-                             Auxiliary::RQG_VERDICT_REPLAY . "'";
+                             Verdict::RQG_VERDICT_REPLAY . "'";
         if ($content =~ m{$search_pattern}s) {
             File::Copy::copy($current_grammar, $workdir . "/best_grammar.yy");
             say("INFO: Replay with grammar '$current_grammar'");
