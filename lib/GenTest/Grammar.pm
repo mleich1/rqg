@@ -219,17 +219,17 @@ sub parseFromString {
 		my ($rule_name, $components_string) = $rule_string =~ m{^(.*?)\s*:(.*)$}sio;
 
         if (not defined $rule_name) {
-            say("DEBUG: Step1 rule_name not detected.");
+            # say("DEBUG: Step1 rule_name not detected.");
             next;
         }
 		$rule_name =~ s{[\r\n]}{}gsio;
         if (not defined $rule_name) {
-            say("DEBUG: Step2 rule_name not detected.");
+            # say("DEBUG: Step2 rule_name not detected.");
             next;
         }
 		$rule_name =~ s{^\s*}{}gsio;
         if (not defined $rule_name) {
-            say("DEBUG: Step3 rule_name not detected.");
+            # say("DEBUG: Step3 rule_name not detected.");
             next;
         }
 
@@ -471,7 +471,7 @@ sub top_rule_list {
 
     foreach my $reverse_weight (1..6) {
         foreach my $rule_name (keys %top_rule_hash) {
-            if ($reverse_weight == %top_rule_hash{$rule_name}) {
+            if ($reverse_weight == $top_rule_hash{$rule_name}) {
                 delete $top_rule_hash{$rule_name};
                 push @top_rule_list, $rule_name;
             }
