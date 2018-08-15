@@ -1724,15 +1724,6 @@ $0 - Run a complete random query generation test, including server start with re
                   Nothing assigned: We use the current working directory of the RQG runner process, certain files will be created.
                   Some directory assigned: We use the assigned directory and expect that certain files already exist.
     --help      : This help message
-    --cleanup   : archive_all
-                     Build an archive \$workdir/archive.tgz containing the content of \$workdir and \$vardir.
-                     Remove anything from \$workdir except the archive and the log of the RQG run.
-                     Destroy the directory \$vardir including its content.
-                  preserve_only_log
-                     Remove anything from \$workdir except the log of the RQG run.
-                     Destroy the directory \$vardir including its content.
-                  none --> ???
-
 
     If you specify --basedir1 and --basedir2 or --vardir1 and --vardir2, two servers will be started and the results from the queries
     will be compared between them.
