@@ -58,7 +58,6 @@ use GenTest;
 use GenTest::Random;
 use GenTest::Constants;
 use Getopt::Long;
-use GenTest::BzrInfo;
 use Data::Dumper;
 
 # use Filesys::Df;  Needed for some free space check but not working for WIN.
@@ -120,6 +119,24 @@ use constant WORKER_ORDER_ID  => 2;
 #   So we need to memorize which current best grammar was used for such a run.
 #   Another example is the maximum runtime allowed to this run because this runtime will be
 #   adapted during the progressing grammar simplification.
+#   - CL_snippet (gendata etc. but not grammar) which is the same for any RQG run serving
+#     grammar simplification
+#   - grammar to be used <m>.yy for the replay attempt
+#     Attention: The RQG runner will later work with his personal copy named rqg.yy.
+#   - parent grammar b<n>.yy which was used for constructing the grammar <m>.yy by applying
+#     the simplification (*) WORKER_ORDER_ID is pointing to.
+#     The parent grammar is the best known grammar (b<n>.yy with highest <n>) at the time of
+#     generation of <m>.yy.
+#     (*) Something like "remove the component 'DROP TABLE t1' from the rule 'query'".
+#   - grammar to be used <m>.yy
+#     Attention: The RQG runner will later work with his personal copy named rqg.yy.
+#   - maximum runtime for the RQG run assigned
+#     Only relevant in case we go with adaptive runtimes.
+#     This is some extrapolated timespan for the complete RQG run (gendata + duration(gentest)
+#     + comparison if required + archiving + ...) which should ensure that >= 85% of all simplified
+#     grammars which are capable to replay have replayed.
+#     So in some sense this runtime defines what some sufficient long run is and the size changes
+#     during the simplification process.
 use constant WORKER_EXTRA1    => 3;
 use constant WORKER_EXTRA2    => 4;
 use constant WORKER_EXTRA3    => 5;
@@ -513,7 +530,7 @@ my $next_comb_id  = 0;
 
 if (not defined $max_runtime) {
     $max_runtime = 432000;
-    my $max_days = 432000 / 24 / 3600;
+    my $max_days = $max_runtime / 24 / 3600;
     say("INFO: Setting the maximum runtime to the default of $max_runtime" . "s ($max_days days).");
 }
 my $batch_end_time = $batch_start_time + $max_runtime;
@@ -820,7 +837,8 @@ while(1) {
                 # work well. It is currently not known how good these routines work on WIN.
                 # Caused by the possible presence of WIN we cannot poll for a change of the
                 # processgroup of the RQG worker. We just focus on 2. instead.
-                my $max_waittime  = 10;
+                # 2018-08 $max_waittime = 10 was too short on Marko's box.
+                my $max_waittime  = 20;
                 my $waittime_unit = 0.2;
                 my $end_waittime  = Time::HiRes::time() + $max_waittime;
                 my $phase         = Auxiliary::get_rqg_phase($rqg_workdir);
