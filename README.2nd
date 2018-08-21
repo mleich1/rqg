@@ -54,7 +54,7 @@ Collection of hints (under construction)
        b) Something bad on the testing box happened like another MariaDB server
           occupies ports or required files were deleted or file system full etc.
           Than STATUS_ENVIRONMENT_FAILURE is quite perfect except somebody assumes to get
-          this status only at begin of the test.
+          this status only or already at begin of the test.
        c) In (3) the server misbehaved so that his data is non recoverable damaged.
           And that prevents to get success on server restart.
           Than STATUS_DATABASE_CORRUPTION or similar would be better.
@@ -151,16 +151,16 @@ DONE (incomplete and arbitrary sorted list):
 1. Introduce the capability to define a
    - whitelist desired statuses + desired text patterns
    - blacklist unwanted statuses + unwanted text patterns
-   including defaults (STATUS_ANY is desired and STATUS_OK is unwanted).
+   including (hopefully) reasonable defaults (STATUS_ANY is desired and STATUS_OK is unwanted).
 2. Implement a routine which processes a file (log of RQG run) and  gives a verdict based on
    these lists.
 3. Implement some new RQG runner (rqg.pl) which
    1. performs a RQG run according to the setup supplied
-   2. calculates the verdict after the RQG run finished
+   2. calculates the verdict based on balck/whitelist matching after the RQG run finished
    3. performs a (hopefully) perfect cleanup including archiving according to the verdict got
 4. Implement a new RQG tool (rqg_batch.pl) which performs a batch of RQG runs according to the
    setup supplied. rqg_batch.pl uses rqg.pl.
-   This tool replaces (at least at my work)
+   This tool replaces (at least for my tasks)
    - immediate bughunt.pl, combinations.pl
    - in future also util/simplify-grammar.pl
    Certain features for efficient job management will get added in future.
@@ -169,6 +169,8 @@ DONE (incomplete and arbitrary sorted list):
    This is some intermediate solution because the new far way superior grammar simplification
    mechanism to be implemented somewhere in future requires informations at runtime and
    functionality to priorize future jobs or stop ongoing jobs which is best placed in rqg_batch.pl.
+   So the final solution will be: In case certain options get supplied than rqg_batch.pl
+   controls and performs the grammar simplification.
 6. rqg.pl, rqg_batch.pl and util/new-simplify-grammar.pl follow some extreme strict regulations
    regarding placement of files, cleanup etc.
 7. Extend the grammar simplification algorithm so that all top level rules get simplified.
@@ -278,23 +280,90 @@ TODO (incomplete list):
    4. Add maybe the option to not remove components of rules which contain the keywords DROP or
       DELETE.
       Background:
-      As soon as we remove such components we are non rare faced with some serious growth of the
-      storage space consumption which is counter productive in many aspects
-      1. It might cause some OS breakdown in case of placing the vardir on a filesystem of type
-         tmpfs as long as we have no load/resource control mechanism which prevents trouble.
-      2. Especially without but also with a load/resource control mechanism we are faced with
-         that the current MariaDB and also MySQL the server tend to assert with
-            InnoDB error 28 (no space on disk)
-         and the debugger analyzing the core file (reporter Backtrace) reports frequent
-            BFD: Warning: .....data/core is truncated:
-                          expected core file size >= 959647744, found: 55398400.
-         I have no fixed opinion regarding if its better to assert with core or to make something
-         like an emergency shutdown of the server without core.
-         Even a clever RQG resource control and emergency shutdowns can prevent that maybe
-         even one RQG test with one server consumes all available storage space.
-         And the result of the test is of no value.
-         So as long as we do not jeopardize the goal of the test its better to prevent avoid
-         that trouble by all means we have.
+      - As soon as we remove such components we are non rare faced with some serious growth of the
+        storage space consumption which is counter productive in many aspects
+        1. It might cause some OS breakdown in case of placing the vardir on a filesystem of type
+           tmpfs as long as we have no load/resource control mechanism which prevents trouble.
+        2. Especially without but also with a load/resource control mechanism we are faced with
+           that the current MariaDB and also MySQL the server tend to assert with
+              InnoDB error 28 (no space on disk)
+           and the debugger analyzing the core file (reporter Backtrace) reports frequent
+              BFD: Warning: .....data/core is truncated:
+                            expected core file size >= 959647744, found: 55398400.
+           I have no fixed opinion regarding if its better to assert with core or to make something
+           like an emergency shutdown of the server without core.
+           Even a clever RQG resource control and emergency shutdowns can prevent that maybe
+           even one RQG test with one server consumes all available storage space.
+           And the result of the test is of no value.
+           So as long as we do not jeopardize the goal of the test its better to prevent avoid
+           that trouble by all means we have.
+      - The simplifier produces grammars which are capable to replay but start to need to require
+        far way more test runs.
+        Example:
+        Assume that some assert happens during CREATE TABLE <not yet existing table> meeting certain
+        concurrent SQL. The simplifier will detect that some corresponding DROP TABLE <sample table>
+        is not required for replaying the assert. Hence it will shrink the DROP away.
+        But that leads to the following change in properties to replay
+        1. The average runtime of replaying runs decreases negligible.
+        2. We need serious more replay attempts because we either replay with some extreme short
+           RQG run or never in this run no matter how long it lasts because after some one and only
+           passing CREATE TABLE any future CREATE TABLE will fail because that table already exists.
+      I think already since some time about
+      - first phase A of simplification:
+        "Do not attack SQL containing DROP (schema, table, key, trigger, .... ) or DELETE at all.
+        Final result of this phase is grammar a.
+      - later phase B:
+        Take grammar a and attack DROP/DELETE but check for any shrinked grammar which replays if
+        the likelihood to replay has dropped. If yes, than revert this simplification.
+        Final result of this phase is grammar b.
+      - later phase C or somehow joined with B:
+        Take grammar b and now attack DROP/DELETE too.
+        Final result of this phase is grammar c.
+      How to use these grammars later:
+      - ignore or drop grammar a. Depending on point of view either grammar b orc is better.
+      - Present the bug fixer grammar c as example which SQL the bug needs
+      - From now on use grammar c for any replay attempt. Its the most efficient.
+   5. The first step within the grammar simplification process is:
+      Try to replay with the original YY grammar and give up in case that goal was not achieved.
+      Handle this amount iof trials better if required.
+   6. Modify the grammar simplifier so that GRAMMAR_FLAG_COMPACT_RULES is at least no more
+      the default.
+      Example:
+      rule1: update | insert | delete | insert ;
+      Old
+      ---
+      Use as base:    rule1: update | delete | insert ;
+      and try in worst case
+          rule1: update | delete          ;
+          rule1: update |          insert ;
+          rule1:          delete | insert ;
+      New
+      ---
+      Use as base:    rule1: update | insert | delete | insert ;
+      and try in worst case
+          rule1: update |          delete          ;
+          rule1: update | insert |          insert ;
+          rule1:          insert | delete | insert ;
+      Advantages per already existing experience:
+      a) In case the fact that certain components occur several times plays a positive role on
+         simplification than this gets preserved.
+         Note: Non rare but also less than medium frequent observed.
+               The several time playing a negative role was rare observed.
+               In sum: Not that important.
+      b) At simplification start we have only experiences with grammars where the
+         GRAMMAR_FLAG_COMPACT_RULES was not applied. But we base the grammar simplifier setup
+         on these experiences.
+         Applying GRAMMAR_FLAG_COMPACT_RULES has medium frequent some drastic impact on resource
+         consumption and that is sometimes quite strong to the bad.
+         consumption during runtime. At simplification start we have only experiences with
+         the grammar without GRAMMAR_FLAG_COMPACT_RULES.
+          rule1: update | insert | delete | insert ;
+          rule1: update | insert | delete | insert ;
+   7. Simplify also the amount of reporters, validators, transformers and threads.
+      Open:
+      Whatever simplification (grammar, reporters, ...) goes with steps doing different things.
+      - So which order of steps to use?
+      - How to avoid that we trade simplification and replay speed for simplicity?
 -- Improve RQG components like reporters and validators as soon as I am forced to use them and
    meet trouble.
    This might sound banal but per my experience many parts of RQG are the opposite of well prepared
@@ -305,7 +374,7 @@ TODO (incomplete list):
 -- Ugly observation (2018-08)
    During grammar simplification range_access.yy shows some disastrous runtime behaviour.
    After quite short runtime the perl processes for the threads consumed more memory than
-   the DB server. I guess this problem is caused by the"stack" feature of RQG.
+   the DB server. I guess this problem is caused by the "stack" feature of RQG.
    No idea who will fix that problem.
 -- https://jira.mariadb.org/browse/MDEV-16863 Extend the RQG infrastructure for backup testing
    Given the fact that we already have some crowd of RQG tests checking roughly all kinds ofcw
@@ -319,6 +388,13 @@ TODO (incomplete list):
    4. Run check table in server 2
    5. If no trouble during 4. shutdown of server 2 + destroy his data + run next loop round.
       If trouble terminate the test.
+   Some prototype was already pushed.
+-- Develop a program which is capable to check if the protocol of some RQG run matches the
+   blacklist/whitelist statuses/patterns setting provided in some config file.
+-- Describe the work flow from
+   1. bug hunting with RQG tests (rqg_batch.pl with cc config file)
+   2. grammar simplification for one or more of the bugs found in 1.
+   3. How to develop ibased on 2. some final replay testcase which is maybe MTR based.
 
 
 
