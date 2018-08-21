@@ -543,18 +543,9 @@ File::Copy::copy($config_file, $workdir . "/combinations.cc");
 
 # system("find $workdir $vardir");
 
-# FIXME: Why that fiddling with basedirs and servers
-#        Doesn't that all come through the cc file?
-#        Or at least the cc file could set that.
-# if (!defined $servers) {
-#     $servers = 1;
-#     $servers = 2 if $basedirs[1] ne '';
-# }
-# croak "--servers may only be 1 or 2" if !($servers == 1 or $servers == 2);
-
 my $logToStd = !osWindows() && !$noLog;
 
-# say("DEBUG: logToStd is ->$logToStd<-");
+say("DEBUG: logToStd is ->$logToStd<-") if $script_debug;
 
 if (not defined $workers) {
     if (osWindows()) {
@@ -837,7 +828,7 @@ while(1) {
                 # work well. It is currently not known how good these routines work on WIN.
                 # Caused by the possible presence of WIN we cannot poll for a change of the
                 # processgroup of the RQG worker. We just focus on 2. instead.
-                # 2018-08 $max_waittime = 10 was too short on Marko's box.
+                # Observation: 2018-08 10s were not sufficient on some box.
                 my $max_waittime  = 20;
                 my $waittime_unit = 0.2;
                 my $end_waittime  = Time::HiRes::time() + $max_waittime;
@@ -1124,23 +1115,49 @@ sub reap_workers {
                     "'$exit_status' and verdict '$verdict' reaped.");
 
                 my $rqg_log       = "$rqg_workdir" . "/rqg.log";
+                my $rqg_arc       = "$rqg_workdir" . "/archive.tgz";
 
-                my $target_prefix = $workdir . "/" . $order_id . '_' . $verdict_collected;
-                my $save_log_cmd  = "mv $rqg_log  $target_prefix" . ".log";
-                my $save_arc_cmd  = "mv $rqg_workdir" . "/archive.tgz $target_prefix" . ".tgz";
-                my $clean_cmd     = "rm -rf $rqg_vardir $rqg_workdir";
+                my $target_prefix_rel = $verdict_collected;
+                my $target_prefix     = $workdir . "/" . $target_prefix_rel;
+                my $saved_log_rel     = $target_prefix_rel . ".log";
+                my $saved_log         = $target_prefix     . ".log";
+                my $saved_arc         = $target_prefix     . ".tgz";
+
+                # Note:
+                # The next two routines get used because the standard failure handling is to make
+                # an emergency_exit and not just some simple exit.
+                sub save_file {
+                    # Note: Auxiliary::rename_file runs checks if files exist or not etc.
+                    my ($source_file, $target_file) = @_;
+                    if (STATUS_OK != Auxiliary::rename_file($source_file, $target_file)) {
+                        emergency_exit(STATUS_ENVIRONMENT_FAILURE,
+                            "ERROR: This must not happen.");
+                    }
+                }
+                sub drop_directory {
+                    my ($directory) = @_;
+                    if (-d $directory) {
+                        if(not File::Path::rmtree($directory)) {
+                            say("ERROR: Removal of the directory '$directory' failed. : $!.");
+                            emergency_exit(STATUS_ENVIRONMENT_FAILURE,
+                                "ERROR: This must not happen.");
+                        }
+                    }
+                }
 
                 if ($verdict eq Verdict::RQG_VERDICT_IGNORE) {
                     if (not $discard_logs) {
-                        system($save_log_cmd);
+                        save_file($rqg_log, $saved_log);
+                    } else {
+                        $saved_log_rel = "<deleted>";
                     }
                     $verdict_ignore++;
                     $order_array[$order_id][ORDER_EFFORTS_INVESTED]++;
                     $order_array[$order_id][ORDER_EFFORTS_LEFT]--;
                 } elsif ($verdict eq Verdict::RQG_VERDICT_INTEREST or
                          $verdict eq Verdict::RQG_VERDICT_REPLAY) {
-                    system($save_log_cmd);
-                    system($save_arc_cmd);
+                    save_file($rqg_log, $saved_log);
+                    save_file($rqg_arc, $saved_arc);
                     if ($verdict eq Verdict::RQG_VERDICT_INTEREST) {
                         $verdict_interest++;
                     } else {
@@ -1158,8 +1175,8 @@ sub reap_workers {
                         # This should usually never happen and is than most probably systematic.
                         say("INTERNAL ERROR: Final Verdict is Verdict::RQG_VERDICT_INIT which " .
                             "should not happen.");
-                        system($save_log_cmd);
-                        system($save_arc_cmd);
+                        save_file($rqg_log, $saved_log);
+                        save_file($rqg_arc, $saved_arc);
                     }
                     # Do not touch ORDER_EFFORTS_INVESTED or ORDER_EFFORTS_LEFT
                 } else {
@@ -1167,12 +1184,13 @@ sub reap_workers {
                         "INTERNAL ERROR: Final Verdict '$verdict' is not treated/unknown. " .
                         "This should not happen.");
                 }
-                system($clean_cmd);
+                drop_directory($rqg_vardir);
+                drop_directory($rqg_workdir);
 
                 my $command = $order_array[$order_id][ORDER_PROPERTY1];
 
                 say("Verdict: $verdict -- $command") if $script_debug;
-                my $my_string = "$verdict_collected # $verdict # $command\n";
+                my $my_string = "$verdict_collected # $verdict # $order_id # $saved_log_rel # $command\n";
                 if (STATUS_OK != Auxiliary::append_string_to_file($result_file, $my_string)) {
                     emergency_exit(STATUS_CRITICAL_FAILURE,
                         "ERROR: Appending a string to the result file '$result_file' failed.\n" .
