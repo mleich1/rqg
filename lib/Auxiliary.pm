@@ -1706,9 +1706,7 @@ sub unify_grammar {
         # Already started servers need to be killed manually!
     } else {
         if (! -f $grammar_file) {
-            say("ERROR: Grammar file '$grammar_file' does not exist or is not a plain file.\n" .
-                "Will return STATUS_ENVIRONMENT_FAILURE.");
-            return STATUS_ENVIRONMENT_FAILURE;
+            Carp::confess("ERROR: Grammar file '$grammar_file' does not exist or is not a plain file.");
         }
     }
     if (not defined $redefine_ref) {
@@ -1737,8 +1735,7 @@ sub unify_grammar {
     if ($mask > 0 and $mask_level > 0) {
         my @top_rule_list = $grammar_obj->top_rule_list();
         if (0 == scalar @top_rule_list) {
-            say("ERROR: We had trouble. Will return STATUS_ENVIRONMENT_FAILURE.");
-            return STATUS_ENVIRONMENT_FAILURE;
+            Carp::confess("ERROR: We had trouble with grammar_obj->top_rule_list().");
         } else {
             my $grammar1          = $grammar_obj->toString;
             say("DEBUG: The top rule list is '" . join ("', '", @top_rule_list) . "'.");
@@ -1755,10 +1752,9 @@ sub unify_grammar {
     my $grammar_string = $grammar_obj->toString;
     $grammar_file   = $workdir . "/rqg.yy";
     if (STATUS_OK != Auxiliary::make_file($grammar_file, $grammar_string)) {
-        say("ERROR: We had trouble. Will return STATUS_ENVIRONMENT_FAILURE.");
-        return STATUS_ENVIRONMENT_FAILURE;
+        Carp::confess("ERROR: We had trouble generating the final YY grammar.");
     } else {
-        return STATUS_OK;
+        return $grammar_file;
     }
 
 }

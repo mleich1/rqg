@@ -542,10 +542,10 @@ if (not defined $no_mask) {
     $no_mask    = undef;
 }
 
-my $return = Auxiliary::unify_grammar($grammar_file, $redefine_ref, $workdir,
+my $grammar_file = Auxiliary::unify_grammar($grammar_file, $redefine_ref, $workdir,
                                       $skip_recursive_rules, $mask, $mask_level);
-if (STATUS_OK != $return) {
-    say("ERROR: unify_grammar failed with $return.");
+if (not defined $grammar_file) {
+    say("ERROR: unify_grammar failed.");
     my $status = STATUS_ENVIRONMENT_FAILURE;
     say("$0 will exit with exit status " . status2text($status) . "($status)");
     run_end($status);
