@@ -937,6 +937,34 @@ while (reap_workers()) {
 Batch::dump_queues();
 Batch::dump_orders();
 
+# I do not care if creating or filling asserts.txt with data fails because the main
+# - work is already done with success
+# - share of information given from now on does not require a proper OS, file system etc.
+
+# The typical assert message within the RQG log looks like
+# 2018-08-22T17:45:25 [76678] | mysqld: /work_m/10.3/storage/innobase/row/row0log.cc:681: void row_log_table_delete(const rec_t*, dict_index_t*, const ulint*, const byte*): Assertion `new_index->n_uniq == index->n_uniq' failed.
+my $asserts_file = $workdir . "/asserts.txt";
+Auxiliary::make_file($asserts_file,
+                     "Information about asserts hit\n=============================\n");
+Auxiliary::append_string_to_file($asserts_file,
+                                 "Unique asserts\n" .
+                                 "--------------\n");
+my $assert_pattern = "\\[.*\\] \\| mysqld: .* Assertion .* failed";
+# Remove the RQG test run specific part
+# /mnt/r0/mleich/RQG_new/storage/1534941044/1.log:# 2018-08-22T14:33:20 [128561] | mysqld:
+my $egalize        = "sed -e '1,\$s/.* \| mysqld: /mysqld: /g'";
+
+print("\n\n ->egrep -h -e '$assert_pattern' $workdir/*.log | $egalize | sort -u >> $asserts_file<-\n\n");
+system("egrep -h -e '$assert_pattern' $workdir/*.log | $egalize | sort -u >> $asserts_file");
+Auxiliary::append_string_to_file($asserts_file,
+                                 "\nAll asserts sorted (frequency)\n" .
+                                 "------------------------------\n");
+system("egrep -h -e '$assert_pattern' $workdir/*.log | $egalize | sort >> $asserts_file");
+Auxiliary::append_string_to_file($asserts_file,
+                                 "\nAll asserts with file\n" .
+                                 "---------------------\n");
+system("egrep -H -e '$assert_pattern' $workdir/*.log | sort >> $asserts_file");
+
 say("\n\n"                                                                                         .
     "STATISTICS: Number of RQG runs -- Verdict\n"                                                  .
     "STATISTICS: $verdict_replay -- '" . Verdict::RQG_VERDICT_REPLAY . "'-- "                    .
@@ -1111,8 +1139,8 @@ sub reap_workers {
 
                 my $verdict       = Verdict::get_rqg_verdict($rqg_workdir);
                 $verdict_collected++;
-                say("INFO: Worker [$worker_num] with (process) exit status " .
-                    "'$exit_status' and verdict '$verdict' reaped.");
+                say("DEBUG: Worker [$worker_num] with (process) exit status " .
+                    "'$exit_status' and verdict '$verdict' reaped.") if $script_debug;
 
                 my $rqg_log       = "$rqg_workdir" . "/rqg.log";
                 my $rqg_arc       = "$rqg_workdir" . "/archive.tgz";
