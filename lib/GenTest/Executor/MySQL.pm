@@ -197,6 +197,7 @@ use constant  ER_FT_MATCHING_KEY_NOT_FOUND                      => 1191;
 use constant  ER_LOCK_OR_ACTIVE_TRANSACTION                     => 1192;
 use constant  ER_UNKNOWN_SYSTEM_VARIABLE                        => 1193;
 use constant  ER_CRASHED_ON_USAGE                               => 1194;
+use constant  ER_CRASHED_ON_REPAIR                              => 1195; # In minimum Aria
 use constant  ER_TRANS_CACHE_FULL                               => 1197;
 use constant  ER_LOCK_WAIT_TIMEOUT                              => 1205;
 use constant  ER_LOCK_DEADLOCK                                  => 1213;
@@ -445,6 +446,7 @@ my %err2type = (
     ER_CRASHED1()                                       => STATUS_DATABASE_CORRUPTION,
     ER_CRASHED2()                                       => STATUS_DATABASE_CORRUPTION,
     ER_CRASHED_ON_USAGE()                               => STATUS_DATABASE_CORRUPTION,
+    ER_CRASHED_ON_REPAIR()                              => STATUS_DATABASE_CORRUPTION,
     ER_DATA_OUT_OF_RANGE()                              => STATUS_SEMANTIC_ERROR,
     ER_DATA_TOO_LONG()                                  => STATUS_SEMANTIC_ERROR,
     ER_DBACCESS_DENIED_ERROR()                          => STATUS_SEMANTIC_ERROR,
@@ -1157,11 +1159,17 @@ sub execute {
       # Now we have excluded certain classes of failing statements where all what follows
       # makes no sense up till additional trouble with not initialized values etc.
       #
+      # (mleich)
+      # What follows gets only executed if   rqg_debug() ....  hence it
+      # - runs not often
+      #   I appreciate that because its serious overhead and maybe dangerous(what if KILL QUERY..)
+      #   especially for DDL/DML concurrency crash testing.
+      # - was not seen as very important when it was written.
       # EXPLAIN on for example DELETE works. But no idea if an explain on that would be valuable
       # or if the counters collected here are of serious value at all.
-      #
-      # An EXPLAIN SELECT ... INTO @<user_variable> harvests systematic that the return of
+      # SELECT ... INTO @user_variable harvests systematic that the return of
       # $result->rows() is not defined. So exclude that kind of SELECT.
+      #
       if ( (rqg_debug()) && (! ($execution_flags & EXECUTOR_FLAG_SILENT)) ) {
          if (($query =~ m{^\s*select}sio) and (not $query =~ m{^\s*select\s.*into @}sio)) {
             $executor->explain($query);
