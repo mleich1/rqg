@@ -324,7 +324,7 @@ $SIG{CHLD} = "IGNORE" if osWindows();
 my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar, $gendata,
     $seed, $testname, $xml_output, $report_xml_tt, $report_xml_tt_type, $max_runtime,
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
-    $workers, $new, $servers, $noshuffle, $workdir, $discard_logs, $help, $runner,
+    $workers, $servers, $noshuffle, $workdir, $discard_logs, $help, $runner,
     $stop_on_replay, $script_debug, $runid, $threads);
 
 # my @basedirs    = ('', '');
@@ -954,7 +954,6 @@ my $assert_pattern = "\\[.*\\] \\| mysqld: .* Assertion .* failed";
 # /mnt/r0/mleich/RQG_new/storage/1534941044/1.log:# 2018-08-22T14:33:20 [128561] | mysqld:
 my $egalize        = "sed -e '1,\$s/.* \| mysqld: /mysqld: /g'";
 
-print("\n\n ->egrep -h -e '$assert_pattern' $workdir/*.log | $egalize | sort -u >> $asserts_file<-\n\n");
 system("egrep -h -e '$assert_pattern' $workdir/*.log | $egalize | sort -u >> $asserts_file");
 Auxiliary::append_string_to_file($asserts_file,
                                  "\nAll asserts sorted (frequency)\n" .
@@ -967,13 +966,13 @@ system("egrep -H -e '$assert_pattern' $workdir/*.log | sort >> $asserts_file");
 
 say("\n\n"                                                                                         .
     "STATISTICS: Number of RQG runs -- Verdict\n"                                                  .
-    "STATISTICS: $verdict_replay -- '" . Verdict::RQG_VERDICT_REPLAY . "'-- "                    .
+    "STATISTICS: $verdict_replay -- '" . Verdict::RQG_VERDICT_REPLAY . "'-- "                      .
                  "Replay of desired effect (Whitelist match, no Blacklist match)\n"                .
-    "STATISTICS: $verdict_interest -- '" . Verdict::RQG_VERDICT_INTEREST . "'-- "                .
+    "STATISTICS: $verdict_interest -- '" . Verdict::RQG_VERDICT_INTEREST . "'-- "                  .
                  "Otherwise interesting effect (no Whitelist match, no Blacklist match)\n"         .
-    "STATISTICS: $verdict_ignore -- '" . Verdict::RQG_VERDICT_IGNORE . "'-- "                    .
+    "STATISTICS: $verdict_ignore -- '" . Verdict::RQG_VERDICT_IGNORE . "'-- "                      .
                  "Effect is not of interest(Blacklist match or STATUS_OK)\n"                       .
-    "STATISTICS: $verdict_init -- '" . Verdict::RQG_VERDICT_INIT . "'-- "                        .
+    "STATISTICS: $verdict_init -- '" . Verdict::RQG_VERDICT_INIT . "'-- "                          .
                  "RQG run too incomplete (maybe stopped)\n"                                        .
     "STATISTICS: $verdict_collected -- Some verdict made.\n")                                      ;
 say("STATISTICS: Total runtime in seconds : " . (time() - $batch_start_time))                      ;
