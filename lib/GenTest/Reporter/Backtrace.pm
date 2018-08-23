@@ -147,9 +147,9 @@ sub nativeReport {
     # finding a core, getting a backtrace and throwing STATUS_SERVER_CRASHED.
     # Conclusion: Wait longer for the core file showing up.
     # Per first try: Polling for the core helped 100%.
-    #
+    # 2018-08-20 90s is frequent too short.
 
-    $wait_timeout   = 90;
+    $wait_timeout   = 270;
     $start_time     = Time::HiRes::time();
     $max_end_time   = $start_time + $wait_timeout;
     my $core;
@@ -256,6 +256,17 @@ sub nativeReport {
         my $output = `$command`;
         say("$output");
         push @debugs, [$command, $output];
+
+        # Observation 2018-07-12
+        # During some grammar simplification run the grammar loses its balance (INSERTS remain,
+        # DELETE is gone) and caused by this and some other things we end up in rapid increasing
+        # space consumption --> no more space on tmpfs which than causes
+        # - fail in bootstrap
+        # - storage engine reports error 28 (disk full), the server asserts and gdb tells
+        #   BFD: Warning: /dev/shm/vardir/1531326733/23/54/1/data/core is truncated:
+        #   expected core file size >= 959647744, found: 55398400.
+        #   --> Add it to the default black list patterns
+
     }
 
 
