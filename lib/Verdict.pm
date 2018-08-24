@@ -292,7 +292,7 @@ sub check_normalize_set_black_white_lists {
         # Optional splitting of first value is not supported if having more than one value.
         # So do nothing.
     } else {
-        say("BEBUG: \$blacklist_patterns[0] ->" . $blacklist_patterns[0] . "<-") if $script_debug;
+        say("DEBUG: \$blacklist_patterns[0] ->" . $blacklist_patterns[0] . "<-") if $script_debug;
         my $result = Auxiliary::surround_quote_check($blacklist_patterns[0]);
         say("Result of surround_quote_check : $result") if $script_debug;
         if      ('no quote protection' eq $result) {
@@ -302,7 +302,7 @@ sub check_normalize_set_black_white_lists {
             $failure_met = 1;
         } elsif ('single quote protection' eq $result or 'double quote protection' eq $result) {
             # The value is well formed and comes from a command line?
-            say("Sending blacklist_patterns to input_to_list");
+            say("Sending blacklist_patterns to input_to_list.") if $script_debug;
             $list_ref = Auxiliary::input_to_list(@blacklist_patterns);
             if(defined $list_ref) {
                 @blacklist_patterns = @$list_ref;
@@ -327,7 +327,7 @@ sub check_normalize_set_black_white_lists {
 } # End of sub check_normalize_set_black_white_lists
 
 
-sub black_white_lists_to_option_string {
+sub black_white_lists_to_config_snip {
 #
 # Purpose
 # -------
@@ -361,22 +361,57 @@ sub black_white_lists_to_option_string {
 #   than some additional protection of the single quotes via '\' is required.
 # I am searching for some better solution.
 #
+
+    my ($config_type) = @_;
+    if (1 != scalar @_) {
+        Carp::confess("INTERNAL ERROR: black_white_lists_to_config_snip : " .
+                      "one parameter (config_type) is required.");
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    }
+    if (not defined $config_type) {
+        Carp::confess("INTERNAL ERROR: black_white_lists_to_config_snip : ".
+                      "The parameter (config_type) is undef.");
+    }
+    my $extra1; # Used for protecting single quotes if required.
+    my $extra2; # Used for the extra '--' if required.
+    my $extra3; # Used for the extra '=' or '    =>   [' if required.
+    my $extra4; # Used for the extra '],' if required.
+    my $extra5; # Used for the extra '],' if required.
+                # A superfluos ',' makes no trouble.
+    my $extra6  = '    ';
+    if      ($config_type eq 'cc') {
+        $extra5 = '';
+        $extra1 = '\\';
+        $extra2 = $extra6 . '--';
+        $extra3 = '="';
+        $extra4 = '"';
+    } elsif ($config_type eq 'cfg') {
+        $extra5 = "\n" . $extra6 . $extra6;
+        $extra1 = '';
+        $extra2 = $extra6 . '';
+        $extra3 = '    =>   [' . $extra5;
+        $extra4 = "\n" . $extra6 . '],';
+    } else {
+        Carp::confess("INTERNAL ERROR: black_white_lists_to_config_snip : ".
+                      "config_type '$config_type' is unknown (neither 'cc' nor 'cfg')");
+    }
+
     if (not $bw_lists_set) {
-        Carp::cluck("INTERNAL ERROR: black_white_lists_to_option_string was called before " .
+        Carp::cluck("INTERNAL ERROR: black_white_lists_to_config_snip : " .
                     "the call of check_normalize_set_black_white_lists.");
     }
 
     sub give_value_list {
-        my (@input)      = @_;
+        my ($extra1, $extra5, @input)      = @_;
         my $has_elements = 0;
         my $result;
         foreach my $element (@input) {
             if (defined $element) {
                 if ($has_elements) {
-                    # Non first element, so with <comma><element>
-                    $result = $result . ",\\'$element\\'";
+                    $result = $result . "," . $extra5 . "$extra1" . "'$element" . "$extra1" . "'";
                 } else {
-                    $result = "\\'$element\\'";
+                    $result = "$extra1" . "'$element" . "$extra1" . "'";
                 }
             } else {
                 # Nothing initial assigned lands here.
@@ -391,26 +426,28 @@ sub black_white_lists_to_option_string {
     }
     my $content = '';
     my $result;
-    my $option_string = ' ';
-    $result = give_value_list (@whitelist_statuses) ;
+    my $config_snip = '';
+    $result = give_value_list ($extra1, $extra5, @whitelist_statuses) ;
     if (defined $result) {
-        $option_string = $option_string . ' --whitelist_statuses="' . $result . '"';
+        $config_snip = $config_snip . $extra2 . 'whitelist_statuses' . $extra3 . $result . $extra4 . "\n";
     }
-    $result = give_value_list (@whitelist_patterns) ;
+    $result = give_value_list ($extra1, $extra5, @whitelist_patterns) ;
     if (defined $result) {
-        $option_string = $option_string . ' --whitelist_patterns="' . $result . '"';
+        $config_snip = $config_snip . $extra2 . 'whitelist_patterns' . $extra3 . $result . $extra4 . "\n";
     }
-    $result = give_value_list (@blacklist_statuses) ;
+    $result = give_value_list ($extra1, $extra5, @blacklist_statuses) ;
     if (defined $result) {
-        $option_string = $option_string . ' --blacklist_statuses="' . $result . '"';
+        $config_snip = $config_snip . $extra2 . 'blacklist_statuses' . $extra3 . $result . $extra4 . "\n";
     }
-    $result = give_value_list (@blacklist_patterns) ;
+    $result = give_value_list ($extra1, $extra5, @blacklist_patterns) ;
     if (defined $result) {
-        $option_string = $option_string . ' --blacklist_patterns="' . $result . '"';
+        $config_snip = $config_snip . $extra2 . 'blacklist_patterns' . $extra3 . $result . $extra4 . "\n";
     }
 
-    return $option_string;
-} # End of sub black_white_lists_to_option_string
+    return $config_snip;
+} # End of sub black_white_lists_to_config_snip
+
+
 
 use constant RQG_VERDICT_INIT               => 'init';
                  # Initial value == Up till now no analysis started or finished.
@@ -445,7 +482,7 @@ sub calculate_verdict {
     # So we push in maximum the last 100000000 bytes of the log into $content.
     my $content = Auxiliary::getFileSlice($file_to_search_in, 100000000);
     if (not defined $content) {
-        say("FIXME: No content got. Handle that");
+        say("ERROR: calculate_verdict: No RQG log content got. Will return undef.");
         return undef;
     } else {
         say("DEBUG: Auxiliary::getFileSlice got content : ->$content<-") if $script_debug;
@@ -588,35 +625,84 @@ sub get_rqg_verdict {
 
 
 sub help_verdict {
-    say("Help for Verdict and Black list/White list setup\n"                                   .
-        "-----------------------------------------------------------------\n"                  .
-        "Purpose:\n"                                                                           .
-        "In order to reach certain goals of RQG tools we need to have some mechanisms which\n" .
-        "- allow to define how desired and unwanted results look like\n"                       .
-        "      black and white lists of RQG statuses and text patterns in RQG run protocols\n" .
-        "- inspect the results of some finished RQG run and give some verdict which can be\n"  .
-        "  than used by RQG tools and also inform the user.\n"                                 .
-        "Any matching is performed against the content of the RQG protocol only.\n"            .
-        "The status matching accepts strings starting with 'STATUS_' only.\n"                  .
-        "The supported values are in lib/GenTest/Constants.pm.\n"                              .
-        "The status matching will not check the input against this file.\n"                    .
-        "STATUS_ANY matches any status != STATUS_OK\n\n"                                       .
-        "The text pattern matching is restricted to a region starting with\n"                  .
-        "    " . MATCHING_START . "\n"                                                         .
-        "and ending with\n"                                                                    .
-        "    " . MATCHING_END   . "\n"                                                         .
-        "Comma has to be used as separator between different values.\n"                        .
-        "Also using single quotes around the values is highly recommended because "            .
-        "otherwise mechanisms might split at the wrong position.\n"                            .
-        "Example for command line:\n"                                                          .
-        "   ... --blacklist_statuses=\"'STATUS_OK','STATUS_ENVIRONMENT_FAILURE'\" ... \n"      .
-        "Example for config file:\n"                                                           .
-        "   whitelist_statuses => [\n"                                                         .
-        "       \'STATUS_SERVER_CRASHED\',\n"                                                  .
-        "       \'STATUS_DATABASE_CORRUPTION\',\n"                                             .
-        "   ],\n");
-}
 
+print <<EOF
+
+Help for Verdict and Black list/White list setup
+------------------------------------------------
+In order to reach certain goals of RQG tools we need to have some mechanisms which
+- allow to define how desired and unwanted results look like
+      black and white lists of RQG statuses and text patterns in RQG run protocols
+- inspect the results of some finished RQG run, give a verdict and inform the user.
+
+Verdicts:
+'ignore'   -- STATUS_OK got or blacklist parameter match or RQG run stopped because
+              of special reasons
+'interest' -- No STATUS_OK got and no blacklist parameter match but also no whitelist
+              parameter match
+'replay'   -- whitelist parameter match and no blacklist parameter match
+              == desired outcome
+Some examples how RQG tools exploit that verdict (except disabled):
+RQG runner (rqg.pl):
+   Verdict 'replay', 'interest' : Archive remainings of that RQG run.
+   Verdict 'ignore' : Delete everything of that RQG run.
+                      --> Nothing left over to check, save storage space
+RQG batch runner (rqg_batch.pl):
+   Let rqg.pl do the job and archive or clean up according to verdict.
+   Make a summary about RQG runs and their verdicts in <workdir>/results.txt.
+   Report the best (order is 'replay', 'interest', ignore') verdict got to the caller.
+   If "stop_on_replay" was assigned and one RQG run achieved the verdict 'replay'
+   stop immediate all ongoing RQG runs managed, give a summary and exit.
+RQG grammar simplifier(new-simplify-grammar.pl)
+   current !intermediate! version:
+      Let rqg_batch.pl with "stop_on_replay" do the job.
+      Conclude based on the verdict given by rqg_batch.pl if some simplified version
+      of the base grammar replayed or not.
+      The archived RQG runs with 'interest' do not support the simplification process
+      direct but are some welcome sideeffect. Collect more bad effects which could be
+      replayed with the current hopefully not that big grammar.
+   planned final version (serious more powerful simplifier):
+      All functionality required for simplification will get moved to/implemented
+      in rqg_batch.pl or modules called by rqg_batch.pl.
+
+
+Any matching is performed against the content of the RQG protocol only.
+The exit statuses of whatever OS processes performing RQG runs get ignored.
+
+The status matching is focused on a line starting with
+    'The RQG run ended with status'
+printed by RQG runners like rqg.pl after the last thinkable testing action like
+compare the content of servers is finished.
+The status matching setup accepts strings starting with 'STATUS_' only.
+The supported values are in lib/GenTest/Constants.pm.
+The status matching will not check your input against this file.
+STATUS_ANY matches any status != STATUS_OK.
+
+The text pattern matching is restricted to a region starting with some
+    'MATCHING: Region start ====================='
+and ending with
+    'MATCHING: Region end   ====================='
+defined in lib/Verdict.pm and printed by RQG runners like rqg.pl.
+
+You can assign more than one value to the matching parameters.
+Comma has to be used as separator between different values.
+As soon as one value matches it counts as 'match' for that parameter.
+Also using single quotes around the values is highly recommended because
+otherwise mechanisms might split at the wrong position.
+
+Example for command line (shell will remove the surrounding '"'):
+    --blacklist_statuses="'STATUS_OK','STATUS_ENVIRONMENT_FAILURE'" ...
+Example for cc file (--> rqg_batch.pl)
+    --blacklist_statuses=\"'STATUS_OK','STATUS_ENVIRONMENT_FAILURE'\"
+Example for cfg file (--> new-simplify-grammar.pl)
+   whitelist_statuses => [
+       'STATUS_SERVER_CRASHED',
+       'STATUS_DATABASE_CORRUPTION',
+   ],
+
+EOF
+;
+}
 
 1;
 

@@ -166,8 +166,8 @@ if (STATUS_OK != Verdict::check_normalize_set_black_white_lists (
 say("SIMPLIFY RQG GRAMMAR BASED ON EXPECTED CONTENT WITHIN SOME FILE");
 say("---------------------------------------------------------------");
 $config->printProps;
-my $bw_option_string = Verdict::black_white_lists_to_option_string();
-# say("DEBUG: bw_option_string ->$bw_option_string<-");
+my $bw_option_string = my $cc_snip  = Verdict::black_white_lists_to_config_snip('cc');
+# say("DEBUG: $cc_snip ->$$cc_snip<-");
 say("---------------------------------------------------------------");
 
 my $symlink = "last_simp_workdir";
@@ -234,14 +234,17 @@ my $simplifier = GenTest::Simplifier::Grammar1->new(
         my $batch_config_file = $workdir . "/" . $iteration . ".cc";
         open(BATCH_CONF, '>', $batch_config_file)
             or croak "ERROR: Unable to open config file '$batch_config_file' for writing: $!";
+        close(BATCH_CONF);
+        }
         print BATCH_CONF
             "our \$grammars;\n" .
             "\$combinations = [ [ '\n"                                             .
-            "                      $rqgoptions\n"                                  .
-            "                      $mysqlopt\n"                                    .
-            "                      --no-mask --seed=random\n"                      .
-            "                      $bw_option_string\n"                            .
-            "                    ' ] ];\n"                                         ;
+            "    $rqgoptions\n"                                                    .
+            "    $mysqlopt\n"                                                      .
+            "    --no-mask\n"                                                      .
+            "    --seed=random\n"                                                  .
+            "$cc_snip"                                                             .
+            "' ] ];\n"                                                             ;
         close(BATCH_CONF);
         # sayFile($batch_config_file);
         my $batch_cmd = "perl rqg_batch.pl --config=$batch_config_file"            .
@@ -278,7 +281,7 @@ my $simplifier = GenTest::Simplifier::Grammar1->new(
 
 my $simplified_grammar = $simplifier->simplify($initial_grammar);
 
-print "Simplified grammar:\n\n$simplified_grammar;\n\n" if defined $simplified_grammar;
+print "Simplified grammar:\n\n$simplified_grammar\n\n" if defined $simplified_grammar;
 
 
 sub help {
