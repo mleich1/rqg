@@ -1756,8 +1756,60 @@ sub unify_grammar {
     } else {
         return $grammar_file;
     }
-
 }
+
+
+
+# *_status_text
+# =============
+# These routines serve for
+# - standardize the phrase printed when returning some status or exiting with some status
+# - give maximum handy information like status as text (the constant) and number.
+# Example for the string returned:
+#    Will exit with exit status STATUS_SERVER_CRASHED(101).
+#    Will return status STATUS_SERVER_CRASHED(101).
+# Example of invocation:
+# my $status = STATUS_SERVER_CRASHED;
+# say("ERROR: All broken. " . Auxiliary::exit_status_text($status));
+#
+sub _status_text {
+    my ($status, $action) = @_;
+    # The calling routine MUST already check that $status and $action are defined.
+    my $snip;
+    if      ($action eq 'exit'  ) {
+        $snip = "exit with exit";
+    } elsif ($action eq 'return') {
+        $snip = "return";
+    } else {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::confess("INTERNAL ERROR: Action '$action' is not supported." .
+                      "Will return status " . status2text($status) . "($status).");
+    }
+    return "Will $snip status " . status2text($status) . "($status).";
+}
+
+sub exit_status_text {
+    my ($status) = @_;
+    if (not defined $status) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::confess("INTERNAL ERROR: The first parameter status is undef." .
+                      "Will return status " . status2text($status) . "($status).");
+    }
+    return _status_text($status, 'exit');
+}
+
+sub return_status_text {
+    my ($status) = @_;
+    if (not defined $status) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::confess("INTERNAL ERROR: The first parameter status is undef." .
+                      "Will return status " . status2text($status) . "($status).");
+    }
+    return _status_text($status, 'return');
+}
+
+# -----------------------------------------------------------------------------------
+
 
 # FIXME: Implement
 # Adaptive FIFO
