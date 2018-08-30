@@ -226,13 +226,16 @@ DONE (incomplete and arbitrary sorted list):
     for all the other cases too.
 12. Use wthing the grammar simplifier some more dynamic amount of walk through the grammar rounds
     (--> lib/GenTest/Simplifier/Grammar1.pm)
+13. Develop a program which is capable to check if the protocol of some RQG run matches the
+    blacklist/whitelist statuses/patterns setting provided.
+    (--> checker.pl)
 
 TODO (incomplete list):
 -----------------------
 -- Add to rqg_batch.pl
    - permanent observation of ressources
      Decide based on these results if to maybe
-     - stop the rpl_batch.pl run including killing all ongoing RQG runs because not solvable
+     - stop the rqg_batch.pl run including killing all ongoing RQG runs because not solvable
        trouble is direct ahead -- avoid OS breakdown ...
      - stop(KILL) some already ongoing RQG run because that would avoid to run into predicted
        trouble
@@ -312,6 +315,14 @@ TODO (incomplete list):
       - first phase A of simplification:
         "Do not attack SQL containing DROP (schema, table, key, trigger, .... ) or DELETE at all.
         Final result of this phase is grammar a.
+        Warning regarding how to do that:
+        Filtering out simplifications like "remove from rule X the component DROP ..." is not
+        sufficient because we could also have "remove from X the component c" and c contains
+        the rule Y which contains the DROP.
+        Idea: Compare parent P<m> grammar to potentional tried grammar T<n> regarding the amount
+              of DROP and DELETE. In case there are less in T<n> than T<n> removed some.
+        Problem: Case insensitive drop as Rule name or just word of statement.
+                 But I assume extreme perfection in this case is not required.
       - later phase B:
         Take grammar a and attack DROP/DELETE but check for any shrinked grammar which replays if
         the likelihood to replay has dropped. If yes, than revert this simplification.
@@ -320,12 +331,12 @@ TODO (incomplete list):
         Take grammar b and now attack DROP/DELETE too.
         Final result of this phase is grammar c.
       How to use these grammars later:
-      - ignore or drop grammar a. Depending on point of view either grammar b orc is better.
+      - ignore or drop grammar a. Depending on point of view either grammar b or c is better.
       - Present the bug fixer grammar c as example which SQL the bug needs
       - From now on use grammar c for any replay attempt. Its the most efficient.
    5. The first step within the grammar simplification process is:
       Try to replay with the original YY grammar and give up in case that goal was not achieved.
-      Handle this amount iof trials better if required.
+      Handle this amount of trials better if required.
    6. Modify the grammar simplifier so that GRAMMAR_FLAG_COMPACT_RULES is at least no more
       the default.
       Example:
@@ -377,7 +388,7 @@ TODO (incomplete list):
    the DB server. I guess this problem is caused by the "stack" feature of RQG.
    No idea who will fix that problem.
 -- https://jira.mariadb.org/browse/MDEV-16863 Extend the RQG infrastructure for backup testing
-   Given the fact that we already have some crowd of RQG tests checking roughly all kinds ofcw
+   Given the fact that we already have some crowd of RQG tests checking roughly all kinds of
    concurrent DDL (stresses backup significant) it seems to be recommended to implement some
    periodic reporter doing the following:
    - the server is under serious load by arbitrary DDL (existing YY grammars)
@@ -389,12 +400,53 @@ TODO (incomplete list):
    5. If no trouble during 4. shutdown of server 2 + destroy his data + run next loop round.
       If trouble terminate the test.
    Some prototype was already pushed.
--- Develop a program which is capable to check if the protocol of some RQG run matches the
-   blacklist/whitelist statuses/patterns setting provided in some config file.
 -- Describe the work flow from
    1. bug hunting with RQG tests (rqg_batch.pl with cc config file)
    2. grammar simplification for one or more of the bugs found in 1.
    3. How to develop ibased on 2. some final replay testcase which is maybe MTR based.
+-- Find some way to preserve the server binaries used.
+   Purpose:
+   Lets assume at some point of time after the test run the binary gets modified or the
+   complete build gets thrown away.
+   But the analysis of core files requires corresponding binaries + reconstructing them is
+   some costly process and quite error prone (What if local non committed modifications?).
+   Hence preserving at least the server binaries used is recommended.
+   Letting rqg.pl do that is thinkable.
+   The difficulties show up as soon as
+   - more than one binary is used per test (upgrade or replication)
+     How to name/mark different binaries?
+   - batches of tests are performed
+     How to
+     a) avoid to preserve duplicates of binaries (storage space + efforts (time, CPU, IO) at runtime.
+     b) avoid the overhead of
+        We run a batch of RQG tests with the same basedirs.
+        All rqg.pl preserve the binary in their work directory. (time, CPU, IO at runtime)
+        rqg_batch.pl acts according to a) and throws duplicates away but needs to somehow
+        preserve the knowledge the test X was using preserved binary x.
+     c) somehow minimize that the rqg_batch.pl needs to act
+        - in advance and analyze what some RQG run is going to do (basedir etc.)
+        - after some RQG run and analyze results
+        because that
+        - must not cause that rqg_batch.pl loses its control over the active RQG runner
+          Just assume rqg_batch.pl exits when hitting a problem.
+        - should not cause to lose its control over too long timespans.
+          Assume some long lasting analysis or copy process.
+          During that controlling the RQG runner is with the current concept impossible.
+     rqg.pl
+     - creating files outside of his workdir and vardir
+     - inspecting files (example: server binaries already stored by rqg_batch.pl)
+       outside of $RQG_HOME
+     is strict out of discussion.
+     Idea:
+     rqg.pl could store the binary identifying information (location + md5sum, maybe GIT info) in
+     some file within its workdir.
+     rqg_batch.pl could process that file and preserve binaries and whatever information if
+     not already done for some finished RQG run.
+     IMHO acceptable weak point: Modification of binary during rqg_batch.pl runtime.
+-- checker.pl needs to be made capable to check config (cc and cfg) files.
+
+
+
 
 
 
