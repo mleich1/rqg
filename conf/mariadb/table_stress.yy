@@ -201,6 +201,8 @@ commit_rollback:
    COMMIT   |
    ROLLBACK ;
 
+# FIXME:
+# https://mariadb.com/kb/en/library/wait-and-nowait/
 ddl:
    ALTER TABLE t1 add_accelerator                     ddl_algorithm_lock_option |
    ALTER TABLE t1 add_accelerator                     ddl_algorithm_lock_option |
@@ -213,8 +215,9 @@ ddl:
    ALTER TABLE t1 add_accelerator  , add_accelerator  ddl_algorithm_lock_option |
    ALTER TABLE t1 drop_accelerator , drop_accelerator ddl_algorithm_lock_option |
    ALTER TABLE t1 drop_accelerator , add_accelerator  ddl_algorithm_lock_option |
-   # ddl_algorithm_lock_option is not supported by check_table
+   # ddl_algorithm_lock_option is not supported by some statements
    check_table                                                                  |
+   TRUNCATE TABLE t1                                                            |
    # ddl_algorithm_lock_option is within the replace_column sequence
    replace_column                                                               |
    # It is some rather arbitrary decision to place KILL session etc. here
