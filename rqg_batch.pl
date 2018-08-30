@@ -937,32 +937,12 @@ while (reap_workers()) {
 Batch::dump_queues();
 Batch::dump_orders();
 
-# I do not care if creating or filling asserts.txt with data fails because the main
+my $summary_cmd = "$rqg_home/util/issue_grep.sh $workdir";
+# I do not care if creating or filling the summary files fails because the main
 # - work is already done with success
-# - share of information given from now on does not require a proper OS, file system etc.
-
-# The typical assert message within the RQG log looks like
-# 2018-08-22T17:45:25 [76678] | mysqld: /work_m/10.3/storage/innobase/row/row0log.cc:681: void row_log_table_delete(const rec_t*, dict_index_t*, const ulint*, const byte*): Assertion `new_index->n_uniq == index->n_uniq' failed.
-my $asserts_file = $workdir . "/asserts.txt";
-Auxiliary::make_file($asserts_file,
-                     "Information about asserts hit\n=============================\n");
-Auxiliary::append_string_to_file($asserts_file,
-                                 "Unique asserts\n" .
-                                 "--------------\n");
-my $assert_pattern = "\\[.*\\] \\| mysqld: .* Assertion .* failed";
-# Remove the RQG test run specific part
-# /mnt/r0/mleich/RQG_new/storage/1534941044/1.log:# 2018-08-22T14:33:20 [128561] | mysqld:
-my $egalize        = "sed -e '1,\$s/.* \| mysqld: /mysqld: /g'";
-
-system("egrep -h -e '$assert_pattern' $workdir/*.log | $egalize | sort -u >> $asserts_file");
-Auxiliary::append_string_to_file($asserts_file,
-                                 "\nAll asserts sorted (frequency)\n" .
-                                 "------------------------------\n");
-system("egrep -h -e '$assert_pattern' $workdir/*.log | $egalize | sort >> $asserts_file");
-Auxiliary::append_string_to_file($asserts_file,
-                                 "\nAll asserts with file\n" .
-                                 "---------------------\n");
-system("egrep -H -e '$assert_pattern' $workdir/*.log | sort >> $asserts_file");
+# - share of information given from now on does not require a proper working
+#   OS, file system etc.
+system($summary_cmd);
 
 say("\n\n"                                                                                         .
     "STATISTICS: Number of RQG runs -- Verdict\n"                                                  .
@@ -978,8 +958,8 @@ say("\n\n"                                                                      
 say("STATISTICS: Total runtime in seconds : " . (time() - $batch_start_time))                      ;
 say("STATISTICS: RQG runs started         : $runs_started")                                        ;
 
-say("RESULT:     The logs and archives of the RQG runs performed are in the workdir of the "       .
-                 "rqg_batch.pl run\n"                                                              .
+say("RESULT:     The logs and archives of the RQG runs performed including files with summaries\n" .
+    "            are in the workdir of the rqg_batch.pl run\n"                                     .
     "                 $workdir\n")                                                                 ;
 say("HINT:       As long as this was the last run of rqg_batch.pl the symlink\n"                   .
     "                 $symlink\n"                                                                  .
@@ -1312,7 +1292,8 @@ sub runtime_exceeded {
     my ($batch_end_time) = @_;
     if ($batch_end_time  < Time::HiRes::time()) {
         $intentional_stop = 1;
-        say("INFO: The maximum total runtime is exceeded. Stopping all RQG Worker.");
+        say("INFO: The maximum total runtime for rqg_batch.pl is exceeded. " .
+            "Stopping all RQG Worker.");
         stop_workers();
     }
 }
