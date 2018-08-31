@@ -192,7 +192,7 @@ sub monitor {
     my ($version)   = ( $reporter->serverVariable('version') =~ /^(\d+\.\d+)\./ ) ;
     # FIXME: What follows was found in CloneSlaveXtrabackup.pm
     # my $xtrabackup_binary = ( $version eq '5.5' ? 'xtrabackup_55' : ( $version gt '5.5' or $version =~ /^10/ ? 'xtrabackup_56' : 'xtrabackup' ) );
-    my $backup_binary = "$basedir" . "extra/mariabackup/mariabackup";
+    my $backup_binary = "$basedir" . "/extra/mariabackup/mariabackup";
     if (not -e $backup_binary) {
         direct_to_std();
         my $status = STATUS_ENVIRONMENT_FAILURE;
