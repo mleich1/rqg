@@ -202,6 +202,10 @@ sub monitor {
     }
     $backup_binary = $backup_binary . " --host=127.0.0.1 --user=root --password='' ";
 
+    if (not osWindows()) {
+        $backup_binary = $backup_binary . " --innodb-use-native-aio=0 ";
+    }
+
     # For experimenting:
     # $backup_binary = "not_exists ";
     # my $backup_backup_cmd = "$backup_binary --port=$source_port --hickup " .
@@ -313,6 +317,7 @@ sub monitor {
         '--loose-plugin-dir="'.$plugin_dir.'"',
         '--max-allowed-packet=20M',
         '--innodb',
+        '--loose_innodb_use_native_aio=0',
         '--sql_mode=NO_ENGINE_SUBSTITUTION',
     );
 
