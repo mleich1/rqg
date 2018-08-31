@@ -19,10 +19,10 @@
 package GenTest::Grammar;
 
 require Exporter;
-@ISA = qw(GenTest);
+@ISA    = qw(GenTest);
 @EXPORT = qw(
-	GRAMMAR_FLAG_COMPACT_RULES
-	GRAMMAR_FLAG_SKIP_RECURSIVE_RULES
+    GRAMMAR_FLAG_COMPACT_RULES
+    GRAMMAR_FLAG_SKIP_RECURSIVE_RULES
 );
 
 use strict;
@@ -34,10 +34,10 @@ use GenTest::Random;
 
 use Data::Dumper;
 
-use constant GRAMMAR_RULES	=> 0;
-use constant GRAMMAR_FILES	=> 1;
-use constant GRAMMAR_STRING	=> 2;
-use constant GRAMMAR_FLAGS	=> 3;
+use constant GRAMMAR_RULES    => 0;
+use constant GRAMMAR_FILES    => 1;
+use constant GRAMMAR_STRING   => 2;
+use constant GRAMMAR_FLAGS    => 3;
 
 use constant GRAMMAR_FLAG_COMPACT_RULES         => 1;
 use constant GRAMMAR_FLAG_SKIP_RECURSIVE_RULES  => 2;
@@ -45,51 +45,51 @@ use constant GRAMMAR_FLAG_SKIP_RECURSIVE_RULES  => 2;
 1;
 
 sub new {
-	my $class = shift;
+    my $class = shift;
 
 
-	my $grammar = $class->SUPER::new({
-		'grammar_files'			=> GRAMMAR_FILES,
-		'grammar_string'		=> GRAMMAR_STRING,
-		'grammar_flags'		=> GRAMMAR_FLAGS,
-		'grammar_rules'		=> GRAMMAR_RULES
-	}, @_);
+    my $grammar = $class->SUPER::new({
+        'grammar_files'        => GRAMMAR_FILES,
+        'grammar_string'       => GRAMMAR_STRING,
+        'grammar_flags'        => GRAMMAR_FLAGS,
+        'grammar_rules'        => GRAMMAR_RULES
+    }, @_);
 
 
-	if (defined $grammar->rules()) {
-		$grammar->[GRAMMAR_STRING] = $grammar->toString();
-	} else {
-		$grammar->[GRAMMAR_RULES] = {};
+    if (defined $grammar->rules()) {
+        $grammar->[GRAMMAR_STRING] = $grammar->toString();
+    } else {
+        $grammar->[GRAMMAR_RULES] = {};
 
-		if (defined $grammar->files()) {
-			my $parse_result = $grammar->extractFromFiles($grammar->files());
-			return undef if not defined $parse_result;
+        if (defined $grammar->files()) {
+            my $parse_result = $grammar->extractFromFiles($grammar->files());
+            return undef if not defined $parse_result;
             # If not undef than $grammar->[GRAMMAR_STRING] is now filled.
-		}
+        }
 
-		if (defined $grammar->string()) {
-			my $parse_result = $grammar->parseFromString($grammar->string());
-			return undef if $parse_result > STATUS_OK;
+        if (defined $grammar->string()) {
+            my $parse_result = $grammar->parseFromString($grammar->string());
+            return undef if $parse_result > STATUS_OK;
             # If not undef than $grammar->[GRAMMAR_RULES] is now filled.
-		}
-	}
+        }
+    }
 
-	return $grammar;
+    return $grammar;
 }
 
 sub files {
-	return $_[0]->[GRAMMAR_FILES];
+    return $_[0]->[GRAMMAR_FILES];
 }
 
 sub string {
-	return $_[0]->[GRAMMAR_STRING];
+    return $_[0]->[GRAMMAR_STRING];
 }
 
 
 sub toString {
-	my $grammar = shift;
-	my $rules = $grammar->rules();
-	return join("\n\n", map { $grammar->rule($_)->toString() } sort keys %$rules);
+    my $grammar = shift;
+    my $rules   = $grammar->rules();
+    return join("\n\n", map { $grammar->rule($_)->toString() } sort keys %$rules);
 }
 
 
@@ -128,41 +128,77 @@ sub extractFromFiles {
 }
 
 sub parseFromString {
-	my ($grammar, $grammar_string) = @_;
+    my ($grammar, $grammar_string) = @_;
 
-	#
-	# provide an #include directive
-	#
+    #
+    # Provide an #include directive
+    #
 
-	while ($grammar_string =~ s{#include [<"](.*?)[>"]$}{
-		{
-			my $include_string;
-			my $include_file = $1;
-		        open (IF, $1) or die "Unable to open include file $include_file: $!";
-		        read (IF, my $include_string, -s $include_file) or die "Unable to open $include_file: $!";
-			$include_string;
-	}}mie) {};
+    # Th original code did not work at all.
+    # FIXME: Even after a first repair is quite unsafe and chaotic.
+    # a) CWD is outside of RQG_HOME, RQG_HOME is set, file path is relative
+    #    In case we do not prepend RQG_HOME than the file is not found.
+    #    Unclear if all RQG tools set RQG_HOME in env.
+    # b) absolute path would be most probably not portable to other boxes
+    # c) #include <blabla><line end> , #include "blabla"<line end> look reasonable but
+    #    #include "bkub><line end> is just ugly. My preference #include <blabla><line end>
+    # d) I have not found any test using this feature at all.
+    # e) Grammar with
+    #    #include <blabla>
+    #    #include <blub>
+    #    leads to content of <blub> gets appended than <blabla> gets appended.
+    #    Why that order and why appending instead of replacing the line
+    #    #include <blabla>
+    #    by the content of the file <blabla>.
+    #    I do not understand how that perl code manages to modify $grammar_string at all.
+    # For experimenting:
+    # system("pwd");
+    # $grammar_string = $grammar_string . "\n#include <blabla>";
+    # $grammar_string = $grammar_string . "\n#include \"blub>";
+    # In sum I am not convinced from the current functionality of that feature.
+    #
 
-	# Strip comments. Note that this is not Perl-code safe, since perl fragments
-	# can contain both comments with # and the $# expression. A proper lexer will fix this
+    while ($grammar_string =~ s{#include [<"](.*?)[>"]$}{
+        {
+            my $include_string;
+            my $include_file = $1;
+            if (not open (IF, $1)) {
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                Carp::cluck("Unable to open include file '$include_file': $!. " .
+                            "Will return status " . status2text($status) . " ($status)\n");
+                return $status;
+            }
+            if (not read (IF, $include_string, -s $include_file)) {
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                Carp::cluck("Unable to read include file '$include_file': $!. " .
+                            "Will return status " . status2text($status) . " ($status)\n");
+                return $status;
+            }
+            # say("include_string->$include_string<-");
+            $include_string;
+    }}mie) {};
+    # say("grammar_string->$grammar_string<-");
 
-	$grammar_string =~ s{#.*$}{}iomg;
+    # Strip comments. Note that this is not Perl-code safe, since perl fragments
+    # can contain both comments with # and the $# expression. A proper lexer will fix this
 
-	# Join lines ending in \
+    $grammar_string =~ s{#.*$}{}iomg;
 
-	$grammar_string =~ s{\\$}{ }iomg;
+    # Join lines ending in \
 
-	# Strip end-line whitespace
+    $grammar_string =~ s{\\$}{ }iomg;
 
-	$grammar_string =~ s{\s+$}{}iomg;
+    # Strip end-line whitespace
 
-	# Add terminating \n to ease parsing
+    $grammar_string =~ s{\s+$}{}iomg;
 
-	$grammar_string = $grammar_string."\n";
+    # Add terminating \n to ease parsing
 
-	my @rule_strings = split (";\s*[\r\n]+", $grammar_string);
+    $grammar_string = $grammar_string."\n";
 
-	my %rules;
+    my @rule_strings = split (";\s*[\r\n]+", $grammar_string);
+
+    my %rules;
 
     # Redefining grammars might want to *add* something to an existing rule
     # rather than replace them. For now we recognize additions only to init queries
@@ -214,26 +250,26 @@ sub parseFromString {
     my @query_init_adds = ();
     my %thread_init_adds = ();
 
-	foreach my $rule_string (@rule_strings) {
+    foreach my $rule_string (@rule_strings) {
         # say("DEBUG: rule_string : ->" . $rule_string . "<-");
-		my ($rule_name, $components_string) = $rule_string =~ m{^(.*?)\s*:(.*)$}sio;
+        my ($rule_name, $components_string) = $rule_string =~ m{^(.*?)\s*:(.*)$}sio;
 
         if (not defined $rule_name) {
             # say("DEBUG: Step1 rule_name not detected.");
             next;
         }
-		$rule_name =~ s{[\r\n]}{}gsio;
+        $rule_name =~ s{[\r\n]}{}gsio;
         if (not defined $rule_name) {
             # say("DEBUG: Step2 rule_name not detected.");
             next;
         }
-		$rule_name =~ s{^\s*}{}gsio;
+        $rule_name =~ s{^\s*}{}gsio;
         if (not defined $rule_name) {
             # say("DEBUG: Step3 rule_name not detected.");
             next;
         }
 
-		next if $rule_name eq '';
+        next if $rule_name eq '';
 
         if ($rule_name =~ /^query_add$/) {
             push @query_adds, $components_string;
@@ -290,117 +326,115 @@ sub parseFromString {
 
     # Now we have all the rules extracted from grammar files, time to parse
 
-	foreach my $rule_name (keys %rules) {
+    foreach my $rule_name (keys %rules) {
 
         my $components_string = $rules{$rule_name};
 
-		my @component_strings = split (m{\|}, $components_string);
-		my @components;
-		my %components;
+        my @component_strings = split (m{\|}, $components_string);
+        my @components;
+        my %components;
 
-		foreach my $component_string (@component_strings) {
-			# Remove leading whitespace
-			$component_string =~ s{^\s+}{}sgio;
-			$component_string =~ s{\s+$}{}sgio;
+        foreach my $component_string (@component_strings) {
+            # Remove leading whitespace
+            $component_string =~ s{^\s+}{}sgio;
+            $component_string =~ s{\s+$}{}sgio;
 
-			# Rempove repeating whitespaces
-			$component_string =~ s{\s+}{ }sgio;
+            # Rempove repeating whitespaces
+            $component_string =~ s{\s+}{ }sgio;
 
-			# Split this so that each identifier is separated from all syntax elements
-			# The identifier can start with a lowercase letter or an underscore , plus quotes
+            # Split this so that each identifier is separated from all syntax elements
+            # The identifier can start with a lowercase letter or an underscore , plus quotes
 
-			$component_string =~ s{([_a-z0-9'"`\{\}\$\[\]]+)}{|$1|}sgio;
+            $component_string =~ s{([_a-z0-9'"`\{\}\$\[\]]+)}{|$1|}sgio;
 
-			# Revert overzealous splitting that splits things like _varchar(32) into several tokens
+            # Revert overzealous splitting that splits things like _varchar(32) into several tokens
 
-			$component_string =~ s{([a-z0-9_]+)\|\(\|(\d+)\|\)}{$1($2)|}sgo;
+            $component_string =~ s{([a-z0-9_]+)\|\(\|(\d+)\|\)}{$1($2)|}sgo;
 
-			# Remove leading and trailing pipes
-			$component_string =~ s{^\|}{}sgio;
-			$component_string =~ s{\|$}{}sgio;
+            # Remove leading and trailing pipes
+            $component_string =~ s{^\|}{}sgio;
+            $component_string =~ s{\|$}{}sgio;
 
-			if (
-				(exists $components{$component_string}) &&
-				(defined $grammar->[GRAMMAR_FLAGS] & GRAMMAR_FLAG_COMPACT_RULES)
-			) {
-				next;
-			} else {
-				$components{$component_string}++;
-			}
+            if ((exists $components{$component_string}) &&
+                (defined $grammar->[GRAMMAR_FLAGS] & GRAMMAR_FLAG_COMPACT_RULES)) {
+                next;
+            } else {
+                $components{$component_string}++;
+            }
 
             # Split at the '|' added above.
-			my @component_parts = split (m{\|}, $component_string);
+            my @component_parts = split (m{\|}, $component_string);
             # say("DEBUG: component_string ->" . $component_string . "<-");
 
-			if (
-				(grep { $_ eq $rule_name } @component_parts) &&
-				(defined $grammar->[GRAMMAR_FLAGS] & GRAMMAR_FLAG_SKIP_RECURSIVE_RULES)
-			) {
-				say("Skipping recursive production in rule '$rule_name'.") if rqg_debug();
-				next;
-			}
+            if ((grep { $_ eq $rule_name } @component_parts) &&
+                (defined $grammar->[GRAMMAR_FLAGS] & GRAMMAR_FLAG_SKIP_RECURSIVE_RULES)) {
+                say("Skipping recursive production in rule '$rule_name'.") if rqg_debug();
+                next;
+            }
 
-			#
-			# If this grammar rule contains Perl code, assemble it between the various
-			# component parts it was split into. This "reconstructive" step is definitely bad design
-			# The way to do it properly would be to tokenize the grammar using a full-blown lexer
-			# which should hopefully come up in a future version.
-			#
+            #
+            # If this grammar rule contains Perl code, assemble it between the various
+            # component parts it was split into. This "reconstructive" step is definitely bad design
+            # The way to do it properly would be to tokenize the grammar using a full-blown lexer
+            # which should hopefully come up in a future version.
+            #
 
-			my $nesting_level = 0;
-			my $pos = 0;
-			my $code_start;
+            my $nesting_level = 0;
+            my $pos = 0;
+            my $code_start;
 
-			while (1) {
-				if ($component_parts[$pos] =~ m{\{}so) {
-					$code_start = $pos if $nesting_level == 0;	# Code segment starts here
-					my $bracket_count = ($component_parts[$pos] =~ tr/{//);
-					$nesting_level = $nesting_level + $bracket_count;
-				}
+            while (1) {
+                if ($component_parts[$pos] =~ m{\{}so) {
+                    $code_start = $pos if $nesting_level == 0;    # Code segment starts here
+                    my $bracket_count = ($component_parts[$pos] =~ tr/{//);
+                    $nesting_level = $nesting_level + $bracket_count;
+                }
 
-				if ($component_parts[$pos] =~ m{\}}so) {
-					my $bracket_count = ($component_parts[$pos] =~ tr/}//);
-					$nesting_level = $nesting_level - $bracket_count;
-					if ($nesting_level == 0) {
-						# Resemble the entire Perl code segment into a single string
-						splice(@component_parts, $code_start, ($pos - $code_start + 1) , join ('', @component_parts[$code_start..$pos]));
-						$pos = $code_start + 1;
-						$code_start = undef;
-					}
-				}
-				$pos++;
+                if ($component_parts[$pos] =~ m{\}}so) {
+                    my $bracket_count = ($component_parts[$pos] =~ tr/}//);
+                    $nesting_level = $nesting_level - $bracket_count;
+                    if ($nesting_level == 0) {
+                        # Resemble the entire Perl code segment into a single string
+                        splice(@component_parts, $code_start, ($pos - $code_start + 1) ,
+                               join ('', @component_parts[$code_start..$pos]));
+                        $pos = $code_start + 1;
+                        $code_start = undef;
+                    }
+                }
+                $pos++;
                 # The incremented pos/index might be higher than the highest index existing.
                 # So use "last" in order to not fiddle with a not defined $component_parts[$pos].
-				last if $pos > $#component_parts;
-			}
+                last if $pos > $#component_parts;
+            }
 
-			push @components, \@component_parts;
-		}
+            push @components, \@component_parts;
+        }
 
-		my $rule = GenTest::Grammar::Rule->new(
-			name => $rule_name,
-			components => \@components
-		);
-		$rules{$rule_name} = $rule;
-	}
+        my $rule = GenTest::Grammar::Rule->new(
+            name       => $rule_name,
+            components => \@components
+        );
+        $rules{$rule_name} = $rule;
+    }
 
-	$grammar->[GRAMMAR_RULES] = \%rules;
-	return STATUS_OK;
+    $grammar->[GRAMMAR_RULES] = \%rules;
+    return STATUS_OK;
 
 } # End of sub parseFromString
 
 sub rule {
-	return $_[0]->[GRAMMAR_RULES]->{$_[1]};
+    return $_[0]->[GRAMMAR_RULES]->{$_[1]};
 }
 
 sub rules {
-	return $_[0]->[GRAMMAR_RULES];
+    return $_[0]->[GRAMMAR_RULES];
 }
 
 sub top_rule_list {
 
 # Return
-# - a list of the top level rules ordered according to needs in grammar simplification
+# - a list of the top level rules ordered in some way which gives advantages in grammar
+#     simplification and when testing based on masking
 # or
 # - undef in case of error.
 #
@@ -409,7 +443,10 @@ sub top_rule_list {
 # - Selected properties of top level rules:
 #   1. The generator starts in such a rule for generating a single action or sequence of actions.
 #      (action == Action in Perl and/or SQL statement).
-#   2. The grammar simplifier is not allowed to remove a top level rule.
+#   2. The grammar simplifier is not allowed to remove a top level rule except it is ensured that
+#      this rule will be not used.
+#      Example for not used:
+#      RQG run with threads=2. A 'thread3', 'thread3_connect' or 'thread3_init' will be never used.
 #   3. The grammar simplification process and also tests with sequences of grammar derivates
 #      generated via masking begin usually with top level rules.
 # - Why return undef in case of failure and not an exit or croak?
@@ -440,7 +477,7 @@ sub top_rule_list {
 #
 
     my $grammar = shift;
-    my $rules = $grammar->rules();
+    my $rules   = $grammar->rules();
 
     my %top_rule_hash;
     my @top_rule_list;
@@ -488,33 +525,33 @@ sub top_rule_list {
 
 
 sub deleteRule {
-	delete $_[0]->[GRAMMAR_RULES]->{$_[1]};
+    delete $_[0]->[GRAMMAR_RULES]->{$_[1]};
 }
 
 sub cloneRule {
-	my ($grammar, $old_rule_name, $new_rule_name) = @_;
+    my ($grammar, $old_rule_name, $new_rule_name) = @_;
 
-	# Rule consists of
-	# rule_name
-	# pointer to array called components
-	#   An element of components is a pointer to an array of component_parts
+    # Rule consists of
+    # rule_name
+    # pointer to array called components
+    #   An element of components is a pointer to an array of component_parts
 
-	my $components = $grammar->[GRAMMAR_RULES]->{$old_rule_name}->[1];
+    my $components = $grammar->[GRAMMAR_RULES]->{$old_rule_name}->[1];
 
-	my @new_components;
-	for (my $idx=$#$components; $idx >= 0; $idx--) {
-		my $component = $components->[$idx];
-		my @new_component_parts = @$component;
-		# We go from the highest index to the lowest.
-		# So "push @new_components , \@new_component_parts ;" would give the wrong order
-		unshift @new_components , \@new_component_parts ;
-	}
+    my @new_components;
+    for (my $idx=$#$components; $idx >= 0; $idx--) {
+        my $component = $components->[$idx];
+        my @new_component_parts = @$component;
+        # We go from the highest index to the lowest.
+        # So "push @new_components , \@new_component_parts ;" would give the wrong order
+        unshift @new_components , \@new_component_parts ;
+    }
 
-	my $new_rule = GenTest::Grammar::Rule->new(
-		name => $new_rule_name,
-		components => \@new_components
-	);
-	$grammar->[GRAMMAR_RULES]->{$new_rule_name} = $new_rule;
+    my $new_rule = GenTest::Grammar::Rule->new(
+        name       => $new_rule_name,
+        components => \@new_components
+    );
+    $grammar->[GRAMMAR_RULES]->{$new_rule_name} = $new_rule;
 
 }
 
@@ -523,11 +560,11 @@ sub cloneRule {
 #
 
 sub hasProperties {
-	if ($_[0]->[GRAMMAR_STRING] =~ m{RESULTSET_|ERROR_|QUERY_}so) {
-		return 1;
-	} else {
-		return 0;
-	}
+    if ($_[0]->[GRAMMAR_STRING] =~ m{RESULTSET_|ERROR_|QUERY_}so) {
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 ##
@@ -583,15 +620,15 @@ sub firstMatchingRule {
 sub topGrammarX {
     my ($self, $level, $max, @rules) = @_;
     if ($max > 0) {
-        my $result={};
+        my $result = {};
         foreach my $rule (@rules) {
             foreach my $c (@{$rule->components()}) {
                 my @subrules = ();
                 foreach my $cp (@$c) {
-                    push @subrules,$self->rule($cp) if defined $self->rule($cp);
+                    push @subrules, $self->rule($cp) if defined $self->rule($cp);
                 }
                 my $componentrules =
-                    $self->topGrammarX($level + 1, $max -1,@subrules);
+                    $self->topGrammarX($level + 1, $max -1, @subrules);
                 if (defined  $componentrules) {
                     foreach my $sr (keys %$componentrules) {
                         $result->{$sr} = $componentrules->{$sr};
@@ -617,7 +654,7 @@ sub topGrammar {
 
     my $start = $self->firstMatchingRule(@startrules);
 
-    my $rules = $self->topGrammarX(0,$levels, $start);
+    my $rules = $self->topGrammarX(0, $levels, $start);
 
     return GenTest::Grammar->new(grammar_rules => $rules);
 }
@@ -635,7 +672,6 @@ sub topGrammar {
 
 sub mask {
     my ($self, $mask) = @_;
-
 
     my $rules = $self->rules();
 
@@ -664,10 +700,10 @@ sub mask {
         if ($#newComponents < 0) {
             $newRule = $rule;
         } else {
-            $newRule= GenTest::Grammar::Rule->new(name => $rulename,
-                                              components => \@newComponents);
+            $newRule= GenTest::Grammar::Rule->new(name       => $rulename,
+                                                  components => \@newComponents);
         }
-        $newRuleset{$rulename}= $newRule;
+        $newRuleset{$rulename} = $newRule;
 
     }
 
