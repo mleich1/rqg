@@ -583,6 +583,7 @@ sub startServer {
          # 1. An errlog_update has happened. Q: All time before pidfile creation?
          # 2. The pidfile was created.
          # 3. timeout exceeded in state no pidfile exists and no error log update.
+         #    Heaviest case: There is no error log at all.
          #    Warning: The state might already have changed.
 
          if (-f $self->pidfile) {
