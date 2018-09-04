@@ -257,11 +257,13 @@ How to derive the right whitelist_patterns/blacklist_patterns setting from some 
 Snip from RQG log
 # 2018-08-22T15:52:02 [16461] | mysqld: /work_m/10.2/storage/innobase/row/row0log.cc:631: void row_log_table_delete(const rec_t*, dict_index_t*, const ulint*, const byte*): Assertion `new_index->n_uniq == index->n_uniq' failed.
 
+FIXME: Describe some better workflow
 Description for everybody who is not interested to spend serious time on learning Perl pattern matching now.
 1. Start with
       perl checker.pl --log_file=112.log --whitelist_patterns="'<snip from RQG log>'"
-   which is the following command line
+   which would be the following command line
       perl checker.pl --log_file=112.log --whitelist_patterns="'# 2018-08-22T15:52:02 [16461] | mysqld: /work_m/10.2/storage/innobase/row/row0log.cc:631: void row_log_table_delete(const rec_t*, dict_index_t*, const ulint*, const byte*): Assertion `new_index->n_uniq == index->n_uniq' failed.'"
+In order to get this command into bash history (hopefully configured with do not ignore failing commands) you need to replace any '!' with '.' or prepend a '\' to it.
    which will
    a) not work now -- Trouble already in command line
    b) not work days later after the next push or on boxes with different directory structure
@@ -286,8 +288,8 @@ perl checker.pl --log_file=112.log --whitelist_patterns="'mysqld. .{1,70}row0log
 ... MATCHING: Blacklist statuses, element 'RESULT: The RQG run ended with status STATUS_OK' : no match
 ... MATCHING: Blacklist text patterns : No elements defined.
 ... INFO: Pattern is 'STATUS_ANY_ERROR' which means any status != 'STATUS_OK' matches.
-... MATCHING: Whitelist statuses, element 'RESULT: The RQG run ended with status ' followed by a status != STATUS_OK' : match
-... MATCHING: Whitelist text patterns element 'mysqld. .{1,70}row0log.cc.{1,10} void row_log_table_delete.{1,100}. Assertion .new_index..n_uniq .. index..n_uniq. failed.' : match <======= SUCCESS, pattern is right
+... MATCHING: Whitelist statuses, element 'RESULT: The RQG run ended with status ' followed by a status != STATUS_OK' : match <======= SUCCESS, pattern is right
+... MATCHING: Whitelist text patterns element 'mysqld. .{1,70}row0log.cc.{1,10} void row_log_table_delete.{1,100}. Assertion .new_index..n_uniq .. index..n_uniq. failed.' : match <======= SUCCESS, pattern is MAYBE right
 ... VERDICT: replay     <======= DESIRED REACTION
 
 In case you want to put the RQG log snip to the blacklist_patterns because its some problem
@@ -295,11 +297,17 @@ already reported, not of interest now etc. than use
 perl checker.pl --log_file=112.log --blacklist_patterns="'mysqld. .{1,70}row0log.cc.{1,10} void row_log_table_delete.{1,100}. Assertion .new_index..n_uniq .. index..n_uniq. failed.'"
 ...
 ... MATCHING: Blacklist statuses, element 'RESULT: The RQG run ended with status STATUS_OK' : no match
-... MATCHING: Blacklist text patterns element 'mysqld. .{1,70}row0log.cc.{1,10} void row_log_table_delete.{1,100}. Assertion .new_index..n_uniq .. index..n_uniq. failed.' : match <======= SUCCESS, pattern is right
+... MATCHING: Blacklist text patterns element 'mysqld. .{1,70}row0log.cc.{1,10} void row_log_table_delete.{1,100}. Assertion .new_index..n_uniq .. index..n_uniq. failed.' : match <======= SUCCESS, pattern is MAYBE right
 ... INFO: Pattern is 'STATUS_ANY_ERROR' which means any status != 'STATUS_OK' matches.
-... MATCHING: Whitelist statuses, element 'RESULT: The RQG run ended with status ' followed by a status != STATUS_OK' : match
+... MATCHING: Whitelist statuses, element 'RESULT: The RQG run ended with status ' followed by a status != STATUS_OK' : match <======= SUCCESS, pattern is right
 ... MATCHING: Whitelist text patterns : No elements defined.
 ... VERDICT: ignore     <======= DESIRED REACTION
+
+The text above contains 'SUCCESS, pattern is MAYBE right'.
+Well, there is the risk that your pattern contains some non escaped character like '|' which causes that most probably any text matches.
+In order to prevent that just try something like
+    perl checker.pl --log_file="$HOME/.profile" ....
+till you get no more a match.
 
 By the way you can match a group of RQG protocol lines like
   "'assert.{0,150}safe_cond_timedwait.{0,150}thr_mutex\.c.{0,50}Item_func_sleep::val_int.{0,3000}SELECT 1,SLEEP\(10\)'"
