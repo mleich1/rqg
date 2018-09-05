@@ -133,7 +133,7 @@ sub unique_components {
 sub toString {
     my $rule = shift;
     my $components = $rule->components();
-    return $rule->name() . ":\n\t" . join(" |\n\t", map { join('', @$_) } @$components) . " ;";
+    return $rule->name() . ":\n    " . join(" |\n    ", map { join('', @$_) } @$components) . " ;";
 }
 
 
