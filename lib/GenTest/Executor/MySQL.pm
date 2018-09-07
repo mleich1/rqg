@@ -729,6 +729,18 @@ sub get_connection {
    }
 
    $dbh->do("SET optimizer_switch=(SELECT variable_value FROM INFORMATION_SCHEMA.GLOBAL_VARIABLES WHERE VARIABLE_NAME='optimizer_switch')");
+   my $do_error = $dbh->err();
+   my $do_error_type = STATUS_OK;
+   if (defined $do_error) {
+      my $message_part = "ERROR: " . $executor->role . " dbh->do failed: $do_error " .
+                         $dbh->errstr() ;
+      # I hesitate to somehow analyze the error automatic.
+      # The statement is too simple for failing.
+      # Just let the other threads or reporters do the job.
+      my $status = STATUS_CRITICAL_FAILURE;
+      say("$message_part. Will exit with status : " . status2text($status) . "($status).");
+      exit $status;
+   }
 
    $executor->defaultSchema($executor->currentSchema());
 
@@ -741,6 +753,13 @@ sub get_connection {
 #        $dbh->{'mysql_use_result'} = 0;
    }
 
+   # FIXME:
+   # Whatever threads report before about connection loss. Also some thread later exiting with PERL_FAILURE.
+   # Can't use an undefined value as an ARRAY reference at lib/GenTest/Executor/MySQL.pm line 744, <CONF> line 59
+   # Some thread (maybe the current) exits with PERL failure.
+   # First attempt to reduce the cases where I get this is the error handling after
+   # $dbh->do("SET optimizer_switch ....."); above.
+   # --> Remarkable improvement. But this is most probably not 100% sufficient.
    $executor->setConnectionId($dbh->selectrow_arrayref("SELECT CONNECTION_ID()")->[0]);
    $executor->setCurrentUser($dbh->selectrow_arrayref("SELECT CURRENT_USER()")->[0]);
 
