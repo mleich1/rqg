@@ -427,6 +427,26 @@ say("INFO: RQG workdir : '$workdir' and infrastructure is prepared.");
 # STARTING FROM HERE THE WORKDIR AND ESPECIALLY THE RQG LOG SHOULD BE AVAILABLE.
 ####################################################################################################
 
+# In case of failure use
+#    run_end($status);
+# and never
+#   exit_test($status);  # includes blacklist/whitelist matching
+# as long as
+# - it is not decided if our current script or a different script runs the final test
+#   Reason: The other scripts do not write the entries required for blacklist/whitelist matching.
+# - say(Verdict::MATCHING_START) was not run.
+#   Reason:
+#   The blacklist/whitelist matching borders are missing.
+#   It might be that the help text including
+#      print "\n$0 arguments were: " . join(' ', @ARGV_saved) . "\n";
+#   was printed. And these arguments contain the bwlist search patterns which than leads to
+#   phantom matches.
+#
+# FIXME: Find some general robust solution for that.
+#        Auxiliary.pm ... insists in the borders etc. or
+#        say(Verdict::MATCHING_START) before starting other scripts but than with system?
+#
+
 # Shift from init -> start
 my $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_START);
 if (STATUS_OK != $return){
@@ -564,7 +584,7 @@ if (defined $sqltrace) {
     # --sqltrace may have a string value (optional).
     # Allowed values for --sqltrace:
     my %sqltrace_legal_values = (
-      'MarkErrors'    => 1  # Prefixes invalid SQL statements for easier post-processing
+        'MarkErrors'    => 1  # Prefixes invalid SQL statements for easier post-processing
     );
 
     if (length($sqltrace) > 0) {
@@ -1729,7 +1749,7 @@ $0 - Run a complete random query generation test, including server start with re
     will be compared between them.
 EOF
     ;
-    print "$0 arguments were: ".join(' ', @ARGV_saved)."\n";
+    print "\n$0 arguments were: " . join(' ', @ARGV_saved) . "\n";
 }
 
 sub exit_test {
