@@ -68,9 +68,77 @@ sub nativeReport {
 
     my $pid = $reporter->serverInfo('pid');
 
-    # Whereas the "sync" looks reasonable it might have some unexpected impact on total runtime.
-    # Some dd into some USB Flash drive performed by root caused a delay of several minutes.
-    # system ("sync");
+    # Observation: 2018 June - September
+    # ----------------------------------
+    # rqg_batch on some extreme strong box
+    #    > 100 RQG's concurrent and all use tmpfs, no paging
+    # There is some too big (partially > 30%) fraction of RQG runs which end definitely with
+    # crash/assert but the core file is not found in time (timeout 90s).
+    # Hence we get finally STATUS_CRITICAL_FAILURE (100) because there was no core file
+    # and maybe the verdict 'interest' instead of replay.
+    #
+    # In case we go with serious less concurrent RQG runs than this fraction decreases serious.
+    # This is doable as temporary measure but never in general.
+    #
+    # The timeout is required because we do not want to wait "endless" for some core which will
+    # maybe never show up (ASAN setup without core, Bug in RQG core, ...). from whatever reason.
+    #
+    # Some real life example what happened:
+    # Some threads lose their connection + attempt to connect to server again failed.
+    # So they stop with status STATUS_SERVER_CRASHED.
+    # 04T18:34:06 [190727] GenTest: child 190727 is being stopped with status STATUS_SERVER_CRASHED
+    # 04T18:34:09 [188964] Process with pid 190772 for Thread5 ended with status STATUS_SERVER_CRASHED
+    # 04T18:34:09 [188964] Killing remaining worker process with pid 190727...
+    # ...
+    # 04T18:34:09 [188964] Killing remaining worker process with pid 190872...
+    # 04T18:34:10 [188964] Killing periodic reporting process with pid 190620...
+    # 04T18:34:10 [190620] GenTest: child 190620 is being stopped with status STATUS_OK
+    # 04T18:34:10 [188964] For pid 190620 reporter status STATUS_OK
+    # 04T18:34:10 [188964] Kill GenTest::ErrorFilter(190619)
+    # 04T18:34:10 [188964] Server crash reported, initiating post-crash analysis...
+    # --------- Contents of /dev/shm/vardir/1530722017/13/1/data//../mysql.err -------------
+    # The usual stuff including the typical "poor" backtrace in mysql.err.
+    # ...
+    # 04T18:34:10 [188964] | Writing a core file at /dev/shm/vardir/1530722017/13/1/data/
+    # 04T18:34:10 [188964] | Aborted (core dumped)
+    # 04T18:34:10 [188964] ----------------------------------
+    # 04T18:34:10 [188964] INFO: Reporter 'Backtrace' ------------------------------ Begin
+    # 04T18:34:11 [188964] DEBUG: server pid : 190034 , server_running : 0
+    # 04T18:34:11 [188964] DEBUG: Aborted + core dumped found in server error log.
+    # 04T18:34:11 [188964] INFO: Reporter::Backtrace The pid_file '.../mysql.pid' did not disappear.
+    # 04T18:34:11 [188964] DEBUG: The core file name is not defined.
+    # 04T18:34:11 [188964] DEBUG: The core file name is not defined.
+    # 04T18:34:11 [188964] Will return STATUS_OK,undef
+    # 04T18:34:11 [188964] INFO: Reporter 'Backtrace' ------------------------------ End
+    # So the reporter gave up before a core file became visible.
+    # And the RQG run ended with
+    # STATUS_SERVER_CRASHED --> STATUS_CRITICAL_FAILURE (100) because there was no core file.
+    # Around 04T18:34:20 one of the concurrent RQG runs with the same grammars etc. ended with
+    # finding a core, getting a backtrace and throwing STATUS_SERVER_CRASHED.
+    # Conclusion: Wait longer for the core file showing up.
+    #
+    # First measure (June 2018)
+    # Increase the timeout from 90s to 270s.
+    # Serious improvement in general. And nearly sufficient for debug without ASAN builds.
+    #
+    # Second (experimental) measure in September:
+    #     Have such a high fraction (> 30%) again but now with ASAN builds.
+    #     Experiments with "sync $error_log" show some serious progress (fraction ~ 3%).
+    # Use 'system ("sync $error_log");' in addition and before applying the 270s timeout.
+    # My guesss:
+    # If using sync than we might be able to reduce the timeout later.
+    #
+    # Btw. some simple 'system ("sync")' could have some unexpected impact on the total runtime
+    # of the current RQG test.
+    # 1. By that we would sync the data of concurrent RQG runs and get some further delay.
+    #    But it is not known in advance if that gives some advantage to these tests at all.
+    #    So let this task to them because only they know if its required.
+    # 2. I had once a "format some 32GB USB Flash drive with dd" performed by root in parallel
+    #    to my single RQG run using tmpfs. The delay was several minutes.
+    #
+    if (not osWindows()) {
+    system ("sync $datadir/* $error_log $pid_file");
+    }
 
     # Do not look for a core file in case the server pid exists.
     my $server_running = 1;
@@ -111,43 +179,6 @@ sub nativeReport {
     if ( not $core_dumped_found ) {
         say("$message_begin error_log remains without '... (core dumped)'.");
     }
-
-    # Observation: 2018-07-04
-    # -----------------------
-    # Some threads lose their connection + attempt to connect to server again failed.
-    # So they stop with status STATUS_SERVER_CRASHED.
-    # 04T18:34:06 [190727] GenTest: child 190727 is being stopped with status STATUS_SERVER_CRASHED
-    # 04T18:34:09 [188964] Process with pid 190772 for Thread5 ended with status STATUS_SERVER_CRASHED
-    # 04T18:34:09 [188964] Killing remaining worker process with pid 190727...
-    # ...
-    # 04T18:34:09 [188964] Killing remaining worker process with pid 190872...
-    # 04T18:34:10 [188964] Killing periodic reporting process with pid 190620...
-    # 04T18:34:10 [190620] GenTest: child 190620 is being stopped with status STATUS_OK
-    # 04T18:34:10 [188964] For pid 190620 reporter status STATUS_OK
-    # 04T18:34:10 [188964] Kill GenTest::ErrorFilter(190619)
-    # 04T18:34:10 [188964] Server crash reported, initiating post-crash analysis...
-    # --------- Contents of /dev/shm/vardir/1530722017/13/1/data//../mysql.err -------------
-    # The usual stuff including the typical "poor" backtrace in mysql.err.
-    # ...
-    # 04T18:34:10 [188964] | Writing a core file at /dev/shm/vardir/1530722017/13/1/data/
-    # 04T18:34:10 [188964] | Aborted (core dumped)
-    # 04T18:34:10 [188964] ----------------------------------
-    # 04T18:34:10 [188964] INFO: Reporter 'Backtrace' ------------------------------ Begin
-    # 04T18:34:11 [188964] DEBUG: server pid : 190034 , server_running : 0
-    # 04T18:34:11 [188964] DEBUG: Aborted + core dumped found in server error log.
-    # 04T18:34:11 [188964] INFO: Reporter::Backtrace The pid_file '.../mysql.pid' did not disappear.
-    # 04T18:34:11 [188964] DEBUG: The core file name is not defined.
-    # 04T18:34:11 [188964] DEBUG: The core file name is not defined.
-    # 04T18:34:11 [188964] Will return STATUS_OK,undef
-    # 04T18:34:11 [188964] INFO: Reporter 'Backtrace' ------------------------------ End
-    # So the reporter gave up before a core file became visible.
-    # And the RQG run ended with
-    # STATUS_SERVER_CRASHED --> STATUS_CRITICAL_FAILURE (100) because there was no core file.
-    # Around 04T18:34:20 one of the concurrent RQG runs with the same grammars etc. ended with
-    # finding a core, getting a backtrace and throwing STATUS_SERVER_CRASHED.
-    # Conclusion: Wait longer for the core file showing up.
-    # Per first try: Polling for the core helped 100%.
-    # 2018-08-20 90s is frequent too short.
 
     $wait_timeout   = 270;
     $start_time     = Time::HiRes::time();
