@@ -536,7 +536,6 @@ sub reportResults {
        say("INFO: The total status $total_status means that there was an intentional server kill.");
        say("INFO: Therefore reducing the total status from $total_status to STATUS_OK.");
        $total_status = STATUS_OK;
-       $total_status = STATUS_SERVER_CRASHED;
     } elsif (STATUS_SERVER_CRASHED == $report_status and STATUS_SERVER_CRASHED != $total_status) {
        say("INFO: The reporter status $report_status is more reliable.");
        say("INFO: Therefore setting the total status from $total_status to $report_status.");
