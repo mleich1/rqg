@@ -682,139 +682,176 @@ my $query_no = 0;
 my $first_connect = 1;
 
 sub get_connection {
-   my $executor = shift;
+    my $executor = shift;
 
-   my $dbh = DBI->connect($executor->dsn(), undef, undef, {
+    # We need the $executor->role as important detail for messages.
+    if (not defined $executor->role) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL_ERROR: Executor Role is undef. Will exit with status : " .
+                    status2text($status) . "($status).");
+        exit $status;
+    }
+    my $dbh = DBI->connect($executor->dsn(), undef, undef, {
         mysql_connect_timeout  => CONNECT_TIMEOUT,
         PrintError             => 0,
         RaiseError             => 0,
         AutoCommit             => 1,
         mysql_multi_statements => 1,
         mysql_auto_reconnect   => 0
-   } );
+    } );
 
-   if (not defined $dbh) {
-      my $message_part = "ERROR: " . $executor->role . " connect() to dsn " . $executor->dsn() .
-                         " failed: " . $DBI::errstr ;
-      if ($first_connect == 1) {
-         say("$message_part. Will return STATUS_ENVIRONMENT_FAILURE");
-         return STATUS_ENVIRONMENT_FAILURE;
-      } else {
-         say("$message_part. Will return STATUS_SERVER_CRASHED");
-         return STATUS_SERVER_CRASHED;
-      }
-   }
-   $first_connect = 0;
+    if (not defined $dbh) {
+        my $message_part = "ERROR: " . $executor->role . " connect() to dsn " . $executor->dsn() .
+                          " failed: " . $DBI::errstr ;
+        if ($first_connect == 1) {
+            say("$message_part. Will return STATUS_ENVIRONMENT_FAILURE");
+            return STATUS_ENVIRONMENT_FAILURE;
+        } else {
+            say("$message_part. Will return STATUS_SERVER_CRASHED");
+            return STATUS_SERVER_CRASHED;
+        }
+    }
+    $first_connect = 0;
 
-   $executor->setDbh($dbh);
+    $executor->setDbh($dbh);
 
-   my ($host) = $executor->dsn() =~ m/:host=([^:]+):/;
-   $executor->setHost($host);
-   my ($port) = $executor->dsn() =~ m/:port=([^:]+):/;
-   $executor->setPort($port);
-   if (not defined $executor->role) {
-      Carp::cluck("WARN: Executor Role is undef");
-      exit;
-   }
+    my ($host) = $executor->dsn() =~ m/:host=([^:]+):/;
+    $executor->setHost($host);
+    my ($port) = $executor->dsn() =~ m/:port=([^:]+):/;
+    $executor->setPort($port);
 
-   #
-   # Hack around bug 35676, optimizer_switch must be set session-wide in order to have effect
-   # So we read it from the GLOBAL_VARIABLE table and set it locally to the session
-   # Please leave this statement on a single line, which allows easier correct parsing from general log.
-   #
+    #
+    # Hack around bug 35676, optimizer_switch must be set session-wide in order to have effect
+    # So we read it from the GLOBAL_VARIABLE table and set it locally to the session
+    # Please leave this statement on a single line, which allows easier correct parsing from general log.
+    #
 
-   $version = version($executor);
-   if ($version =~ /^(\d+\.\d+)/) {
-      $major_version = $1;
-   }
+    $version = version($executor);
+    if ($version =~ /^(\d+\.\d+)/) {
+        $major_version = $1;
+    }
 
-   $dbh->do("SET optimizer_switch=(SELECT variable_value FROM INFORMATION_SCHEMA.GLOBAL_VARIABLES WHERE VARIABLE_NAME='optimizer_switch')");
-   my $do_error = $dbh->err();
-   my $do_error_type = STATUS_OK;
-   if (defined $do_error) {
-      my $message_part = "ERROR: " . $executor->role . " dbh->do failed: $do_error " .
-                         $dbh->errstr() ;
-      # I hesitate to somehow analyze the error automatic.
-      # The statement is too simple for failing.
-      # Just let the other threads or reporters do the job.
-      my $status = STATUS_CRITICAL_FAILURE;
-      say("$message_part. Will exit with status : " . status2text($status) . "($status).");
-      exit $status;
-   }
+    $dbh->do("SET optimizer_switch = (SELECT variable_value FROM INFORMATION_SCHEMA . " .
+             "GLOBAL_VARIABLES WHERE VARIABLE_NAME = 'optimizer_switch')");
+    my $error = $dbh->err();
+    my $error_type = STATUS_OK;
+    if (defined $error) {
+        $error_type = $err2type{$error} || STATUS_OK;
+        my $message_part = "ERROR: " . $executor->role . " dbh->do failed: $error " .
+                           $dbh->errstr();
+        my $status = $error_type;
+        say("$message_part. Will exit with status : " . status2text($status) . "($status).");
+        exit $status;
+    }
 
-   $executor->defaultSchema($executor->currentSchema());
+    $executor->defaultSchema($executor->currentSchema());
 
-   if (($executor->fetchMethod() == FETCH_METHOD_AUTO) ||
-       ($executor->fetchMethod() == FETCH_METHOD_USE_RESULT)) {
-      say("Setting mysql_use_result to 1, so mysql_use_result() will be used.") if rqg_debug();
-#        $dbh->{'mysql_use_result'} = 1;
-   } elsif ($executor->fetchMethod() == FETCH_METHOD_STORE_RESULT) {
-      say("Setting mysql_use_result to 0, so mysql_store_result() will be used.") if rqg_debug();
-#        $dbh->{'mysql_use_result'} = 0;
-   }
+#   FIXME: Either remove the code or enable it.
+#   if (($executor->fetchMethod() == FETCH_METHOD_AUTO) ||
+#       ($executor->fetchMethod() == FETCH_METHOD_USE_RESULT)) {
+#       say("Setting mysql_use_result to 1, so mysql_use_result() will be used.") if rqg_debug();
+#       $dbh->{'mysql_use_result'} = 1;
+#   } elsif ($executor->fetchMethod() == FETCH_METHOD_STORE_RESULT) {
+#       say("Setting mysql_use_result to 0, so mysql_store_result() will be used.") if rqg_debug();
+#       $dbh->{'mysql_use_result'} = 0;
+#   }
 
-   # FIXME:
-   # Whatever threads report before about connection loss. Also some thread later exiting with PERL_FAILURE.
-   # Can't use an undefined value as an ARRAY reference at lib/GenTest/Executor/MySQL.pm line 744, <CONF> line 59
-   # Some thread (maybe the current) exits with PERL failure.
-   # First attempt to reduce the cases where I get this is the error handling after
-   # $dbh->do("SET optimizer_switch ....."); above.
-   # --> Remarkable improvement. But this is most probably not 100% sufficient.
-   $executor->setConnectionId($dbh->selectrow_arrayref("SELECT CONNECTION_ID()")->[0]);
-   $executor->setCurrentUser($dbh->selectrow_arrayref("SELECT CURRENT_USER()")->[0]);
+    # Observation 2018-09
+    # -------------------
+    # Whatever threads report connection loss short before because of some server crash.
+    # The actual thread was a bit earlier the victim of some KILL CONNECTION, has checked something,
+    # and connected again. In the moment this thread will be never the target of some KILL again.
+    # Than comes a
+    # Can't use an undefined value as an ARRAY reference at lib/GenTest/Executor/MySQL.pm line 7nn, <CONF> line 59
+    # for the next statement and than the affected thread/process dies with PERL failure.
+    # The reason is
+    #    $executor->setCurrentUser($dbh->selectrow_arrayref("SELECT CURRENT_USER()")->[0])
+    #                                                                               XXXXX
+    # The same is valid for the other $dbh->selectrow_arrayref("SELECT CURRENT_USER()")->[0].
+    # $dbh->selectrow_arrayref itself is "clean" and retturns undef according to the spec!
+    #
+    # For experimenting:
+    # system("killall -9 mysqld");
+    # sleep(1);
+    #
+    # $executor->setConnectionId($dbh->selectrow_arrayref("SELECT CONNECTION_ID()")->[0]);
+    #
+    my $row_arrayref = $dbh->selectrow_arrayref("SELECT CONNECTION_ID()");
+    $error = $dbh->err();
+    $error_type = STATUS_OK;
+    if (defined $error) {
+        $error_type = $err2type{$error} || STATUS_OK;
+        my $message_part = "ERROR: " . $executor->role . " dbh->do failed: $error " .
+                           $dbh->errstr();
+        my $status = $error_type;
+        say("$message_part. Will exit with status : " . status2text($status) . "($status).");
+        exit $status;
+    }
+    $executor->setConnectionId($row_arrayref->[0]);
 
-   if (not defined $executor->role) {
-      Carp::cluck("WARN: Executor Role is undef");
-   }
-   if (not defined $executor->id) {
-      Carp::cluck("WARN: Executor id is undef");
-   }
-   if (not defined $executor->defaultSchema()) {
-      Carp::cluck("WARN: Executor defaultSchema is undef");
-   }
-   if (not defined $executor->connectionId()) {
-      Carp::cluck("WARN: Executor connectionId is undef");
-   }
-   if (not defined rqg_debug()) {
-      Carp::cluck("WARN: Executor rqg_debug is undef");
-   }
-   say("Executor initialized. Role: " . $executor->role . "; id: ".$executor->id() .
-       "; default schema: " . $executor->defaultSchema() . "; connection ID: " .
-       $executor->connectionId()) if rqg_debug();
+    # $executor->setCurrentUser($dbh->selectrow_arrayref("SELECT CURRENT_USER()")->[0]);
+    $row_arrayref = $dbh->selectrow_arrayref("SELECT CURRENT_USER()");
+    $error = $dbh->err();
+    $error_type = STATUS_OK;
+    if (defined $error) {
+        $error_type = $err2type{$error} || STATUS_OK;
+        my $message_part = "ERROR: " . $executor->role . " dbh->do failed: $error " .
+                           $dbh->errstr();
+        my $status = $error_type;
+        say("$message_part. Will exit with status : " . status2text($status) . "($status).");
+        exit $status;
+    }
+    $executor->setCurrentUser($row_arrayref->[0]);
 
-   return STATUS_OK;
+    if (not defined $executor->id) {
+        Carp::cluck("WARN: Executor id is undef");
+    }
+    if (not defined $executor->defaultSchema()) {
+        Carp::cluck("WARN: Executor defaultSchema is undef");
+    }
+    if (not defined $executor->connectionId()) {
+        Carp::cluck("WARN: Executor connectionId is undef");
+    }
+    if (not defined rqg_debug()) {
+        Carp::cluck("WARN: Executor rqg_debug is undef");
+    }
+    say("Executor initialized. Role: " . $executor->role . "; id: ".$executor->id() .
+        "; default schema: " . $executor->defaultSchema() . "; connection ID: " .
+        $executor->connectionId()) if rqg_debug();
+
+    return STATUS_OK;
 
 }
 
 sub init {
-   my $executor = shift;
+    my $executor = shift;
 
-   my $status = get_connection($executor);
+    my $status = get_connection($executor);
 
-   if ($status) {
-      say("ERROR: GenTest::Executor::MySQL::init : Getting a connection for " . $executor->role() .
-          " failed with $status. Will return that status : " . status2text($status) . "($status).");
-      return $status;
-   }
+    if ($status) {
+        say("ERROR: GenTest::Executor::MySQL::init : Getting a connection for " . $executor->role() .
+            " failed with $status. Will return that status : " . status2text($status) . "($status).");
+        return $status;
+    }
 
-#  say("DEBUG: connection id is : " . $executor->connectionId());
+#   say("DEBUG: connection id is : " . $executor->connectionId());
 
-   return STATUS_OK;
+    return STATUS_OK;
 }
 
 sub reportError {
-   my ($self, $query, $err, $errstr, $execution_flags) = @_;
+    my ($self, $query, $err, $errstr, $execution_flags) = @_;
 
-   my $msg = [$query,$err,$errstr];
+    my $msg = [$query,$err,$errstr];
 
-   if (defined $self->channel) {
-      $self->sendError($msg) if not ($execution_flags & EXECUTOR_FLAG_SILENT);
-   } elsif (not defined $reported_errors{$errstr}) {
-      my $query_for_print= shorten_message($query);
-      say("Executor: Query: $query_for_print failed: $err $errstr. Further errors of this " .
-          "kind will be suppressed.") if not ($execution_flags & EXECUTOR_FLAG_SILENT);
-      $reported_errors{$errstr}++;
-   }
+    if (defined $self->channel) {
+        $self->sendError($msg) if not ($execution_flags & EXECUTOR_FLAG_SILENT);
+    } elsif (not defined $reported_errors{$errstr}) {
+        my $query_for_print= shorten_message($query);
+        say("Executor: Query: $query_for_print failed: $err $errstr. Further errors of this " .
+            "kind will be suppressed.") if not ($execution_flags & EXECUTOR_FLAG_SILENT);
+       $reported_errors{$errstr}++;
+    }
 }
 
 sub execute {
