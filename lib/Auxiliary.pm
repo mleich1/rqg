@@ -207,6 +207,9 @@ sub make_rqg_infrastructure {
     $my_file = $workdir . '/rqg_phase.init';
     $result  = make_file ($my_file, undef);
     return $result if $result;
+    $my_file = $workdir . '/rqg.job';
+    $result  = make_file ($my_file, undef);
+    return $result if $result;
     my $return = Verdict::make_verdict_infrastructure($workdir);
     if (STATUS_OK != $return) {
         return $return;
@@ -615,10 +618,10 @@ sub content_matching {
 sub status_matching {
 
     if (5 != scalar @_) {
-        Carp::confess("INTERNAL ERROR: Auxiliary::status_matching : Five parameters " .
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: Auxiliary::status_matching : Five parameters " .
                       "are required.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
+        safe_exit($status);
     }
 
 # Input parameters
@@ -681,21 +684,29 @@ sub status_matching {
 
     if (not defined $pattern_prefix or $pattern_prefix eq '') {
         # Its an internal error or (rather) misuse of routine.
+        my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: pattern_prefix is not defined or empty");
+        safe_exit($status);
     }
     if (not defined $content or $content eq '') {
         # Its an internal error or (rather) misuse of routine.
+        my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: content is not defined or empty");
+        safe_exit($status);
     }
     if (not defined $message_prefix or $message_prefix eq '') {
         # Its an internal error or (rather) misuse of routine.
+        my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: message_prefix is not defined or empty");
+        safe_exit($status);
     }
 
     # Count the number of pattern matches thanks to the 'g'.
     my $pattern_prefix_found = () = $content =~ m{$pattern_prefix}gs;
     if ($pattern_prefix_found > 1) {
+        my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: pattern_prefix matched $pattern_prefix_found times.");
+        safe_exit($status);
     } elsif ($pattern_prefix_found == 0) {
         say("INFO: status_matching : The pattern_prefix '$pattern_prefix' was not found. " .
             "Assume aborted RQG run and will return MATCH_UNKNOWN.");
@@ -756,7 +767,6 @@ sub status_matching {
 } # End sub status_matching
 
 
-
 sub print_list {
     my ($prefix, @input) = @_;
     my $output = $prefix .  ": ";
@@ -809,8 +819,10 @@ sub input_to_list {
 #
 
     if (@_ < 1) {
+        my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: Auxiliary::input_to_list : One Parameter " .
                     "(input) is required. Will return undef.");
+        safe_exit($status);
         # This accident could roughly only happen when coding RQG or its tools.
         # Already started servers need to be killed manually!
     }
@@ -869,7 +881,7 @@ sub getFileSlice {
 # ------
 # - up to $search_var_size bytes read from the end of the file $file_to_read
 # - undef if there is whatever trouble with the file (existence, type etc.)
-# or abort with confess if the routine is used wrong.
+# or Carp::cluck and abort if the routine is used wrong.
 #
 # Some code used for testing the current routine
 # 'not_exists' -- does not exist.
@@ -898,15 +910,18 @@ sub getFileSlice {
 
     my ($file_to_read, $search_var_size) = @_;
     if (@_ != 2) {
-        Carp::confess("INTERNAL ERROR: Auxiliary::getFileSlice : 2 Parameters (file_to_read, " .
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: Auxiliary::getFileSlice : 2 Parameters (file_to_read, " .
                       "search_var_size) are required.");
+        safe_exit($status);
         # This accident could roughly only happen when coding RQG or its tools.
         # Already started servers need to be killed manually!
     }
 
     if (not defined $file_to_read) {
-        Carp::confess("INTERNAL ERROR: \$file_to_read is not defined. Will return undef.");
-        return undef;
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: \$file_to_read is not defined.");
+        safe_exit($status);
     }
 
     if (not -e $file_to_read) {
@@ -948,6 +963,7 @@ sub getFileSlice {
 
 } # End sub getFileSlice
 
+# -----------------------------------------------------------------------------------
 
 my $git_supported;
 sub get_git_info {
@@ -1220,10 +1236,10 @@ sub make_multi_runner_infrastructure {
     if (mkdir $workdir) {
         say("DEBUG: The workdir $snip_current '$workdir' created.") if $script_debug;
     } else {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Creating the workdir $snip_current '$workdir' failed: $!.\n " .
-            "This directory must not exist in advance!\n" .
-            "Will exit with STATUS_ENVIRONMENT_FAILURE");
-        exit STATUS_ENVIRONMENT_FAILURE;
+            "This directory must not exist in advance! " . Auxiliary::exit_status_text($status));
+        safe_exit($status);
     }
 
     if (not defined $general_vardir or $general_vardir eq '') {
@@ -1248,10 +1264,10 @@ sub make_multi_runner_infrastructure {
     if (mkdir $vardir) {
         say("DEBUG: The vardir $snip_current '$vardir' created.") if $script_debug;
     } else {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Creating the vardir $snip_current '$vardir' failed: $!.\n " .
-            "This directory must not exist in advance!\n" .
-            "Will exit with STATUS_ENVIRONMENT_FAILURE");
-        exit STATUS_ENVIRONMENT_FAILURE;
+            "This directory must not exist in advance! " . Auxiliary::exit_status_text($status));
+        safe_exit($status);
     }
 
     # Convenience feature
@@ -1262,6 +1278,15 @@ sub make_multi_runner_infrastructure {
     # Creating the symlink might fail on some OS (see perlport) but should not abort our run.
     unlink($symlink_name);
     my $symlink_exists = eval { symlink($workdir, $symlink_name) ; 1 };
+
+    my $result_file  = $workdir . "/result.txt";
+    if (STATUS_OK != Auxiliary::make_file($result_file, undef)) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: Creating the result file '$result_file' failed. " .
+            Auxiliary::exit_status_text($status));
+        safe_exit($status);
+    }
+    say("DEBUG: The result (summary) file '$result_file' was created.") if $script_debug;
 
     # In case we have a combinations vardir without absolute path than ugly things happen:
     # Real life example:
@@ -1367,6 +1392,8 @@ sub surround_quote_check {
     }
 }
 
+# -----------------------------------------------------------------------------------
+
 sub get_string_after_pattern {
 # Purpose explained by example
 # ----------------------------
@@ -1394,8 +1421,10 @@ sub get_string_after_pattern {
 
     my ($file, $pattern) = @_;
     if (@_ != 2) {
-        Carp::confess("INTERNAL ERROR: Auxiliary::get_string_after_pattern : 2 Parameters (file, " .
-                      "pattern) are required.");
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: Auxiliary::get_string_after_pattern : 2 Parameters (file, " .
+                    "pattern) are required.");
+        safe_exit($status);
         # This accident could roughly only happen when coding RQG or its tools.
         # Already started servers need to be killed manually!
     }
@@ -1413,6 +1442,8 @@ sub get_string_after_pattern {
     }
 
 }
+
+# -----------------------------------------------------------------------------------
 
 # The unify_* routines
 # ====================
@@ -1465,30 +1496,33 @@ sub get_string_after_pattern {
 #                      with STATUS_ENVIRONMENT_FAILURE.
 # valid value for the parameter
 #
+# or Carp::cluck followed by exit in case of INTERNAL FAILURE.
+#    This accident could roughly only happen when coding RQG or its tools.
+#    Already started servers need to be killed manually!
 sub unify_gendata {
     my ($gendata, $workdir) = @_;
 
     if (@_ != 2) {
-        Carp::confess("INTERNAL ERROR: unify_gendata : 2 Parameters (gendata, " .
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: unify_gendata : 2 Parameters (gendata, " .
                       "workdir) are required.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
+        safe_exit($status);
     }
     if (not defined $gendata) {
-        Carp::confess("INTERNAL ERROR: unify_gendata : Parameter gendata is not defined.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: unify_gendata : Parameter gendata is not defined.");
+        safe_exit($status);
     }
     if (not defined $workdir) {
-        Carp::confess("INTERNAL ERROR: unify_gendata : Parameter workdir is not defined.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: unify_gendata : Parameter workdir is not defined.");
+        safe_exit($status);
     } else {
         if (! -d $workdir) {
-            Carp::confess("INTERNAL ERROR: unify_gendata : workdir '$workdir' does not exist " .
+            my $status = STATUS_INTERNAL_ERROR;
+            Carp::cluck("INTERNAL ERROR: unify_gendata : workdir '$workdir' does not exist " .
                           "or is not a directory.");
-            # This accident could roughly only happen when coding RQG or its tools.
-            # Already started servers need to be killed manually!
+            safe_exit($status);
         }
     }
 
@@ -1501,8 +1535,8 @@ sub unify_gendata {
             return undef;
             help();
             my $status = STATUS_ENVIRONMENT_FAILURE;
-            run_end($status);
-       } else {
+            safe_exit($status);
+        } else {
             # use File::Copy
             my $gendata_file = $workdir . "/rqg.zz";
             if ($gendata ne $gendata_file) {
@@ -1527,26 +1561,26 @@ sub unify_gendata_sql {
 # FIXME: Clean up of code
     my ($gendata_sql_ref, $workdir) = @_;
     if (@_ != 2) {
-        Carp::confess("INTERNAL ERROR: unify_gendata_sql : 2 Parameters (gendata_sql_ref, " .
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: unify_gendata_sql : 2 Parameters (gendata_sql_ref, " .
                       "workdir) are required.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
+        safe_exit($status);
     }
     if (not defined $gendata_sql_ref) {
-        Carp::confess("INTERNAL ERROR: unify_gendata_sql : Parameter gendata_sql_ref is not defined.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: unify_gendata_sql : Parameter gendata_sql_ref is not defined.");
+        safe_exit($status);
     }
     if (not defined $workdir) {
-        Carp::confess("INTERNAL ERROR: unify_gendata_sql : Parameter workdir is not defined.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: unify_gendata_sql : Parameter workdir is not defined.");
+        safe_exit($status);
     } else {
         if (! -d $workdir) {
-            Carp::confess("INTERNAL ERROR: unify_gendata_sql : workdir '$workdir' does not exist " .
-                          "or is not a directory.");
-            # This accident could roughly only happen when coding RQG or its tools.
-            # Already started servers need to be killed manually!
+        my $status = STATUS_INTERNAL_ERROR;
+            Carp::cluck("INTERNAL ERROR: unify_gendata_sql : workdir '$workdir' does not exist " .
+                        "or is not a directory.");
+            safe_exit($status);
         }
     }
 
@@ -1606,32 +1640,30 @@ sub unify_gendata_sql {
     return \@gendata_sql_files;
 }
 
-
-
 sub unify_redefine {
 # FIXME: Clean up of code
     my ($redefine_ref, $workdir) = @_;
     if (@_ != 2) {
-        Carp::confess("INTERNAL ERROR: unify_redefine : 2 Parameters (redefine_ref, " .
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: unify_redefine : 2 Parameters (redefine_ref, " .
                       "workdir) are required.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
+        safe_exit($status);
     }
     if (not defined $redefine_ref) {
-        Carp::confess("INTERNAL ERROR: unify_redefine : Parameter redefine_ref is not defined.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: unify_redefine : Parameter redefine_ref is not defined.");
+        safe_exit($status);
     }
     if (not defined $workdir) {
-        Carp::confess("INTERNAL ERROR: unify_redefine : Parameter workdir is not defined.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: unify_redefine : Parameter workdir is not defined.");
+        safe_exit($status);
     } else {
         if (! -d $workdir) {
-            Carp::confess("INTERNAL ERROR: unify_redefine : workdir '$workdir' does not exist " .
+            my $status = STATUS_INTERNAL_ERROR;
+            Carp::cluck("INTERNAL ERROR: unify_redefine : workdir '$workdir' does not exist " .
                           "or is not a directory.");
-            # This accident could roughly only happen when coding RQG or its tools.
-            # Already started servers need to be killed manually!
+            safe_exit($status);
         }
     }
 
@@ -1695,36 +1727,38 @@ sub unify_grammar {
     my ($grammar_file, $redefine_ref, $workdir, $skip_recursive_rules, $mask, $mask_level) = @_;
 
     if (@_ != 6) {
-        Carp::confess("INTERNAL ERROR: unify_grammar : 6 Parameters (grammar, redefine_ref, " .
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: unify_grammar : 6 Parameters (grammar, redefine_ref, " .
                       "workdir, skip_recursive_rules, mask_level, mask) are required.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
+        safe_exit($status);
     }
     if (not defined $grammar_file) {
-        Carp::confess("INTERNAL ERROR: unify_grammar : Parameter grammar is not defined.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: unify_grammar : Parameter grammar is not defined.");
+        safe_exit($status);
     } else {
         if (! -f $grammar_file) {
-            Carp::confess("ERROR: Grammar file '$grammar_file' does not exist or is not a plain file.");
+            my $status = STATUS_INTERNAL_ERROR;
+            Carp::cluck("ERROR: Grammar file '$grammar_file' does not exist or is not a plain file.");
+            safe_exit($status);
         }
     }
     if (not defined $redefine_ref) {
-        Carp::confess("INTERNAL ERROR: unify_grammar : Parameter redefine_ref is not defined.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: unify_grammar : Parameter redefine_ref is not defined.");
+        safe_exit($status);
     }
     my @redefine_files = @$redefine_ref;
     if (not defined $workdir) {
-        Carp::confess("INTERNAL ERROR: unify_grammar : Parameter workdir is not defined.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: unify_grammar : Parameter workdir is not defined.");
+        safe_exit($status);
     } else {
         if (! -d $workdir) {
-            Carp::confess("INTERNAL ERROR: unify_grammar : workdir '$workdir' does not exist " .
+            my $status = STATUS_INTERNAL_ERROR;
+            Carp::cluck("INTERNAL ERROR: unify_grammar : workdir '$workdir' does not exist " .
                           "or is not a directory.");
-            # This accident could roughly only happen when coding RQG or its tools.
-            # Already started servers need to be killed manually!
+            safe_exit($status);
         }
     }
 
@@ -1735,7 +1769,9 @@ sub unify_grammar {
     if ($mask > 0 and $mask_level > 0) {
         my @top_rule_list = $grammar_obj->top_rule_list();
         if (0 == scalar @top_rule_list) {
-            Carp::confess("ERROR: We had trouble with grammar_obj->top_rule_list().");
+            my $status = STATUS_INTERNAL_ERROR;
+            Carp::cluck("ERROR: We had trouble with grammar_obj->top_rule_list().");
+            safe_exit($status);
         } else {
             my $grammar1          = $grammar_obj->toString;
             say("DEBUG: The top rule list is '" . join ("', '", @top_rule_list) . "'.");
@@ -1752,13 +1788,15 @@ sub unify_grammar {
     my $grammar_string = $grammar_obj->toString;
     $grammar_file   = $workdir . "/rqg.yy";
     if (STATUS_OK != Auxiliary::make_file($grammar_file, $grammar_string)) {
-        Carp::confess("ERROR: We had trouble generating the final YY grammar.");
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("ERROR: We had trouble generating the final YY grammar.");
+        safe_exit($status);
     } else {
         return $grammar_file;
     }
 }
 
-
+# -----------------------------------------------------------------------------------
 
 # *_status_text
 # =============
@@ -1771,19 +1809,25 @@ sub unify_grammar {
 # Example of invocation:
 # my $status = STATUS_SERVER_CRASHED;
 # say("ERROR: All broken. " . Auxiliary::exit_status_text($status));
+# safe_exit($status);
 #
+use constant PHRASE_EXIT   => 'exit with exit';
+use constant PHRASE_RETURN => 'return with';
+
+
 sub _status_text {
     my ($status, $action) = @_;
     # The calling routine MUST already check that $status and $action are defined.
     my $snip;
     if      ($action eq 'exit'  ) {
-        $snip = "exit with exit";
+        $snip = PHRASE_EXIT;
     } elsif ($action eq 'return') {
-        $snip = "return";
+        $snip = PHRASE_RETURN;
     } else {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::confess("INTERNAL ERROR: Action '$action' is not supported." .
-                      "Will return status " . status2text($status) . "($status).");
+        Carp::cluck("INTERNAL EXIT_PHRASE ERROR: Don't know how to handle the action '$action'." .
+                    "Will " . PHRASE_EXIT . " " . status2text($status) . "($status).");
+        safe_exit($status);
     }
     return "Will $snip status " . status2text($status) . "($status).";
 }
@@ -1792,8 +1836,9 @@ sub exit_status_text {
     my ($status) = @_;
     if (not defined $status) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::confess("INTERNAL ERROR: The first parameter status is undef." .
-                      "Will return status " . status2text($status) . "($status).");
+        Carp::cluck("INTERNAL ERROR: The first parameter status is undef. " .
+                    "Will " . PHRASE_EXIT . " " . status2text($status) . "($status).");
+        safe_exit($status);
     }
     return _status_text($status, 'exit');
 }
@@ -1802,13 +1847,60 @@ sub return_status_text {
     my ($status) = @_;
     if (not defined $status) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::confess("INTERNAL ERROR: The first parameter status is undef." .
-                      "Will return status " . status2text($status) . "($status).");
+        Carp::cluck("INTERNAL ERROR: The first parameter status is undef. " .
+                    "Will " . PHRASE_EXIT . " " . status2text($status) . "($status).");
+        safe_exit($status);
     }
     return _status_text($status, 'return');
 }
 
 # -----------------------------------------------------------------------------------
+
+# *fill*
+# ======
+# Routined used for printing tables with results.
+#
+sub _fill_check {
+    my ($string, $length) = @_;
+    if (not defined $string) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: The first parameter string is undef. " .
+                    exit_status_text($status));
+        safe_exit($status);
+    }
+    if (not defined $length) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: The second parameter length is undef. " .
+                    exit_status_text($status));
+        safe_exit($status);
+    }
+    if (length($string) > $length) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: Length of string '$string' is bigger than allowed " .
+                    "length $length'. " . exit_status_text($status));
+        safe_exit($status);
+    }
+}
+
+sub rfill {
+    my ($string, $length) = @_;
+    _fill_check($string, $length);
+    while (length($string) < $length) {
+        $string = $string . ' ';
+    }
+    # say("DEBUG: rfilled string ->$string<-");
+    return $string;
+};
+
+sub lfill {
+    my ($string, $length) = @_;
+    _fill_check($string, $length);
+    while (length($string) < $length) {
+        $string = ' ' . $string;
+    }
+    # say("DEBUG: lfilled string ->$string<-");
+    return $string;
+};
 
 
 # FIXME: Implement
