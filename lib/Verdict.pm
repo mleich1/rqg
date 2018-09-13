@@ -448,18 +448,52 @@ sub black_white_lists_to_config_snip {
 } # End of sub black_white_lists_to_config_snip
 
 
-
+# RQG_VERDICT_INIT
+# Initial value == The RQG run not finished. So there is real verdict at all.
 use constant RQG_VERDICT_INIT               => 'init';
-                 # Initial value == Up till now no analysis started or finished.
+#
+# RQG_VERDICT_REPLAY
+# The RQG run is finished and analyzed. White list match. No black list match.
+# We got what we were searching for.
 use constant RQG_VERDICT_REPLAY             => 'replay';
-                 # White list match. No black list match.
+#
+# RQG_VERDICT_INTEREST
+# The RQG run is finished and analyzed. No white list match. No black list match.
+# We did not got what we were searching for but its some interesting 'bad' result.
 use constant RQG_VERDICT_INTEREST           => 'interest';
-                 # No white list match. No black list match.
+#
+# RQG_VERDICT_IGNORE
+# The RQG run is finished and analyzed. Black list match or STATUS_OK got etc.
+# Its absolute not what we were searching for.
 use constant RQG_VERDICT_IGNORE             => 'ignore';
-                 # Black list match or run was stopped intentionally or similar.
+#
+# RQG_VERDICT_STOPPED
+# The RQG run was stopped by rqg_batch.pl because of
+# - technical reasons like trouble with resources ahead
+# - Combinator/Simplifier 'asking' for stopping of ongoing RQG runs including the
+#   current one.
+# Runs with this verdict are treated regarding archiving and preserving of logs like
+# the verdict RQG_VERDICT_IGNORE.
+# But the
+# - Combinator will not charge the already invested efforts and repeat this run as
+#   soon as possible
+# - Simplifier might charge the already invested efforts and maybe repeat this run
+#   somewhen in future
+#
+# Warning:
+# Giving the RQG_VERDICT_* a shape optimized for printing result tables like
+# 'init    ' will cause trouble because we construct file names from that value.
+use constant RQG_VERDICT_STOPPED            => 'stopped';
+#
 use constant RQG_VERDICT_ALLOWED_VALUE_LIST => [
-        RQG_VERDICT_INIT, RQG_VERDICT_REPLAY, RQG_VERDICT_INTEREST, RQG_VERDICT_IGNORE
+        RQG_VERDICT_INIT, RQG_VERDICT_REPLAY, RQG_VERDICT_INTEREST,
+        RQG_VERDICT_IGNORE , RQG_VERDICT_STOPPED
     ];
+#
+# Maximum length of a RQG_VERDICT_* constant above.
+use constant RQG_VERDICT_LENGTH             => 8;
+# Column title maybe used in printing tables with results.
+use constant RQG_VERDICT_TITLE              => 'Verdict ';
 
 
 sub calculate_verdict {
@@ -636,8 +670,9 @@ In order to reach certain goals of RQG tools we need to have some mechanisms whi
 - inspect the results of some finished RQG run, give a verdict and inform the user.
 
 Verdicts:
-'ignore'   -- STATUS_OK got or blacklist parameter match or RQG run stopped because
-              of special reasons
+'ignore'   -- STATUS_OK got or blacklist parameter match
+'stopped'  -- Stopped because of certain reasons
+'init'     -- RQG run died prematurely
 'interest' -- No STATUS_OK got and no blacklist parameter match but also no whitelist
               parameter match
 'replay'   -- whitelist parameter match and no blacklist parameter match
@@ -645,7 +680,7 @@ Verdicts:
 Some examples how RQG tools exploit that verdict (except disabled):
 RQG runner (rqg.pl):
    Verdict 'replay', 'interest' : Archive remainings of that RQG run.
-   Verdict 'ignore' : Delete everything of that RQG run.
+   Verdict 'ignore', 'stopped', 'init' : No archiving
                       --> Nothing left over to check, save storage space
 RQG batch runner (rqg_batch.pl):
    Let rqg.pl do the job and archive or clean up according to verdict.

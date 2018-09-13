@@ -229,20 +229,28 @@ DONE (incomplete and arbitrary sorted list):
 13. Develop a program which is capable to check if the protocol of some RQG run matches the
     blacklist/whitelist statuses/patterns setting provided.
     (--> checker.pl)
+14. https://jira.mariadb.org/browse/MDEV-16863 Extend the RQG infrastructure for backup testing
+    Reporter: Mariabackup
+    1. Hot backup of data of running server 1
+    2. Prepare the data backed up for restore + restore to other place than server 1
+    3. Start some additional server 2 on that data
+    4. Run check table in server 2
+    5. If no trouble during 4. shutdown of server 2 + destroy his data + run next loop round.
+       If trouble terminate the test.
+15. Job queues (--> lib/Batch.pm)
+
 
 TODO (incomplete list):
 -----------------------
 -- Add to rqg_batch.pl
    - permanent observation of ressources
-     Decide based on these results if to maybe
-     - stop the rqg_batch.pl run including killing all ongoing RQG runs because not solvable
-       trouble is direct ahead -- avoid OS breakdown ...
-     - stop(KILL) some already ongoing RQG run because that would avoid to run into predicted
-       trouble
-     - do nothing than observing the system
-     - start some additional RQG run because the forecast regarding resources is positive
-   - job queues
-     This is at least for some far way superior new grammar simplification mechanism required.
+   Decide based on these results if to maybe
+   - stop the rqg_batch.pl run including killing all ongoing RQG runs because not solvable
+     trouble is direct ahead -- avoid OS breakdown ...
+   - stop(KILL) some already ongoing RQG run because that would avoid to run into predicted
+     trouble
+   - do nothing than observing the system
+   - start some additional RQG run because the forecast regarding resources is positive
 -- Implement some new far way superior grammar simplification mechanism which is a combination of
    1. Some more efficient algorithm for deciding which never tried simplification to check first.
       Base will be a weight according the likelihood that some rulle will be used for the generation
@@ -387,19 +395,6 @@ TODO (incomplete list):
    After quite short runtime the perl processes for the threads consumed more memory than
    the DB server. I guess this problem is caused by the "stack" feature of RQG.
    No idea who will fix that problem.
--- https://jira.mariadb.org/browse/MDEV-16863 Extend the RQG infrastructure for backup testing
-   Given the fact that we already have some crowd of RQG tests checking roughly all kinds of
-   concurrent DDL (stresses backup significant) it seems to be recommended to implement some
-   periodic reporter doing the following:
-   - the server is under serious load by arbitrary DDL (existing YY grammars)
-   - run parallel in a loop
-   1. Hot backup of data of running server 1
-   2. Prepare the data backed up for restore + restore to other place than server 1
-   3. Start some additional server 2 on that data
-   4. Run check table in server 2
-   5. If no trouble during 4. shutdown of server 2 + destroy his data + run next loop round.
-      If trouble terminate the test.
-   Some prototype was already pushed.
 -- Describe the work flow from
    1. bug hunting with RQG tests (rqg_batch.pl with cc config file)
    2. grammar simplification for one or more of the bugs found in 1.
@@ -446,9 +441,34 @@ TODO (incomplete list):
 -- checker.pl needs to be made capable to check config (cc and cfg) files.
 
 
+The planned and partially already implemented architecture around rqg_batch.pl
+------------------------------------------------------------------------------
+rg_batch.pl
+1. initializes the Combinator or Simplifier
+   Current state:
+   Only the Combinator exists. The advanced Simplifier has to be implemented.
+   The current simplifier is better than the old one but just some intermediate version
+   which lacks important optimizations.
+2. as soon as there are free resources rqg_batch "asks" the Combinator or Simplifier for some
+   job and gets than some fragment of a RQG command line (grammar, threads etc. assignment)
+   returned.
+3. complements the fragment with parameters which guarantee that a to be started RQG runner
+   does not clash with his resources (vardir, workdir, ports, files) with other RQG runners
+   in parallel.
+4. starts some corresponding RQG runner
+5. "reports" the outcome of any finished job to the Combinator or Simplifier so that they
+   can update their bookkeeping and adjust their responses (see 2.) according to the
+   progress corrently achieved.
+6. observes the state of the system and prevents certain disasters
+      Example: The vardir for the RQG batch run is frequent located on some RAM based
+               filesystem which has usually some quite limited size.
+               So a filesystem full is some real risk.
+   and stops RQG runner in order to prevent them.
+   The "stopped" run should get repeated later if required.
+   Current state:
+   - The resource control has to be implemented.
+   - The repetition of stopped RQG runs is implemented.
 
 
-
-
-Matthias 2018-08
+Matthias 2018-09
 

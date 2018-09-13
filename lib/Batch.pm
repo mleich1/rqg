@@ -1,4 +1,5 @@
 #  Copyright (c) 2018, MariaDB Corporation Ab.
+#  Use is subject to license terms.
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -27,7 +28,16 @@ package Batch;
 # It looks like Cwd::abs_path "cleans" ugly looking paths with superfluous
 # slashes etc.. Check closer and use more often.
 #
-
+# Hint:
+# All variables which get direct accessed by routines from other packages like
+#     push @Batch::try_queue, $order_id_now;
+# need to be defined with 'our'.
+# Otherwise we get a warning like
+#     Name "Batch::try_queue" used only once: possible typo at ./rqg_batch.pl line 1766.
+# , NO abort and no modification of the queue defined here.
+# Alternative solution:
+# Define with 'my' and the routines from other packages call some routine from here which
+# does the required manipulation.
 
 use GenTest::Constants;
 use GenTest;
@@ -39,7 +49,11 @@ use Verdict;
 # use constant STATUS_OK       => 0;
 use constant STATUS_FAILURE    => 1; # Just the opposite of STATUS_OK
 
+
 my $script_debug = 0;
+
+# Name of the convenience symlink if symlinking supported by OS
+my $symlink = "last_batch_workdir";
 
 sub make_multi_runner_infrastructure {
 #
@@ -76,7 +90,7 @@ sub make_multi_runner_infrastructure {
 #                   The caller, usully some other RQG tool, has to take care that clashes with
 #                   historic, parallel or future runs cannot happen.
 # $symlink_name == Name of the symlink to be created within the current working directory of the
-#                  process and pointing to the workder of the current RQG batch run.
+#                  process and pointing to the workdir of the current RQG batch run.
 #
 # Return values
 # -------------
@@ -116,10 +130,11 @@ sub make_multi_runner_infrastructure {
     if (mkdir $workdir) {
         say("DEBUG: The workdir $snip_current '$workdir' created.") if $script_debug;
     } else {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Creating the workdir $snip_current '$workdir' failed: $!.\n " .
-            "This directory must not exist in advance!\n" .
-            "Will exit with STATUS_ENVIRONMENT_FAILURE");
-        exit STATUS_ENVIRONMENT_FAILURE;
+            "This directory must not exist in advance.\n" .
+            Auxiliary::exit_status_text($status));
+        safe_exit($status);
     }
 
     if (not defined $general_vardir or $general_vardir eq '') {
@@ -134,9 +149,11 @@ sub make_multi_runner_infrastructure {
         if (mkdir $general_vardir) {
             say("DEBUG: The general vardir $snip_all '$general_vardir' created.") if $script_debug;
         } else {
+            my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: make_multi_runner_infrastructure : Creating the general vardir " .
-                "$snip_all '$general_vardir' failed: $!. Will return undef.");
-            return undef;
+                "$snip_all '$general_vardir' failed: $!. " .
+            Auxiliary::exit_status_text($status));
+            safe_exit($status);
         }
     }
     my $vardir = $general_vardir . "/" . $run_id;
@@ -144,10 +161,11 @@ sub make_multi_runner_infrastructure {
     if (mkdir $vardir) {
         say("DEBUG: The vardir $snip_current '$vardir' created.") if $script_debug;
     } else {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Creating the vardir $snip_current '$vardir' failed: $!.\n " .
             "This directory must not exist in advance!\n" .
-            "Will exit with STATUS_ENVIRONMENT_FAILURE");
-        exit STATUS_ENVIRONMENT_FAILURE;
+            Auxiliary::exit_status_text($status));
+        safe_exit($status);
     }
 
     # Convenience feature
@@ -158,6 +176,18 @@ sub make_multi_runner_infrastructure {
     # Creating the symlink might fail on some OS (see perlport) but should not abort our run.
     unlink($symlink_name);
     my $symlink_exists = eval { symlink($workdir, $symlink_name) ; 1 };
+
+    # File for bookkeeping of all the RQG runs somehow finished
+    # ---------------------------------------------------------
+    my $result_file  = $workdir . "/result.txt";
+    if (STATUS_OK != Auxiliary::make_file($result_file, undef)) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: Creating the result file '$result_file' failed. " .
+            Auxiliary::exit_status_text($status));
+        safe_exit($status);
+    }
+    say("DEBUG: The result (summary) file '$result_file' was created.") if $script_debug;
+
 
     # In case we have a combinations vardir without absolute path than ugly things happen:
     # Real life example:
@@ -216,7 +246,7 @@ sub make_multi_runner_infrastructure {
 #          It adusts the load dynamic to any hardware and setup of tests met.
 #
 my @order_array = ();
-# EFFORTS_INVESTED
+# ORDER_EFFORTS_INVESTED
 # Number or sum of runtimes of executions which finished regular
 use constant ORDER_EFFORTS_INVESTED => 0;
 # ORDER_EFFORTS_LEFT
@@ -296,51 +326,6 @@ my @try_later_queue;
 #   Not yet decided.
 my @try_over_queue;
 
-
-# Name of the convenience symlink if symlinking supported by OS
-my $symlink = "last_batch_workdir";
-
-my $order_id_now = 0;
-sub add_order {
-
-    my ($order_property1, $order_property2, $order_property3) = @_;
-    # FIXME: Check the input
-
-    $order_id_now++;
-
-    $order_array[$order_id_now][ORDER_EFFORTS_INVESTED] = 0;
-    $order_array[$order_id_now][ORDER_EFFORTS_LEFT]     = 1;
-
-    $order_array[$order_id_now][ORDER_PROPERTY1]        = $order_property1;
-    $order_array[$order_id_now][ORDER_PROPERTY2]        = $order_property2;
-    $order_array[$order_id_now][ORDER_PROPERTY3]        = $order_property3;
-
-    push @try_queue, $order_id_now;
-    print_order($order_id_now) if $script_debug;
-}
-
-
-sub print_order {
-    my ($order_id) = @_;
-
-    if (not defined $order_id) {
-        say("INTERNAL ERROR: print_order was called with some not defined \$order_id.\n");
-        # FIXME: Decide how to react.
-    }
-    my @order = @{$order_array[$order_id]};
-    say("$order_id § " . join (' § ', @order));
-
-}
-
-sub dump_orders {
-   say("DEBUG: Content of the order array ------------- begin");
-   say("id § efforts_invested § efforts_left § property1 § property2 § property3");
-   foreach my $order_id (1..$#order_array) {
-      print_order($order_id);
-   }
-   say("DEBUG: Content of the order array ------------- end");
-}
-
 sub dump_queues {
     say("DEBUG: \@try_first_queue : " . join (' ', @try_first_queue));
     say("DEBUG: \@try_queue       : " . join (' ', @try_queue));
@@ -348,12 +333,104 @@ sub dump_queues {
     say("DEBUG: \@try_over_queue  : " . join (' ', @try_over_queue));
 }
 
+sub init_queues {
+    @try_first_queue = ();
+    @try_queue       = ();
+    @try_later_queue = ();
+    @try_over_queue  = ();
+}
+
+sub get_order {
+
+    my $order_id;
+    $order_id = shift @try_first_queue;
+    if (defined $order_id) {
+        say("DEBUG: Order $order_id picked from \@try_first_queue.") if $script_debug;
+    } else {
+        # @try_first_queue was empty.
+        $order_id = shift @try_queue;
+        if (defined $order_id) {
+            say("DEBUG: Order $order_id picked from \@try_queue.") if $script_debug;
+        } else {
+            # @try_queue was empty too.
+            say("DEBUG: \@try_first_queue and \@try_queue are empty.") if $script_debug;
+            return undef;
+        }
+    }
+    return $order_id;
+}
 
 
+sub add_order {
+
+    my ($order_id) = @_;
+    # FIXME: Check the input
+
+    push @try_queue, $order_id;
+}
+
+sub add_to_try_over {
+    my ($order_id) = @_;
+    if (not defined $order_id) {
+        Carp::cluck("INTERNAL ERROR: order_id is undef.");
+        safe_exit(STATUS_INTERNAL_ERROR);
+    }
+
+    push @try_over_queue, $order_id;
+}
+
+sub add_to_try_first {
+    my ($order_id) = @_;
+    if (not defined $order_id) {
+        Carp::cluck("INTERNAL ERROR: order_id is undef.");
+        safe_exit(STATUS_INTERNAL_ERROR);
+    }
+
+    push @try_first_queue, $order_id;
+}
 
 
+# Whenever rqg_batch.pl calls Combinator/Simplifier::register_result than that routine will
+# return an array
+# first element is the status (the usual like STATUS_ENVIRONMENT_FAILURE etc.)
+#     Expected reaction:
+#     If STATUS_OK != that status than emergency_exit with that status.
+#     Its because Combinator/Simplifier::register_result cannot reach emergency_exit.
+#     Btw: action should be set to REGISTER_GO_ON and not undef.
+#     Use case:
+#     Trouble when processing the result, updating files etc. makes all 'hopeless'.
+# second element is string and tells the caller how to proceed
+# The constants are for that.
+use constant REGISTER_GO_ON    => 'register_ok';
+     # Expected reaction:
+     # Just go on == Ask for the next job when having free resources except status was != STATUS_OK.
+     # No remarkable change in the work flow. The next tests are roughly like the previous one.
+use constant REGISTER_STOP_ALL => 'register_stop_all';
+     # Expected reaction:
+     # Stop all active RQG runs and ask for the next job when having free resources.
+     # Use case:
+     # The result got made all onging RQG runs obsolete and so they should be aborted.
+     # Example:
+     # Bugreplay where we
+     # - need to replay some desired outcome only once
+     # - want to go on with free resources and something different as soon as possible.
+use constant REGISTER_END      => 'register_end';
 
-# FIXME: Implement
+
+use constant RQG_NO_TITLE       => 'Number';
+                                #   999999
+use constant RQG_NO_LENGTH      => 6;
+
+use constant RQG_LOG_TITLE      => 'RQG log   ';
+                                #   999999.log
+                                #    <deleted>
+use constant RQG_LOG_LENGTH     => 10;
+
+use constant RQG_ORDERID_TITLE  => 'OrderId';
+                                #   9999999
+use constant RQG_ORDERID_LENGTH => 7;
+
+# FIXME: Implement rather in Simplifier because nothing else needs it
 # Adaptive FIFO
 #
 # init          no of elements n, value
