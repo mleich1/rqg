@@ -124,7 +124,9 @@ sub nativeReport {
     # Second (experimental) measure in September:
     #     Have such a high fraction (> 30%) again but now with ASAN builds.
     #     Experiments with "sync $error_log" show some serious progress (fraction ~ 3%).
-    # Use 'system ("sync $error_log");' in addition and before applying the 270s timeout.
+    # Use 'system ("sync $error_log ... ");' in addition
+    # - before serching for applying the 270s timeout.
+    #
     # My guesss:
     # If using sync than we might be able to reduce the timeout later.
     #
@@ -136,21 +138,35 @@ sub nativeReport {
     # 2. I had once a "format some 32GB USB Flash drive with dd" performed by root in parallel
     #    to my single RQG run using tmpfs. The delay was several minutes.
     #
-    if (not osWindows()) {
-    system ("sync $datadir/* $error_log $pid_file");
-    }
 
     # Do not look for a core file in case the server pid exists.
-    my $server_running = 1;
-    my $core_dumped_found  = 0;
-    my $wait_timeout   = 180;
-    my $start_time     = Time::HiRes::time();
-    my $max_end_time   = $start_time + $wait_timeout;
+    # Observation on ASAN build but weak statistics
+    # - If '(core dumped)' shows up in server error log than the timestamp in the log is 0 to 1s
+    #   Backtrace.pm detects that the server process disappered.
+    # - A high fraction of the crashes cause the usual block of related entries in the error log
+    #   and
+    #   - none of these entries look like made by ASAN
+    #   - the error log ends with
+    #     ... Writing a core file at /dev/shm/vardir/1536609514/2/1/data/
+    #     ... Aborted (core dumped)
+    # - A small fraction
+    #   ERROR: AddressSanitizer: unknown-crash
+    #   ==132668==ABORTING
+    #   In case the ASAN options allow core writing and we wait long enough than a
+    #   'Aborted (core dumped)' follows later.
+    my $server_running    = 1;
+    my $core_dumped_found = 0;
+    my $wait_timeout      = 180;
+    my $start_time        = Time::HiRes::time();
+    my $max_end_time      = $start_time + $wait_timeout;
     while ($server_running and not $core_dumped_found and (Time::HiRes::time() < $max_end_time)) {
         sleep 1;
         $server_running = kill (0, $pid);
         say("DEBUG: server pid : $pid , server_running : $server_running");
 
+        if (not osWindows()) {
+            system ("sync $datadir/* $error_log $pid_file");
+        }
         if ($core_dumped_found == 0) {
             open(LOGFILE, "$error_log") or Carp::cluck("Error on open Server error file $error_log");
             while(<LOGFILE>) {
@@ -164,15 +180,20 @@ sub nativeReport {
             close LOGFILE;
         }
     }
-    my $wait_time = Time::HiRes::time() - $start_time;
+
+    my $wait_time     = Time::HiRes::time() - $start_time;
     my $message_begin = "ALARM: Reporter::Backtrace $wait_time" . "s waited but the server";
     if ( $server_running ) {
         say("$message_begin process has not disappeared.");
         # It does not make sense to wait longer.
-        say("INFO: Most probably false alarm. Will return STATUS_OK,undef.");
+        say("INFO: Most probably false alarm. Will return STATUS_OK, undef.");
         say("INFO: Reporter 'Backtrace' ------------------------------ End");
-        return STATUS_OK,undef;
-    }
+        return STATUS_OK, undef;
+    };
+
+    # Starting from here only the cases with disappeared server pid are left over.
+    # Hence we need to report the status STATUS_SERVER_CRASHED whenever we return.
+
     if ( -e $pid_file ) {
         say("INFO: Reporter::Backtrace The pid_file '$pid_file' did not disappear.");
     }
@@ -205,9 +226,9 @@ sub nativeReport {
     }
     if (not defined $core) {
         say("INFO: Even after $wait_timeout" . "s waiting: The core file name is not defined.");
-        say("Will return STATUS_OK,undef");
+        say("Will return STATUS_SERVER_CRASHED, undef");
         say("INFO: Reporter 'Backtrace' ------------------------------ End");
-        return STATUS_OK, undef;
+        return STATUS_SERVER_CRASHED, undef;
     }
     say("INFO: The core file name computed is '$core'.");
     $core = File::Spec->rel2abs($core);
@@ -218,9 +239,9 @@ sub nativeReport {
         # AFAIR:
         # Starting GDB for some not existing core file could waste serious runtime and
         # especially CPU time too.
-        say("Will return STATUS_OK,undef");
+        say("Will return STATUS_SERVER_CRASHED, undef");
         say("INFO: Reporter 'Backtrace' ------------------------------ End");
-        return STATUS_OK, undef;
+        return STATUS_SERVER_CRASHED, undef;
     }
 
     my @commands;
@@ -264,9 +285,9 @@ sub nativeReport {
             push @commands, "pstack $core | c++filt";
         } else {
             say ("No core available");
-            say("Will return STATUS_OK,undef");
+            say("Will return STATUS_SERVER_CRASHED, undef");
             say("INFO: Reporter 'Backtrace' ------------------------------ End");
-            return STATUS_OK, undef;
+            return STATUS_SERVER_CRASHED, undef;
         }
     } else {
         ## Assume all other systems are gdb-"friendly" ;-)
