@@ -306,7 +306,7 @@ perl checker.pl --log_file=112.log --blacklist_patterns="'mysqld. .{1,70}row0log
 The text above contains 'SUCCESS, pattern is MAYBE right'.
 Well, there is the risk that your pattern contains some non escaped character like '|' which causes that most probably any text matches.
 In order to prevent that just try something like
-    perl checker.pl --log_file="$HOME/.profile" ....
+    perl checker.pl --log_file="\$HOME/.profile" ....
 till you get no more a match.
 
 By the way you can match a group of RQG protocol lines like
