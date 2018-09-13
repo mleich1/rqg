@@ -21,7 +21,7 @@
 # The directory WORKDIR can be assigned via command line
 # - will be set to the symlinks
 #   - 'last_batch_workdir'
-set -x
+# set -x
 
 WORKDIR="$1"
 if [ "$WORKDIR" = "" ]
