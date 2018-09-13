@@ -163,8 +163,8 @@ if (STATUS_OK != Verdict::check_normalize_set_black_white_lists (
 }
 
 # Dump settings
-say("SIMPLIFY RQG GRAMMAR BASED ON EXPECTED CONTENT WITHIN SOME FILE");
-say("---------------------------------------------------------------");
+say("SIMPLIFY RQG GRAMMAR BASED ON DESIRED CONTENT OF THE RQG LOG");
+say("------------------------------------------------------------");
 $config->printProps;
 my $bw_option_string = my $cc_snip  = Verdict::black_white_lists_to_config_snip('cc');
 # say("DEBUG: $cc_snip ->$$cc_snip<-");
@@ -281,6 +281,8 @@ my $simplified_grammar = $simplifier->simplify($initial_grammar);
 
 print "Simplified grammar:\n\n$simplified_grammar\n\n" if defined $simplified_grammar;
 
+# Remove the misleading symlink 'last_batch_workdir'.
+unlink("last_batch_workdir");
 
 sub help {
    print("\n Sorry, help content not yet implemented.\n");
