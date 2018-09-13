@@ -131,14 +131,17 @@
 
 # I do not trust Recovery
 # --reporters=Deadlock,ErrorLog,Backtrace,Recovery,Shutdown
+#
+# Its better to set that per command line
+# --basedir1=/work_m/10.3/bld_fast
 $combinations =
     [ [
         '
         --gendata=conf/mariadb/fk_truncate.zz
+        --gendata_sql=conf/mariadb/fk_truncate.sql
         --threads=10
         --duration=300
         --queries=1000000
-        --basedir1=/work_m/10.3/bld_fast
         --engine=InnoDB
         --reporter=ErrorLog,Backtrace
         --mysqld=--loose-idle_readonly_transaction_timeout=0
