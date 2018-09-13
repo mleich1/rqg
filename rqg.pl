@@ -1805,6 +1805,16 @@ sub exit_test {
 
 sub run_end {
     my ($status) = @_;
+    # In case the RQG run was a job initiated by rqg_batch.pl than we will have the file $job_file.
+    # We append the information within that file simply to the content of the RQG log.
+    # Reasons:
+    # 1. All main important information in one file and that's the RQG log.
+    # 2. The information taken from $job_file is optimized for being processed by perl routines like
+    #    Auxiliary::get_string_after_pattern.
+    my $job_file = $workdir . '/rqg.job';
+    if ( -e $job_file ) {
+        sayFile($job_file);
+    }
     $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_COMPLETE);
     say("$0 will exit with exit status " . status2text($status) . "($status)");
     safe_exit($status);
