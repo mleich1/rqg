@@ -179,14 +179,14 @@ enforce_duplicate2:
    UPDATE t1 SET column_name_int = my_int LIMIT 2 ;
 
 insert_part:
-   INSERT INTO t1 (col1,col2,col3,col4) VALUES ;
+   INSERT INTO t1 (col1,col2,col_int_properties $col_name, col_text_properties $col_name) VALUES ;
 
 some_record:
    ($my_int,$my_int,$my_int,fill_begin $my_int fill_end ) ;
 
 delete:
    DELETE FROM t1 WHERE column_name_int = my_int OR $column_name_int IS NULL                              ;
-#   DELETE FROM t1 WHERE MATCH(col4) AGAINST (TRIM(' my_int ') IN BOOLEAN MODE) OR column_name_int IS NULL ;
+#   DELETE FROM t1 WHERE MATCH(col_text_properties $col_name) AGAINST (TRIM(' my_int ') IN BOOLEAN MODE) OR column_name_int IS NULL ;
 
 my_int:
    # Maybe having some uneven distribution is of some value.
@@ -387,8 +387,6 @@ col1_properties:
    { $col_name= 'col1'; $col_type= 'INT'  ; $col_idx= $col_name;          return undef } ;
 col2_properties:
    { $col_name= 'col2'; $col_type= 'INT'  ; $col_idx= $col_name;          return undef } ;
-col3_properties:
-   { $col_name= 'col3'; $col_type= 'INT'  ; $col_idx= $col_name;          return undef } ;
 col_varchar_properties:
    { $col_name= 'col_varchar'  ; $col_type= 'VARCHAR(500)'                                                            ; return undef }   col_varchar_idx ;
 col_varchar_g_properties:
