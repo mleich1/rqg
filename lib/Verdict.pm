@@ -378,20 +378,34 @@ sub black_white_lists_to_config_snip {
     my $extra3; # Used for the extra '=' or '    =>   [' if required.
     my $extra4; # Used for the extra '],' if required.
     my $extra5; # Used for the extra '],' if required.
-                # A superfluos ',' makes no trouble.
-    my $extra6  = '    ';
+                # A superfluous ',' makes no trouble.
+    my $extra6; # Used for space at begin if readability required
+    my $extra7; # "\n" after any parameter definition or other.
     if      ($config_type eq 'cc') {
+        $extra6 = '    ';
         $extra5 = '';
         $extra1 = '\\';
         $extra2 = $extra6 . '--';
         $extra3 = '="';
         $extra4 = '"';
+        $extra7 = "\n";
     } elsif ($config_type eq 'cfg') {
+        $extra6 = '    ';
         $extra5 = "\n" . $extra6 . $extra6;
         $extra1 = '';
         $extra2 = $extra6 . '';
         $extra3 = '    =>   [' . $extra5;
         $extra4 = "\n" . $extra6 . '],';
+        $extra7 = "\n";
+    } elsif ($config_type eq 'cl') {
+        # Prepare for use in for example     bash -c "$cl_snip"
+        $extra6 = ' ';
+        $extra5 = '';
+        $extra1 = '';
+        $extra2 = $extra6 . '--';
+        $extra3 = '=\\"';
+        $extra4 = '\\"';
+        $extra7 = "";
     } else {
         Carp::confess("INTERNAL ERROR: black_white_lists_to_config_snip : ".
                       "config_type '$config_type' is unknown (neither 'cc' nor 'cfg')");
@@ -429,19 +443,19 @@ sub black_white_lists_to_config_snip {
     my $config_snip = '';
     $result = give_value_list ($extra1, $extra5, @whitelist_statuses) ;
     if (defined $result) {
-        $config_snip = $config_snip . $extra2 . 'whitelist_statuses' . $extra3 . $result . $extra4 . "\n";
+        $config_snip = $config_snip . $extra2 . 'whitelist_statuses' . $extra3 . $result . $extra4 . $extra7;
     }
     $result = give_value_list ($extra1, $extra5, @whitelist_patterns) ;
     if (defined $result) {
-        $config_snip = $config_snip . $extra2 . 'whitelist_patterns' . $extra3 . $result . $extra4 . "\n";
+        $config_snip = $config_snip . $extra2 . 'whitelist_patterns' . $extra3 . $result . $extra4 . $extra7;
     }
     $result = give_value_list ($extra1, $extra5, @blacklist_statuses) ;
     if (defined $result) {
-        $config_snip = $config_snip . $extra2 . 'blacklist_statuses' . $extra3 . $result . $extra4 . "\n";
+        $config_snip = $config_snip . $extra2 . 'blacklist_statuses' . $extra3 . $result . $extra4 . $extra7;
     }
     $result = give_value_list ($extra1, $extra5, @blacklist_patterns) ;
     if (defined $result) {
-        $config_snip = $config_snip . $extra2 . 'blacklist_patterns' . $extra3 . $result . $extra4 . "\n";
+        $config_snip = $config_snip . $extra2 . 'blacklist_patterns' . $extra3 . $result . $extra4 . $extra7;
     }
 
     return $config_snip;
