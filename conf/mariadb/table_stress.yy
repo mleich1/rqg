@@ -144,8 +144,8 @@ correct_rqg_sessions_table:
    UPDATE test . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 create_table:
-   # CREATE TABLE IF NOT EXISTS t1 (col1 INT, col2 INT, col_int_properties $col_name $col_type , col_text_properties $col_name $col_type, col_int_g_properties $col_name $col_type) ENGINE = InnoDB;
-   CREATE TABLE IF NOT EXISTS t1 (col1 INT, col2 INT, col_int_properties $col_name $col_type , col_text_properties $col_name $col_type) ENGINE = InnoDB;
+     CREATE TABLE IF NOT EXISTS t1 (col1 INT, col2 INT, col_int_properties $col_name $col_type , col_text_properties $col_name $col_type, col_int_g_properties $col_name $col_type) ENGINE = InnoDB;
+   # CREATE TABLE IF NOT EXISTS t1 (col1 INT, col2 INT, col_int_properties $col_name $col_type , col_text_properties $col_name $col_type) ENGINE = InnoDB;
 
 # preload_properties?
 
@@ -167,10 +167,11 @@ dml:
    insert_part ( my_int , $my_int,     $my_int - 1, fill_begin $my_int     fill_end ); commit_rollback |
    insert_part ( my_int , $my_int,     $my_int,     fill_begin $my_int - 1 fill_end ); commit_rollback ;
 
+# SUBSTR(CAST( 200 AS CHAR),1,1) ==> 200
 fill_begin:
-   REPEAT(CAST( ;
+   REPEAT(SUBSTR(CAST( ;
 fill_end:
-   AS CHAR(1)), @fill_amount) ;
+   AS CHAR),1,1), @fill_amount) ;
 
 enforce_duplicate1:
    delete ; insert_part /* my_int */ some_record , some_record ;
@@ -336,17 +337,17 @@ rename_column:
 rename_column_begin:
    random_column_properties ALTER TABLE t1 CHANGE COLUMN if_exists_mostly ;
 name_convert:
-   $name                                                                                                  |
-   $name                                                                                                  |
-   $name                                                                                                  |
-   $name                                                                                                  |
-   $name                                                                                                  |
-   $name                                                                                                  |
-   $name                                                                                                  |
-   $name                                                                                                  |
-   $name                                                                                                  |
-   get_cdigit {substr($name, 0, $cdigit - 1) . uc(substr($name, $cdigit -1, 1)) . substr($name, $cdigit)} |
-   get_cdigit {substr($name, 0, $cdigit - 1) . lc(substr($name, $cdigit -1, 1)) . substr($name, $cdigit)} ;
+   $name                                                                                                   |
+   $name                                                                                                   |
+   $name                                                                                                   |
+   $name                                                                                                   |
+   $name                                                                                                   |
+   $name                                                                                                   |
+   $name                                                                                                   |
+   $name                                                                                                   |
+   get_cdigit {substr($name, 0, $cdigit - 1) . uc(substr($name, $cdigit - 1, 1)) . substr($name, $cdigit)} |
+   get_cdigit {substr($name, 0, $cdigit - 1) . lc(substr($name, $cdigit - 1, 1)) . substr($name, $cdigit)} |
+   $name                                                                                                   ;
 get_cdigit:
    {$cdigit = $prng->int(1,10); return undef} ;
 
