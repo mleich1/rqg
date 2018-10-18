@@ -120,7 +120,26 @@ sub new {
             $props->[PROPS_LEGAL_HASH]->{$legal}=1;
         }
     }
+
     if (defined $props->[PROPS_DEFAULTS]) {
+        # Attention:
+        # The defaults must be kept between {} and never [] because otherwise we get here
+        # Not a HASH reference at lib/GenTest/Properties.pm line ~ 125
+        # Correct example:
+        # my $config = GenTest::Properties->new(
+        #     options =>  $options,
+        #     legal   =>
+        #         [
+        #              'config',
+        #              ....
+        #         ],
+        #     defaults =>
+        #         {
+        #              'parallel'          =>  1,
+        #              ...
+        #         },
+        # );
+
         foreach my $legal (keys %{$props->[PROPS_DEFAULTS]}) {
             $props->[PROPS_LEGAL_HASH]->{$legal}=1;
         }
@@ -270,7 +289,11 @@ sub _printProps {
          my @uvl = Auxiliary::unified_value_list( @{$properties->{$property}});
          say($x . $property . " => ['" . join("', '", @uvl) .  "']");
       } else {
-         say($x . $property . " => " . $properties->{$property});
+         if (defined $properties->{$property}) {
+            say($x . $property . " => " . $properties->{$property});
+         } else {
+            say($x . $property . " => undef");
+         }
       }
    }
 }
