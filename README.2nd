@@ -146,6 +146,36 @@ Collection of hints (under construction)
        - Reach tmpfs full far way more often
        - Server for test Y starts somehow on data belonging to the the server of the
          already gone test X instead of his own data.
+5. Easy code failure
+   my $config = GenTest::Properties->new(
+       options =>  $options,
+       legal   =>
+           [
+                'config',
+                'input_file',
+                ....
+           ],
+       required =>
+           [
+                   'basedir',
+                   ...
+           ],
+       # Attention {} and never [] because that leads to
+       # Not a HASH reference at lib/GenTest/Properties.pm line ~ 125
+       defaults =>
+           {
+                   'parallel'          =>  1,
+                   ...
+           },
+   );
+6. Never run something like
+   my ($ret, $args) = Getopt::Long::GetOptionsFromString($cl_snip,
+       'runner=s'                 => \$runner_passed_back,
+   );
+   because it will
+       wanted     remove some  '--runner=<value>'
+       disaster   remove single quotes from values within $cl_snip.
+
 
 DONE (incomplete and arbitrary sorted list):
 1. Introduce the capability to define a
@@ -439,6 +469,70 @@ TODO (incomplete list):
      not already done for some finished RQG run.
      IMHO acceptable weak point: Modification of binary during rqg_batch.pl runtime.
 -- checker.pl needs to be made capable to check config (cc and cfg) files.
+-- Let rqg_batch.pl run mysqltest simplification
+-- Implement several optional "strangler" which cause that some ongoing simplifications attempt
+   is stopped in case it is extreme likely that we will get no more a replay with this one.
+   Criterions:
+   - up till now elapsed RQG/MTR runtime (one tool call running a campaign of tests)
+   - up till now elapsed runtime for a RQG/MTR test executed by a Worker within a tool
+   - actual size of output
+   Maintain a fifo with n elements whenever a replay was achieved.
+   Compute a value giving a > 85% percentil and use that as upper limit for the next to be
+   started RQG/MTR run. Stop that run as soon as that limit was exceeded and maybe charge into
+   the fifo a value like limit * 1.01.
+-- Ideas for some improved mysqltest simplifier
+   Some first note:
+   The algorithm (--> Andreas Zeller) of the current mysqltest simplifier is extreme efficient
+   but lacks support for parallelization.
+   I am aware that 2. is in some points maybe less efficient but supports parallelization.
+   1. Try with parallel=1 and repeat=1.
+      In case that fails than there might be two reasons
+      a) the search pattern is wrong
+      b) unknown but per more than one time observation going with
+         - repeat > 1 helped sometimes but often not
+         - In all cases where repeat > 1 helped a doubling of the test code helped too.
+         My guess: It was a problem in InnoDB purge.
+         The original test was derived from some rqg_batch run and that probably
+         - generates per RQG worker -> server more log than per MTR worker -> server
+         - runs more SQL -> need more time than in MTR
+         - runs with more parallel CPU load on testing box  SQL -> need more time than in MTR
+         So whatever criterion purge uses for deciding to become active, there is sufficient
+         in RQG but not in the derived MTR Test.
+      So if no replay
+      -  Try with doubled script code.
+      -  Try with quadrupled script code.
+      If even this does not replay than give up.
+   2. When having some "base" test
+      Set $parallel to user defined value or the default `nproc`.
+      Set $dividor = $parallel.
+      $replay_in_round = 1;
+      Loop (if 1 == $replay_in_round)
+          $replay_in_round = 0;
+          Add x empty lines to the last replaying script so that  no of lines MOD dividor = 0.
+          Make dividor derivates
+              First derivat = Last replayer with the first 1/dividor lines removed.
+              Last  derivat = Last replayer with the last  1/dividor lines removed at end.
+              Naming of tests: SD_<iteration with left side zeros>-<1 till dividor>
+          Loop as long as (combine with "and")
+              - no replay achieved
+              - $dividor < 2 * number of line in replaying test
+                Goal: The ~ last round should be : Attack any single code line in test.
+              ./mtr --parallel=$parallel ... --do-test=SD_<iteration with left zeros>
+              If replay
+              - YES: Catch the name of the test and declare it to be the last replaying script.
+                Delete all other non replaying scripts SD_<iteration with left zeros>_...
+                $replay_in_round = 1;
+                (perl) last    (*)
+              - NO: $dividor = 2 * $dividor
+                (perl) last
+      -----------------------------------------------------------------------------
+      Problems(test it out):
+          Is it possible to identify the replaying test with 100% accuracy?
+          V1.test == V2.test with content
+          --disable_abort_on_error
+          CREATE TABLE t1 (col1 INT);
+          A result file does not exist.
+          We get a pass no matter how many repeats I run.
 
 
 The planned and partially already implemented architecture around rqg_batch.pl
@@ -470,5 +564,5 @@ rg_batch.pl
    - The repetition of stopped RQG runs is implemented.
 
 
-Matthias 2018-09
+Matthias 2018-10
 
