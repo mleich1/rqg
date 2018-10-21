@@ -40,7 +40,59 @@ use Cwd;
 use constant STATUS_FAILURE      => 1; # Just the opposite of STATUS_OK
 use constant INTERNAL_TOOL_ERROR => 200;
 
-my $script_debug = 0;
+
+# The script debugging "system"
+# -----------------------------
+# We set the global "valid" variable $script_debug here via the routine 'script_debug_init'.
+# Thinkable settings:
+# - '_all_'
+#   Write debug output no matter what the value assigned to the routine script_debug was.
+# - '_<char1><digit2>_<char3><digit2>_'
+#   Write debug output if <char1><digit2> or <char3><digit2> was requested.
+# Hint:
+# The character
+# T -> Tool       (rqg_batch.pm or whatever else managing RQG runs gets "invented")
+# B -> Batch      (lib/Batch.pm)
+# C -> Combinator (lib/Combinator.pm)
+# S -> Simplifier (lib/Simplifier.pm)
+# R -> RQG runner (rqg.pl)
+# The digit
+# 1     -- more important and/or less frequent
+# n > 1 -- les important and/or more frequent
+# If admit that this
+# - concept is rather experimental
+# - the digits used in the modules rather arbitrary.
+#
+my $script_debug;
+sub script_debug_init {
+    ($script_debug) = @_;
+    if (not defined $script_debug) {
+        $script_debug = '';
+    } else {
+        say("DEBUG: script_debug initialized to '$script_debug'.");
+    }
+}
+
+sub script_debug {
+    my ($pattern) = @_;
+    if (not defined $pattern) {
+        Carp::cluck("INTERNAL ERROR: The parameter pattern is undef.");
+        exit INTERNAL_TOOL_ERROR;
+    }
+    if (not defined $script_debug) {
+        Carp::cluck("INTERNAL ERROR: script debug was not initialized.");
+        exit INTERNAL_TOOL_ERROR;
+    }
+    # For debugging:
+    # say("Auxiliary::script_debug : pattern is ->$pattern<-");
+    $pattern = "_" . $pattern . "_";
+    if (($script_debug =~ /$pattern/) or ($script_debug eq '_all_')) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
 
 sub check_value_supported {
 #
@@ -193,7 +245,7 @@ sub make_rqg_infrastructure {
 # STATUS_FAILURE -- No success
 #
     my ($workdir) = @_;
-    say("DEBUG: Auxiliary::make_rqg_infrastructure workdir is '$workdir'") if $script_debug;
+    # say("DEBUG: Auxiliary::make_rqg_infrastructure workdir is '$workdir'");
     $workdir = Cwd::abs_path($workdir);
     if (not -d $workdir) {
         say("ERROR: RQG workdir '$workdir' is missing or not a directory.");
@@ -310,7 +362,7 @@ sub rename_file {
       Carp::cluck("ERROR: Auxiliary::rename_file '$source_file' to '$target_file' failed : $!");
       return STATUS_FAILURE;
    } else {
-      say("DEBUG: Auxiliary::rename_file '$source_file' to '$target_file'.") if $script_debug;
+      say("DEBUG: Auxiliary::rename_file '$source_file' to '$target_file'.") if script_debug("A5");
       return STATUS_OK;
    }
 }
@@ -1045,7 +1097,7 @@ sub get_git_info {
 
 
 ####################################################################################################
-# Certain constant related to whatever kinds of replication
+# Certain constants related to whatever kinds of replication
 #
 # Run with one server only.
 use constant RQG_RPL_NONE                 => 'none';
@@ -1902,6 +1954,16 @@ sub lfill {
     return $string;
 };
 
+sub lfill0 {
+    my ($string, $length) = @_;
+    _fill_check($string, $length);
+    while (length($string) < $length) {
+        $string = '0' . $string;
+    }
+    # say("DEBUG: lfilled string ->$string<-");
+    return $string;
+};
+
 
 # FIXME: Implement
 # Adaptive FIFO
@@ -1931,6 +1993,8 @@ sub lfill {
 #
 # Conversion routine for 100M etc.
 #
+
+# Check if basedir contains a mysqld and clients
 
 
 1;

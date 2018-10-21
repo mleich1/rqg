@@ -101,7 +101,7 @@ if (defined $rqg_home_env) {
         exit 2;
     } else {
         $rqg_home = $rqg_home_env;
-        say("DEBUG: rqg_home '$rqg_home' taken from environment might be usable.\n");
+        # say("DEBUG: rqg_home '$rqg_home' taken from environment might be usable.\n");
     }
 } else {
     # RQG_HOME is not set
@@ -339,6 +339,7 @@ if (not GetOptions(
     'report-tt-logdir=s'          => \$report_tt_logdir,
     'querytimeout=i'              => \$querytimeout,
     'no-mask'                     => \$no_mask,
+    'no_mask'                     => \$no_mask,
     'skip_shutdown'               => \$skip_shutdown,
     'skip-shutdown'               => \$skip_shutdown,
     'galera=s'                    => \$galera,
@@ -358,6 +359,7 @@ if (not GetOptions(
     'blacklist_statuses:s@'       => \@blacklist_statuses,
     'blacklist_patterns:s@'       => \@blacklist_patterns,
     'archiver_call:s'             => \$archiver_call,
+    'script_debug:s'              => \$script_debug,
     )) {
     help();
     exit STATUS_CONFIG_ERROR;
@@ -369,6 +371,12 @@ if ( defined $help ) {
     help();
     exit STATUS_OK;
 }
+
+# Support script debugging as soon as possible.
+if (not defined $script_debug) {
+    $script_debug = '';
+}
+Auxiliary::script_debug_init($script_debug);
 
 if (STATUS_OK != Verdict::check_normalize_set_black_white_lists (
       ' The RQG run ended with status ', # $status_prefix,

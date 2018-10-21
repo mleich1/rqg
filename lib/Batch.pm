@@ -345,15 +345,18 @@ sub get_order {
     my $order_id;
     $order_id = shift @try_first_queue;
     if (defined $order_id) {
-        say("DEBUG: Order $order_id picked from \@try_first_queue.") if $script_debug;
+        say("DEBUG: Order $order_id picked from \@try_first_queue.")
+            if Auxiliary::script_debug("B5");
     } else {
         # @try_first_queue was empty.
         $order_id = shift @try_queue;
         if (defined $order_id) {
-            say("DEBUG: Order $order_id picked from \@try_queue.") if $script_debug;
+            say("DEBUG: Order $order_id picked from \@try_queue.")
+                if Auxiliary::script_debug("B5");
         } else {
             # @try_queue was empty too.
-            say("DEBUG: \@try_first_queue and \@try_queue are empty.") if $script_debug;
+            say("DEBUG: \@try_first_queue and \@try_queue are empty.")
+                if Auxiliary::script_debug("B5");
             return undef;
         }
     }
@@ -409,7 +412,7 @@ use constant REGISTER_STOP_ALL => 'register_stop_all';
      # Expected reaction:
      # Stop all active RQG runs and ask for the next job when having free resources.
      # Use case:
-     # The result got made all onging RQG runs obsolete and so they should be aborted.
+     # The result got made all ongoing RQG runs obsolete and so they should be aborted.
      # Example:
      # Bugreplay where we
      # - need to replay some desired outcome only once

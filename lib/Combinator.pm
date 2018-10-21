@@ -1,5 +1,3 @@
-#!/usr/bin/perl
-
 # Copyright (c) 2018, MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
@@ -16,28 +14,27 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301
 # USA
+#
 
 # Note about history and future of this script:
 # ---------------------------------------------
 # The concept and code here is only in small portions based on
 # - util/bughunt.pl
-#   - Per just finished RQG run immediate judging based on status + text patterns
-#     and creation of archives + first cleanup (all moved to rqg.pl)
-#   - unification regarding storage places
+#   - The immediate judging (based on status + text patterns) was extended to
+#     the black/whitelist matching and moved into Verdict.pm.
+#     The matching itself gets called by rqg.pl.
+#   - The creation of archives + first cleanup are moved into rqg.pl too.
+#   - The unification regarding storage places was extended and also moved
+#     into rqg.pl.
 # - combinations.pl
-#   Parallelization + combinations mechanism
+#   - The parallelization was improved and moved into rqg_batch.pl and other
+#     modules.
+#   - The combinations mechanism was partially modified and stays here.
 # There we have GNU General Public License version 2 too and
 # Copyright (c) 2008, 2011 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2018, MariaDB Corporation Ab.
 #
-# The amount of parameters (call line + config file) is in the moment
-# not that stable.
-# On the long run the current script should replace
-# - util/bughunt.pl
-# - combinations.pl
-# - util/simplify-grammar.pl
-#   and even util/new-simplify-grammar.pl
 
 package Combinator;
 
@@ -97,47 +94,79 @@ my $script_debug = 1;
 #          It adusts the load dynamic to any hardware and setup of tests met.
 #
 my @order_array = ();
+# index is the id of creation in generate_order
+#
 # EFFORTS_INVESTED
 # Number or sum of runtimes of executions which finished regular
 use constant ORDER_EFFORTS_INVESTED => 0;
+#
 # ORDER_EFFORTS_LEFT
 # Number or sum of runtimes of possible executions in future which maybe have finished regular.
 # Example: rqg_batch will not pick some order with ORDER_EFFORTS_LEFT <= 0 for execution.
 use constant ORDER_EFFORTS_LEFT     => 1;
+#
 # ORDER_PROPERTY1
-# - The grammar rule to be attacked.
+# Snip of the command line for the RQG runner.
 use constant ORDER_PROPERTY1        => 2;
-# ORDER_PROPERTY2
-# - The simplification like remove "UPDATE ...." which has to be tried.
+#
+# ORDER_PROPERTY2 , comb_counter
+# Example: start_combination = 2 , trials = 3
+# comb_counter | order_id
+#            1 | not stored because < start_combination
+#            2 |        1
+#            3 |        2
+#            4 |        3
+#
 use constant ORDER_PROPERTY2        => 3;
+#
+# ORDER_PROPERTY3 , unused
 use constant ORDER_PROPERTY3        => 4;
 
 
 my $config_file;
 my $config_file_copy_rel = "combinations.cc";
+
+# File for bookkeeping + easy overview about results achieved.
 my $result_file;
-my $start_combination;
+
 our $combinations; # Otherwise the 'eval' in the sub 'init' makes trouble.
-my $seed;
 my $workdir;
-my $noshuffle;
+
+# Maximum number of regular finished RQG runs (!= stopped)
 my $trials;
+# Maximum number of left over to be regular finished trials
+my $left_over_trials;
+use constant TRIALS_DEFAULT         => 99999;
+
+
+# Parameters typical for Combinations runs
+# ----------------------------------------
+my $seed;
 my $exhaustive;
-my $stop_on_replay;
+my $start_combination;
+my $noshuffle;
+
+my $no_mask;
+my $grammar_file;
+my $threads;
 my $prng;
 my $comb_count;
+
 # Name of the convenience symlink if symlinking supported by OS
 my $symlink = "last_batch_workdir";
 
-# FIXME: Are these variables used?
-my $next_order_id    = 1;
+# A string which should be in mid of the command line options when rqg_batch calls the RQG runner.
+my $cl_snip_end = '';
+
+
+# FIXME: Check and describe how this variable is used.
+my $next_order_id = 1;
 $| = 1;
 
 1;
 
 sub init {
-    ($config_file, $workdir, $seed, $exhaustive, $noshuffle, $start_combination,
-     $trials, $stop_on_replay) = @_;
+    ($config_file, $workdir) = @_;
     # Based on the facts that
     # - Combinator/Simplifier init gets called before any Worker is running
     # - this init will be never called again
@@ -146,9 +175,16 @@ sub init {
     # Maybe return ($status, $action) like register_result and than we could reinit
     # if useful and do other wild stuff.
     #
+    if (2 != scalar @_) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: Combinator::init : Two parameters " .
+                    "(config_file, workdir) are required.");
+        safe_exit($status);
+    }
 
-    Carp::cluck("DEBUG: Combinator::init : Entering routine with variables " .
-                "(config_file, workdir, seed, exhaustive, noshuffle)") if $script_debug;
+    Carp::cluck(isoTimestamp() . " DEBUG: Combinator::init : Entering routine with variables " .
+                "(config_file, workdir)") if Auxiliary::script_debug("C1");
+
     # Check the easy stuff first.
     if (not defined $config_file) {
         my $status = STATUS_INTERNAL_ERROR;
@@ -184,6 +220,73 @@ sub init {
         safe_exit($status);
     }
 
+
+# ---------------------------------------------
+
+    my $duration;
+
+    # Read the command line options which are left over after being processed by rqg_batch.
+    my $options = {};
+    Getopt::Long::Configure('pass_through');
+    if (not GetOptions(
+        $options,
+    #   'help'                      => \$help,                  # Swallowed and handled by rqg_batch. Only there?
+    #   'type=s'                    => \$type,                  # Swallowed and handled by rqg_batch
+    #   'config=s'                  => \$config_file,           # Swallowed and checked by rqg_batch. Got here as parameter
+####    'basedir=s'                 => \$basedirs[0],
+    #   'basedir1=s'                => \$basedirs[1],           # Swallowed and handled by rqg_batch
+    #   'basedir2=s'                => \$basedirs[2],           # Swallowed and handled by rqg_batch
+    #   'basedir3=s'                => \$basedirs[3],           # Swallowed and handled by rqg_batch
+    #   'workdir=s'                 => \$workdir,               # Swallowed and handled by rqg_batch. Got here as parameter
+    #   'vardir=s'                  => \$vardir,                # Swallowed and handled by rqg_batch
+    #   'build_thread=i'            => \$build_thread,          # Swallowed and handled by rqg_batch
+        'trials=i'                  => \$trials,                # Handled here (max no of finished trials)
+        'duration=i'                => \$duration,              # Handled here
+        'seed=s'                    => \$seed,                  # Handled here
+    #   'force'                     => \$force,                 # Swallowed and handled by rqg_batch
+        'no-mask'                   => \$no_mask,               # Rather handle here
+        'grammar=s'                 => \$grammar_file,          # Handle here. Requirement caused by Simplifier
+    #   'gendata=s'                 => \$gendata,               # Rather handle here
+    #   'testname=s'                => \$testname,              # Swallowed and handled by rqg_batch
+    #   'xml-output=s'              => \$xml_output,            # Swallowed and handled by rqg_batch
+    #   'report-xml-tt'             => \$report_xml_tt,         # Swallowed and handled by rqg_batch
+    #   'report-xml-tt-type=s'      => \$report_xml_tt_type,    # Swallowed and handled by rqg_batch
+    #   'report-xml-tt-dest=s'      => \$report_xml_tt_dest,    # Swallowed and handled by rqg_batch
+        'run-all-combinations-once' => \$exhaustive,            # Handled here
+        'start-combination=i'       => \$start_combination,     # Handled here
+        'no-shuffle'                => \$noshuffle,             # Handled here
+    #   'max_runtime=i'             => \$max_runtime,           # Swallowed and handled by rqg_batch
+                                                                # Should rqg_batch ask for summary ?
+    #   'dryrun=s'                  => \$dryrun,                # Swallowed and handled by rqg_batch
+    #   'no-log'                    => \$noLog,                 # Swallowed and handled by rqg_batch
+    #   'parallel=i'                => \$workers,               # Swallowed and handled by rqg_batch
+    # runner
+    # Having a --runner=<value> in a cc file + rqg_batch transforms that finally to a valid call
+    # of that RQG runner is thinkable.
+    # But why going with that complexity just for allowing to have a crowd of RQG runs with
+    # partially differing RQG runners?
+    # A user could also distribute these runs over several rqg_batch.pl calls with differing config files.
+    #   'runner=s'                  => \$runner,                # Swallowed and handled by rqg_batch
+    #   'stop_on_replay'            => \$stop_on_replay,        # Swallowed and handled by rqg_batch
+    #   'servers=i'                 => \$servers,               # Swallowed and handled by rqg_batch
+        'threads=i'                 => \$threads,               # Handled here (placed in cl_snip)
+    #   'discard_logs'              => \$discard_logs,          # Swallowed and handled by rqg_batch
+    #   'discard-logs'              => \$discard_logs,          # Swallowed and handled by rqg_batch
+    #   'script_debug=s'            => \$script_debug,          # Swallowed and handled by rqg_batch
+    #   'runid:i'                   => \$runid,                 # No use here
+    #   'algorithm',                                            # For simplifier
+
+                                                       )) {
+        # Somehow wrong option.
+        help_combinator();
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        safe_exit($status);
+    };
+    my $argv_remain = join(" ", @ARGV);
+    if (defined $argv_remain and $argv_remain ne '') {
+        say("WARNING: The following options were left over/ignored. ->$argv_remain<-");
+    }
+
     # We work with the copy only!
     if (not open (CONF, $config_file_copy)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
@@ -203,7 +306,21 @@ sub init {
         safe_exit($status);
     }
 
-    system("find $workdir") if $script_debug;
+    if (defined $grammar_file and $grammar_file ne '') {
+        # FIXME: Check routine in Auxiliary
+        $cl_snip_end .= " --grammar=" . $grammar_file;
+    }
+    if (defined $duration and $duration != 0) {
+        # FIXME: Routine in Auxiliary
+        $cl_snip_end .= " --duration=" . $duration;
+    }
+    if (defined $threads and $threads != 0) {
+        # FIXME: Routine in Auxiliary
+        $cl_snip_end .= " --threads=" . $threads;
+    }
+    if (defined $no_mask) {
+        $cl_snip_end .= " --no_mask";
+    }
 
     # This handling of seed affects mainly the generation of random combinations.
     if (not defined $seed) {
@@ -214,42 +331,63 @@ sub init {
     if ($seed eq 'time') {
         $seed = time();
     }
-    say("INFO seed : $seed");
+    say("INFO: seed : $seed");
     $prng = GenTest::Random->new(seed => $seed);
 
     if (not defined $start_combination) {
         say("DEBUG: start-combination was not assigned. Setting it to the default 1.")
-            if $script_debug;
+            if Auxiliary::script_debug("C1");
         $start_combination = 1;
     }
 
     $comb_count = $#$combinations + 1;
-    my $total      = 1;
+    my $total   = 1;
     foreach my $comb_id (0..($comb_count - 1)) {
         $total *= $#{$combinations->[$comb_id]} + 1;
     }
     say("INFO: Number of sections to pick an entry from and combine : $comb_count");
     say("INFO: Number of possible combinations                      : $total");
 
+    if (not defined $exhaustive) {
+        $exhaustive = 0;
+        say("DEBUG: exhaustive was not assigned. Setting it to the default $exhaustive.")
+            if Auxiliary::script_debug("C1");
+    }
+    if (not defined $noshuffle) {
+        $noshuffle = 0;
+        say("DEBUG: noshuffle was not assigned. Setting it to the default $noshuffle.")
+            if Auxiliary::script_debug("C1");
+    }
+
+    if (not defined $trials) {
+        $trials = TRIALS_DEFAULT;
+        say("DEBUG: trials was not assigned. Setting it to the default 99999.")
+            if Auxiliary::script_debug("C1");
+    }
+    $left_over_trials = $trials;
+
     $result_file  = $workdir . "/result.txt";
     my $iso_ts = isoTimestamp();
     # FIXME: Add printing the Combinator setup (parameters given to current sub)
-    my $header = "$iso_ts Combinator init ========================================\n"              .
-                 "$iso_ts workdir                     : '$workdir'\n"                              .
-                 "$iso_ts config_file (assigned)      : '$config_file'\n"                          .
-                 "$iso_ts config file (copy used)     : '$config_file_copy_rel'\n"                 .
-                 "$iso_ts seed (compute combinations) : $seed\n"                                   .
-                 "$iso_ts exhaustive                  : $exhaustive\n"                             .
-                 "$iso_ts noshuffle                   : $noshuffle\n"                              .
-                 "$iso_ts start_combination           : $start_combination\n"                      .
-                 "$iso_ts trials                      : $trials\n"                                 .
-                 "$iso_ts stop_on_replay              : $stop_on_replay\n"                         .
-                 "$iso_ts --------------------------------------------------------\n"              .
-                 "$iso_ts | " . Batch::RQG_NO_TITLE        . " | " .
-                                Verdict::RQG_VERDICT_TITLE . " | " .
-                                Batch::RQG_LOG_TITLE       . " | " .
-                                Batch::RQG_ORDERID_TITLE   . " | " .
-                                "RunTime\n";
+    my $header =
+"$iso_ts Combinator init ================================================================================================\n" .
+"$iso_ts workdir                        : '$workdir'\n"                                                                      .
+"$iso_ts config_file (assigned)         : '$config_file'\n"                                                                  .
+"$iso_ts config file (copy used)        : '$config_file_copy_rel'\n"                                                         .
+"$iso_ts seed (compute combinations)    : $seed\n"                                                                           .
+"$iso_ts exhaustive                     : $exhaustive\n"                                                                     .
+"$iso_ts noshuffle                      : $noshuffle\n"                                                                      .
+"$iso_ts start_combination              : $start_combination\n"                                                              .
+"$iso_ts trials                         : $trials (Default " . TRIALS_DEFAULT . ")\n"                                        .
+"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
+"$iso_ts options added to any RQG call  : $cl_snip_end\n"                                                                    .
+"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
+"$iso_ts number of sections to combine  : $comb_count\n"                                                                     .
+"$iso_ts max number of combinations     : $total\n"                                                                          .
+"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
+"$iso_ts | " . Batch::RQG_NO_TITLE        . " | " . Verdict::RQG_VERDICT_TITLE . " | " . Batch::RQG_LOG_TITLE                .
+       " | " . Batch::RQG_ORDERID_TITLE   . " | " . "RunTime\n";
+
     if (STATUS_OK != Auxiliary::append_string_to_file ($result_file, $header)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Combinator::init : Writing into result file '$result_file' failed. " .
@@ -257,140 +395,10 @@ sub init {
         safe_exit($status);
     }
 
+    say("DEBUG: Leaving 'Combinator::init") if Auxiliary::script_debug("C6");
+
 } # End sub init
 
-sub weg1 {
-
-my $comb_start_time = time();
-
-
-#---------------------
-my $rqg_home;
-my $rqg_home_call = Cwd::abs_path(File::Basename::dirname($0));
-my $rqg_home_env  = $ENV{'RQG_HOME'};
-my $start_cwd     = Cwd::getcwd();
-#---------------------
-
-# FIXME: Harden that
-# rqg_batch.pl and RQG_HOME if assigned must be from the same universe
-if (defined $rqg_home_env) {
-    print("WARNING: The variable RQG_HOME with the value '$rqg_home_env' was found in the " .
-          "environment.\n");
-    if (osWindows()) {
-        $ENV{RQG_HOME} = $ENV{RQG_HOME}.'\\';
-    } else {
-        $ENV{RQG_HOME} = $ENV{RQG_HOME}.'/';
-    }
-} else {
-    $ENV{RQG_HOME} = dirname(Cwd::abs_path($0));
-}
-$rqg_home = $rqg_home_call;
-
-if ( osWindows() )
-{
-    require Win32::API;
-    my $errfunc = Win32::API->new('kernel32', 'SetErrorMode', 'I', 'I');
-    my $initial_mode = $errfunc->Call(2);
-    $errfunc->Call($initial_mode | 2);
-};
-
-my $logger;
-eval
-{
-    require Log::Log4perl;
-    Log::Log4perl->import();
-    $logger = Log::Log4perl->get_logger('randgen.gentest');
-};
-
-$| = 1;
-my $ctrl_c = 0;
-
-# FIXME: It does not look like that this ctrl_c stuff has some remarkable impact at all.
-$SIG{INT}  = sub { $ctrl_c = 1 };
-$SIG{TERM} = sub { emergency_exit("INFO: SIGTERM or SIGINT received. Will stop all RQG worker " .
-                                  "and exit without cleanup.", STATUS_OK) };
-$SIG{CHLD} = "IGNORE" if osWindows();
-
-my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar, $gendata,
-    $testname, $xml_output, $report_xml_tt, $report_xml_tt_type, $max_runtime,
-    $report_xml_tt_dest, $force, $no_mask, $exhaustive,
-    $workers, $servers, $noshuffle, $discard_logs, $help, $runner,
-    $script_debug, $runid, $threads);
-
-# my @basedirs    = ('', '');
-my @basedirs;
-my %results;
-my @commands;
-my $max_result    = 0;
-my $epochcreadir;
-
-$discard_logs  = 0;
-
-my $opt_result = {};
-sub help();
-
-# FIXME:
-# Should we enforce some rigid standardization like
-# testname, xml_output, ... report_xml_tt_dest and similar
-# are the task of rqg_batch.pl and not Combinator.pm.
-
-if (not GetOptions(
-    $opt_result,
-           'help'                      => \$help,
-           'config=s'                  => \$config_file,
-#          'basedir=s'                 => \$basedirs[0],
-           'basedir1=s'                => \$basedirs[1],
-           'basedir2=s'                => \$basedirs[2],
-           'basedir3=s'                => \$basedirs[3],
-           'workdir=s'                 => \$workdir,
-           'vardir=s'                  => \$vardir,
-           'build_thread=i'            => \$build_thread,
-           'trials=i'                  => \$trials,
-           'duration=i'                => \$duration,
-           'seed=s'                    => \$seed,
-           'force'                     => \$force,        # Go on even if STATUS_ENVIRONMENT_FAILURE) || ($result == 255  hit
-           'no-mask'                   => \$no_mask,
-           'grammar=s'                 => \$grammar,
-           'gendata=s'                 => \$gendata,
-           'testname=s'                => \$testname,
-           'xml-output=s'              => \$xml_output,
-           'report-xml-tt'             => \$report_xml_tt,
-           'report-xml-tt-type=s'      => \$report_xml_tt_type,
-           'report-xml-tt-dest=s'      => \$report_xml_tt_dest,
-           'run-all-combinations-once' => \$exhaustive,
-           'start-combination=i'       => \$start_combination,
-           'max_runtime=i'             => \$max_runtime,
-           'parallel=i'                => \$workers,
-           'runner=s'                  => \$runner,
-           'stop_on_replay'            => \$stop_on_replay,
-           'servers=i'                 => \$servers,
-           'threads=i'                 => \$threads,
-           'no-shuffle'                => \$noshuffle,
-           'discard_logs'              => \$discard_logs,
-           'discard-logs'              => \$discard_logs,
-           'script_debug'              => \$script_debug,
-           'runid:i'                   => \$runid,
-                                                   )) {
-    # Somehow wrong option.
-    help();
-    exit STATUS_ENVIRONMENT_FAILURE;
-};
-
-if (defined $help) {
-   help();
-   exit 0;
-}
-
-}
-
-# if (not defined $script_debug) {
-#     $script_debug = 0;
-# } else {
-#     $script_debug = 1;
-#     say("DEBUG: script_debug is enabled.");
-# }
-
-# my $prng = GenTest::Random->new(seed => $seed);
 
 my $trial_counter = 0;
 my $next_comb_id  = 0;
@@ -404,28 +412,32 @@ sub get_job {
     my $out_of_ideas;
     my $job;
     while (not defined $order_id) {
-        say("DEBUG: Begin of loop for getting an order.");
+        say("DEBUG: Begin of loop for getting an order.") if Auxiliary::script_debug("C6");
         $order_id = Batch::get_order();
         if (defined $order_id) {
-            say("DEBUG: Batch::get_order delivered order_id $order_id.");
+            say("DEBUG: Batch::get_order delivered order_id $order_id.")
+                if Auxiliary::script_debug("C6");
             if (not order_is_valid($order_id)) {
-                say("DEBUG: The order $order_id is no more valid.");
+                say("DEBUG: The order $order_id is no more valid.")
+                    if Auxiliary::script_debug("C4");
                 $order_id = undef;
             } else {
-                say("DEBUG: The order $order_id is valid.");
+                say("DEBUG: The order $order_id is valid.")
+                    if Auxiliary::script_debug("C6");
             }
         } else {
-            say("DEBUG: Batch::get_order delivered an undef order_id.");
+            say("DEBUG: Batch::get_order delivered an undef order_id.")
+                if Auxiliary::script_debug("C5");
             if (not generate_orders()) {
-                say("DEBUG: generate_orders delivered nothing.");
+                say("DEBUG: generate_orders delivered nothing. Setting out_of_ideas")
+                     if Auxiliary::script_debug("C4");
                 $out_of_ideas = 1;
-                say("DEBUG: Jump out of loop for getting an order.");
                 last;
             }
         }
-        say("DEBUG: End of loop for getting an order.") if $script_debug;
+        say("DEBUG: End of loop for getting an order.") if Auxiliary::script_debug("C6");
     }
-    if ($script_debug) {
+    if (Auxiliary::script_debug("C6")) {
         if (defined $order_id) {
             say("DEBUG: OrderID is $order_id.");
         } else {
@@ -439,7 +451,7 @@ sub get_job {
         # @try_first_queue empty , @try_queue empty too and extending impossible.
         # == All possible orders were generated.
         #    Some might be in execution and all other must be in @try_over_queue.
-        say("DEBUG: No order got") if $script_debug;
+        say("DEBUG: No order got") if Auxiliary::script_debug("C5");
         return undef;
     } else {
         if (not defined $order_array[$order_id]) {
@@ -449,7 +461,7 @@ sub get_job {
             exit $status;
         }
         my $cl_snip = $order_array[$order_id][ORDER_PROPERTY1];
-        return ($order_id, $cl_snip);
+        return ($order_id, $cl_snip . $cl_snip_end);
     }
 
 } # End of get_job
@@ -460,7 +472,7 @@ sub get_job {
 # What is this trial counter now good for?
 # my $trial_counter = 0;
 
-my $trial_counter = 0;
+my $comb_counter = 0;
 
 sub doExhaustive {
     my ($level,@idx) = @_;
@@ -478,15 +490,15 @@ sub doExhaustive {
             pop @idx;
         }
     } else {
-        $trial_counter++;
+        $comb_counter++;
         my @comb;
         foreach my $i (0 .. $#idx) {
             push @comb, $combinations->[$i]->[$idx[$i]];
         }
         my $comb_str = join(' ', @comb);
         # FIXME: next?
-        next if $trial_counter < $start_combination;
-        doCombination($trial_counter, $comb_str, "combination");
+        next if $comb_counter < $start_combination;
+        doCombination($comb_counter, $comb_str, "combination");
     }
 }
 
@@ -494,9 +506,9 @@ sub doExhaustive {
 
 sub doCombination {
 
-    my ($trial_id, $comb_str, $comment) = @_;
+    my ($comb_counter, $comb_str, $comment) = @_;
 
-    say("trial_id : $trial_id") if $script_debug;
+#   say("comb_counter : $comb_counter") if $script_debug;
 
     my $command = "$comb_str ";
 
@@ -520,8 +532,7 @@ sub doCombination {
         # Trailing spaces
         $command =~ s{ *$}{}sg;
 
-        add_order($command, $trial_id, '_unused_');
-        say("DEBUG: Order(s) generated.");
+        add_order($command, $comb_counter, '_unused_');
         return 1;
         $next_order_id++;
     } else {
@@ -533,7 +544,7 @@ sub doCombination {
 
 ##------------------------------------------------------
 
-sub help() {
+sub help_combinator() {
    print(
    "\nSorry, under construction and partially different or not yet implemented.\n\n"               .
    "Purpose: Perform a batch of RQG runs with massive parallelization according to setup/config\n" .
@@ -556,6 +567,7 @@ sub help() {
    "      A RQG run which ended regular with success or failure (crash, perl error ...).\n"        .
    "      rpl_batch.pl might stop (KILL) RQG runs because of technical reasons.\n"                 .
    "      Such stopped runs will be restarted with the same setup as soon as possible.\n"          .
+   "      And they do not count as regular runs.\n"                                                .
    "\n"                                                                                            .
    "--run-all-combinations-once\n"                                                                 .
    "      Generate a deterministic sequence of combinations.\n"                                    .
@@ -593,20 +605,6 @@ sub help() {
    "--runner=...\n"                                                                                .
    "      The RQG runner to be used. The value assigned must be without path.\n"                   .
    "      (Default) rqg.pl in RQG_HOME.\n"                                                         .
-   "--discard_logs\n"                                                                              .
-   "      Remove even the logs of RQG runs with the verdict '" . Verdict::RQG_VERDICT_IGNORE       .
-   "'\n"                                                                                           .
-   "--stop_on_replay\n"                                                                            .
-   "      As soon as the first RQG run achieved the verdict '" . Verdict::RQG_VERDICT_REPLAY       .
-   " , stop all active RQG runners, cleanup, give a summary and exit.\n\n"                         .
-   "--dryrun\n"                                                                                    .
-   "      Run the complete mechanics except that the RQG worker processes forked\n"                .
-   "      - print the RQG call which they would run\n"                                             .
-   "      - do not start RQG at all but fake a few effects checked by the parent process\n"        .
-   "      - exit with STATUS_OK(0).\n"                                                             .
-   "      - exit with STATUS_OK(0).\n"                                                             .
-   "      Debug functionality of other RQG parts like the RQG runner will be not touched!\n"       .
-   "      (Default) No additional information.\n"                                                  .
    "--script_debug\n"                                                                              .
    "      Print additional detailed information about decisions made by rqg_batch.pl\n"            .
    "      and observations made during runtime.\n"                                                 .
@@ -627,11 +625,6 @@ sub help() {
    "--grammar=...\n"                                                                               .
    "--threads=<n>  (Hint: Set it once to 1. Maybe its not a concurrency bug.)\n"                   .
    "--no_mask      (Assigning --mask or --mask-level on command line is not supported.)\n"         .
-   "--testname=...\n"                                                                              .
-   "--xml-output=...\n"                                                                            .
-   "--report-xml-tt=...\n"                                                                         .
-   "--report-xml-tt-type=...\n"                                                                    .
-   "--report-xml-tt-dest=...\n"                                                                    .
    "-------------------------------------------------------------------------------------------\n" .
    "rqg_batch will create a symlink '$symlink' pointing to the workdir of his run\n"               .
    "which is <value assigned to workdir>/<runid>.\n"                                               .
@@ -745,8 +738,8 @@ sub order_is_valid {
     }
 
     Carp::confess("INTERNAL ERROR: No or undef order_id assigned.") if not defined $order_id;
-    say("DEBUG: Begin of loop for getting an order.");
     if ($order_array[$order_id][ORDER_EFFORTS_LEFT] <= 0) {
+        say("DEBUG: Order with id $order_id is no more valid.") if Auxiliary::script_debug("C4");
         return 0;
     } else {
         return 1;
@@ -779,27 +772,28 @@ my $generate_calls = 0;
 sub generate_orders {
 
     $generate_calls++;
-    say("DEBUG: Number of generate_orders calls : $generate_calls") if $script_debug;
-    Batch::dump_queues() if $script_debug;
+    say("DEBUG: Number of generate_orders calls : $generate_calls")
+        if Auxiliary::script_debug("C5");
+    Batch::dump_queues() if Auxiliary::script_debug("C5");
 
     my $success = 0;
     if ($exhaustive) {
-            doExhaustive(0);
+        doExhaustive(0);
     } else {
-       # We generate and add exact one order.
-       # Previous in : sub doRandom {
-       my @comb;
-       foreach my $comb_id (0..($comb_count - 1)) {
-           my $n = $prng->uint16(0, $#{$combinations->[$comb_id]});
-           $comb[$comb_id] = $combinations->[$comb_id]->[$n];
-       }
-       my $comb_str = join(' ', @comb);
-       $success = doCombination($trial_num, $comb_str, "random trial");
+        # We generate and add exact one order.
+        # Previous in : sub doRandom {
+        my @comb;
+        foreach my $comb_id (0..($comb_count - 1)) {
+            my $n = $prng->uint16(0, $#{$combinations->[$comb_id]});
+            $comb[$comb_id] = $combinations->[$comb_id]->[$n];
+        }
+        my $comb_str = join(' ', @comb);
+        $success = doCombination($trial_num, $comb_str, "random trial");
     }
 
     if ($success) {
-        dump_orders() if $script_debug;
-        Batch::dump_queues() if $script_debug;
+        dump_orders() if Auxiliary::script_debug("C5");
+        Batch::dump_queues() if Auxiliary::script_debug("C5");
         return 1;
     } else {
         say("DEBUG: All possible orders were already generated. Will return 0.");
@@ -825,10 +819,10 @@ sub add_order {
 
     # push @Batch::try_queue, $order_id_now;
     Batch::add_order($order_id_now);
-    print_order($order_id_now) if $script_debug;
+    print_order($order_id_now) if Auxiliary::script_debug("C5");
 }
 
-my $arrival_number = 1;
+my $arrival_number   = 1;
 sub register_result {
 # order_id
 # verdict
@@ -838,13 +832,13 @@ sub register_result {
 #
 # Return
 # - ~ OK
-# - ~ STOP (kill all active RQG Worker), if we have here stop_on_replay?
 # - ~ run emergency exit
 #
 
     my ($order_id, $verdict, $saved_log_rel, $total_runtime) = @_;
     say("DEBUG: Combinator::register_result : OrderID : $order_id, Verdict: $verdict, " .
-        "RQG log : '$saved_log_rel', total_runtime : $total_runtime");
+        "RQG log : '$saved_log_rel', total_runtime : $total_runtime")
+        if Auxiliary::script_debug("C4");
 
     if      ($verdict eq Verdict::RQG_VERDICT_IGNORE   or
              $verdict eq Verdict::RQG_VERDICT_INTEREST or
@@ -854,6 +848,7 @@ sub register_result {
         $order_array[$order_id][ORDER_EFFORTS_INVESTED]++;
         $order_array[$order_id][ORDER_EFFORTS_LEFT]--;
         Batch::add_to_try_over($order_id);
+         $left_over_trials--;
     } elsif ($verdict eq Verdict::RQG_VERDICT_STOPPED) {
         # Do nothing with the $order_array[$order_id][ORDER_EFFORTS_*].
         # We need to repeat this run.
@@ -872,7 +867,6 @@ sub register_result {
                  Auxiliary::lfill($order_id, Batch::RQG_ORDERID_LENGTH)  . " | " .
                  Auxiliary::lfill($total_runtime, Batch::RQG_ORDERID_LENGTH) . "\n";
     if (STATUS_OK != Auxiliary::append_string_to_file ($result_file, $line)) {
-        # FIXME: Replace with return
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Combinator::init : Writing into result file '$result_file' failed. " .
             "Will ask for an emergency_exit.");
@@ -881,11 +875,14 @@ sub register_result {
 
     $arrival_number++;
 
-    if ($stop_on_replay and $verdict eq Verdict::RQG_VERDICT_REPLAY) {
-        return (STATUS_OK, Batch::REGISTER_END);
-    } else {
+    say("DEBUG: Combinator::register_result : left_over_trials : $left_over_trials")
+        if Auxiliary::script_debug("C4");
+    if ($left_over_trials) {
         return (STATUS_OK, Batch::REGISTER_GO_ON);
+    } else {
+        return (STATUS_OK, Batch::REGISTER_END);
     }
+
 
 } # End sub register_result
 
