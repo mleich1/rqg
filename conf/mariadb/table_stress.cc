@@ -145,7 +145,7 @@
 # - MDEV-16664
 #   InnoDB: Failing assertion: !other_lock || wsrep_thd_is_BF(lock->trx->mysql_thd, FALSE) ||
 #           wsrep_thd_is_BF(other_lock->trx->mysql_thd, FALSE) for DELETE
-#   --mysqld=innodb_lock_schedule_algorithm=fcfs
+#   --mysqld=--loose-innodb_lock_schedule_algorithm=fcfs
 # - MDEV-16136 (now closed)
 #   Various ASAN failures when testing 10.2/10.3
 #   --mysqld=--innodb_stats_persistent=off
@@ -155,7 +155,7 @@
 $combinations = [
    [
       '
-         --mysqld=--innodb_lock_schedule_algorithm=fcfs
+         --mysqld=--loose-innodb_lock_schedule_algorithm=fcfs
          --grammar=conf/mariadb/table_stress.yy
          --gendata=conf/mariadb/table_stress.zz
          --gendata_sql=conf/mariadb/table_stress.sql
