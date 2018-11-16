@@ -127,6 +127,9 @@ sub next {
 
 		if ($#sentence > GENERATOR_MAX_LENGTH) {
 			say("Sentence is now longer than ".GENERATOR_MAX_LENGTH()." symbols. Possible endless loop in grammar. Aborting.");
+            # Experiment begin
+            @sentence = ();
+            # Experiment end
 			return undef;
 		}
 		
@@ -149,17 +152,44 @@ sub next {
 
 				if (++($rule_counters->{$orig_item}) > GENERATOR_MAX_OCCURRENCES) {
 					say("Rule $orig_item occured more than ".GENERATOR_MAX_OCCURRENCES()." times. Possible endless loop in grammar. Aborting.");
+                    # mleich 2018-11-15 observation:
+                    # Masses of "Rule ia_int_col_name occured more than 15000 times. Possible endless loop in grammar. Aborting."
+                    # followed by extreme growth of memory consumption (> 6GB) of the corresponding perl process.
+                    # Experiment begin
+                    @expansion = ();
+                    # Experiment end
 					return undef;
 				}
 
 				if ($invariant) {
-					@{$rule_invariants->{$item}} = expand($rule_counters,$rule_invariants,($item)) unless defined $rule_invariants->{$item};
+                    # Experiment begin
+					# Original line @{$rule_invariants->{$item}} = expand($rule_counters,$rule_invariants,($item)) unless defined $rule_invariants->{$item};
+                    if (not defined $rule_invariants->{$item}) {
+                        my $expand_return = expand($rule_counters,$rule_invariants,($item));
+                        if (not defined $expand_return) {
+                            @expansion = ();
+                            return undef;
+                        } else {
+                            @{$rule_invariants->{$item}} = $expand_return;
+                        }
+                    }
+                    # Experiment end
 					@expansion = @{$rule_invariants->{$item}};
 				} else {
-					@expansion = expand($rule_counters,$rule_invariants,@{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]->[
-						$prng->uint16(0, $#{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]})
-					]});
-
+                    # Experiment begin
+					# Original lines    @expansion = expand($rule_counters,$rule_invariants,@{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]->[
+					# Original lines    	$prng->uint16(0, $#{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]})
+					# Original lines    ]});
+                    my $expand_return = expand($rule_counters,$rule_invariants,@{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]->[
+                                            $prng->uint16(0, $#{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]})
+                                        ]});
+                    if (not defined $expand_return) {
+                        @expansion = ();
+                        return undef;
+                    } else {
+                        @expansion = $expand_return;
+                    }
+                    # Experiment end
 				}
 				if ($generator->[GENERATOR_ANNOTATE_RULES]) {
 					@expansion = ("/* rule: $item */ ", @expansion);
