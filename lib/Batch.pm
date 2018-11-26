@@ -333,15 +333,19 @@ sub count_active_workers {
 }
 
 sub worker_array_dump {
+use constant WORKER_ID_LENGTH  =>  3;
+use constant WORKER_PID_LENGTH =>  6;
+use constant WORKER_START_LENGTH => 10;
+use constant WORKER_ORDER_LENGTH =>  8;
     my $message = "worker_array_dump begin --------\n" .
-                  "worker_num -- pid -- job_start -- job_end -- order_id -- " .
+                  "id  -- pid    -- job_start  -- job_end    -- order_id -- " .
                   "extra1 -- extra2 -- extra3 -- verdict -- log\n";
     for my $worker_num (1..$workers) {
-        $message = $message . $worker_num .
-                   " -- " . $worker_array[$worker_num][WORKER_PID]      .
-                   " -- " . $worker_array[$worker_num][WORKER_START]    .
-                   " -- " . $worker_array[$worker_num][WORKER_END]      .
-                   " -- " . $worker_array[$worker_num][WORKER_ORDER_ID] ;
+        $message = $message . Auxiliary::lfill($worker_num, WORKER_ID_LENGTH) .
+           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_PID],   WORKER_PID_LENGTH)      .
+           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_START], WORKER_START_LENGTH)    .
+           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_END],   WORKER_START_LENGTH)      .
+           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_ORDER_ID], WORKER_ORDER_LENGTH)  ;
         foreach my $index (WORKER_EXTRA1, WORKER_EXTRA2, WORKER_EXTRA3,WORKER_VERDICT,WORKER_LOG) {
             my $val = $worker_array[$worker_num][$index];
             if (not defined $val) {

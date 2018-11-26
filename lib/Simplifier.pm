@@ -1604,8 +1604,9 @@ sub load_grammar {
     $grammar_string = GenTest::Simplifier::Grammar_advanced::init(
              $workdir . "/" . $grammar_file, $threads, $grammar_flags);
     my $iso_ts = isoTimestamp();
-    Batch::write_result("$iso_ts          $grammar_file     loaded with threads = $threads\n");
     load_step();
+    Batch::write_result("$iso_ts          $grammar_file     loaded with threads = $threads " .
+                        "==> new parent grammar '$parent_grammar'\n");
 }
 
 sub reload_grammar {
@@ -1622,8 +1623,9 @@ sub reload_grammar {
     $grammar_string = GenTest::Simplifier::Grammar_advanced::reload_grammar(
              $workdir . "/" . $grammar_file, $threads, $grammar_flags);
     my $iso_ts = isoTimestamp();
-    Batch::write_result("$iso_ts          $grammar_file     loaded with threads = $threads\n");
     load_step();
+    Batch::write_result("$iso_ts          $grammar_file     loaded with threads = $threads " .
+                        "==> new parent grammar '$parent_grammar'\n");
 }
 
 sub load_step {
