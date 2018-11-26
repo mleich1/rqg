@@ -93,12 +93,12 @@ sub new {
         foreach my $i (0..$max_arg) {
                 if (exists $args->{$_[$i * 2]}) {
 			if (defined $obj->[$args->{$_[$i * 2]}]) {
-				carp("Argument '$_[$i * 2]' passed twice to ".$class.'->new()');
+				Carp::cluck("Argument '$_[$i * 2]' passed twice to ".$class.'->new()');
 			} else {
 	                        $obj->[$args->{$_[$i * 2]}] = $_[$i * 2 + 1];
 			}
                 } else {
-                        carp("Unkown argument '$_[$i * 2]' to ".$class.'->new()');
+                        Carp::cluck("Unkown argument '$_[$i * 2]' to ".$class.'->new()');
                 }
         }
 

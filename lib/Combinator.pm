@@ -388,12 +388,7 @@ sub init {
 "$iso_ts | " . Batch::RQG_NO_TITLE        . " | " . Verdict::RQG_VERDICT_TITLE . " | " . Batch::RQG_LOG_TITLE                .
        " | " . Batch::RQG_ORDERID_TITLE   . " | " . "RunTime\n";
 
-    if (STATUS_OK != Auxiliary::append_string_to_file ($result_file, $header)) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Combinator::init : Writing into result file '$result_file' failed. " .
-            Auxiliary::exit_status_text($status));
-        safe_exit($status);
-    }
+    Batch::write_result($header);
 
     say("DEBUG: Leaving 'Combinator::init") if Auxiliary::script_debug("C6");
 
@@ -461,6 +456,7 @@ sub get_job {
             exit $status;
         }
         my $cl_snip = $order_array[$order_id][ORDER_PROPERTY1];
+        Batch::add_id_to_run_queue($order_id);
         return ($order_id, $cl_snip . $cl_snip_end);
     }
 
@@ -734,10 +730,8 @@ sub order_is_valid {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNALE ERROR: Combinator::order_is_valid : order_id is undef. " .
                     "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
+        Batch::emergency_exit($status);
     }
-
-    Carp::confess("INTERNAL ERROR: No or undef order_id assigned.") if not defined $order_id;
     if ($order_array[$order_id][ORDER_EFFORTS_LEFT] <= 0) {
         say("DEBUG: Order with id $order_id is no more valid.") if Auxiliary::script_debug("C4");
         return 0;
@@ -751,8 +745,10 @@ sub print_order {
     my ($order_id) = @_;
 
     if (not defined $order_id) {
-        say("INTERNAL ERROR: print_order was called with some not defined \$order_id.\n");
-        # FIXME: Decide how to react.
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: Combinator::print_order : order_id is undef. " .
+                    "Will exit with status " . status2text($status) . "($status)");
+        Batch::emergency_exit($status);
     }
     my @order = @{$order_array[$order_id]};
     say("$order_id § " . join (' § ', @order));
@@ -840,23 +836,29 @@ sub register_result {
         "RQG log : '$saved_log_rel', total_runtime : $total_runtime")
         if Auxiliary::script_debug("C4");
 
-    if      ($verdict eq Verdict::RQG_VERDICT_IGNORE   or
-             $verdict eq Verdict::RQG_VERDICT_INTEREST or
-             $verdict eq Verdict::RQG_VERDICT_REPLAY   or
-             $verdict eq Verdict::RQG_VERDICT_INIT       ) {
+    # Remove the order_id from the queue of just executed orders.
+    Batch::remove_id_from_run_queue($order_id);
+
+    if      ($verdict eq Verdict::RQG_VERDICT_IGNORE           or
+             $verdict eq Verdict::RQG_VERDICT_IGNORE_STATUS_OK or
+             $verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST or
+             $verdict eq Verdict::RQG_VERDICT_INTEREST         or
+             $verdict eq Verdict::RQG_VERDICT_REPLAY           or
+             $verdict eq Verdict::RQG_VERDICT_INIT               ) {
         # Its most likely that any repetition will fail again.
         $order_array[$order_id][ORDER_EFFORTS_INVESTED]++;
         $order_array[$order_id][ORDER_EFFORTS_LEFT]--;
         Batch::add_to_try_over($order_id);
-         $left_over_trials--;
-    } elsif ($verdict eq Verdict::RQG_VERDICT_STOPPED) {
+        $left_over_trials--;
+    } elsif ($verdict eq Verdict::RQG_VERDICT_IGNORE_STOPPED) {
         # Do nothing with the $order_array[$order_id][ORDER_EFFORTS_*].
         # We need to repeat this run.
         Batch::add_to_try_first($order_id);
     } else {
         say("INTERNAL ERROR: Final Verdict '$verdict' is not treated/unknown. " .
             "Will ask for an emergency_exit.");
-        return (STATUS_INTERNAL_ERROR, Batch::REGISTER_GO_ON);
+        my $status = STATUS_INTERNAL_ERROR;
+        Batch::emergency_exit($status);
     }
 
     my $iso_ts = isoTimestamp();
@@ -866,17 +868,13 @@ sub register_result {
                  Auxiliary::lfill($saved_log_rel, Batch::RQG_LOG_LENGTH) . " | " .
                  Auxiliary::lfill($order_id, Batch::RQG_ORDERID_LENGTH)  . " | " .
                  Auxiliary::lfill($total_runtime, Batch::RQG_ORDERID_LENGTH) . "\n";
-    if (STATUS_OK != Auxiliary::append_string_to_file ($result_file, $line)) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Combinator::init : Writing into result file '$result_file' failed. " .
-            "Will ask for an emergency_exit.");
-        return ($status, undef);
-    }
+    Batch::write_result($line);
 
     $arrival_number++;
 
     say("DEBUG: Combinator::register_result : left_over_trials : $left_over_trials")
         if Auxiliary::script_debug("C4");
+    Batch::check_queues();
     if ($left_over_trials) {
         return (STATUS_OK, Batch::REGISTER_GO_ON);
     } else {

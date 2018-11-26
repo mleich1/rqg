@@ -77,12 +77,21 @@ sub new {
 
    my @v = @{$mixer->validators()};
    foreach my $i (0..$#v) {
+      if ($v[$i] =~ /^none$/i) {
+          say("Validator none detected");
+          next;
+      }
       next if $v[$i] =~ /^none$/i;
       my $validator = $v[$i];
       if (ref($validator) eq '') {
-         $validator = "GenTest::Validator::".$validator;
-         say("INFO: " . $mixer->role() . " in Mixer : Loading Validator $validator.");
-         eval "use $validator" or print $@;
+         $validator = "GenTest::Validator::" . $validator;
+         if (not eval "use $validator") {
+             say("ERROR: " . $mixer->role() . "in Mixer : Loading Validator '$validator'" .
+                 "failed : $@. Will return undef.");
+             return undef;
+         }
+         say("INFO: " . $mixer->role() . " in Mixer : Validator '$validator' loaded.");
+
          push @validators, $validator->new();
 
          $validators[$i]->configure($mixer->properties);
@@ -100,9 +109,11 @@ sub new {
       foreach my $prerequisite (@$prerequisites) {
          next if exists $validators{$prerequisite};
          $prerequisite = "GenTest::Validator::" . $prerequisite;
-#        say("DEBUG: " . $mixer->role() . " n Mixer : Loading Prerequisite $prerequisite, " .
-#            "required by $validator.");
-         eval "use $prerequisite" or print $@;
+         if (not eval "use $prerequisite") {
+            say("ERROR: " . $mixer->role() . "in Mixer : Loading the prerequisite '$prerequisite'" .
+                " for the validator '$validator' failed : $@. Will return undef.");
+            return undef;
+         }
          push @prerequisites, $prerequisite->new();
       }
    }

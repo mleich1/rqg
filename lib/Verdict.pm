@@ -412,8 +412,8 @@ sub black_white_lists_to_config_snip {
     }
 
     if (not $bw_lists_set) {
-        Carp::cluck("INTERNAL ERROR: black_white_lists_to_config_snip : " .
-                    "the call of check_normalize_set_black_white_lists.");
+        Carp::confess("INTERNAL ERROR: black_white_lists_to_config_snip was called before " .
+                      "the call of check_normalize_set_black_white_lists.");
     }
 
     sub give_value_list {
@@ -443,21 +443,28 @@ sub black_white_lists_to_config_snip {
     my $config_snip = '';
     $result = give_value_list ($extra1, $extra5, @whitelist_statuses) ;
     if (defined $result) {
-        $config_snip = $config_snip . $extra2 . 'whitelist_statuses' . $extra3 . $result . $extra4 . $extra7;
+        $config_snip = $config_snip . $extra2 . 'whitelist_statuses' . $extra3 . $result .
+                       $extra4 . $extra7;
     }
     $result = give_value_list ($extra1, $extra5, @whitelist_patterns) ;
     if (defined $result) {
-        $config_snip = $config_snip . $extra2 . 'whitelist_patterns' . $extra3 . $result . $extra4 . $extra7;
+        $config_snip = $config_snip . $extra2 . 'whitelist_patterns' . $extra3 . $result .
+                       $extra4 . $extra7;
     }
     $result = give_value_list ($extra1, $extra5, @blacklist_statuses) ;
     if (defined $result) {
-        $config_snip = $config_snip . $extra2 . 'blacklist_statuses' . $extra3 . $result . $extra4 . $extra7;
+        $config_snip = $config_snip . $extra2 . 'blacklist_statuses' . $extra3 . $result .
+                       $extra4 . $extra7;
     }
     $result = give_value_list ($extra1, $extra5, @blacklist_patterns) ;
     if (defined $result) {
-        $config_snip = $config_snip . $extra2 . 'blacklist_patterns' . $extra3 . $result . $extra4 . $extra7;
+        $config_snip = $config_snip . $extra2 . 'blacklist_patterns' . $extra3 . $result .
+                       $extra4 . $extra7;
     }
-
+    if (not defined $config_snip or '' eq $config_snip) {
+        Carp::confess("INTERNAL ERROR: black_white_lists_to_config_snip : The final config_snip" .
+                      "is either undef or ''.");
+    }
     return $config_snip;
 } # End of sub black_white_lists_to_config_snip
 
@@ -476,38 +483,37 @@ use constant RQG_VERDICT_REPLAY             => 'replay';
 # We did not got what we were searching for but its some interesting 'bad' result.
 use constant RQG_VERDICT_INTEREST           => 'interest';
 #
-# RQG_VERDICT_IGNORE
+# RQG_VERDICT_IGNORE*
 # The RQG run is finished and analyzed. Black list match or STATUS_OK got etc.
-# Its absolute not what we were searching for.
-use constant RQG_VERDICT_IGNORE             => 'ignore';
+# Its absolute not what we were searching for. There will be no archiving.
 #
-# RQG_VERDICT_STOPPED
-# The RQG run was stopped by rqg_batch.pl because of
+# RQG run harvesting STATUS_OK
+use constant RQG_VERDICT_IGNORE_STATUS_OK   => 'ignore_status_ok';
+# RQG run harvesting a blacklist match
+use constant RQG_VERDICT_IGNORE_BLACKLIST   => 'ignore_blacklist';
+# RQG run was stopped by rqg_batch.pl because of
 # - technical reasons like trouble with resources ahead
 # - Combinator/Simplifier 'asking' for stopping of ongoing RQG runs including the
 #   current one.
-# Runs with this verdict are treated regarding archiving and preserving of logs like
-# the verdict RQG_VERDICT_IGNORE.
-# But the
-# - Combinator will not charge the already invested efforts and repeat this run as
-#   soon as possible
-# - Simplifier might charge the already invested efforts and maybe repeat this run
-#   somewhen in future
+use constant RQG_VERDICT_IGNORE_STOPPED     => 'ignore_stopped';
+# RQG run with somehow unclear outcome. This constant might disappear in future.
+use constant RQG_VERDICT_IGNORE             => 'ignore';
 #
 # Warning:
 # Giving the RQG_VERDICT_* a shape optimized for printing result tables like
 # 'init    ' will cause trouble because we construct file names from that value.
-use constant RQG_VERDICT_STOPPED            => 'stopped';
+#
 #
 use constant RQG_VERDICT_ALLOWED_VALUE_LIST => [
         RQG_VERDICT_INIT, RQG_VERDICT_REPLAY, RQG_VERDICT_INTEREST,
-        RQG_VERDICT_IGNORE , RQG_VERDICT_STOPPED
+        RQG_VERDICT_IGNORE_STATUS_OK, RQG_VERDICT_IGNORE_BLACKLIST,
+        RQG_VERDICT_IGNORE_STOPPED, RQG_VERDICT_IGNORE ,
     ];
 #
 # Maximum length of a RQG_VERDICT_* constant above.
-use constant RQG_VERDICT_LENGTH             => 8;
+use constant RQG_VERDICT_LENGTH             => 16;
 # Column title maybe used in printing tables with results.
-use constant RQG_VERDICT_TITLE              => 'Verdict ';
+use constant RQG_VERDICT_TITLE              => 'Verdict         ';
 
 
 sub calculate_verdict {
@@ -522,6 +528,7 @@ sub calculate_verdict {
     if (not $bw_lists_set) {
         Carp::cluck("INTERNAL ERROR: calculate_verdict was called before " .
                     "the call of check_normalize_set_black_white_lists.");
+        return undef;
     }
 
     say("DEBUG: file_to_search_in '$file_to_search_in'") if $script_debug;
@@ -552,6 +559,27 @@ sub calculate_verdict {
     my $p_match;
     my $maybe_match    = 1;
     my $maybe_interest = 1;
+    my $bw_match       = 0;
+    my $ok_match       = 0;
+    my $was_stopped    = 0;
+
+    my $script_debug = 1;
+
+    my @list;
+    $list[0] = 'STATUS_OK';
+    $p_match = Auxiliary::status_matching($content, \@list, $status_prefix,
+                                           'MATCHING: STATUS_OK', $script_debug );
+    if ($p_match eq Auxiliary::MATCH_YES) {
+        $ok_match = 1;
+    }
+
+    $list[0] = 'BATCH: Stop the run';
+    $p_match = Auxiliary::content_matching($content, \@list,
+                                           'MATCHING: Stop the run', $script_debug );
+    if ($p_match eq Auxiliary::MATCH_YES) {
+        $maybe_interest = 0;
+        $was_stopped = 1;
+    }
 
     $p_match = Auxiliary::status_matching($content, \@blacklist_statuses   ,
                                           $status_prefix, 'MATCHING: Blacklist statuses', 1);
@@ -561,6 +589,8 @@ sub calculate_verdict {
     if ($p_match eq Auxiliary::MATCH_YES) {
         $maybe_match    = 0;
         $maybe_interest = 0;
+# FIXME: This is somehow not systematic of forbid STATUS_OK as Blacklist status.
+#       $bw_match       = 1;
     }
     say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match") if $script_debug;
 
@@ -570,6 +600,7 @@ sub calculate_verdict {
     if ($p_match eq Auxiliary::MATCH_YES) {
         $maybe_match    = 0;
         $maybe_interest = 0;
+        $bw_match       = 1;
     }
     say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match") if $script_debug;
 
@@ -598,6 +629,12 @@ sub calculate_verdict {
         $verdict = RQG_VERDICT_REPLAY;
     } elsif ($maybe_interest) {
         $verdict = RQG_VERDICT_INTEREST;
+    } elsif ($bw_match) {
+        $verdict = RQG_VERDICT_IGNORE_BLACKLIST;
+    } elsif ($ok_match) {
+        $verdict = RQG_VERDICT_IGNORE_STATUS_OK;
+    } elsif ($was_stopped) {
+        $verdict = RQG_VERDICT_IGNORE_STOPPED;
     } else {
         $verdict = RQG_VERDICT_IGNORE;
     }

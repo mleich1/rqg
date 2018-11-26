@@ -185,6 +185,7 @@ if (STATUS_OK != Verdict::check_normalize_set_black_white_lists (
     exit 99;
 }
 
+# If failure Verdict::black_white_lists_to_config_snip aborts with Carp::confess.
 my $cfg_snip = Verdict::black_white_lists_to_config_snip('cfg');
 my $cc_snip  = Verdict::black_white_lists_to_config_snip('cc');
 
@@ -199,7 +200,7 @@ print("\nAssuming that you are satisfied with the matching result and verdict th
       "following applies\n\n"                                                                      .
       "Formatting style for config files used in new-simplify-grammar.pl (extension '.cfg')\n"     .
       "   '<pattern1>','<pattern2>',\nwhich is in case of the current setting\n\n"                 .
-      "$cfg_snip\n\n"                                                                               .
+      "$cfg_snip\n\n"                                                                              .
       "Formatting style for config files used in rqg_batch.pl (extension '.cc')\n"                 .
       "   \"\\'<pattern1>\\',\\'<pattern2>\\'\"\nwhich is in case of the current setting\n\n"      .
       "$cc_snip\n"

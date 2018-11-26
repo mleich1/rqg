@@ -874,6 +874,13 @@ sub isMySQLCompatible {
     return $is_mysql_compatible;
 }
 
+
+#### !!!! Meaning of the 'None' ####
+## Example:
+# --reporters=A,B        Add D because of whatever other property.
+# --reporters=A,None,B   Do NOT add D of whatever other property.
+#
+
 sub initReporters {
     my $self = shift;
 
@@ -895,43 +902,43 @@ sub initReporters {
     }
 
     if (not $no_reporters) {
-      if ($self->isMySQLCompatible()) {
-         $self->config->reporters(['ErrorLog', 'Backtrace'])
-                   unless scalar(@{$self->config->reporters});
-         push @{$self->config->reporters}, 'ValgrindXMLErrors'
-                   if (defined $self->config->property('valgrind-xml'));
-         my $rpl_mode = $self->config->rpl_mode;
-         if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
-             ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
-             ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)            or
-             ($rpl_mode eq Auxiliary::RQG_RPL_MIXED_NOSYNC)     or
-             ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
-             ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         ) {
-            # We run MariaDB/MySQL replication.
-
+        if ($self->isMySQLCompatible()) {
+            $self->config->reporters(['ErrorLog', 'Backtrace'])
+                unless scalar(@{$self->config->reporters});
+            push @{$self->config->reporters}, 'ValgrindXMLErrors'
+                if (defined $self->config->property('valgrind-xml'));
+            my $rpl_mode = $self->config->rpl_mode;
             if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
+                ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
                 ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)            or
-                ($rpl_mode eq Auxiliary::RQG_RPL_ROW)                ) {
-               # Its synchronous replication.
-               push @{$self->config->reporters}, 'ReplicationConsistency';
-               say("INFO: 'ReplicationConsistency' added to the list of reporters.");
+                ($rpl_mode eq Auxiliary::RQG_RPL_MIXED_NOSYNC)     or
+                ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
+                ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         ) {
+               # We run MariaDB/MySQL replication.
+
+                if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
+                    ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)            or
+                    ($rpl_mode eq Auxiliary::RQG_RPL_ROW)                ) {
+                    # Its synchronous replication.
+                    push @{$self->config->reporters}, 'ReplicationConsistency';
+                    say("INFO: 'ReplicationConsistency' added to the list of reporters.");
+                }
+                push @{$self->config->reporters}, 'ReplicationSlaveStatus';
+                say("INFO: 'ReplicationSlaveStatus' added to the list of reporters.");
             }
-            push @{$self->config->reporters}, 'ReplicationSlaveStatus';
-            say("INFO: 'ReplicationSlaveStatus' added to the list of reporters.");
-         }
-      }
-      if ($self->config->property('upgrade-test') and $self->config->property('upgrade-test') =~ /undo/) {
-         push @{$self->config->reporters}, 'UpgradeUndoLogs';
-      } elsif ($self->config->property('upgrade-test')) {
-         push @{$self->config->reporters}, 'Upgrade';
-      } else {
-         foreach (@{$self->config->reporters}) {
-            if ($_ eq 'Upgrade') {
-               say("WARNING: Upgrade reporter is requested, but --upgrade-test option is not set, the behavior is undefined");
-               last;
+        }
+        if ($self->config->property('upgrade-test') and $self->config->property('upgrade-test') =~ /undo/) {
+            push @{$self->config->reporters}, 'UpgradeUndoLogs';
+        } elsif ($self->config->property('upgrade-test')) {
+            push @{$self->config->reporters}, 'Upgrade';
+        } else {
+            foreach (@{$self->config->reporters}) {
+                if ($_ eq 'Upgrade') {
+                    say("WARNING: Upgrade reporter is requested, but --upgrade-test option is not set, the behavior is undefined");
+                    last;
+                }
             }
-         }
-       }
+        }
     }
 
     say("Reporters: ".($#{$self->config->reporters} > -1 ? join(', ', @{$self->config->reporters}) : "(none)"));
@@ -965,6 +972,20 @@ sub initValidators {
 
     if (not defined $self->config->validators or $#{$self->config->validators} < 0) {
         $self->config->validators([]);
+    }
+
+    # If validators were set to None or empty string explicitly,
+    # remove the "None" validators and don't add any reporters automatically
+    my $no_validators= 0;
+    foreach my $i (0..$#{$self->config->validators}) {
+        if ($self->config->validators->[$i] eq "None"
+            or $self->config->validators->[$i] eq '') {
+            delete $self->config->validators->[$i];
+            $no_validators= 1;
+        }
+    }
+
+    if (not $no_validators) {
 
         # In case of multi-master topology (e.g. Galera with multiple "masters"),
         # we don't want to compare results after each query.
@@ -981,29 +1002,21 @@ sub initValidators {
 
         push @{$self->config->validators}, 'QueryProperties'
             if defined $self->grammar() && $self->grammar()->hasProperties() && $self->isMySQLCompatible();
-    } else {
-        ## Remove the "None" validator
-        foreach my $i (0..$#{$self->config->validators}) {
-            delete $self->config->validators->[$i]
-                if $self->config->validators->[$i] eq "None"
-                or $self->config->validators->[$i] eq '';
-        }
-    }
 
-    ## Add the transformer validator if --transformers is specified
-    ## and transformer validator not allready specified.
+        ## Add the transformer validator if --transformers is specified
+        ## and transformer validator not allready specified.
 
-    if (defined $self->config->transformers and
-        $#{$self->config->transformers} >= 0)
-    {
-        my $hasTransformer = 0;
-        foreach my $t (@{$self->config->validators}) {
-            if ($t =~ /^Transformer/) {
-                $hasTransformer = 1;
-                last;
+        if (defined $self->config->transformers and
+            $#{$self->config->transformers} >= 0)   {
+            my $hasTransformer = 0;
+            foreach my $t (@{$self->config->validators}) {
+                if ($t =~ /^Transformer/) {
+                    $hasTransformer = 1;
+                    last;
+                }
             }
+            push @{$self->config->validators}, 'Transformer' if !$hasTransformer;
         }
-        push @{$self->config->validators}, 'Transformer' if !$hasTransformer;
     }
 
     say("Validators: ".(defined $self->config->validators and $#{$self->config->validators} > -1 ? join(', ', @{$self->config->validators}) : "(none)"));

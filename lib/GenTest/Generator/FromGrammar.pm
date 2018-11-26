@@ -94,7 +94,7 @@ sub participatingRules {
 # Generate a new query. We do this by iterating over the array containing grammar rules and expanding each grammar rule
 # to one of its right-side components . We do that in-place in the array.
 #
-# Finally, we walk the array and replace all lowercase keywors with literals and such.
+# Finally, we walk along the array and replace all lowercase keywords with literals and such.
 #
 
 sub next {
@@ -120,15 +120,49 @@ sub next {
 	my $stack = GenTest::Stack::Stack->new();
 	my $global = $generator->globalFrame();
 
+    # 2018-11-15 observation (mleich):
+    # Masses of ... occured more than ... times. Possible endless loop in grammar. Aborting."
+    # followed by extreme growth of memory consumption (> 6GB) of the corresponding perl process.
+    #
+    # There are two known reasons:
+    # 1. The original/full grammar has already that defect.
+    # 2. The original/full grammar has no defect and looks like
+    #    rule1:
+    #        rule2         |
+    #        rule2 , rule1 ;
+    #    Grammar simplification is running and tries in the moment to simplify the definition to
+    #    rule1:
+    #        rule2 , rule1 ;
+    #
+    # Given the facts that
+    # - the extreme growth of memory consumption could be very dangerous for the OS on
+    #   the testing box
+    # - users should be made aware of the defect in case its some non simplified grammar
+    # I tend to let the RQG worker thread abort with STATUS_ENVIRONMENT_FAILURE.
+    #
+    # Define some standard message because blacklist_patterns matching needs it.
+    my $abort_message_part = "WARN: Possible endless loop in grammar. Will abort the thread.";
+
 	sub expand {
 		my ($rule_counters, $rule_invariants, @sentence) = @_;
+
+        # Comment (mleich1)
+        # A sentence is an array of words and spaces.
+        # They all together form a statement.
+
 		my $item_nodash;
 		my $orig_item;
 
+#       foreach my $sentence_part (@sentence) {
+#           say("DEBUG: sentence_part ->$sentence_part<-");
+#       }
+#       say("DEBUG: sentence_end -------");
+
 		if ($#sentence > GENERATOR_MAX_LENGTH) {
-			say("Sentence is now longer than ".GENERATOR_MAX_LENGTH()." symbols. Possible endless loop in grammar. Aborting.");
+			say("WARN: GenTest::Generator::FromGrammar : Sentence is now longer than " .
+                GENERATOR_MAX_LENGTH() . " symbols.\n" . $abort_message_part);
             # Experiment begin
-            @sentence = ();
+            exit(STATUS_ENVIRONMENT_FAILURE);
             # Experiment end
 			return undef;
 		}
@@ -151,45 +185,22 @@ sub next {
 			if (exists $grammar_rules->{$item}) {
 
 				if (++($rule_counters->{$orig_item}) > GENERATOR_MAX_OCCURRENCES) {
-					say("Rule $orig_item occured more than ".GENERATOR_MAX_OCCURRENCES()." times. Possible endless loop in grammar. Aborting.");
-                    # mleich 2018-11-15 observation:
-                    # Masses of "Rule ia_int_col_name occured more than 15000 times. Possible endless loop in grammar. Aborting."
-                    # followed by extreme growth of memory consumption (> 6GB) of the corresponding perl process.
+			        say("WARN: GenTest::Generator::FromGrammar : Rule '$orig_item' occured more " .
+                        "than ".GENERATOR_MAX_OCCURRENCES()." times.\n" . $abort_message_part);
                     # Experiment begin
-                    @expansion = ();
+                    exit(STATUS_ENVIRONMENT_FAILURE);
                     # Experiment end
 					return undef;
 				}
 
 				if ($invariant) {
-                    # Experiment begin
-					# Original line @{$rule_invariants->{$item}} = expand($rule_counters,$rule_invariants,($item)) unless defined $rule_invariants->{$item};
-                    if (not defined $rule_invariants->{$item}) {
-                        my $expand_return = expand($rule_counters,$rule_invariants,($item));
-                        if (not defined $expand_return) {
-                            @expansion = ();
-                            return undef;
-                        } else {
-                            @{$rule_invariants->{$item}} = $expand_return;
-                        }
-                    }
-                    # Experiment end
+					@{$rule_invariants->{$item}} = expand($rule_counters,$rule_invariants,($item)) unless defined $rule_invariants->{$item};
 					@expansion = @{$rule_invariants->{$item}};
 				} else {
-                    # Experiment begin
-					# Original lines    @expansion = expand($rule_counters,$rule_invariants,@{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]->[
-					# Original lines    	$prng->uint16(0, $#{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]})
-					# Original lines    ]});
-                    my $expand_return = expand($rule_counters,$rule_invariants,@{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]->[
-                                            $prng->uint16(0, $#{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]})
-                                        ]});
-                    if (not defined $expand_return) {
-                        @expansion = ();
-                        return undef;
-                    } else {
-                        @expansion = $expand_return;
-                    }
-                    # Experiment end
+					@expansion = expand($rule_counters,$rule_invariants,@{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]->[
+					   	$prng->uint16(0, $#{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]})
+					]});
+
 				}
 				if ($generator->[GENERATOR_ANNOTATE_RULES]) {
 					@expansion = ("/* rule: $item */ ", @expansion);

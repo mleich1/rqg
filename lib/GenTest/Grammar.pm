@@ -286,7 +286,7 @@ sub parseFromString {
             push @{$thread_init_adds{$1}}, $components_string;
         }
         else {
-            say("Warning: Rule $rule_name is defined twice.") if exists $rules{$rule_name};
+            say("Warning: Rule '$rule_name' is defined twice.") if exists $rules{$rule_name};
             $rules{$rule_name} = $components_string;
         }
     }

@@ -305,6 +305,11 @@ sub check_rqg_infrastructure {
         say("ERROR: RQG file '$my_file' is missing.");
         return STATUS_FAILURE;
     }
+    $my_file = $workdir . '/rqg.job';
+    if (not -e $my_file) {
+        say("ERROR: RQG file '$my_file' is missing.");
+        return STATUS_FAILURE;
+    }
     my $return = Verdict::check_verdict_infrastructure($workdir);
     if (STATUS_OK != $return) {
         return $return;
@@ -345,26 +350,47 @@ sub rename_file {
 # STATUS_FAILURE -- No success
 #
 
-   my ($source_file, $target_file) = @_;
-   if (not -e $source_file) {
-      Carp::cluck("ERROR: Auxiliary::rename_file The source file '$source_file' does not exist.");
-      return STATUS_FAILURE;
-   }
-   if (-e $target_file) {
-      Carp::cluck("ERROR: Auxiliary::rename_file The target file '$target_file' does already exist.");
-      return STATUS_FAILURE;
-   }
-   # Perl documentation claims that
-   # - "File::Copy::move" is platform independent
-   # - "rename" is not and might have probems accross filesystem boundaries etc.
-   if (not move ($source_file , $target_file)) {
-      # The move operation failed.
-      Carp::cluck("ERROR: Auxiliary::rename_file '$source_file' to '$target_file' failed : $!");
-      return STATUS_FAILURE;
-   } else {
-      say("DEBUG: Auxiliary::rename_file '$source_file' to '$target_file'.") if script_debug("A5");
-      return STATUS_OK;
-   }
+    my ($source_file, $target_file) = @_;
+    if (not -e $source_file) {
+        Carp::cluck("ERROR: The source file '$source_file' does not exist.");
+        return STATUS_FAILURE;
+    }
+    if (-e $target_file) {
+        Carp::cluck("ERROR: The target file '$target_file' does already exist.");
+        return STATUS_FAILURE;
+    }
+    # Perl documentation claims that
+    # - "File::Copy::move" is platform independent
+    # - "rename" is not and might have probems accross filesystem boundaries etc.
+    if (not move ($source_file , $target_file)) {
+        # The move operation failed.
+        Carp::cluck("ERROR: Copying '$source_file' to '$target_file' failed : $!");
+        return STATUS_FAILURE;
+    } else {
+        say("DEBUG: Auxiliary::rename_file '$source_file' to '$target_file'.") if script_debug("A5");
+        return STATUS_OK;
+    }
+}
+
+sub copy_file {
+# Typical use case
+# ----------------
+# One grammar replayed the desired outcome and we copy its to or over the best grammar ever had.
+#   my $source = $workdir . "/" . $grammar_used;
+#   my $target = $workdir . "/" . $best_grammar;
+
+    my ($source_file, $target_file) = @_;
+    if (not -e $source_file) {
+        Carp::cluck("ERROR: The source file '$source_file' does not exist.");
+        return STATUS_FAILURE;
+    }
+    if (not File::Copy::copy($source_file, $target_file)) {
+        Carp::cluck("ERROR: Copying '$source_file' to '$target_file' failed : $!");
+        return STATUS_FAILURE;
+    } else {
+        say("DEBUG: Auxiliary::copy_file '$source_file' to '$target_file'.") if script_debug("A5");
+        return STATUS_OK;
+    }
 }
 
 
@@ -1838,7 +1864,7 @@ sub unify_grammar {
         }
     }
     my $grammar_string = $grammar_obj->toString;
-    $grammar_file   = $workdir . "/rqg.yy";
+    $grammar_file = $workdir . "/rqg.yy";
     if (STATUS_OK != Auxiliary::make_file($grammar_file, $grammar_string)) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("ERROR: We had trouble generating the final YY grammar.");

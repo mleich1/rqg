@@ -41,7 +41,7 @@ use Carp;
 
 my $script_debug = 0;
 
-my $start_time = time();
+my $rqg_start_time = time();
 
 # FIXME: I AM QUITE UNSURE IF THE RQG_HOME CHECKING AND SETTING WORKS LIKE INTENDED.
 # Note: /work/RQG_mleich1 is the one and only RQG source directory
@@ -66,7 +66,7 @@ my $start_time = time();
 # a) In case the RQG runner called is not located in RQG_HOME assigned than we might get consistency
 #    issues like the runner expects some routine or behavior offered by the libs which $RQG_HOME/lib
 #    does not satisfy.
-#    Hence the RQG runner must located in that RQG_HOME.
+#    Hence the RQG runner must be located in that RQG_HOME.
 # b) It is quite common to have the current working directory in the root of some RQG install and
 #    than to start some start RQG tool or runner being located in that install.
 #    In case the RQG tool or runner start to write into or below that root directory than we might
@@ -88,10 +88,10 @@ my $start_cwd     = Cwd::getcwd();
 
 use lib 'lib'; # In case we are in the root of a RQG install than we have at least a chance.
 
-print("DEBUG: \$0 ->$0<-\n" .
-      "       rqg_home_call ->$rqg_home_call<-\n" .
-      "       rqg_home_env  ->$rqg_home_env<-\n" .
-      "       start_cwd     ->$start_cwd<-\n");
+print("# DEBUG: \$0 ->$0<-\n" .
+      "# DEBUG: rqg_home_call ->$rqg_home_call<-\n" .
+      "# DEBUG: rqg_home_env  ->$rqg_home_env<-\n"  .
+      "# DEBUG: start_cwd     ->$start_cwd<-\n");
 
 if (defined $rqg_home_env) {
     if ($rqg_home_env ne $rqg_home_call) {
@@ -136,7 +136,7 @@ $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
 $Carp::MaxArgNums= 8;
 
-use constant RQG_RUNNER_VERSION  => 'Version 3.0.0 (2018-05)';
+use constant RQG_RUNNER_VERSION  => 'Version 3.0.0 (2018-11)';
 use constant STATUS_CONFIG_ERROR => 199;
 
 use strict;
@@ -203,6 +203,16 @@ use GenTest::Constants;
 use DBI;
 use Cwd;
 
+my $message;
+
+# $summary
+# --------
+# A summary consisting of a few grep friendly lines to be printed around end of the RQG run.
+my $summary = '';
+
+# job_file is use for auxiliary purposes
+my $job_file;
+
 # This is the "default" database. Connects go into that database.
 my $database = 'test';
 # Connects which do not specify a different user use that user.
@@ -222,7 +232,7 @@ my ($gendata, @basedirs, @mysqld_options, @vardirs, $rpl_mode,
     $restart_timeout, $gendata_advanced, $scenario, $upgrade_test, $store_binaries,
     $ps_protocol, @gendata_sql_files, $config_file,
     @whitelist_statuses, @whitelist_patterns, @blacklist_statuses, @blacklist_patterns,
-    $archiver_call, $workdir,
+    $archiver_call, $noarchiving, $workdir,
     $options);
 
 my $gendata   = ''; ## default simple gendata
@@ -359,6 +369,7 @@ if (not GetOptions(
     'blacklist_statuses:s@'       => \@blacklist_statuses,
     'blacklist_patterns:s@'       => \@blacklist_patterns,
     'archiver_call:s'             => \$archiver_call,
+    'noarchiving'                 => \$noarchiving,
     'script_debug:s'              => \$script_debug,
     )) {
     help();
@@ -427,8 +438,7 @@ if (not defined $workdir) {
         safe_exit($status);
     }
 }
-
-#### ATTENTION: $workdir relative path observed.
+$job_file = $workdir . "/rqg.job";
 
 say("INFO: RQG workdir : '$workdir' and infrastructure is prepared.");
 ####################################################################################################
@@ -469,6 +479,11 @@ if (STATUS_OK != $return){
 
 # FIXME: This is currently not used.
 say("INFO: RQG archiver_call : " . $archiver_call);
+if (not defined $noarchiving) {
+   $noarchiving = 0;
+} else {
+   $noarchiving = 1;
+}
 
 if (defined $scenario) {
     system("perl $ENV{RQG_HOME}/run-scenario.pl @ARGV_saved");
@@ -618,7 +633,22 @@ if (defined $sqltrace) {
 
 say("Copyright (c) 2010,2011 Oracle and/or its affiliates. All rights reserved. Use is subject to license terms.");
 say("Please see http://forge.mysql.com/wiki/Category:RandomQueryGenerator for more information on this test framework.");
-say("Starting \n# $0 \\ \n# ".join(" \\ \n# ", @ARGV_saved));
+# Note:
+# We print here a roughly correct command line call like
+# 2018-11-16T10:28:26 [200006] Starting
+# 2018-11-16T10:28:26 [200006] # /mnt/r0/mleich/RQG_new/rqg.pl \
+# 2018-11-16T10:28:26 [200006] # --gendata=conf/mariadb/concurrency.zz \
+# 2018-11-16T10:28:26 [200006] # --gendata_sql=conf/mariadb/concurrency.sql \
+# 2018-11-16T10:28:26 [200006] # --grammar=conf/mariadb/concurrency.yy \
+# 2018-11-16T10:28:26 [200006] # --engine=Innodb \
+# 2018-11-16T10:28:26 [200006] # --reporters=Deadlock,ErrorLog,Backtrace \
+# 2018-11-16T10:28:26 [200006] # --mysqld=--loose_innodb_use_native_aio=0 \
+# 2018-11-16T10:28:26 [200006] # --mysqld=--connect_timeout=60 \
+# 1. Do not add a space after the '\' around line end. Otherwise when converting the printout to
+#    a shell script the shell assumes command end after the '\ '.
+# 2. The style of printing is imperfect in case of the parameters
+#    whitelist_patterns and blacklist_patterns.
+say("Starting \n# $0 \\ \n# " . join(" \\\n# ", @ARGV_saved));
 
 #
 # Calculate master and slave ports based on MTR_BUILD_THREAD (MTR Version 1 behaviour)
@@ -1053,7 +1083,10 @@ if (defined $seed and $seed eq 'time') {
 
 my $cmd = $0 . " " . join(" ", @ARGV_saved);
 $cmd =~ s/seed=time/seed=$seed/g;
-say("INFO: Final command line: \nperl $cmd");
+
+$message = "Final command line: ->perl " . $cmd . "<-";
+$summary .= "SUMMARY: $message\n";
+say("INFO: " . $message);
 
 my $cnf_array_ref;
 
@@ -1511,6 +1544,7 @@ my $final_result   = STATUS_OK;
 # my $final_result = $gentest_result;
 #
 
+my $start_time = time();
 # The branch is just for the optics :-).
 if ($final_result == STATUS_OK) {
     $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENDATA);
@@ -1518,12 +1552,20 @@ if ($final_result == STATUS_OK) {
     say("GenData returned status " . status2text($gentest_result) . " ($gentest_result)");
     $final_result = $gentest_result;
 }
+my $gendata_end_time = time();
+$message = "RQG GenData runtime in s : " . (time() - $start_time);
+$summary .= "SUMMARY: $message\n";
+say("INFO: " . $message);
+my $start_time = time();
 if ($gentest_result == STATUS_OK) {
     $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENTEST);
     $gentest_result = $gentest->doGenTest();
     say("GenTest returned status " . status2text($gentest_result) . " ($gentest_result)");
     $final_result = $gentest_result;
 }
+$message = "RQG GenTest runtime in s : " . (time() - $start_time);
+$summary .= "SUMMARY: $message\n";
+say("INFO: " . $message);
 
 # If
 # - none of the GenTest work phases produced a failure
@@ -1772,57 +1814,78 @@ sub exit_test {
     my $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_ANALYZE);
 
     # It is intentional that the time for analysis and archiving is not included.
-    say("INFO: Total RQG runtime in s : " . (time() - $start_time));
+    $message = "RQG total runtime in s : " . (time() - $rqg_start_time);
+    $summary .= "SUMMARY: $message\n";
+    say("INFO: " . $message);
 
     if (not defined $logfile) {
         $logfile = $workdir . '/rqg.log';
     }
 
-    my $verdict = Verdict::calculate_verdict($logfile);
-    if (not defined $verdict) {
-        say("ERROR: Something in the verdict determination worked wrong.");
-    }
-    say("VERDICT: $verdict");
-    $return = Verdict::set_final_rqg_verdict($workdir, $verdict);
+    if (-f $logfile and not -z $logfile) {
+        # A RQG run either initiated by rqg_batch or started under conditions looking like
+        # initiated by rqg_batch.
+        # In both cases we can expect to have some regular filled RQG log file.
+        # --> Making a verdict should be possible.
+        my $verdict = Verdict::calculate_verdict($logfile);
+        if (not defined $verdict) {
+            say("ERROR: Something in the verdict determination worked wrong.");
+        }
+        say("VERDICT: $verdict");
+        $summary .= "SUMMARY: RQG verdict : $verdict\n";
+        # We write the summary string
+        # - Gendata/GenTest(*)/... runtimes
+        # - the verdict
+        # into the job file too because this could be used for speeding up grammar simplification.
+        # (*) The grammar simplifier needs currently only the GenTest runtime.
+        # FIXME: NO. ^^^^^^^^ Even that is not required.
+        # 1. See 'replay' signalled by some not yet finished RQG run.
+        # 2. If its the first winner with a derivate/child grammar based on the current
+        #    paranet grammar than
+        #    - copy that child grammar over best_grammar.yy
+        #    - load this grammar into the simplifier structure and dump the next parent grammar
+        # 3. Anything else like
+        #    - actualize adaptive runtime queues (found at the end of the RQG log)
+        #    - move the archive and the log of that run to the final destination
+        #    could be postponed till that RQG run is really complete (archiving is finished).
+        # Not 100% clear point:
+        # What if:
+        # The "Win" gets detected after completion of the RQG run.
+        # This saves in case of a Winner/first replayer depending on the load on the
+        # testing box ~ 30 till 120 seconds.
+        $return = Verdict::set_final_rqg_verdict($workdir, $verdict);
 
-    if ($verdict ne Verdict::RQG_VERDICT_IGNORE) {
-        $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_ARCHIVING);
-        if (STATUS_OK !=  Auxiliary::archive_results($workdir, $vardirs[0])) {
-            say("ERROR: Archiving the remainings of the RQG test failed.");
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            run_end($status);
-        } else {
-            say("INFO: Archive '" . $workdir . "/archive.tgz' created.");
+        if ($verdict ne Verdict::RQG_VERDICT_IGNORE           and
+            $verdict ne Verdict::RQG_VERDICT_IGNORE_STATUS_OK and
+            $verdict ne Verdict::RQG_VERDICT_IGNORE_BLACKLIST and
+            $verdict ne Verdict::RQG_VERDICT_IGNORE_STOPPED) {
+            $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_ARCHIVING);
+            if (not $noarchiving) {
+                if (STATUS_OK !=  Auxiliary::archive_results($workdir, $vardirs[0])) {
+                    say("ERROR: Archiving the remainings of the RQG test failed.");
+                    my $status = STATUS_ENVIRONMENT_FAILURE;
+                    run_end($status);
+                } else {
+                    say("INFO: Archive '" . $workdir . "/archive.tgz' created.");
+                }
+            }
+            if(not File::Path::rmtree($vardirs[0])) {
+                say("ERROR: Removal of the tree '$vardirs[0]' failed. : $!.");
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                run_end($status);
+            }
+            say("DEBUG: The RQG vardir '$vardirs[0]' was removed.");
         }
-        if(not File::Path::rmtree($vardirs[0])) {
-            say("ERROR: Removal of the tree '$vardirs[0]' failed. : $!.");
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            run_end($status);
-        }
-        say("DEBUG: The RQG vardir '$vardirs[0]' was removed.");
     } else {
-#     if(not File::Path::rmtree($vardirs[0])) {
-#        say("ERROR: Removal of the tree '$vardirs[0]' failed. : $!.");
-#        my $status = STATUS_ENVIRONMENT_FAILURE;
-#        run_end($status);
-#     }
-#     say("DEBUG: The RQG vardir '$vardirs[0]' was removed.");
+        say("INFO: It does not look as if '$logfile' is the real RQG log. " .
+            "So making a verdict is impossible.");
     }
     run_end($status);
 }
 
 sub run_end {
     my ($status) = @_;
-    # In case the RQG run was a job initiated by rqg_batch.pl than we will have the file $job_file.
-    # We append the information within that file simply to the content of the RQG log.
-    # Reasons:
-    # 1. All main important information in one file and that's the RQG log.
-    # 2. The information taken from $job_file is optimized for being processed by perl routines like
-    #    Auxiliary::get_string_after_pattern.
-    my $job_file = $workdir . '/rqg.job';
-    if ( -e $job_file ) {
-        sayFile($job_file);
-    }
+    say($summary);
     $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_COMPLETE);
     say("$0 will exit with exit status " . status2text($status) . "($status)");
     safe_exit($status);
