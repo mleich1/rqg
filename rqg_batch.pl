@@ -928,22 +928,22 @@ system($summary_cmd);
 my $pl = Verdict::RQG_VERDICT_LENGTH + 2;
 say("\n\n"                                                                                         .
 "STATISTICS: RQG runs -- Verdict\n"                                                                .
-"STATISTICS: " . Auxiliary::lfill($Batch::verdict_replay, 8)    . " -- "                                  .
+"STATISTICS: " . Auxiliary::lfill($Batch::verdict_replay, 8)    . " -- "                           .
                  Auxiliary::rfill("'" . Verdict::RQG_VERDICT_REPLAY   . "'",$pl)                   .
              " -- Replay of desired effect (Whitelist match, no Blacklist match)\n"                .
-"STATISTICS: " . Auxiliary::lfill($Batch::verdict_interest, 8)  . " -- "                                  .
+"STATISTICS: " . Auxiliary::lfill($Batch::verdict_interest, 8)  . " -- "                           .
                  Auxiliary::rfill("'" . Verdict::RQG_VERDICT_INTEREST . "'",$pl)                   .
              " -- Otherwise interesting effect (no Whitelist match, no Blacklist match)\n"         .
-"STATISTICS: " . Auxiliary::lfill($Batch::verdict_ignore, 8)    . " -- "                                  .
-                 Auxiliary::rfill("'" . Verdict::RQG_VERDICT_IGNORE   . "_*'",$pl)                   .
-             " -- Effect is not of interest(Blacklist match or STATUS_OK)\n"                       .
-"STATISTICS: " . Auxiliary::lfill($Batch::stopped, 8)   . " -- "                                  .
-                 Auxiliary::rfill("'" . Verdict::RQG_VERDICT_IGNORE_STOPPED . "'",$pl)                   .
+"STATISTICS: " . Auxiliary::lfill($Batch::verdict_ignore, 8)    . " -- "                           .
+                 Auxiliary::rfill("'" . Verdict::RQG_VERDICT_IGNORE   . "_*'",$pl)                 .
+             " -- Effect is not of interest(Blacklist match or STATUS_OK or stopped)\n"            .
+"STATISTICS: " . Auxiliary::lfill($Batch::stopped, 8)   . " -- "                                   .
+                 Auxiliary::rfill("'" . Verdict::RQG_VERDICT_IGNORE_STOPPED . "'",$pl)             .
              " -- RQG run stopped by rqg_batch because of whatever reasons\n"                      .
-"STATISTICS: " . Auxiliary::lfill($Batch::verdict_init, 8)      . " -- "                                  .
+"STATISTICS: " . Auxiliary::lfill($Batch::verdict_init, 8)      . " -- "                           .
                  Auxiliary::rfill("'" . Verdict::RQG_VERDICT_INIT     . "'",$pl)                   .
              " -- RQG run too incomplete (maybe wrong RQG call)\n"                                 .
-"STATISTICS: " . Auxiliary::lfill($Batch::verdict_collected, 8) . " -- Some verdict made.\n")             ;
+"STATISTICS: " . Auxiliary::lfill($Batch::verdict_collected, 8) . " -- Some verdict made.\n")      ;
 say("STATISTICS: Total runtime in seconds : " . (time() - $batch_start_time))                      ;
 say("STATISTICS: RQG runs started         : $runs_started")                                        ;
 

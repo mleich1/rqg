@@ -1990,6 +1990,63 @@ sub lfill0 {
     return $string;
 };
 
+sub string_is_strict_int {
+# Return
+# - STATUS_OK if the string consists of digits only.
+#   Preceding additional zeros are not allowed.
+#   Note:
+#   To be used for integers >= 0 how you would assign them in shell.
+#   Example: rqg.pl ... --seed=13 --> $seed contains '13' after command line processing.
+#   Leading zeros or +/- signs, trailing '\n' etc. count as failure.
+# STATUS_FAILURE otherwise
+    my ($string) = @_;
+    my $is_strict_int = (($string =~ /^[1-9][0-9]*$/) or ($string =~ /^[0-9]$/));
+    if ($is_strict_int) {
+        return STATUS_OK;
+    } else {
+        return STATUS_FAILURE;
+    }
+}
+
+sub calculate_seed {
+    my ($seed) = @_;
+
+    if (not defined $seed) {
+        $seed = 1;
+        say("INFO: seed was not defined. Setting the default. seed : $seed");
+    } else {
+        my $orig_seed = $seed;
+        if ($orig_seed eq 'time') {
+            $seed = time();
+            say("INFO: seed eq '$orig_seed'. Computation. seed : $seed");
+        } elsif ($orig_seed eq 'epoch5') {
+            $seed = time() % 100000;
+            say("INFO: seed eq '$orig_seed'. Computation. seed : $seed");
+        } elsif ($orig_seed eq 'random') {
+            $seed = int(rand(32767));
+            say("INFO: seed eq '$orig_seed'. Computation. seed : $seed");
+        } elsif (STATUS_OK == Auxiliary::string_is_strict_int($seed)) {
+            say("INFO: seed : $seed");
+        } else {
+            say("ERROR: seed '$seed' is no supported.");
+            help_seed();
+            $seed = undef;
+        }
+    }
+    return $seed;
+}
+
+sub help_seed {
+    say("RQG option 'seed':");
+    say("The supported values are");
+    say("- a group of digits only");
+    say("- 'time'   == seconds since 1970-01-01 00:00:00 UTC");
+    say("- 'epoch5' == Remainder of seconds since 1970-01-01 00:00:00 UTC modulo 100000");
+    say("- 'random' == Random integer >= 0 and < 32767");
+    say("Per my (mleich) experiences 'random' is optimal for bug hunting.");
+}
+
+
 
 # FIXME: Implement
 # Adaptive FIFO

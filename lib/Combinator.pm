@@ -322,16 +322,19 @@ sub init {
         $cl_snip_end .= " --no_mask";
     }
 
-    # This handling of seed affects mainly the generation of random combinations.
+    # seed affects mainly the generation of random combinations.
+    # Auxiliary::calculate_seed writes a message about
+    # - writes a message about assigned and computed setting of seed
+    #   and returns the computed value if all is fine
+    # - writes a message about the "defect" and some help and returns undef if the value assigned to
+    #   seed is not supported
+    $seed = Auxiliary::calculate_seed($seed);
     if (not defined $seed) {
-        $seed = 1;
-        say("INFO: seed (used for generation of combinations only) is not defined. " .
-            "Setting it to the default 1.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        safe_exit($status);
     }
-    if ($seed eq 'time') {
-        $seed = time();
-    }
-    say("INFO: seed : $seed");
+    say("INFO: The seed value is used for generation of combinations only.");
+
     $prng = GenTest::Random->new(seed => $seed);
 
     if (not defined $start_combination) {
@@ -827,7 +830,8 @@ sub register_result {
 # Current could extract runtime
 #
 # Return
-# - ~ OK
+# - STATUS_OK, Batch::REGISTER_*(== What rqg_batch.pl should do next)
+#   Its not yet decided if the return will contain a status in future.
 # - ~ run emergency exit
 #
 

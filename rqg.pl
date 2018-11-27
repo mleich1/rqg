@@ -219,7 +219,7 @@ my $database = 'test';
 my $user     = 'rqg';
 my @dsns;
 
-my ($gendata, @basedirs, @mysqld_options, @vardirs, $rpl_mode,
+my (@basedirs, @mysqld_options, @vardirs, $rpl_mode,
     @engine, $help, $debug, @validators, @reporters, @transformers,
     $grammar_file, $skip_recursive_rules,
     @redefine_files, $seed, $mask, $mask_level, $mem, $rows,
@@ -228,7 +228,7 @@ my ($gendata, @basedirs, @mysqld_options, @vardirs, $rpl_mode,
     $report_xml_tt, $report_xml_tt_type, $report_xml_tt_dest,
     $notnull, $logfile, $logconf, $report_tt_logdir, $querytimeout, $no_mask,
     $short_column_names, $strict_fields, $freeze_time, $wait_debugger, @debug_server,
-    $skip_gendata, $skip_shutdown, $galera, $use_gtid, $genconfig, $annotate_rules,
+    $skip_gendata, $skip_shutdown, $galera, $use_gtid, $annotate_rules,
     $restart_timeout, $gendata_advanced, $scenario, $upgrade_test, $store_binaries,
     $ps_protocol, @gendata_sql_files, $config_file,
     @whitelist_statuses, @whitelist_patterns, @blacklist_statuses, @blacklist_patterns,
@@ -585,7 +585,7 @@ if (not defined $no_mask) {
     $no_mask    = undef;
 }
 
-my $grammar_file = Auxiliary::unify_grammar($grammar_file, $redefine_ref, $workdir,
+$grammar_file = Auxiliary::unify_grammar($grammar_file, $redefine_ref, $workdir,
                                       $skip_recursive_rules, $mask, $mask_level);
 if (not defined $grammar_file) {
     say("ERROR: unify_grammar failed.");
@@ -993,7 +993,6 @@ Auxiliary::print_list("DEBUG: Basedirs "    , @basedirs);
 Auxiliary::print_list("DEBUG: debug_server ", @debug_server);
 
 my $all_binaries_exist = 1;
-my $return;
 # I prefer to check all possible assignments and not only for the servers needed.
 foreach my $i (0..3) {
     if (defined $basedirs[$i]) {
@@ -1076,13 +1075,23 @@ if ($all_binaries_exist != 1) {
     run_end($status);
 }
 
-if (defined $seed and $seed eq 'time') {
-    $seed = time();
-    say("Converted --seed=time to --seed=$seed");
+
+# Auxiliary::calculate_seed writes a message about
+# - writes a message about assigned and computed setting of seed
+#   and returns the computed value if all is fine
+# - writes a message about the "defect" and some help and returns undef if the value assigned to
+#   seed is not supported
+$seed = Auxiliary::calculate_seed($seed);
+if (not defined $seed) {
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    run_end($status);
 }
 
 my $cmd = $0 . " " . join(" ", @ARGV_saved);
-$cmd =~ s/seed=time/seed=$seed/g;
+# Remove any seed assignment
+$cmd =~ s/--seed=\w*//g;
+# Add one using the new seed value.
+$cmd .= " --seed=$seed";
 
 $message = "Final command line: ->perl " . $cmd . "<-";
 $summary .= "SUMMARY: $message\n";
@@ -1556,7 +1565,7 @@ my $gendata_end_time = time();
 $message = "RQG GenData runtime in s : " . (time() - $start_time);
 $summary .= "SUMMARY: $message\n";
 say("INFO: " . $message);
-my $start_time = time();
+$start_time = time();
 if ($gentest_result == STATUS_OK) {
     $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENTEST);
     $gentest_result = $gentest->doGenTest();
