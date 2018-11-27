@@ -396,6 +396,7 @@ sub report {
                    "$iso_ts  $val";
         Batch::append_string_to_file($book_keeping_file, $line);
     }
+    say("DEBUG: ResourceControl::report") if Auxiliary::script_debug("R4");
     return $load_status;
 }
 

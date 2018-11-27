@@ -427,7 +427,6 @@ sub check_resources {
 # And only after that delay has passed and if other parameters fit starting some additional
 # RQG worker should be allowed.
     my $load_status = ResourceControl::report(count_active_workers());
-    say("MLML: load_status : $load_status");
     if      (ResourceControl::LOAD_INCREASE eq $load_status) {
         return STATUS_OK;
     } elsif (ResourceControl::LOAD_KEEP eq $load_status) {
