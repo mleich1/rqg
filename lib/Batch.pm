@@ -383,10 +383,9 @@ sub stop_worker_young {
             my $rqg_workdir = $workdir . "/" . $worker_num;
             my $rqg_phase = Auxiliary::get_rqg_phase($rqg_workdir);
             if      (not defined $rqg_phase) {
-                say("ERROR: Batch::stop_worker_young : No phase for RQG worker $worker_num got. " .
-                    "Will ask for emergency_exit.");
                 my $status = STATUS_ENVIRONMENT_FAILURE;
-                emergency_exit($status);
+                emergency_exit($status, "ERROR: Batch::stop_worker_young : No phase for " .
+                               "RQG worker $worker_num got. Will ask for emergency_exit.");
             } elsif (Auxiliary::RQG_PHASE_INIT    eq $rqg_phase or
                      Auxiliary::RQG_PHASE_START   eq $rqg_phase or
                      Auxiliary::RQG_PHASE_PREPARE eq $rqg_phase or
@@ -394,7 +393,8 @@ sub stop_worker_young {
                      # We ask to kill the processgroup of the RQG Worker.
                      kill '-KILL', $pid;
                      $worker_array[$worker_num][WORKER_END]  = time();
-                     say("MLMLML Stopped young RQG worker $worker_num");
+                     say("DEBUG: Stopped young RQG worker $worker_num")
+                         if Auxiliary::script_debug("T6");
             }
         }
     }
@@ -443,10 +443,9 @@ sub check_resources {
             }
         }
         if (0 == $worker_number) {
-            say("ERROR: ResourceControl::report delivered '$load_status' but no active " .
-                "RQG worker detected.");
             my $status = STATUS_ENVIRONMENT_FAILURE;
-            emergency_exit($status);
+            emergency_exit($status, "ERROR: ResourceControl::report delivered '$load_status' " .
+                           "but no active RQG worker detected. Will ask for emergency_exit.");
         } else {
             # Kill the processgroup of the RQG worker picked.
             Batch::stop_worker($worker_number);
@@ -457,7 +456,7 @@ sub check_resources {
             my $max_wait = 30;
             my $end_time = time() + $max_wait;
             # FIXME:
-            # The activity of the other RQG workers is also dangerous.
+            # The activity of the other RQG workers could be also dangerous.
             while (time() < $end_time and -1 != $worker_array[$worker_number][WORKER_PID]) {
                 reap_workers();
                 sleep 0.1;
@@ -466,23 +465,21 @@ sub check_resources {
             if (-1 == $worker_pid) {
                 say("DEBUG: RQG worker $worker_number has been stopped.");
             } else {
-                say("ERROR: Batch::check_resources: Waited $max_wait s but the main process " .
-                    "$worker_pid of the RQG worker $worker_number has not disappeared like "  .
-                    "intended. Will abort.");
                 my $status = STATUS_ENVIRONMENT_FAILURE;
-                emergency_exit($status);
+                emergency_exit($status, "ERROR: Batch::check_resources: Waited $max_wait s " .
+                    "but the main process $worker_pid of the RQG worker $worker_number has " .
+                    "not disappeared like intended. Will ask for emergency_exit.");
             }
             return STATUS_FAILURE;
         }
     } elsif (ResourceControl::LOAD_GIVE_UP eq $load_status) {
-        say("ERROR: ResourceControl::report delivered '$load_status'. Giving up.");
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        emergency_exit($status);
+        emergency_exit($status, "ERROR: ResourceControl::report delivered '$load_status'. " .
+                       "Will ask for emergency_exit.");
     } else {
-        say("INTERNAL ERROR: ResourceControl::report delivered '$load_status' which we " .
-            "do not handle here. Giving up.");
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        emergency_exit($status);
+        emergency_exit($status, "INTERNAL ERROR: ResourceControl::report delivered " .
+                       "'$load_status' which we do not handle here. Will ask for emergency_exit.");
     }
 }
 
@@ -1273,8 +1270,13 @@ sub append_string_to_file {
 
 sub write_result {
     my ($line) = @_;
+    if (not defined $line) {
+        Carp::cluck("INTERNAL ERROR: line is undef.");
+        my $status = STATUS_INTERNAL_ERROR;
+        Batch::emergency_exit($status);
+    }
     if (not defined $result_file) {
-        say("INTERNAL ERROR: result_file is undef.");
+        Carp::cluck("INTERNAL ERROR: result_file is undef.");
         my $status = STATUS_INTERNAL_ERROR;
         Batch::emergency_exit($status);
     }

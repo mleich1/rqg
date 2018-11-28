@@ -204,10 +204,15 @@ eval
 $| = 1;
 my $ctrl_c = 0;
 
-# FIXME: Which impact has this ctrl_c stuff?
-# $SIG{INT}  = sub { $ctrl_c = 1 };
-$SIG{INT}  = sub { Batch::emergency_exit("INFO: SIGTERM or SIGINT received. Will stop all RQG worker " .
-                                         "and exit without cleanup.", STATUS_OK) };
+# FIXME: Discover Which impact has the value within $ctrl_c?
+#
+# SIGINT should NOT lead to some abort of the rqg_batch.pl run.
+# A
+#     $SIG{INT}  = sub { Batch::emergency_exit("INFO: SIGTERM or SIGINT received. " .
+#                               "Will stop all RQG worker and exit without cleanup.", STATUS_OK) };
+# would cause exact some abort with cleanup but without summary.
+$SIG{INT}  = sub { $ctrl_c = 1 };
+# SIGTERM should lead to some abort with cleanup but without summary.
 $SIG{TERM} = sub { Batch::emergency_exit("INFO: SIGTERM or SIGINT received. Will stop all RQG worker " .
                                          "and exit without cleanup.", STATUS_OK) };
 $SIG{CHLD} = "IGNORE" if osWindows();

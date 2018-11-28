@@ -828,7 +828,8 @@ sub initGenerator {
 
     if ($generator_name eq 'GenTest::Generator::FromGrammar') {
         if (not defined $self->config->grammar) {
-            sayError("Grammar not specified but Generator is $generator_name, status will be set to ENVIRONMENT_FAILURE");
+            sayError("Grammar not specified but Generator is $generator_name, status will be " .
+                     "set to ENVIRONMENT_FAILURE");
             return STATUS_ENVIRONMENT_FAILURE;
         }
 
