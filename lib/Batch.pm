@@ -339,7 +339,7 @@ use constant WORKER_START_LENGTH => 10;
 use constant WORKER_ORDER_LENGTH =>  8;
     my $message = "worker_array_dump begin --------\n" .
                   "id  -- pid    -- job_start  -- job_end    -- order_id -- " .
-                  "extra1 -- extra2 -- extra3 -- verdict -- log\n";
+                  "extra1  -- extra2  -- extra3  -- verdict -- log\n";
     for my $worker_num (1..$workers) {
         $message = $message . Auxiliary::lfill($worker_num, WORKER_ID_LENGTH) .
            " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_PID],   WORKER_PID_LENGTH)      .
@@ -1055,7 +1055,6 @@ sub init_queues {
     @try_over_queue  = ();
     @try_never_queue = ();
 }
-# FIXME: Rename to check_queues_for duplicates
 sub check_queues {
     my %check_hash;
     for my $order_id (@try_run_queue, @try_first_queue, @try_queue, @try_later_queue,
@@ -1069,7 +1068,7 @@ sub check_queues {
             $check_hash{$order_id} = 1;
         }
     }
-    say("DEBUG: The queues are consistent.");
+    say("DEBUG: The queues are consistent.") if Auxiliary::script_debug("T6");
 }
 sub add_id_to_run_queue {
     my ($order_id) = @_;

@@ -83,7 +83,7 @@ use constant SHARE_CORE     => 0.1;
 use constant VARDIR_FREE   => 0;
 use constant WORKDIR_FREE  => 1;
 use constant MEM_REAL_FREE => 2;
-use constant SWAP_USED     => 3;
+use constant SWAP_USED_PER => 3;
 
 
 my $df_available;
@@ -186,8 +186,9 @@ sub init {
             # steal   -  Percentage of stolen CPU time, which is the time spent in other
             #            operating systems when running in a virtualized environment (>=2.6.11).
             memstats  => 1,
-            # realfree  -  Total size of memory is real free (memfree + buffers + cached).   <======
-            # swapused  -  Total size of swap space is used is kilobytes.                    <======
+            # realfree    -  Total size of memory is real free (memfree + buffers + cached).   <======
+            # swapused    -  Total size of swap space is used is kilobytes.                    <======
+            # swapusedper -  Total size of swap space is used in percent                       <======
             pgswstats => 0,
             # Not that important but maybe used later
             # pgpgin      -  Number of pages the system has paged in from disk per second.
@@ -223,7 +224,7 @@ sub init {
     my $vardir_free        = $return[VARDIR_FREE];
     my $workdir_free       = $return[WORKDIR_FREE];
     my $mem_real_free      = $return[MEM_REAL_FREE];
-    my $swap_used          = $return[SWAP_USED];
+    my $swap_used_per      = $return[SWAP_USED_PER];
 
     $vardir_free_init   = $vardir_free;
     $workdir_free_init  = $workdir_free;
@@ -250,7 +251,7 @@ sub init {
         my $line = "$iso_ts vardir  '$vardir'  free : $vardir_free_init\n"                         .
                    "$iso_ts workdir '$workdir' free : $workdir_free_init\n"                        .
                    "$iso_ts memory real free        : $mem_real_free_init\n"                       .
-                   "$iso_ts swap space used         : $swap_used\n"                                .
+                   "$iso_ts swap space used percent : $swap_used_per\n"                                .
                    "$iso_ts nproc                   : $nproc\n"                                    .
                    "$iso_ts parallel (assigned)     : $parallel_assigned\n"                        .
                    "$iso_ts parallel (estimated)    : $parallel_estimated\n"                       .
@@ -264,7 +265,7 @@ sub init {
                    "$iso_ts $worker_active, " .  # There is in the moment no active worker.
                        int($vardir_used)  . " - " . int($vardir_free)  . " - " .
                        int($workdir_used) . " - " . int($workdir_free) . " - " .
-                       int($mem_real_free). " - " . int($swap_used)    . " - " .
+                       int($mem_real_free). " - " . int($swap_used_per)    . " - " .
                        $load_status       . "\n"  .
                   "$iso_ts  $val";
         Batch::append_string_to_file($book_keeping_file, $line);
@@ -290,7 +291,7 @@ sub report {
     my $vardir_free        = $return[VARDIR_FREE];
     my $workdir_free       = $return[WORKDIR_FREE];
     my $mem_real_free      = $return[MEM_REAL_FREE];
-    my $swap_used          = $return[SWAP_USED];
+    my $swap_used_per      = $return[SWAP_USED_PER];
 
     my $vardir_used  = $vardir_free_init  - $vardir_free;
     my $workdir_used = $workdir_free_init - $workdir_free;
@@ -338,10 +339,10 @@ sub report {
             # we would start to use the swap space.
         say("INFO: (3) The real free memory ($mem_real_free MB) is critical small.");
         $load_status = LOAD_DECREASE;
-    } elsif (defined $swap_used and $swap_used > 500) {
+    } elsif (defined $swap_used_per and $swap_used_per > 15) {
             # We have started to use the swap and that should not happen.
         $load_status = LOAD_DECREASE;
-        say("INFO: (4) Swap ($swap_used MB) > 500 MB is used.");
+        say("INFO: (4) Swap space used ($swap_used_per %) > 15 %.");
 
     # Setting $load_status = LOAD_KEEP serves to prevent that we start some additional RQG run
     # which than maybe leads to the state that we must set LOAD_DECREASE and stop one RQG run.
@@ -391,7 +392,7 @@ sub report {
         my $line = "$iso_ts $worker_active, " .
                        int($vardir_used)  . " - " . int($vardir_free)  . " - " .
                        int($workdir_used) . " - " . int($workdir_free) . " - " .
-                       int($mem_real_free). " - " . int($swap_used)    . " - " .
+                       int($mem_real_free). " - " . int($swap_used_per)    . " - " .
                        $load_status       . "\n"  .
                    "$iso_ts  $val";
         Batch::append_string_to_file($book_keeping_file, $line);
@@ -430,10 +431,10 @@ sub measure {
         my $stat = $lxs->get();
         my $memstats  = $stat->memstats;
         $return[MEM_REAL_FREE]  = $stat->memstats->{realfree} / 1024;
-        $return[SWAP_USED]      = $stat->memstats->{swapused} / 1024;
+        $return[SWAP_USED_PER]  = $stat->memstats->{swapusedper};
     } else {
         $return[MEM_REAL_FREE]  = undef;
-        $return[SWAP_USED]      = undef;
+        $return[SWAP_USED_PER]  = undef;
     }
     return @return;
 
