@@ -23,6 +23,17 @@ require Exporter;
 
 @ISA = qw(GenTest::Executor);
 
+
+# (mleich) Explanations found in web
+# Our strings written to STDOUT are sequences of multibyte characters (->utf8) and
+# NOT single byte characters. So we need to set utf8 in order to prevent whatever
+# wrong interpretations by Perl.
+use utf8;
+# If not setting this the Perl IO layer expects to get single-byte character and writes
+# the warning "Wide character in print at ..." when meeting a wide character (>255).
+binmode STDOUT, ':utf8';
+
+
 use strict;
 use Carp;
 use DBI;

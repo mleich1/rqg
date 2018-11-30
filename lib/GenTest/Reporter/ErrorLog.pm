@@ -57,7 +57,7 @@ sub nativeReport {
    # on screen but not in otto. RQG runner ... > otto 2>&1 works well.
    # This seems to be a result of the rather wild output redirecting.
    # Obviously the say* routines do not have that trouble.
-   # So is stick to the provisoric fix to use sayFile.
+   # So I stick to the provisoric fix to use sayFile.
    foreach my $log ($main_log, $main_log . '-old') {
       if ((-e $log) && (-s $log > 0)) {
       #  say("The last 2000 lines from $log ------------------------------ Begin");

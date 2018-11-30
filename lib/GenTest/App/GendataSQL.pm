@@ -92,7 +92,7 @@ sub run {
 
    my $bad_status =  STATUS_ENVIRONMENT_FAILURE;
 
-   my $sql_file = $self->sql_file();
+   our $sql_file = $self->sql_file();
    if (not -e $sql_file) {
       say("ERROR: GenTest::App::GendataSQL::run : The SQL file '$sql_file' " .
           "does no more exist.");

@@ -923,12 +923,14 @@ Batch::process_finished_runs();
 Batch::dump_queues() if Auxiliary::script_debug("T3");
 # dump_orders();
 
-my $summary_cmd = "$rqg_home/util/issue_grep.sh $workdir";
-# I do not care if creating or filling the summary files fails because the main
-# - work is already done with success
-# - share of information given from now on does not require a proper working
-#   OS, file system etc.
-system($summary_cmd);
+if ($Batch::give_up < 2) {
+    my $summary_cmd = "$rqg_home/util/issue_grep.sh $workdir";
+    # I do not care if creating or filling the summary files fails because the main
+    # - work is already done with success
+    # - share of information given from now on does not require a proper working
+    #   OS, file system etc.
+    system($summary_cmd);
+}
 
 my $pl = Verdict::RQG_VERDICT_LENGTH + 2;
 say("\n\n"                                                                                         .

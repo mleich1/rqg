@@ -454,9 +454,8 @@ sub get_job {
     } else {
         if (not defined $order_array[$order_id]) {
             my $status = STATUS_INTERNAL_ERROR;
-            Carp::cluck("INTERNALE ERROR: Combinator::init : config file is undef. " .
-                        "Will exit with status " . status2text($status) . "($status)");
-            exit $status;
+            Carp::cluck("INTERNAL ERROR: order_id is not defined.");
+            Batch::emergency_exit($status);
         }
         my $cl_snip = $order_array[$order_id][ORDER_PROPERTY1];
         Batch::add_id_to_run_queue($order_id);
@@ -731,8 +730,7 @@ sub order_is_valid {
 
     if (not defined $order_id) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNALE ERROR: Combinator::order_is_valid : order_id is undef. " .
-                    "Will exit with status " . status2text($status) . "($status)");
+        Carp::cluck("INTERNAL ERROR: Combinator::order_is_valid : order_id is undef.");
         Batch::emergency_exit($status);
     }
     if ($order_array[$order_id][ORDER_EFFORTS_LEFT] <= 0) {
@@ -749,8 +747,7 @@ sub print_order {
 
     if (not defined $order_id) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: Combinator::print_order : order_id is undef. " .
-                    "Will exit with status " . status2text($status) . "($status)");
+        Carp::cluck("INTERNAL ERROR: Combinator::print_order : order_id is undef.");
         Batch::emergency_exit($status);
     }
     my @order = @{$order_array[$order_id]};
@@ -859,8 +856,7 @@ sub register_result {
         # We need to repeat this run.
         Batch::add_to_try_first($order_id);
     } else {
-        say("INTERNAL ERROR: Final Verdict '$verdict' is not treated/unknown. " .
-            "Will ask for an emergency_exit.");
+        Carp::cluck("INTERNAL ERROR: Final Verdict '$verdict' is not treated/unknown.");
         my $status = STATUS_INTERNAL_ERROR;
         Batch::emergency_exit($status);
     }

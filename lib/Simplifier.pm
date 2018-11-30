@@ -1578,6 +1578,12 @@ sub report_replay {
             # - removed from @try_run_queue   -- fine
             # - added to from @try_over_queue -- bad
             # Batch::add_to_try_never($order_id);
+            # FIXME:
+            # In case we know the total RQG runtime required for some lets say 85 till 95%
+            # percentil (runtime_90) than we could stop all RQG workers with
+            # - outdated parent grammar and
+            # - being in a phase before gendata or
+            #   being in a phase gendata or later and a time - start_time < 0.1 * runtime_90.
             $response = Batch::REGISTER_STOP_YOUNG;
         } else {
             # Its a replayer with outdated grammar.

@@ -69,21 +69,30 @@ use constant RQG_GRAMMAR_C_TITLE => 'Grammar used';
 use constant RQG_GRAMMAR_P_TITLE => 'Parent      ';
 use constant RQG_GRAMMAR_LENGTH  => 12;             # Maximum is Title
 
+# $give_up == Some general prospect for the future of the rqg_batch.pl run.
+# -------------------------------------------------------------------------
+our $give_up = 0;
+# 0 -- Just go on with work.
+# 1 -- Stop all RQG runs, as soon as "silence" reached set $give_up = 0 and ask for next job.
+# 2 -- Stop all RQG runs, maybe a bit cleanup, give a short summary and exit.
+# 3 -- Stop all RQG runs, no cleanup, no summary and than exit.
+# Usage:
+# Especially $give_up > 2 means that actions which might fail or last long
+# should be avoided.
+#
+
 our $workdir;
 our $vardir;
 my  $result_file;
 
 # Counter for statistics
 # ----------------------
-our $runs_stopped          = 0;
 our $verdict_init          = 0;
 our $verdict_replay        = 0;
 our $verdict_interest      = 0;
 our $verdict_ignore        = 0;
-our $stopped       = 0;
+our $stopped               = 0;
 our $verdict_collected     = 0;
-our $runs_finished_regular = 0;
-
 
 my $discard_logs;
 sub check_and_set_discard_logs {
@@ -173,27 +182,43 @@ use constant WORKER_ORDER_ID  => 2;
 #   - maximum runtime for the RQG run assigned
 #     Only relevant in case we go with adaptive runtimes.
 #     This is some extrapolated timespan for the complete RQG run (gendata + duration(gentest)
-#     + comparison if required + archiving + ...) which should ensure that >= 85% of all simplified
+#     + comparison if required + archiving + ...) which should ensure that roughly all simplified
 #     grammars which are capable to replay have replayed.
 #     So in some sense this runtime defines what some sufficient long run is and the size changes
 #     during the simplification process.
-use constant WORKER_EXTRA1    => 3; # child grammar == grammar used if Simplifier
-use constant WORKER_EXTRA2    => 4; # parent grammar if Simplifier
-use constant WORKER_EXTRA3    => 5; # adapted duration if Simplifier
-use constant WORKER_END       => 6;
-use constant WORKER_VERDICT   => 7;
-use constant WORKER_LOG       => 8;
-use constant WORKER_WON       => 9;
-# In case a 'stop_worker' had to be performed than WORKER_END will be set to the current timestamp
-# when issuing the SIGKILL that RQG worker processgroup.
-# When 'reap_worker' gets active the following should happen
-# if defined WORKER_END
-#    make a note within the RQG log of the affected worker that he was stopped
-#    set verdict to VERDICT_IGNORE_STOPPED etc.
-# else
-#    set WORKER_END will be set to the current timestamp
+use constant WORKER_EXTRA1      => 3; # child grammar == grammar used if Simplifier
+use constant WORKER_EXTRA2      => 4; # parent grammar if Simplifier
+use constant WORKER_EXTRA3      => 5; # adapted duration if Simplifier
+use constant WORKER_END         => 6;
+use constant WORKER_VERDICT     => 7;
+use constant WORKER_LOG         => 8;
+use constant WORKER_STOP_REASON => 9; # in case the run was stopped than the reason
+# In case a 'stop_worker' had to be performed because of
+# - STOP_REASON_WORK_FLOW
+#   Simplifier/Combinator has given REGISTER_END
+#       == All configured work done.
+#   Simplifier has given REGISTER_STOP_ALL
+#       == End of actual simplification phase reached.
+#   Simplifier has given REGISTER_STOP_YOUNG
+#       == Stopping some RQG worker (and start new ones) would give an optimization.
+use constant STOP_REASON_WORK_FLOW => 'work flow';
+# - STOP_REASON_RESOURCE
+#   The resource control reported LOAD_DECREASE.
+#       == Stopping a RQG worker is recommended.
+use constant STOP_REASON_RESOURCE  => 'resource';
+# than WORKER_STOP_REASON will be set and some corresponding entry will be later written
+# into the log of the RQG worker. The main reason doing this is to have more information about
+# what happened at rqg_batch.pl runtime. And this is required for discovering defects in the
+# load control mechanism and further optimization of grammar simplification process.
+# Please note that there are two scenarios where WORKER_STOP_REASON will stay undef
+# - no stop of that RQG worker at all
+# - stop of all RQG workers and abort of the rqg_batch.pl run because too serious trouble ahead.
+#   The logics is:
+#   If WORKER_STOP_REASON is defined than write an entry into the log of that RQG worker.
+#   In case we want finally an abort than this abort has absolute priority.
+#   Any delay or fail of abort because of trouble when writing the entry is not acceptable.
+#   So WORKER_STOP_REASON needs to be undef.
 #
-
 # Whenever rqg_batch.pl calls Combinator/Simplifier::register_result than that routine will
 # return an array
 # first element is the status (the usual like STATUS_ENVIRONMENT_FAILURE etc.)
@@ -223,10 +248,6 @@ use constant REGISTER_STOP_YOUNG => 'register_stop_young';
      # Stop all active RQG runs which are in phase init , start or gentest.
      # Use case:
      # The result got made all ongoing RQG runs obsolete and so they should be aborted.
-     # Example:
-     # Bugreplay where we
-     # - need to replay some desired outcome only once
-     # - want to go on with free resources and something different as soon as possible.
 use constant REGISTER_END        => 'register_end';
 
 
@@ -277,15 +298,16 @@ sub check_and_set_workers {
 sub worker_reset {
     my ($worker_num) = @_;
 
-    $worker_array[$worker_num][WORKER_PID]      = -1;
-    $worker_array[$worker_num][WORKER_START]    = -1;
-    $worker_array[$worker_num][WORKER_END]      = -1;
-    $worker_array[$worker_num][WORKER_ORDER_ID] = -1;
-    $worker_array[$worker_num][WORKER_EXTRA1]   = undef;
-    $worker_array[$worker_num][WORKER_EXTRA2]   = undef;
-    $worker_array[$worker_num][WORKER_EXTRA3]   = undef;
-    $worker_array[$worker_num][WORKER_VERDICT]  = undef;
-    $worker_array[$worker_num][WORKER_LOG]      = undef;
+    $worker_array[$worker_num][WORKER_PID]         = -1;
+    $worker_array[$worker_num][WORKER_START]       = -1;
+    $worker_array[$worker_num][WORKER_END]         = -1;
+    $worker_array[$worker_num][WORKER_ORDER_ID]    = -1;
+    $worker_array[$worker_num][WORKER_EXTRA1]      = undef;
+    $worker_array[$worker_num][WORKER_EXTRA2]      = undef;
+    $worker_array[$worker_num][WORKER_EXTRA3]      = undef;
+    $worker_array[$worker_num][WORKER_VERDICT]     = undef;
+    $worker_array[$worker_num][WORKER_LOG]         = undef;
+    $worker_array[$worker_num][WORKER_STOP_REASON] = undef;
 }
 
 sub get_free_worker {
@@ -333,8 +355,8 @@ sub count_active_workers {
 }
 
 sub worker_array_dump {
-use constant WORKER_ID_LENGTH  =>  3;
-use constant WORKER_PID_LENGTH =>  6;
+use constant WORKER_ID_LENGTH    =>  3;
+use constant WORKER_PID_LENGTH   =>  6;
 use constant WORKER_START_LENGTH => 10;
 use constant WORKER_ORDER_LENGTH =>  8;
     my $message = "worker_array_dump begin --------\n" .
@@ -359,19 +381,23 @@ use constant WORKER_ORDER_LENGTH =>  8;
 }
 
 sub stop_worker {
-    my ($worker_num) = @_;
+    my ($worker_num, $stop_reason) = @_;
     my $pid = $worker_array[$worker_num][WORKER_PID];
     if (-1 != $pid) {
         # Per last update of bookkeeping the RQG Woorker was alive.
         # We ask to kill the processgroup of the RQG Worker.
         kill '-KILL', $pid;
-        $worker_array[$worker_num][WORKER_END]  = time();
+        $worker_array[$worker_num][WORKER_STOP_REASON] = $stop_reason;
+        my $order_id = $worker_array[$worker_num][WORKER_ORDER_ID];
+        say("DEBUG: Try to stop RQG worker $worker_num with orderid $order_id because of ->$stop_reason<-.")
+            if Auxiliary::script_debug("T6");
     }
 }
 
-sub stop_workers () {
+sub stop_workers {
+    my ($stop_reason) = @_;
     for my $worker_num (1..$workers) {
-        stop_worker($worker_num);
+        stop_worker($worker_num, $stop_reason);
     }
 }
 
@@ -390,22 +416,13 @@ sub stop_worker_young {
                      Auxiliary::RQG_PHASE_START   eq $rqg_phase or
                      Auxiliary::RQG_PHASE_PREPARE eq $rqg_phase or
                      Auxiliary::RQG_PHASE_GENDATA eq $rqg_phase   ) {
-                     # We ask to kill the processgroup of the RQG Worker.
-                     kill '-KILL', $pid;
-                     $worker_array[$worker_num][WORKER_END]  = time();
+                     stop_worker($worker_num, STOP_REASON_WORK_FLOW);
                      say("DEBUG: Stopped young RQG worker $worker_num")
                          if Auxiliary::script_debug("T6");
             }
         }
     }
 }
-
-our $give_up = 0;
-# 0 -- Just go on with work.
-# 1 -- Stop all RQG runs, as soon as "silence" reached ask for next job
-# 2 -- Stop all RQG runs, maybe a bit cleanup, give a summary and exit.
-# 3 -- Stop all RQG runs, no cleanup, no summary and than exit.
-#
 
 sub emergency_exit {
 
@@ -416,7 +433,7 @@ sub emergency_exit {
     # In case we ever do more in stop_workers and that could fail because of
     # mistakes than $give_up == 3 might be used as signal to ignore the fails.
     $give_up = 3;
-    Batch::stop_workers();
+    stop_workers();
     safe_exit ($status);
 
 }
@@ -445,10 +462,10 @@ sub check_resources {
         if (0 == $worker_number) {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             emergency_exit($status, "ERROR: ResourceControl::report delivered '$load_status' " .
-                           "but no active RQG worker detected. Will ask for emergency_exit.");
+                           "but no active RQG worker detected.");
         } else {
             # Kill the processgroup of the RQG worker picked.
-            Batch::stop_worker($worker_number);
+            stop_worker($worker_number, STOP_REASON_RESOURCE);
             # Even a kill SIGKILL requires some time especially on some heavy loaded box.
             # So we need to run 'reap_workers' which will free the resources till the number of
             # active workers has decreased.
@@ -479,7 +496,7 @@ sub check_resources {
     } else {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         emergency_exit($status, "INTERNAL ERROR: ResourceControl::report delivered " .
-                       "'$load_status' which we do not handle here. Will ask for emergency_exit.");
+                       "'$load_status' which we do not handle here.");
     }
 }
 
@@ -500,9 +517,9 @@ sub reap_workers {
     # TEMPORARY
     if (Auxiliary::script_debug("T3")) {
         say("worker_array_dump at entering reap_workers");
-        Batch::worker_array_dump();
+        worker_array_dump();
     }
-    for my $worker_num (1..$Batch::workers) {
+    for my $worker_num (1..$workers) {
         # -1 == no main process of that RQG worker running.
         # Maybe there was never one running or the last running finished and was reaped.
         next if -1 == $worker_array[$worker_num][WORKER_PID];
@@ -550,7 +567,7 @@ sub reap_workers {
 
                 my $verdict;
                 my $iso_ts = isoTimestamp();
-                if (-1 != $worker_array[$worker_num][WORKER_END]) {
+                if (defined $worker_array[$worker_num][WORKER_STOP_REASON]) {
                     # The RQG worker was 'victim' of a stop with SIGKILL.
                     # So write various information into the RQG run log which the RQG worker was
                     # no more able to do.
@@ -560,8 +577,10 @@ sub reap_workers {
                     # - sometimes an archive harmed by the SIGKILL
                     # - extreme unlikely a complete archive
                     # ==> The stuff gets thrown away in general.
+                    $worker_array[$worker_num][WORKER_END] = time();
                     $verdict = Verdict::RQG_VERDICT_IGNORE_STOPPED;
-                    Batch::append_string_to_file($rqg_log, "# $iso_ts BATCH: Stop the run.\n" .
+                    append_string_to_file($rqg_log, "# $iso_ts BATCH: Stop the run ".
+                        "because of '" . $worker_array[$worker_num][WORKER_STOP_REASON] . "'.\n" .
                                                            "# $iso_ts Verdict: $verdict\n");
                 } else {
                     $worker_array[$worker_num][WORKER_END] = time();
@@ -668,7 +687,7 @@ sub reap_workers {
 
             } elsif (-1 == $kid) {
                 say("ALARM: RQG worker $worker_num was already reaped.");
-                Batch::worker_reset($worker_num);
+                worker_reset($worker_num);
             } else {
                 say("DEBUG: RQG worker $worker_num with pid " .
                     $worker_array[$worker_num][WORKER_PID] . " is running.")
@@ -699,7 +718,7 @@ sub reap_workers {
 
     if (Auxiliary::script_debug("T5")) {
         say("worker_array_dump before leaving reap_workers");
-        Batch::worker_array_dump();
+        worker_array_dump();
     }
     say("DEBUG: Leave 'reap_workers' and return (active workers found) : " .
         "$active_workers") if Auxiliary::script_debug("T4");
@@ -824,7 +843,8 @@ sub make_multi_runner_infrastructure {
     $workdir = $general_workdir . "/" . $run_id;
     # Note: In case there is already a directory '$workdir' than we just fail in mkdir.
     if (mkdir $workdir) {
-        say("DEBUG: The workdir $snip_current '$workdir' created.") if Auxiliary::script_debug("B2");
+        say("DEBUG: The workdir $snip_current '$workdir' created.")
+            if Auxiliary::script_debug("B2");
     } else {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Creating the workdir $snip_current '$workdir' failed: $!.\n " .
@@ -843,7 +863,8 @@ sub make_multi_runner_infrastructure {
     if (not -d $general_vardir) {
         # In case there is a plain file with the name '$general_vardir' than we just fail in mkdir.
         if (mkdir $general_vardir) {
-            say("DEBUG: The general vardir $snip_all '$general_vardir' created.") if Auxiliary::script_debug("B2");
+            say("DEBUG: The general vardir $snip_all '$general_vardir' created.")
+                if Auxiliary::script_debug("B2");
         } else {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: make_multi_runner_infrastructure : Creating the general vardir " .
@@ -878,7 +899,8 @@ sub make_multi_runner_infrastructure {
     # ---------------------------------------------------------
     $result_file = $workdir . "/result.txt";
     make_file($result_file, undef);
-    say("DEBUG: The result (summary) file '$result_file' was created.") if Auxiliary::script_debug("B2");
+    say("DEBUG: The result (summary) file '$result_file' was created.")
+        if Auxiliary::script_debug("B2");
 
 
     # In case we have a combinations vardir without absolute path than ugly things happen:
@@ -1181,33 +1203,6 @@ sub add_to_try_first {
     push @try_first_queue, $order_id;
 }
 
-# FIXME: Implement rather in Simplifier because nothing else needs it
-# Adaptive FIFO
-#
-# init          no of elements n, value
-#               Create list with that number of elements precharged with value
-# store_value   value
-#               Throw top element of list away, append value.
-# get_value     algorithm
-#               Return a value providing a >= 85 % percentil according to algorithm.
-#               1 -- maximum value from list
-#                    Bigger n leads to more save and stable values but is questionable
-#                    because of over all longer timespan (between first and last entry).
-#               2 -- > 85% percentil with some gauss bell curve assumed
-#                    I assume
-#                    - in the first phase (when many elements have precharged value)
-#                      faster starting to have an impact than 1
-#                    - later more stable + smooth than 1
-#                    but more complex.
-#               It is to be expected and in experiments already revealed that neither
-#               - m replay runs with the same effective grammars and settings
-#                 --> elapsed RQG runtime
-#               - n replay runs with increasing simplified grammars
-#                 --> elapsed rqg_batch.pl runtime or rqg.pl runtime of "winner"
-#               have a bell curve regarding the elapsed runtime.
-#
-#
-
 # Certain routines which are based on routines with the same name and located in Auxiliary.pm.
 # --------------------------------------------------------------------------------------------
 # The important diff is that we perform an emergency_exit in order to minimize possible
@@ -1224,7 +1219,7 @@ sub copy_file {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Copy operation failed. Will ask for emergency exit." .
             Auxiliary::exit_status_text($status));
-        Batch::emergency_exit($status);
+        emergency_exit($status);
     }
 }
 
@@ -1237,7 +1232,7 @@ sub rename_file {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Rename operation failed. Will ask for emergency exit." .
             Auxiliary::exit_status_text($status));
-        Batch::emergency_exit($status);
+        emergency_exit($status);
     }
 }
 
@@ -1250,7 +1245,7 @@ sub make_file {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: File create and write operation failed. Will ask for emergency exit." .
             Auxiliary::exit_status_text($status));
-        Batch::emergency_exit($status);
+        emergency_exit($status);
     }
 }
 
@@ -1263,7 +1258,7 @@ sub append_string_to_file {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Write to file operation failed. Will ask for emergency exit." .
             Auxiliary::exit_status_text($status));
-        Batch::emergency_exit($status);
+        emergency_exit($status);
     }
 }
 
@@ -1272,14 +1267,14 @@ sub write_result {
     if (not defined $line) {
         Carp::cluck("INTERNAL ERROR: line is undef.");
         my $status = STATUS_INTERNAL_ERROR;
-        Batch::emergency_exit($status);
+        emergency_exit($status);
     }
     if (not defined $result_file) {
         Carp::cluck("INTERNAL ERROR: result_file is undef.");
         my $status = STATUS_INTERNAL_ERROR;
-        Batch::emergency_exit($status);
+        emergency_exit($status);
     }
-    Batch::append_string_to_file($result_file, $line);
+    append_string_to_file($result_file, $line);
 }
 
 sub get_string_after_pattern {
@@ -1294,12 +1289,12 @@ sub get_string_after_pattern {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Auxiliary::get_string_after_pattern failed. Will ask for emergency exit." .
             Auxiliary::exit_status_text($status));
-        Batch::emergency_exit($status);
+        emergency_exit($status);
     } elsif ('' eq $value) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Auxiliary::get_string_after_pattern returned ''. Will ask for emergency exit." .
             Auxiliary::exit_status_text($status));
-        Batch::emergency_exit($status);
+        emergency_exit($status);
     } else {
         return $value;
     }
@@ -1362,7 +1357,7 @@ sub process_finished_runs {
                 if      ($action eq REGISTER_GO_ON)    {
                     # All is ok. Just go on is required.
                 } elsif ($action eq REGISTER_STOP_ALL) {
-                    stop_workers();
+                    stop_workers(STOP_REASON_WORK_FLOW);
                     if (1 > $give_up) {
                         $give_up = 1;
                     }
@@ -1372,7 +1367,7 @@ sub process_finished_runs {
                         $give_up = 1;
                     }
                 } elsif ($action eq REGISTER_END)        {
-                    stop_workers();
+                    stop_workers(STOP_REASON_WORK_FLOW);
                     if (2 > $give_up) {
                         $give_up = 2;
                     }
@@ -1388,7 +1383,7 @@ sub process_finished_runs {
             if ($stop_on_replay and $verdict eq Verdict::RQG_VERDICT_REPLAY) {
                 say("INFO: OrderID $order_id achieved the verdict '$verdict' and stop_on_replay " .
                     "is set. Giving up.");
-                stop_workers();
+                stop_workers(STOP_REASON_WORK_FLOW);
                 if (2 > $give_up) {
                     $give_up = 2;
                 }
