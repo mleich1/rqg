@@ -207,10 +207,11 @@ sub run {
 
    $self->do_init();
 
-   my $gendata_result = $self->doGenData();
+   my $gendata_result;
+   $gendata_result = $self->doGenData();
    return $gendata_result if $gendata_result != STATUS_OK;
 
-   my $gendata_result = $self->doGenTest();
+   $gendata_result = $self->doGenTest();
    return $gendata_result;
 
 }
@@ -528,7 +529,7 @@ sub reportResults {
     say("INFO: The reporters to be run at test end delivered status $report_status.");
 
     if ($report_status > $total_status) {
-       ("DEBUG: Raising the total status from $total_status to $report_status.");
+       say("DEBUG: Raising the total status from $total_status to $report_status.");
        $total_status = $report_status;
     }
 
