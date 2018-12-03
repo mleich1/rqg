@@ -86,7 +86,7 @@ sub new {
       if (ref($validator) eq '') {
          $validator = "GenTest::Validator::" . $validator;
          if (not eval "use $validator") {
-             say("ERROR: " . $mixer->role() . "in Mixer : Loading Validator '$validator'" .
+             say("ERROR: " . $mixer->role() . " in Mixer : Loading Validator '$validator'" .
                  "failed : $@. Will return undef.");
              return undef;
          }
