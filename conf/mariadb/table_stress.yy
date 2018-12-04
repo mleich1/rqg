@@ -144,7 +144,7 @@ correct_rqg_sessions_table:
    UPDATE test . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 create_table:
-     CREATE TABLE IF NOT EXISTS t1 (col1 INT, col2 INT, col_int_properties $col_name $col_type , col_text_properties $col_name $col_type, col_int_g_properties $col_name $col_type) ENGINE = InnoDB;
+     CREATE TABLE IF NOT EXISTS t1 (col1 INT, col2 INT, col_int_properties $col_name $col_type , col_varchar_properties $col_name $col_type, col_text_properties $col_name $col_type, col_int_g_properties $col_name $col_type) ENGINE = InnoDB;
    # CREATE TABLE IF NOT EXISTS t1 (col1 INT, col2 INT, col_int_properties $col_name $col_type , col_text_properties $col_name $col_type) ENGINE = InnoDB;
 
 # preload_properties?
@@ -225,6 +225,7 @@ ddl:
    # but KILL ... etc. is like most DDL some rather heavy impact DDL.
    ALTER TABLE t1 enable_disable KEYS                                           |
    rename_column                                      ddl_algorithm_lock_option |
+   block_stage                                                                  |
    kill_query_or_session_or_release                                             ;
 
 enable_disable:
@@ -285,20 +286,23 @@ column_name_list_for_key:
    random_column_properties $col_idx                                     |
    random_column_properties $col_idx , random_column_properties $col_idx ;
 
-# The hope is that the 'ã' makes some stress.
 uidx_name:
-   { $name = '`Marvão_uidx1`';  return undef } name_convert |
-   { $name = '`Marvão_uidx2`';  return undef } name_convert |
-   { $name = '`Marvão_uidx3`';  return undef } name_convert ;
+   idx_name_prefix { $name = "`$idx_name_prefix" . "uidx1`";  return undef } name_convert |
+   idx_name_prefix { $name = "`$idx_name_prefix" . "uidx2`";  return undef } name_convert |
+   idx_name_prefix { $name = "`$idx_name_prefix" . "uidx3`";  return undef } name_convert ;
 idx_name:
-   { $name = '`Marvão_idx1`';   return undef } name_convert |
-   { $name = '`Marvão_idx2`';   return undef } name_convert |
-   { $name = '`Marvão_idx3`';   return undef } name_convert ;
+   idx_name_prefix { $name = "`$idx_name_prefix" . "idx1`";   return undef } name_convert |
+   idx_name_prefix { $name = "`$idx_name_prefix" . "idx2`";   return undef } name_convert |
+   idx_name_prefix { $name = "`$idx_name_prefix" . "idx3`";   return undef } name_convert ;
 ftidx_name:
-   { $name = '`Marvão_ftidx1`'; return undef } name_convert |
-   { $name = '`Marvão_ftidx2`'; return undef } name_convert |
-   { $name = '`Marvão_ftidx3`'; return undef } name_convert ;
+   idx_name_prefix { $name = "`$idx_name_prefix" . "ftidx1`"; return undef } name_convert |
+   idx_name_prefix { $name = "`$idx_name_prefix" . "ftidx2`"; return undef } name_convert |
+   idx_name_prefix { $name = "`$idx_name_prefix" . "ftidx3`"; return undef } name_convert ;
 
+# The hope is that the 'ã' makes some stress.
+idx_name_prefix:
+   { $idx_name_prefix = 'Marvão_' ; return undef } |
+   { $idx_name_prefix = ''        ; return undef } ;
 
 random_column_name:
 # The import differences to the rule 'random_column_properties' are
@@ -350,6 +354,109 @@ name_convert:
    $name                                                                                                   ;
 get_cdigit:
    {$cdigit = $prng->int(1,10); return undef} ;
+#----------------------------------------------------------
+# For https://jira.mariadb.org/browse/MDEV-16849 Extending indexed VARCHAR column should be instantaneous
+# 1. Since 10.2.2 we get a instantaneous change of the maximum length of a VARCHAR column when the length is
+#    increasing and not crossing the 255-byte boundary.
+#    When the VARCHAR column was indexed than the indexes would be dropped and added again.
+# 2. MDEV-16849 adds
+#    The drop+add of indexes gets avoided.
+# 3. If in ROW_FORMAT=REDUNDANT, we can also extend VARCHAR from any size to any size. The limitation
+#    regarding the 255-byte maximum length only applies to other ROW_FORMAT.
+# FIXME: Complete the implementation.
+resize_varchar:
+   col_varchar_properties ALTER TABLE t1 MODIFY COLUMN $col_name $col_type |
+                                                                           ;
+
+# MDEV-5336 Implement LOCK FOR BACKUP
+# ===================================
+#
+# New SQLs ordered by intended workflow for mariabackup
+# -----------------------------------------------------
+# BACKUP STAGE START (former stage 1)
+#   Start service to log changed tables.
+#   Block purge of redo files (needed at least for Aria, not needed for InnoDB).
+#   Make a checkpoint for all transactional tables (to speed up recovery of backup).
+#   Note that the checkpoint is not critical, just a minor optimization.
+#
+#   mariabackup can now copy all transactional tables and redo logs
+#   Next lock is taken after all copying is done.
+# BACKUP STAGE FLUSH (former stage 2)
+#   FLUSH all changes for not active non transactional tables, except for statistics and log tables.
+#   Close the tables, to ensure they are marked as closed after backup.
+#   BLOCK all new write row locks for all non transactional tables (except statistics/log tables).
+#   Mark all active non transactional tables (except statistics/log tables) to be flushed and closed
+#   at end of statement. When last instance of a table is flushed (and the table is marked as read
+#   only by all users, we should call handler->extra(EXTRA_MARK_CLOSED). This is needed to handle
+#   the case that somone opens a tables as read only while the table is still in use, in which case
+#   the table would never have been closed by everyone.
+#   The following DDL's doesn't have to be blocked as they can't set the table in a
+#   non consistent state: CREATE, RENAME, DROP
+#   CREATE ... SELECT, TRUNCATE and ALTER should be blocked for non transactional tables.
+#
+#   Next lock can be taken directly after this lock.
+#   While waiting for the next lock mariabackup can start copying all non transactional tables that
+#   are not in use. This list of used tables can be found in information schema.
+# BACKUP STAGE WAIT_FOR_FLUSH (former stage 3)
+#   Wait for all statements using write locked non-transactional tables to end. This should be
+#   done as we do with FTWRL, which aborts any current locks.
+#   This solves the deadlock that Sergei commented upon.
+#   While waiting it could report to the client non-transactional tables as soon as they become
+#   unused, so that the client could copy them while waiting for other tables.
+#   Block TRUNCATE TABLE, CREATE TABLE, DROP TABLE and RENAME TABLE.
+#   Block also start of a new ALTER TABLE and the final rename phase of ALTER TABLE.
+#   Running ALTER TABLES are not blocked.
+#   Inline ALTER TABLE'S should be blocked just before copying is completed.
+#   This will probably require a callback from the InnoDB code.
+#   Next lock can be taken directly after this lock.
+#   While waiting for the next lock mariabackup tool can start copying:
+#   The rest of the non-transactional tables (as found from information schema)
+#   All .frm, .trn and other system files,
+#   New tables created during stage 1-2. The file names can be read from the
+#   new changed tables service. This log also allow the backup to do renames
+#   of tables on which RENAME's where done instead of copying them.
+#   Copy changes to system log tables (this is easy as these are append only)
+#   If there is a lot of new tables to copy, one should be able to go back to BACKUP STAGE 2
+#   from STAGE to allow ddl's to proceed while copying and then retrying stage 3.
+# BACKUP STAGE LOCK_COMMIT
+#   Lock the binary log and commit/rollback to ensure that no changes are committed to any tables.
+#   If there are active data copied to the binary log this will be copied before the lock is
+#   granted. This doesn't lock temporary tables that are not used by replication.
+#   Lock system log tables and statistics tables and close them.
+#   When STAGE 4 returns, this is the 'backup time'.
+#   Everything commited will be in the backup and everything not committed will roll back.
+#   Transactional engines will continue to do changes to the redo log during stage 4, but this
+#   is not important as all of these will roll back later.
+#   mariabackup can now copy the last changes to the redo files for InnoDB and Aria, and the part
+#   of the binary log that was not copied before.
+#   End of system log tables and all statistics tables are also copied.
+# BACKUP STAGE END
+#   Call new handler call 'end_backup()' handler call, which will enable purge of redo files.
+#
+# Basic ideas:
+# - A sequence of the SQL's above in the right order.  Small sleep between the SQL's?
+# - One of the SQL's above diced. (== Wrong programmed backup tool). -- Use rare
+# - Two sequence runner. == Use rare --> Check first in MTR
+#
+########## MDEV-5336 Implement LOCK FOR BACKUP  ####################
+# More comments about that in table_stress.yy
+block_stage:
+   block_stage_sequence        |
+   block_stage_diced           ;
+
+block_stage_sequence:
+   BACKUP STAGE START ; small_sleep BACKUP STAGE FLUSH ; small_sleep BACKUP STAGE BLOCK_DDL ; small_sleep BACKUP STAGE BLOCK_COMMIT; small_sleep BACKUP STAGE END ;
+block_stage_diced:
+   BACKUP STAGE START           |
+   BACKUP STAGE FLUSH           |
+   BACKUP STAGE BLOCK_DDL       |
+   BACKUP STAGE BLOCK_COMMIT    |
+   BACKUP STAGE END             ;
+
+small_sleep:
+   { sleep 0.5 ; return undef } |
+   { sleep 1.5 ; return undef } |
+   { sleep 2.5 ; return undef } ;
 
 #######################
 # 1. Have the alternatives
@@ -391,17 +498,19 @@ col2_properties:
 col_varchar_properties:
    { $col_name= 'col_varchar'  ; $col_type= 'VARCHAR(500)'                                                            ; return undef }   col_varchar_idx ;
 col_varchar_g_properties:
-   { $col_name= 'col_varchar_g'; $col_type= 'VARCHAR(500) GENERATED ALWAYS AS (SUBSTR(col_varchar,1,499)) PERSISTENT' ; return undef }   col_varchar_idx |
-   { $col_name= 'col_varchar_g'; $col_type= 'VARCHAR(500) GENERATED ALWAYS AS (SUBSTR(col_varchar,1,499)) VIRTUAL'    ; return undef }   col_varchar_idx ;
+   gcol_prop { $col_name= 'col_varchar_g'; $col_type= "VARCHAR(500) GENERATED ALWAYS AS (SUBSTR(col_varchar,1,499)) $gcol_prop" ; return undef }   col_varchar_idx ;
 col_varchar_idx:
    { $col_idx= $col_name         ; return undef } |
    { $col_idx= $col_name . "(10)"; return undef } ;
 
+gcol_prop:
+   { $gcol_prop = 'PERSISTENT' ; return undef }   |
+   { $gcol_prop = 'VIRTUAL'    ; return undef }   ;
+
 col_text_properties:
    { $col_name= 'col_text'     ; $col_type= 'TEXT'                                                                    ; return undef }   col_text_idx ;
 col_text_g_properties:
-   { $col_name= 'col_text_g'   ; $col_type= 'TEXT         GENERATED ALWAYS AS (SUBSTR(col_text,1,499))    PERSISTENT' ; return undef }   col_text_idx |
-   { $col_name= 'col_text_g'   ; $col_type= 'TEXT         GENERATED ALWAYS AS (SUBSTR(col_text,1,499))    VIRTUAL'    ; return undef }   col_text_idx ;
+   gcol_prop { $col_name= 'col_text_g'   ; $col_type= "TEXT         GENERATED ALWAYS AS (SUBSTR(col_text,1,499))    $gcol_prop" ; return undef }   col_text_idx ;
 col_text_idx:
    { $col_idx= $col_name . "(10)"; return undef } ;
 
