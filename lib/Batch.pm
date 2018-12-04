@@ -97,6 +97,7 @@ our $verdict_collected     = 0;
 my $discard_logs;
 sub check_and_set_discard_logs {
     ($discard_logs) = @_;
+    say("INFO: discard_logs set to $discard_logs.");
 }
 my $dryrun;
 sub check_and_set_dryrun {
@@ -627,6 +628,7 @@ sub reap_workers {
                         rename_file($rqg_log, $saved_log);
                     } else {
                         $saved_log_rel = "<deleted>";
+                        $worker_array[$worker_num][WORKER_LOG] = $saved_log_rel;
                     }
                     $verdict_ignore++;
                     if ($verdict eq Verdict::RQG_VERDICT_IGNORE_STOPPED) {
@@ -1287,13 +1289,11 @@ sub get_string_after_pattern {
     my $value = Auxiliary::get_string_after_pattern($file, $string);
     if (not defined $value) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Auxiliary::get_string_after_pattern failed. Will ask for emergency exit." .
-            Auxiliary::exit_status_text($status));
+        Carp::cluck("ERROR: Auxiliary::get_string_after_pattern failed.");
         emergency_exit($status);
     } elsif ('' eq $value) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Auxiliary::get_string_after_pattern returned ''. Will ask for emergency exit." .
-            Auxiliary::exit_status_text($status));
+        Carp::cluck("ERROR: Auxiliary::get_string_after_pattern returned ''.");
         emergency_exit($status);
     } else {
         return $value;
