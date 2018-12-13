@@ -105,14 +105,16 @@ sub extractFromFiles {
         # For experimenting.
         # $grammar_file = '/otto';
         if (not open (GF, $grammar_file)) {
-            say("ERROR: Unable to open() grammar file '$grammar_file': $!.  Will return undef.");
+            Carp::cluck("ERROR: Unable to open grammar file '$grammar_file': $!. " .
+                        "Will return undef.");
             return undef;
         }
         say "Reading grammar from file $grammar_file";
         my $grammar_string;
         my $result = read (GF, $grammar_string, -s $grammar_file);
         if (not defined $result) {
-            say("ERROR: Unable to read() '$grammar_file': $!. Will return undef.");
+            Carp::cluck("ERROR: Unable to read grammar file '$grammar_file': $!. " .
+                        "Will return undef.");
             return undef;
         } else {
             # say("DEBUG: $result bytes from grammar file '$grammar_file' read.");
