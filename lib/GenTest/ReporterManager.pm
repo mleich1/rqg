@@ -74,17 +74,23 @@ sub report {
 }
 
 sub addReporter {
-   my ($manager, $reporter, $params) = @_;
+    my ($manager, $reporter, $params) = @_;
 
-   if (ref($reporter) eq '') {
-      my $reporter_name = $reporter;
-      my $module = "GenTest::Reporter::".$reporter;
-      eval "use $module" or print $@;
-      $reporter = $module->new(%$params, 'name' => $reporter_name);
-      if (not defined $reporter) {
-         sayError("Reporter '$module' could not be added. Status will be set to ENVIRONMENT_FAILURE");
-         return STATUS_ENVIRONMENT_FAILURE;
-      }
+    if (ref($reporter) eq '') {
+        my $reporter_name = $reporter;
+        my $module = "GenTest::Reporter::" . $reporter;
+        eval "use $module";
+        if ('' ne $@) {
+            say("ERROR: in ReporterManager : Loading Reporter '$module' failed : $@. Status will " .
+                "be set to ENVIRONMENT_FAILURE");
+            return STATUS_ENVIRONMENT_FAILURE;
+        }
+        $reporter = $module->new(%$params, 'name' => $reporter_name);
+        if (not defined $reporter) {
+            sayError("Reporter '$module' could not be added. Status will be set to " .
+                     "ENVIRONMENT_FAILURE");
+            return STATUS_ENVIRONMENT_FAILURE;
+        }
    }
 
    push @{$manager->[MANAGER_REPORTERS]}, $reporter;
