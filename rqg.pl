@@ -216,7 +216,9 @@ my $job_file;
 # This is the "default" database. Connects go into that database.
 my $database = 'test';
 # Connects which do not specify a different user use that user.
-my $user     = 'rqg';
+# (mleich) Try to escape the initialize the server trouble in 10.4
+# my $user     = 'rqg';
+my $user     = 'root';
 my @dsns;
 
 my (@basedirs, @mysqld_options, @vardirs, $rpl_mode,
@@ -1749,50 +1751,50 @@ $0 - Run a complete random query generation test, including server start with re
 
     General options
 
-    --grammar   : Grammar file to use when generating queries (REQUIRED);
-    --redefine  : Grammar file(s) to redefine and/or add rules to the given grammar
-                  Write: --redefine='A B'    or    --redefine='A' --redefine='B'
-    --rpl_mode  : Replication type to use (statement|row|mixed) (default: no replication).
-                  The mode can contain modifier 'nosync', e.g. row-nosync. It means that at the end the test
-                  will not wait for the slave to catch up with master and perform the consistency check
-    --use_gtid  : Use GTID mode for replication (current_pos|slave_pos|no). Adds the MASTER_USE_GTID clause to CHANGE MASTER,
-                  (default: empty, no additional clause in CHANGE MASTER command);
-    --galera    : Galera topology, presented as a string of 'm' or 's' (master or slave).
-                  The test flow will be executed on each "master". "Slaves" will only be updated through Galera replication
-    --engine    : Table engine to use when creating tables with gendata (default no ENGINE in CREATE TABLE);
-                  Different values can be provided to servers through --engine1 | --engine2 | --engine3
-    --threads   : Number of threads to spawn (default $default_threads);
-    --queries   : Number of queries to execute per thread (default $default_queries);
-    --duration  : Duration of the test in seconds (default $default_duration seconds);
-    --validator : The validators to use
-    --reporter  : The reporters to use
-    --transformer : The transformers to use (turns on --validator=transformer). Accepts comma separated list
-    --querytimeout: The timeout to use for the QueryTimeout reporter
-    --gendata   : Generate data option. Passed to gentest.pl / GenTest. Takes a data template (.zz file)
-                  as an optional argument. Without an argument, indicates the use of GendataSimple (default)
+    --grammar      : Grammar file to use when generating queries (REQUIRED);
+    --redefine     : Grammar file(s) to redefine and/or add rules to the given grammar
+                     Write: --redefine='A B'    or    --redefine='A' --redefine='B'
+    --rpl_mode     : Replication type to use (statement|row|mixed) (default: no replication).
+                     The mode can contain modifier 'nosync', e.g. row-nosync. It means that at the end the test
+                     will not wait for the slave to catch up with master and perform the consistency check
+    --use_gtid     : Use GTID mode for replication (current_pos|slave_pos|no). Adds the MASTER_USE_GTID clause to CHANGE MASTER,
+                     (default: empty, no additional clause in CHANGE MASTER command);
+    --galera       : Galera topology, presented as a string of 'm' or 's' (master or slave).
+                     The test flow will be executed on each "master". "Slaves" will only be updated through Galera replication
+    --engine       : Table engine to use when creating tables with gendata (default no ENGINE in CREATE TABLE);
+                     Different values can be provided to servers through --engine1 | --engine2 | --engine3
+    --threads      : Number of threads to spawn (default $default_threads);
+    --queries      : Number of queries to execute per thread (default $default_queries);
+    --duration     : Duration of the test in seconds (default $default_duration seconds);
+    --validators   : The validators to use
+    --reporters    : The reporters to use
+    --transformers : The transformers to use (turns on --validator=transformer). Accepts comma separated list
+    --querytimeout : The timeout to use for the QueryTimeout reporter
+    --gendata      : Generate data option. Passed to gentest.pl / GenTest. Takes a data template (.zz file)
+                     as an optional argument. Without an argument, indicates the use of GendataSimple (default)
     --gendata-advanced: Generate the data using GendataAdvanced instead of default GendataSimple
-    --gendata_sql : Generate data option. Passed to gentest.pl / GenTest. Takes files with SQL as argument.
-                    These files get processed after running Gendata, GendataSimple or GendataAdvanced.
-    --logfile   : Generates rqg output log at the path specified.(Requires the module Log4Perl)
-    --seed      : PRNG seed. Passed to gentest.pl
-    --mask      : Grammar mask. Passed to gentest.pl
-    --mask-level: Grammar mask level. Passed to gentest.pl
-    --notnull   : Generate all fields with NOT NULL
-    --rows      : No of rows. Passed to gentest.pl
-    --sqltrace  : Print all generated SQL statements.
-                  Optional: Specify --sqltrace=MarkErrors to mark invalid statements.
+    --gendata_sql  : Generate data option. Passed to gentest.pl / GenTest. Takes files with SQL as argument.
+                     These files get processed after running Gendata, GendataSimple or GendataAdvanced.
+    --logfile      : Generates rqg output log at the path specified.(Requires the module Log4Perl)
+    --seed         : PRNG seed. Passed to gentest.pl
+    --mask         : Grammar mask. Passed to gentest.pl
+    --mask-level   : Grammar mask level. Passed to gentest.pl
+    --notnull      : Generate all fields with NOT NULL
+    --rows         : No of rows. Passed to gentest.pl
+    --sqltrace     : Print all generated SQL statements.
+                     Optional: Specify --sqltrace=MarkErrors to mark invalid statements.
     --varchar-length: length of strings. passed to gentest.pl
-    --xml-outputs: Passed to gentest.pl
-    --vcols     : Types of virtual columns (only used if data is generated by GendataSimple or GendataAdvanced)
-    --views     : Generate views. Optionally specify view type (algorithm) as option value. Passed to gentest.pl.
-                  Different values can be provided to servers through --views1 | --views2 | --views3
-    --valgrind  : Passed to gentest.pl
-    --filter    : Passed to gentest.pl
+    --xml-outputs  : Passed to gentest.pl
+    --vcols        : Types of virtual columns (only used if data is generated by GendataSimple or GendataAdvanced)
+    --views        : Generate views. Optionally specify view type (algorithm) as option value. Passed to gentest.pl.
+                     Different values can be provided to servers through --views1 | --views2 | --views3
+    --valgrind     : Passed to gentest.pl
+    --filter       : Passed to gentest.pl
     --mtr-build-thread:  Value used for MTR_BUILD_THREAD when servers are started and accessed
-    --debug     : Debug mode
+    --debug        : Debug mode
     --short_column_names: use short column names in gendata (c<number>)
     --strict_fields: Disable all AI applied to columns defined in \$fields in the gendata file. Allows for very specific column definitions
-    --freeze_time: Freeze time for each query so that CURRENT_TIMESTAMP gives the same result for all transformers/validators
+    --freeze_time  : Freeze time for each query so that CURRENT_TIMESTAMP gives the same result for all transformers/validators
     --annotate-rules: Add to the resulting query a comment with the rule name before expanding each rule.
                       Useful for debugging query generation, otherwise makes the query look ugly and barely readable.
     --wait-for-debugger: Pause and wait for keypress after server startup to allow attaching a debugger to the server process.
