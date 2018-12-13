@@ -85,8 +85,12 @@ sub new {
       my $validator = $v[$i];
       if (ref($validator) eq '') {
          $validator = "GenTest::Validator::" . $validator;
-         if (not eval "use $validator") {
-             say("ERROR: " . $mixer->role() . " in Mixer : Loading Validator '$validator'" .
+         # http://perldoc.perl.org/functions/eval.html
+         # If there is a syntax error or runtime error, or a die statement is executed, eval
+         # returns undef in scalar context, or ... , and $@ is set to the error message. ...
+         # If there was no error, $@ is set to the empty string.
+         if (not defined (eval "use $validator")) {
+             say("ERROR: " . $mixer->role() . " in Mixer : Loading Validator '$validator' " .
                  "failed : $@. Will return undef.");
              return undef;
          }
@@ -109,7 +113,7 @@ sub new {
       foreach my $prerequisite (@$prerequisites) {
          next if exists $validators{$prerequisite};
          $prerequisite = "GenTest::Validator::" . $prerequisite;
-         if (not eval "use $prerequisite") {
+         if (not defined (eval "use $prerequisite")) {
             say("ERROR: " . $mixer->role() . "in Mixer : Loading the prerequisite '$prerequisite'" .
                 " for the validator '$validator' failed : $@. Will return undef.");
             return undef;

@@ -895,7 +895,7 @@ sub initReporters {
     # remove the "None" reporter and don't add any reporters automatically
     my $no_reporters= 0;
     foreach my $i (0..$#{$self->config->reporters}) {
-        if ($self->config->reporters->[$i] eq "None"
+        if (lc($self->config->reporters->[$i]) eq lc("None")
             or $self->config->reporters->[$i] eq '')
         {
             delete $self->config->reporters->[$i];
@@ -980,7 +980,7 @@ sub initValidators {
     # remove the "None" validators and don't add any reporters automatically
     my $no_validators= 0;
     foreach my $i (0..$#{$self->config->validators}) {
-        if ($self->config->validators->[$i] eq "None"
+        if ((lc($self->config->validators->[$i])) eq lc("None")
             or $self->config->validators->[$i] eq '') {
             delete $self->config->validators->[$i];
             $no_validators= 1;
@@ -1003,7 +1003,8 @@ sub initValidators {
             if (defined $self->config->valgrind) && $self->isMySQLCompatible();
 
         push @{$self->config->validators}, 'QueryProperties'
-            if defined $self->grammar() && $self->grammar()->hasProperties() && $self->isMySQLCompatible();
+            if defined $self->grammar() && $self->grammar()->hasProperties() &&
+               $self->isMySQLCompatible();
 
         ## Add the transformer validator if --transformers is specified
         ## and transformer validator not allready specified.
@@ -1021,9 +1022,14 @@ sub initValidators {
         }
     }
 
-    say("Validators: ".(defined $self->config->validators and $#{$self->config->validators} > -1 ? join(', ', @{$self->config->validators}) : "(none)"));
+    # say("INFO: Validators: " . (defined $self->config->validators and $#{$self->config->validators} > -1 ? join(', ', @{$self->config->validators}) : "(none)"));
+    if (defined $self->config->validators and scalar @{$self->config->validators}) {
+        say("Validators: " . join(', ', @{$self->config->validators});
+    } else {
+        say("Validators: (none)");
+    }
 
-    say("Transformers: ".join(', ', @{$self->config->transformers}))
+    say("Transformers: " . join(', ', @{$self->config->transformers}))
         if defined $self->config->transformers and $#{$self->config->transformers} > -1;
 
     return STATUS_OK;
