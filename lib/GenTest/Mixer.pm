@@ -77,11 +77,9 @@ sub new {
 
    my @v = @{$mixer->validators()};
    foreach my $i (0..$#v) {
-      if ($v[$i] =~ /^none$/i) {
-          say("Validator none detected");
-          next;
-      }
-      next if $v[$i] =~ /^none$/i;
+      # Mixer->new gets only called by lib/GenTest/App/GenTest.pm. And that has already filtered
+      # (case insensitive) 'None' away. Therefore doing it here again is not required.
+      # next if $v[$i] =~ /^none$/i;
       my $validator = $v[$i];
       if (ref($validator) eq '') {
          $validator = "GenTest::Validator::" . $validator;
@@ -89,16 +87,18 @@ sub new {
          # If there is a syntax error or runtime error, or a die statement is executed, eval
          # returns undef in scalar context, or ... , and $@ is set to the error message. ...
          # If there was no error, $@ is set to the empty string.
-         if (not defined (eval "use $validator")) {
+         eval "use $validator";
+         if ('' ne $@) {
              say("ERROR: " . $mixer->role() . " in Mixer : Loading Validator '$validator' " .
                  "failed : $@. Will return undef.");
              return undef;
          }
          say("INFO: " . $mixer->role() . " in Mixer : Validator '$validator' loaded.");
 
-         push @validators, $validator->new();
+         my $validator_new = $validator->new();
+         $validator_new->configure($mixer->properties);
+         push @validators, $validator_new;
 
-         $validators[$i]->configure($mixer->properties);
       }
       $validators{ref($validators[$#validators])}++;
    }
@@ -113,7 +113,8 @@ sub new {
       foreach my $prerequisite (@$prerequisites) {
          next if exists $validators{$prerequisite};
          $prerequisite = "GenTest::Validator::" . $prerequisite;
-         if (not defined (eval "use $prerequisite")) {
+         eval "use $prerequisite";
+         if ('' ne $@) {
             say("ERROR: " . $mixer->role() . "in Mixer : Loading the prerequisite '$prerequisite'" .
                 " for the validator '$validator' failed : $@. Will return undef.");
             return undef;
@@ -170,8 +171,7 @@ sub next {
           "ERROR:                        Will return STATUS_ENVIRONMENT_FAILURE");
       return STATUS_ENVIRONMENT_FAILURE;
    } elsif ($queries->[0] eq '') {
-#     Disabled because tests are sometimes forced to generate empty queries
-#     from good reason.
+#     Disabled because tests are sometimes forced to generate empty queries from good reason.
 #     say("Mixer: Your grammar generated an empty query.");
 #     return STATUS_ENVIRONMENT_FAILURE;
    }
