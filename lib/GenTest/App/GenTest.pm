@@ -83,7 +83,7 @@ sub new {
    my $class = shift;
 
    my $self = $class->SUPER::new({
-        'config' => GT_CONFIG},@_);
+        'config' => GT_CONFIG}, @_);
 
    if ($self->config->reporters and not ref $self->config->reporters eq 'ARRAY') {
       $self->config->reporters([ split /,/, $self->config->reporters ]);
@@ -196,9 +196,9 @@ sub do_init {
       say("-------------------------------\nConfiguration");
       $self->config->printProps;
       $initialized = 1;
-      say("DEBUG: GenTest::App::GenTest::do_init : Have initialized.");
+        # say("DEBUG: GenTest::App::GenTest::do_init : Have initialized.");
    } else {
-      say("DEBUG: GenTest::App::GenTest::do_init : Additional initialization omitted.");
+        # say("DEBUG: GenTest::App::GenTest::do_init : Additional initialization omitted.");
    }
 }
 
@@ -229,9 +229,9 @@ sub doGenTest {
    # 1. The reporting process has connected and finished a first round.
    #    All workers have connected + got their Mixer.
    #    Except: The setup or server is "ill" and than STATUS_ENVIRONMENT_FAILURE would be right.
-   # 2. Hereby we hopefully mostly avoid the often seen wrong status code STATUS_ENVIRONMENT_FAILURE
-   #    Some threads connect, get their mixer, start to run DDL/DML and crash hereby the server.
-   #    They all report STATUS_SERVER_CRASHED which is right.
+    # 2. Hereby we hopefully mostly avoid the often seen wrong status code
+    #    STATUS_ENVIRONMENT_FAILURE. Some threads connect, get their mixer, start to run DDL/DML
+    #    and crash hereby the server. They all report STATUS_SERVER_CRASHED which is right.
    #    The reporting process or some other threads are slower (box is heavy loaded), try to
    #    connect first time after the crash, get no connection and report than
    #    STATUS_ENVIRONMENT_FAILURE because its their first connect attempt.
@@ -251,12 +251,13 @@ sub doGenTest {
    # Some crash here ends in
    # ... Reporters: Deadlock, Backtrace, ErrorLog
    # DBI connect ... failed: Lost connection ... at lib/GenTest/Reporter.pm ...
-   # [ERROR] Reporter 'GenTest::Reporter::Deadlock' could not be added. Status will be set to ENVIRONMENT_FAILURE
+    # [ERROR] Reporter 'GenTest::Reporter::Deadlock' could not be added.
+    #         Status will be set to ENVIRONMENT_FAILURE
    # GenTest exited with exit status STATUS_ENVIRONMENT_FAILURE (110)
    # Stopping server(s)...
    # Stopping server on port 11100
    # Stale connection to 11100. Reconnecting
-   # [ERROR] (Re)connect to 11100 failed due to 2003: Can't connect to MySQL server on '127.0.0.1' (111)
+    # [ERROR] (Re)connect to 11100 failed due to 2003: Can't connect to MySQL server on ...
    # Server has been stopped
    # runall-new.pl will exit with exit status STATUS_ENVIRONMENT_FAILURE(110)
 
@@ -269,12 +270,13 @@ sub doGenTest {
    # Some crash here ends in
    # ERROR: connect() to dsn dbi:... failed: Lost connection ...
    # ERROR: Will return STATUS_ENVIRONMENT_FAILURE
-   # ERROR: GenTest::Executor::MySQL::init : Getting a connection for MetaDataCacher failed with 110. Will return that status.
+    # ERROR: GenTest::Executor::MySQL::init : Getting a connection for MetaDataCacher failed
+    #        with 110. Will return that status.
    # GenTest exited with exit status STATUS_ENVIRONMENT_FAILURE (110)
    # Stopping server(s)...
    # Stopping server on port 11100
    # Stale connection to 11100. Reconnecting
-   # ERROR] (Re)connect to 11100 failed due to 2003: Can't connect to MySQL server on '127.0.0.1' (111)
+    # ERROR] (Re)connect to 11100 failed due to 2003: Can't connect to MySQL server on ...
    # Server has been stopped
    # runall-new.pl will exit with exit status STATUS_ENVIRONMENT_FAILURE(110)
 
@@ -305,8 +307,8 @@ sub doGenTest {
       $metadata_executor->cacheMetaData() if defined $metadata_executor->dbh();
 
       # Some crash after here end with fine backtrace
-# For experimenting:
-# system ("killall -6 mysqld");
+        # For experimenting:
+        # system ("killall -6 mysqld");
 
       # Cache log file names needed for result reporting at end-of-test
 
@@ -325,7 +327,8 @@ sub doGenTest {
             "../log/mysqld1.err", # MTRv2 regular layout
             "../mysql.err"        # DBServer::MySQL layout
       ) {
-         my $possible_path = File::Spec->catfile($datadir_result->data()->[0]->[1], $errorlog_path);
+            my $possible_path = File::Spec->catfile($datadir_result->data()->[0]->[1],
+                                                    $errorlog_path);
          if (-e $possible_path) {
              $errorlog = $possible_path;
              last;
@@ -457,8 +460,8 @@ sub doGenTest {
       if ($? > -1 ) {
          my $reporter_status = $? > 0 ? $? >> 8 : 0;
          say("For pid $reporter_pid reporter status " . status2text($reporter_status));
-         # Some of the periodic reporters have capabilities to detect more precise than the threads
-         # running YY grammar what the state of the test is.
+            # Some of the periodic reporters have capabilities to detect more precise than the
+            # threads running YY grammar what the state of the test is.
          # But its too complicated and to distill here something valuable.
          # Q1: Which reporter reported what?
          # Q2: What are the reliable capabilities of reporter X?
@@ -509,7 +512,7 @@ sub reportResults {
         @report_results = $reporter_manager->report(REPORTER_TYPE_SERVER_KILLED | REPORTER_TYPE_ALWAYS | REPORTER_TYPE_END);
     } elsif ($total_status == STATUS_ENVIRONMENT_FAILURE or $total_status == STATUS_ALARM) {
         # FIXME:
-        # A server real crash could come so early that the first connect attempt of some RQG worker
+        # A real server crash could come so early that the first connect attempt of some RQG worker
         # (Thread<n>) or some reporter fails. And than we would harvest STATUS_ENVIRONMENT_FAILURE
         # which is unfortunate because that value is higher than the better STATUS_SERVER_CRASHED
         # some other routine might report. As long as I am not 100% sure that this weakness is fixed
@@ -936,7 +939,8 @@ sub initReporters {
         } else {
             foreach (@{$self->config->reporters}) {
                 if ($_ eq 'Upgrade') {
-                    say("WARNING: Upgrade reporter is requested, but --upgrade-test option is not set, the behavior is undefined");
+                    say("WARNING: Upgrade reporter is requested, but --upgrade-test option is " .
+                        "not set, the behavior is undefined");
                     last;
                 }
             }
@@ -1024,7 +1028,7 @@ sub initValidators {
 
     # say("INFO: Validators: " . (defined $self->config->validators and $#{$self->config->validators} > -1 ? join(', ', @{$self->config->validators}) : "(none)"));
     if (defined $self->config->validators and scalar @{$self->config->validators}) {
-        say("Validators: " . join(', ', @{$self->config->validators});
+        say("Validators: " . join(', ', @{$self->config->validators}));
     } else {
         say("Validators: (none)");
     }
@@ -1131,7 +1135,8 @@ sub reportXMLIncidents {
     $self->XMLTest()->end($total_status == STATUS_OK ? "pass" : "fail");
 
     if (defined $self->config->property('xml-output')) {
-        open (XML , '>'.$self->config->property('xml-output')) or carp("Unable to open ".$self->config->property('xml-output').": $!");
+        open (XML , '>'.$self->config->property('xml-output'))
+            or carp("Unable to open ".$self->config->property('xml-output').": $!");
         print XML $self->XMLReport()->xml();
         close XML;
         say("XML report written to ". $self->config->property('xml-output'));
