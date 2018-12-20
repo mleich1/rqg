@@ -91,14 +91,14 @@ my $sys_available;
 
 BEGIN {
     # Ubuntu: libfilesys-df-perl
-    if (not (eval "require Filesys::Df")) {
+    if (not defined (eval "require Filesys::Df")) {
         say("WARNING: Couldn't load Module Filesys::Df $@");
         $df_available = 0;
     } else {
         $df_available = 1;
     }
     # Ubuntu: libsys-statistics-linux-perl
-    if (not (eval "require Sys::Statistics::Linux")) {
+    if (not defined (eval "require Sys::Statistics::Linux")) {
         say("WARNING: Couldn't load Module Sys::Statistics::Linux $@");
         $sys_available = 0;
     } else {
@@ -397,7 +397,6 @@ sub report {
                    "$iso_ts  $val";
         Batch::append_string_to_file($book_keeping_file, $line);
     }
-    say("DEBUG: ResourceControl::report") if Auxiliary::script_debug("R4");
     return $load_status;
 }
 
