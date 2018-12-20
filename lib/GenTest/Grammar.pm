@@ -386,21 +386,23 @@ sub parseFromString {
             my $code_start;
 
             while (1) {
-                if ($component_parts[$pos] =~ m{\{}so) {
-                    $code_start = $pos if $nesting_level == 0;    # Code segment starts here
-                    my $bracket_count = ($component_parts[$pos] =~ tr/{//);
-                    $nesting_level = $nesting_level + $bracket_count;
-                }
+                if (defined $component_parts[$pos]) {
+                    if ($component_parts[$pos] =~ m{\{}so) {
+                        $code_start = $pos if $nesting_level == 0;    # Code segment starts here
+                        my $bracket_count = ($component_parts[$pos] =~ tr/{//);
+                        $nesting_level = $nesting_level + $bracket_count;
+                    }
 
-                if ($component_parts[$pos] =~ m{\}}so) {
-                    my $bracket_count = ($component_parts[$pos] =~ tr/}//);
-                    $nesting_level = $nesting_level - $bracket_count;
-                    if ($nesting_level == 0) {
-                        # Resemble the entire Perl code segment into a single string
-                        splice(@component_parts, $code_start, ($pos - $code_start + 1) ,
-                               join ('', @component_parts[$code_start..$pos]));
-                        $pos = $code_start + 1;
-                        $code_start = undef;
+                    if ($component_parts[$pos] =~ m{\}}so) {
+                        my $bracket_count = ($component_parts[$pos] =~ tr/}//);
+                        $nesting_level = $nesting_level - $bracket_count;
+                        if ($nesting_level == 0) {
+                            # Resemble the entire Perl code segment into a single string
+                            splice(@component_parts, $code_start, ($pos - $code_start + 1) ,
+                                   join ('', @component_parts[$code_start..$pos]));
+                            $pos = $code_start + 1;
+                            $code_start = undef;
+                        }
                     }
                 }
                 $pos++;
