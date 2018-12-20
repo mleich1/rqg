@@ -234,16 +234,19 @@ my (@basedirs, @mysqld_options, @vardirs, $rpl_mode,
     $restart_timeout, $gendata_advanced, $scenario, $upgrade_test, $store_binaries,
     $ps_protocol, @gendata_sql_files, $config_file,
     @whitelist_statuses, @whitelist_patterns, @blacklist_statuses, @blacklist_patterns,
-    $archiver_call, $noarchiving, $workdir,
+    $archiver_call, $noarchiving, $workdir, $queries,
     $options);
 
 my $gendata   = ''; ## default simple gendata
 my $genconfig = ''; # if template is not set, the server will be run with --no-defaults
 
 # Place rather into the preset/default section for all variables.
-my $threads  = my $default_threads  = 10;
-my $queries  = my $default_queries  = 100000000;
-my $duration = my $default_duration = 3600;
+my $threads;
+my $default_threads  = 10;
+# my $queries;
+my $default_queries  = 100000000;
+my $duration;
+my $default_duration = 3600;
 
 my @ARGV_saved = @ARGV;
 
@@ -263,6 +266,7 @@ my @ARGV_saved = @ARGV;
 #
 
 say("DEBUG: Before reading commannd line options") if $script_debug ;
+say("\@ARGV_saved : " . join(' ',@ARGV_saved));
 
 # Take the options assigned in command line and
 # - fill them into the of variables allowed in command line
@@ -300,7 +304,7 @@ if (not GetOptions(
     'skip-recursive-rules'        => \$skip_recursive_rules,
     'redefine=s@'                 => \@redefine_files,
     'threads=i'                   => \$threads,
-    'queries=s'                   => \$queries,
+    'queries=i'                   => \$queries,
     'duration=i'                  => \$duration,
     'help'                        => \$help,
     'debug'                       => \$debug,
@@ -377,6 +381,17 @@ if (not GetOptions(
     help();
     exit STATUS_CONFIG_ERROR;
 };
+say("\@ARGV after : " . join(' ',@ARGV));
+
+if (not defined $queries) {
+    $queries = $default_queries;
+}
+if (not defined $threads) {
+    $threads = $default_threads;
+}
+if (not defined $duration) {
+    $duration = $default_duration;
+}
 
 say("DEBUG: After reading command line options");
 
@@ -496,15 +511,12 @@ if (defined $scenario) {
 # There is some heavy distinction between STDOUT and STDERR.
 # In my RQG testing I was rather unhappy with that.
 if (defined $logfile && defined $logger) {
-    say("MLML with logfile and logger");
     setLoggingToFile($logfile);
 } else {
     # FIXME: What is this branch good for and how does a logconf look like?
     if (defined $logconf && defined $logger) {
-        say("MLML with logconf and logger");
         setLogConf($logconf);
     } else {
-        say("MLML whatever");
         if (not defined $logfile) {
             $logfile = $workdir . '/rqg.log';
         }
@@ -609,7 +621,21 @@ if (defined $sqltrace) {
     # --sqltrace may have a string value (optional).
     # Allowed values for --sqltrace:
     my %sqltrace_legal_values = (
-        'MarkErrors'    => 1  # Prefixes invalid SQL statements for easier post-processing
+        # MarkErrors
+        # - trace gets written after execution
+        # - invalid SQL gets marked
+        'MarkErrors'    => 1,
+        # MTR
+        # Try to construct some MTR based test with some crowd of properties
+        # - one connection only (all time user=root)
+        # - write trace message after finished execution including info about error or not
+        # - transform every query (multi statement) spanning over several lines to one line only.
+        # - add a '--enable_reconnect' to !after! any (first) connect in order to handle loss
+        #   of the connection caused by
+        #   COMMIT/ROLLBACK ... RELEASE
+        #   KILL .... CONNECTION 
+        # - experiment with DELIMITER § set at begin and replacing with it any last ";" of a query.
+        'MTR'           => 1,
     );
 
     if (length($sqltrace) > 0) {
@@ -1442,8 +1468,8 @@ my $gentestProps = GenTest::Properties->new(
               'restart-timeout',
               'upgrade-test',
               'ps-protocol'
-]
-    );
+    ]
+);
 
 
 # FIXME: Replace with some general routine in Auxiliary

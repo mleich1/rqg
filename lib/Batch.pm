@@ -69,6 +69,19 @@ use constant RQG_GRAMMAR_C_TITLE => 'Grammar used';
 use constant RQG_GRAMMAR_P_TITLE => 'Parent      ';
 use constant RQG_GRAMMAR_LENGTH  => 12;             # Maximum is Title
 
+
+# get_job
+# - implemented in Combinator/Simplifier/...
+# - called by rqg_batch.pl
+# returns a record with the following structure
+use constant JOB_CL_SNIP    => 0;  # Call line snip
+use constant JOB_ORDER_ID   => 1;  # Orderid == index from order_array which gets
+                                   #             managed by Combinator/Simplifier/...
+use constant JOB_MEMO1      => 2;  # undef or Child  grammar or Child  rvt_snip
+use constant JOB_MEMO2      => 3;  # undef or Parent grammar or Parent rvt_snip
+use constant JOB_MEMO3      => 4;  # undef or Adapted duration
+
+
 # $give_up == Some general prospect for the future of the rqg_batch.pl run.
 # -------------------------------------------------------------------------
 our $give_up = 0;
@@ -207,6 +220,10 @@ use constant STOP_REASON_WORK_FLOW => 'work flow';
 #   The resource control reported LOAD_DECREASE.
 #       == Stopping a RQG worker is recommended.
 use constant STOP_REASON_RESOURCE  => 'resource';
+# - STOP_REASON_LIMIT
+#   The resource control reported LOAD_DECREASE.
+#       == Stopping a RQG worker is recommended.
+use constant STOP_REASON_LIMIT     => 'limit';
 # than WORKER_STOP_REASON will be set and some corresponding entry will be later written
 # into the log of the RQG worker. The main reason doing this is to have more information about
 # what happened at rqg_batch.pl runtime. And this is required for discovering defects in the
@@ -432,24 +449,56 @@ sub emergency_exit {
         say($reason);
     }
     # In case we ever do more in stop_workers and that could fail because of
-    # mistakes than $give_up == 3 might be used as signal to ignore the fails.
+    # mistakes than $give_up == 3 might be used as signal to
+    # - do not the risky things or
+    # - ignore the fails.
     $give_up = 3;
     stop_workers();
     safe_exit ($status);
 
 }
 
+my $no_start_before;
+my $too_many_workers;
 sub check_resources {
 # FIXME:
-# The routine should return a number which get than used for computing a delay.
+# The routine should return a number which gets than used for computing a delay.
 # And only after that delay has passed and if other parameters fit starting some additional
 # RQG worker should be allowed.
-    my $load_status = ResourceControl::report(count_active_workers());
+    my $active_workers = count_active_workers();
+    my $load_status    = ResourceControl::report($active_workers);
+    my $current_time   = Time::HiRes::time();
+    if (not defined $no_start_before) {
+        $no_start_before  = 0;
+    }
+    if (not defined $too_many_workers) {
+        $too_many_workers = $workers + 1;
+    }
     if      (ResourceControl::LOAD_INCREASE eq $load_status) {
-        return STATUS_OK;
+        my $current_time = Time::HiRes::time();
+        if ($no_start_before <= $current_time) {
+            if ($active_workers + 1 < $too_many_workers) {
+                $no_start_before = $current_time + 0.5;
+                return STATUS_OK;
+            } else {
+                return STATUS_FAILURE;
+            }
+        } else {
+            return STATUS_FAILURE;
+        }
     } elsif (ResourceControl::LOAD_KEEP eq $load_status) {
+        if ($no_start_before < $current_time + 5) {
+            $no_start_before = $current_time + 5;
+        }
         return STATUS_FAILURE;
     } elsif (ResourceControl::LOAD_DECREASE eq $load_status) {
+        if ($no_start_before < $current_time + 15) {
+            $no_start_before = $current_time + 15;
+        }
+        if ($active_workers < $too_many_workers) {
+            $too_many_workers = $active_workers;
+            say("DEBUG: too_many_workers reduced to $too_many_workers");
+        }
         # Stop the youngest RQG worker
         my $worker_start  = 0;
         my $worker_number = 0;
@@ -708,7 +757,8 @@ sub reap_workers {
                     if ($verdict eq Verdict::RQG_VERDICT_REPLAY) {
                         my $grammar_used   = $worker_array[$worker_num][WORKER_EXTRA1];
                         my $grammar_parent = $worker_array[$worker_num][WORKER_EXTRA2];
-                        my $response = Simplifier::report_replay($grammar_used,$grammar_parent);
+                        my $response = Simplifier::report_replay($grammar_used,$grammar_parent,
+                                                                 $order_id);
                         if ($response eq REGISTER_STOP_YOUNG) {
                             stop_worker_young;
                         }
@@ -744,7 +794,7 @@ sub check_runtime_exceeded {
         $give_up = 2;
         say("INFO: The maximum total runtime for rqg_batch.pl is exceeded. " .
             "Stopping all RQG Worker.");
-        stop_workers();
+        stop_workers(STOP_REASON_LIMIT);
     }
 }
 

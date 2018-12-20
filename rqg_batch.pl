@@ -220,7 +220,8 @@ $SIG{CHLD} = "IGNORE" if osWindows();
 my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar, $gendata,
     $seed, $testname, $xml_output, $report_xml_tt, $report_xml_tt_type, $max_runtime,
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
-    $workers, $servers, $noshuffle, $workdir, $discard_logs, $help, $runner,
+    $workers, $servers, $noshuffle, $workdir, $discard_logs,
+    $help, $help_simplifier, $help_combinator, $runner,
     $stop_on_replay, $script_debug, $runid, $threads, $type, $algorithm);
 
 # my @basedirs    = ('', '');
@@ -269,6 +270,7 @@ $discard_logs  = 0;
 # - abort in case of meeting some not supported options
 my $opt_result = {};
 sub help();
+sub help();
 
 # Read certain command line options
 # =================================
@@ -296,6 +298,8 @@ Getopt::Long::Configure('pass_through');
 if (not GetOptions(
 #   $opt_result,
            'help'                      => \$help,     # H
+           'help_simplifier'           => \$help_simplifier,     # H
+           'help_combinator'           => \$help_combinator,     # H
            ### type == Which type of campaign to run
            # pass_through: no
            'type=s'                    => \$type,        # Swallowed and handled by rqg_batch
@@ -362,9 +366,16 @@ Auxiliary::script_debug_init($script_debug);
 
 # Do not fiddle with other stuff when only help is requested.
 if (defined $help) {
-   help();
-   safe_exit(0);
+    help();
+    safe_exit(0);
+} elsif (defined $help_combinator) {
+    Combinator::help();
+    safe_exit(0);
+} elsif (defined $help_simplifier) {
+    Simplifier::help();
+    safe_exit(0);
 }
+
 
 # For testing
 # $type='omo';
@@ -532,13 +543,6 @@ while($Batch::give_up <= 1) {
 
     my $just_forked = 0;
 
-    # FIXME:
-    # Implement some load control mechanism.
-    # Basically:
-    # Have some value describing a mixup of current state and forecast.
-    # In case that value is
-    # - below 1 than search for a free RQG Worker + a job + fork.
-    # - determine a value describing the current state, add that
     my $free_worker = Batch::get_free_worker;
     if (defined $free_worker        # We have a free (inactive) RQG worker.
         and 0 == $Batch::give_up    # We do not need to bring the current phase of work to an end.
@@ -558,6 +562,11 @@ while($Batch::give_up <= 1) {
             # ...GRAMMAR_SIMP
             # ($order_id, $cl_snip, child grammar, parent_grammar, adapted_duration)
             @job = Simplifier::get_job($active_workers);
+            # use constant JOB_CL_SNIP    => 0;
+            # use constant JOB_ORDER_ID   => 1;
+            # use constant JOB_MEMO1      => 2;  # Child  grammar or Child rvt_snip
+            # use constant JOB_MEMO2      => 3;  # Parent grammar or Parent rvt_snip
+            # use constant JOB_MEMO3
         } else {
             # In case we ever land here than its before any worker was started.
             # So exiting should not make trouble later.
@@ -565,11 +574,10 @@ while($Batch::give_up <= 1) {
             safe_exit(4);
         }
 
-        my $order_id = $job[0];
+        my $order_id = $job[Batch::JOB_ORDER_ID];
         if (not defined $order_id) {
             # ...::get_job did not found an order
             # == @try_first_queue and @try_queue were empty and ...::generate_orders gave nothing.
-            # @try_first_queue empty , @try_queue empty too and extending impossible.
             # == All possible orders were generated.
             #    Some might be in execution and all other must be in @try_over_queue.
             say("DEBUG: No order got") if Auxiliary::script_debug("T6");
@@ -577,13 +585,14 @@ while($Batch::give_up <= 1) {
             # We have now a free/non busy RQG runner and a job
             say("DEBUG: Preparing command for RQG worker [$free_worker] based on valid " .
                 "order $order_id.") if Auxiliary::script_debug("T6");
-            my $cl_snip = $job[1];
+            my $cl_snip = $job[Batch::JOB_CL_SNIP];
 
             say("DEBUG: cl_snip returned by Module is =>" . $cl_snip . "<=")
                 if Auxiliary::script_debug("T6");
             if (not defined $cl_snip) {
-                say("INTERNAL ERROR: $job[1] is undef. Abort.");
-                safe_exit(4);
+                Carp::cluck("INTERNAL ERROR: job[Batch::JOB_CL_SNIP] is undef. Abort.");
+                my $status = STATUS_INTERNAL_ERROR;
+                Batch::emergency_exit($status);
             }
 
             if (defined $runner and $runner ne '') {
@@ -593,7 +602,7 @@ while($Batch::give_up <= 1) {
                 $cl_snip = "rqg.pl $cl_snip";
             }
 
-            say("Job generated : $order_id § $cl_snip");
+            say("Job generated : $order_id § $cl_snip") if Auxiliary::script_debug("T5");
 
             # OPEN
             # ----
@@ -604,22 +613,12 @@ while($Batch::give_up <= 1) {
 
             my $command = $cl_snip;
 
-            say("JOB : " . join(" § ", @job));
-
             $Batch::worker_array[$free_worker][Batch::WORKER_ORDER_ID] = $order_id;
-            my $grammar_to_use                           = $job[2];
-            $Batch::worker_array[$free_worker][Batch::WORKER_EXTRA1]   = $grammar_to_use;
-            if (defined $grammar_to_use) {
-                $command .= " --grammar=" . $workdir . "/" . $grammar_to_use;
-            }
-            $Batch::worker_array[$free_worker][Batch::WORKER_EXTRA2]   = $job[3];
-            my $duration_to_use                          = $job[4];
-            $Batch::worker_array[$free_worker][Batch::WORKER_EXTRA3]   = $duration_to_use;
-            if (defined $duration_to_use) {
-                $command .= " --duration=$duration_to_use";
-            }
+            $Batch::worker_array[$free_worker][Batch::WORKER_EXTRA1]   = $job[Batch::JOB_MEMO1];
+            $Batch::worker_array[$free_worker][Batch::WORKER_EXTRA2]   = $job[Batch::JOB_MEMO2];
+            $Batch::worker_array[$free_worker][Batch::WORKER_EXTRA3]   = $job[Batch::JOB_MEMO3];
 
-            say("COMMAND ->$command<-");
+            say("COMMAND ->$command<-") if Auxiliary::script_debug("T5");
 
             # Add options which need to be RQG runner specific in order to prevent collisions with
             # other active RQG runners started by rqg_batch.pl too.
@@ -651,15 +650,13 @@ while($Batch::give_up <= 1) {
             my $rqg_log = $rqg_workdir . "/rqg.log";
             my $rqg_job = $rqg_workdir . "/rqg.job";
 
-            $job[0] = "OrderID: "  . $job[0];
-            $job[1] = "ClSnip: "   . $job[1];
-            if (not defined $job[1]) {
-                say("INTERNAL ERROR: The call line snip to be placed in \$job[1] is undef. Abort");
-                my $status = STATUS_INTERNAL_ERROR;
-                Batch::emergency_exit(4);
-            }
-
-            my $content = join("\n", @job) . "\n";
+            # defined $value ? $value : "NULL";
+            my $content =
+                "OrderID: "  . $job[Batch::JOB_ORDER_ID] . "\n" .
+                "Memo1:   "  . (defined $job[Batch::JOB_MEMO1] ? $job[Batch::JOB_MEMO1] : '<undef>') . "\n" .
+                "Memo2:   "  . (defined $job[Batch::JOB_MEMO2] ? $job[Batch::JOB_MEMO2] : '<undef>') . "\n" .
+                "Memo3:   "  . (defined $job[Batch::JOB_MEMO3] ? $job[Batch::JOB_MEMO3] : '<undef>') . "\n" .
+                "Cl_Snip: "  . $job[Batch::JOB_CL_SNIP]  . "\n" ;
             Batch::append_string_to_file($rqg_job, $content);
 
             #  if ($logToStd) {
@@ -753,9 +750,10 @@ while($Batch::give_up <= 1) {
                             "That implies that the infrastructure is somehow wrong.\n" .
                             Auxiliary::exit_status_text($status));
                         safe_exit($status);
-                    } else {
-                        safe_exit(STATUS_OK);
                     }
+                    Batch::append_string_to_file($rqg_log,
+                                                 "SUMMARY: RQG GenTest runtime in s : 60");
+                    safe_exit(STATUS_OK);
                 } else {
                     # say("DEBUG =>" . $command . "<=");
                     if (not exec($command)) {
@@ -767,7 +765,6 @@ while($Batch::give_up <= 1) {
 
             } else {
                 ########## Parent ##############################
-                # MLMLMLMLML
                 my $workerspec = "Worker[$free_worker] with pid $pid for trial $trial_num";
                 # FIXME: Set the complete worker_array_entry here
                 $Batch::worker_array[$free_worker][Batch::WORKER_PID] = $pid;
@@ -882,9 +879,11 @@ while($Batch::give_up <= 1) {
     last if $Batch::give_up > 1;
 
     next if defined $dryrun;
-    # FIXME: Refine
-    # sleep 0.3;
-    sleep 3;
+
+    # ResourceControl should take care that reasonable big delays between starts are made.
+    # The 0.3 serves for preventing a too busy rqg_batch.
+      sleep 0.3;
+    # sleep 3;
 
 } # End of while($Batch::give_up <= 1) loop with search for a free RQG runner and a job + starting it.
 
@@ -1111,68 +1110,6 @@ sub help() {
 #  }
 
 }
-
-##### FIXME: Put all order management routines into a separate perl module order_management.pm
-# Its mostly in lib/Batch.pm
-# my $out_of_ideas = 0;
-# sub get_job {
-#
-#     # ....
-#     # Check here or before if we should not give up.
-#     my $order_id;
-#     while (not defined $order_id and not $out_of_ideas) {
-#     #     while (not defined $order_id and $not out_of_ideas) {
-#         $order_id = shift @try_first_queue;
-#         if (defined $order_id) {
-#             say("DEBUG: Order $order_id picked from \@try_first_queue.") if $script_debug;
-#             last
-#         }
-#
-#         # In case we are here than @try_first_queue was empty.
-#         $order_id = shift @try_queue;
-#         if (defined $order_id) {
-#             say("DEBUG: Order $order_id picked from \@try_queue.") if $script_debug;
-#             last
-#         } else {
-#             if ( not generate_orders() ) {
-#                 $out_of_ideas = 1;
-#             }
-# Up till today nowher implemented stuff begin
-#
-#             if (conditions when to bring @try_later_queue again into the game fulfilled) {
-#                 push @try_queue, @try_later_queue;
-#                 @try_later_queue =();
-#                 next;
-#             } else {
-#                 if (not generate_orders()) {
-#                     # Generating additional orders (they get immediate appended to @try_queue)
-#                     # was not successful.
-#                     $out_of_ideas = 1;
-#                 } else {
-#                     $order_id = shift @try_queue;
-#                     last;
-#                 }
-#             }
-#         }
-#
-#         if (conditions when to bring @try_later_queue again into the game fulfilled) {
-#             push @try_queue, @try_later_queue;
-#             @try_later_queue =();
-#             next;
-#         }
-# Up till today nowhere implemented stuff end
-#         }
-#     }
-#     if (not defined $order_id and $out_of_ideas) {
-#         return undef;
-#     } else {
-#         if (order_is_valid($order_id)) {
-#             return $order_id;
-#         } else {
-#             $order_id = undef;
-#         }
-#     }
-# }
 
 # Routines to be provided by the packages like Combinator.pl
 #
