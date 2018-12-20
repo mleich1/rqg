@@ -536,7 +536,7 @@ sub set_rqg_phase {
         say("ERROR: Auxiliary::set_rqg_phase from '$old_phase' to '$new_phase' failed.");
         return STATUS_FAILURE;
     } else {
-        say("PHASE: $new_phase");
+        # say("PHASE: $new_phase");
         return STATUS_OK;
     }
 } # End set_rqg_phase
@@ -1872,6 +1872,43 @@ sub unify_grammar {
     } else {
         return $grammar_file;
     }
+}
+
+sub unify_rvt_array {
+
+# Purpose:
+# Get a pointer to an array/list of reporters/validators/transformers.
+# - In case there is one element only and that consists of a comma separated list of sub elements
+#   than split this list at the comma and make the sub elements to elements.
+# - Eliminate duplicates.
+# - Replace the value '' by 'None'.
+# Return pointers to an array/list and to a hash with the final content.
+#
+
+    my ($rvt_array_ref) = @_;
+    if (@_ != 1) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: unify_rvt_array : 1 Parameter (rvt_array_ref) is required.");
+        safe_exit($status);
+    }
+    my @rvt_array;
+    my %rvt_hash;
+    if (defined $rvt_array_ref) {
+        @rvt_array = @$rvt_array_ref;
+        # In case of assignment style
+        #    --reporter=Backtrace,ErrorLog <never --reporter=... again>
+        # split at ',' into elements.
+        if (0 == $#rvt_array and $rvt_array[0] =~ m/,/) {
+            @rvt_array = split(/,/,$rvt_array[0]);
+        }
+    }
+    foreach my $element (@rvt_array) {
+        $element = "None" if $element eq '';
+        $rvt_hash{$element} = 1;
+    }
+    @rvt_array = sort keys %rvt_hash;
+
+    return \@rvt_array, \%rvt_hash;
 }
 
 # -----------------------------------------------------------------------------------
