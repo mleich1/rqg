@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
+# Copyright (c) 2018 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -195,7 +196,7 @@ my $simplifier = GenTest::Simplifier::Grammar->new(
 
             my $rqgcmd =
 
-                "perl runall.pl $rqgoptions $mysqlopt ".
+                "perl runall-new.pl $rqgoptions $mysqlopt ".
                 "--grammar=$current_grammar ".
                 "--vardir=$vardir ".
                 "--mtr-build-thread=".$mtrbt." ".

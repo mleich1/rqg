@@ -167,7 +167,7 @@ say("SIMPLIFY RQG GRAMMAR BASED ON DESIRED CONTENT OF THE RQG LOG");
 say("------------------------------------------------------------");
 $config->printProps;
 my $bw_option_string = my $cc_snip  = Verdict::black_white_lists_to_config_snip('cc');
-# say("DEBUG: $cc_snip ->$$cc_snip<-");
+# say("DEBUG: cc_snip ->$cc_snip<-");
 say("---------------------------------------------------------------");
 
 my $symlink = "last_simp_workdir";

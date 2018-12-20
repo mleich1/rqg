@@ -898,9 +898,8 @@ sub initReporters {
     # remove the "None" reporter and don't add any reporters automatically
     my $no_reporters= 0;
     foreach my $i (0..$#{$self->config->reporters}) {
-        if (lc($self->config->reporters->[$i]) eq lc("None")
-            or $self->config->reporters->[$i] eq '')
-        {
+        my $reporter = $self->config->reporters->[$i];
+        if (lc($reporter) eq lc("None") or $reporter eq '') {
             delete $self->config->reporters->[$i];
             $no_reporters= 1;
         }
@@ -919,7 +918,7 @@ sub initReporters {
                 ($rpl_mode eq Auxiliary::RQG_RPL_MIXED_NOSYNC)     or
                 ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
                 ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         ) {
-               # We run MariaDB/MySQL replication.
+                # We run MariaDB/MySQL replication.
 
                 if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
                     ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)            or
