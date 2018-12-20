@@ -47,8 +47,7 @@ use GenTest::Grammar::Rule;
 
 1;
 
-my $script_debug = 1;
-
+my $script_debug = 0;
 
 # sub new {
 #     my $class = shift;
@@ -81,7 +80,8 @@ sub init {
 
     # FIXME: Check input values
 
-    say("INFO: The number of relevant threads is : $threads");
+    Carp::cluck("DEBUG: Grammar_advanced::init (grammar_file, $threads, $grammar_flags) entered")
+       if $script_debug;
 
     my $status = load_grammar($grammar_file);
     if (STATUS_OK != $status) {
@@ -93,7 +93,7 @@ sub init {
     fill_rule_hash();
     # print_rule_hash();
     analyze_all_rules();
-    print_rule_hash();
+    print_rule_hash() if $script_debug;
     compact_grammar();
     if (not defined $grammar_obj) {
         Carp::confess("grammar_obj is not defined");
@@ -118,7 +118,8 @@ sub reload_grammar {
 
     # FIXME: Check input values
 
-    say("INFO: The number of relevant threads is : $threads");
+    Carp::cluck("DEBUG: Grammar_advanced::reload_grammar (grammar_file, $threads, $grammar_flags) " .
+                "entered") if $script_debug;
 
     my $status = load_grammar($grammar_file);
     if (STATUS_OK != $status) {
@@ -127,7 +128,7 @@ sub reload_grammar {
     reset_rule_hash_values(); # This sets all rule_hash and there especially RULE_JOBS_GENERATED
     # print_rule_hash();
     analyze_all_rules();
-    print_rule_hash();
+    print_rule_hash() if $script_debug;
     compact_grammar();
     if (not defined $grammar_obj) {
         Carp::confess("grammar_obj is not defined");
