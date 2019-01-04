@@ -634,7 +634,8 @@ if (defined $sqltrace) {
         #   of the connection caused by
         #   COMMIT/ROLLBACK ... RELEASE
         #   KILL .... CONNECTION 
-        # - experiment with DELIMITER § set at begin and replacing with it any last ";" of a query.
+        # - experiment with DELIMITER § set at begin of trace and replacing with it any
+        #   last ";" of a query.
         'MTR'           => 1,
     );
 
@@ -1742,7 +1743,7 @@ sub help {
 
     print <<EOF
 Copyright (c) 2010,2011 Oracle and/or its affiliates. All rights reserved. Use is subject to license terms.
-Copyright (c) 2018 MariaDB Corporation Ab.
+Copyright (c) 2018,2019 MariaDB Corporation Ab.
 
 $0 - Run a complete random query generation test, including server start with replication and master/slave verification
      Sorry, the description here is partially outdated.

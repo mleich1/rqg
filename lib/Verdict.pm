@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, MariaDB Corporation Ab.
+#  Copyright (c) 2018, 2019 MariaDB Corporation Ab.
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -709,7 +709,7 @@ sub get_rqg_verdict {
 }
 
 
-sub help_verdict {
+sub help {
 
 print <<EOF
 
@@ -721,8 +721,7 @@ In order to reach certain goals of RQG tools we need to have some mechanisms whi
 - inspect the results of some finished RQG run, give a verdict and inform the user.
 
 Verdicts:
-'ignore'   -- STATUS_OK got or blacklist parameter match
-'stopped'  -- Stopped because of certain reasons
+'ignore*'   -- STATUS_OK got or blacklist parameter match or stopped because of technical reason
 'init'     -- RQG run died prematurely
 'interest' -- No STATUS_OK got and no blacklist parameter match but also no whitelist
               parameter match
@@ -731,7 +730,7 @@ Verdicts:
 Some examples how RQG tools exploit that verdict (except disabled):
 RQG runner (rqg.pl):
    Verdict 'replay', 'interest' : Archive remainings of that RQG run.
-   Verdict 'ignore', 'stopped', 'init' : No archiving
+   Verdict 'ignore*', 'init' : No archiving
                       --> Nothing left over to check, save storage space
 RQG batch runner (rqg_batch.pl):
    Let rqg.pl do the job and archive or clean up according to verdict.
@@ -739,18 +738,6 @@ RQG batch runner (rqg_batch.pl):
    Report the best (order is 'replay', 'interest', ignore') verdict got to the caller.
    If "stop_on_replay" was assigned and one RQG run achieved the verdict 'replay'
    stop immediate all ongoing RQG runs managed, give a summary and exit.
-RQG grammar simplifier(new-simplify-grammar.pl)
-   current !intermediate! version:
-      Let rqg_batch.pl with "stop_on_replay" do the job.
-      Conclude based on the verdict given by rqg_batch.pl if some simplified version
-      of the base grammar replayed or not.
-      The archived RQG runs with 'interest' do not support the simplification process
-      direct but are some welcome sideeffect. Collect more bad effects which could be
-      replayed with the current hopefully not that big grammar.
-   planned final version (serious more powerful simplifier):
-      All functionality required for simplification will get moved to/implemented
-      in rqg_batch.pl or modules called by rqg_batch.pl.
-
 
 Any matching is performed against the content of the RQG protocol only.
 The exit statuses of whatever OS processes performing RQG runs get ignored.

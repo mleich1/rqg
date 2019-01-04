@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, MariaDB Corporation Ab.
+#  Copyright (c) 2018, 2019 MariaDB Corporation Ab.
 #  Use is subject to license terms.
 #
 #  This program is free software; you can redistribute it and/or modify
@@ -296,13 +296,13 @@ use constant BATCH_TYPE_VARIATOR      => 'Variator';
 use constant BATCH_TYPE_MASKING       => 'Masking';
 #
 # Run with grammar (--> 'G') simplifier (to be implement next)
-use constant BATCH_TYPE_G_SIMPLIFIER  => 'G_Simplifier';
+use constant BATCH_TYPE_RQG_SIMPLIFIER  => 'RQG_Simplifier';
 # Some more simplifier types are at least thinkable but its in the moment unclear if they would
 # fit to the general capabilities of rqg_batch.pl.
 #
 use constant BATCH_TYPE_ALLOWED_VALUE_LIST => [
-    # BATCH_TYPE_COMBINATOR, BATCH_TYPE_VARIATOR, BATCH_TYPE_MASKING, BATCH_TYPE_G_SIMPLIFIER];
-      BATCH_TYPE_COMBINATOR,                                          BATCH_TYPE_G_SIMPLIFIER];
+    # BATCH_TYPE_COMBINATOR, BATCH_TYPE_VARIATOR, BATCH_TYPE_MASKING, BATCH_TYPE_RQG_SIMPLIFIER];
+      BATCH_TYPE_COMBINATOR,                                          BATCH_TYPE_RQG_SIMPLIFIER];
 
 # my $workers;
 our $workers;
@@ -381,6 +381,8 @@ use constant WORKER_ORDER_LENGTH =>  8;
                   "id  -- pid    -- job_start  -- job_end    -- order_id -- " .
                   "extra1  -- extra2  -- extra3  -- verdict -- log\n";
     for my $worker_num (1..$workers) {
+        # Omit inactive workers.
+        next if -1 == $worker_array[$worker_num][WORKER_START];
         $message = $message . Auxiliary::lfill($worker_num, WORKER_ID_LENGTH) .
            " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_PID],   WORKER_PID_LENGTH)      .
            " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_START], WORKER_START_LENGTH)    .
@@ -752,7 +754,7 @@ sub reap_workers {
                 #    in use. The ~ 30 till 120 s depend on current load, are used for archiving
                 #    the remainings of the 'replayer'.
                 #
-                if ($batch_type eq BATCH_TYPE_G_SIMPLIFIER) {
+                if ($batch_type eq BATCH_TYPE_RQG_SIMPLIFIER) {
                     my $verdict = Verdict::get_rqg_verdict($rqg_workdir);
                     if ($verdict eq Verdict::RQG_VERDICT_REPLAY) {
                         my $grammar_used   = $worker_array[$worker_num][WORKER_EXTRA1];
@@ -1387,7 +1389,7 @@ sub process_finished_runs {
             );
             if      ($batch_type eq BATCH_TYPE_COMBINATOR) {
                 ($status,$action) = Combinator::register_result(@result_record);
-            } elsif ($batch_type eq BATCH_TYPE_G_SIMPLIFIER) {
+            } elsif ($batch_type eq BATCH_TYPE_RQG_SIMPLIFIER) {
                 ($status,$action) = Simplifier::register_result(@result_record);
             } else {
                 emergency_exit(STATUS_CRITICAL_FAILURE,

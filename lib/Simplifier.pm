@@ -1,4 +1,4 @@
-# Copyright (c) 2018, MariaDB Corporation Ab.
+# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -66,8 +66,14 @@ use constant PHASE_THREAD1_REPLAY   => 'thread1_replay';
 # Attempt to shrink the amount of reporters, validators, transformers.
 use constant PHASE_RVT_SIMP         => 'rvt_simp'; # Implementation later
 #
-# Attempt to shrink the actual best replaying grammar.
+# Attempt to shrink the actual best replaying grammar
+# - with avoiding to destroy rules because that could change the semantics of the test.
+#   == Never try to replace the last component of a rule by an empty string.
 use constant PHASE_GRAMMAR_SIMP     => 'grammar_simp';
+# - without avoiding to destroy rules.
+#   == Trying to replace the last component of a rule by an empty string is allowed.
+#   == This is the old simplification mechanism.
+use constant PHASE_GRAMMAR_DEST     => 'grammar_dest';     # Implementation later if ever
 #
 # Attempt to clone rules
 # - containing more than one alternative/component
@@ -78,7 +84,7 @@ use constant PHASE_GRAMMAR_CLONE    => 'grammar_clone';    # Implementation late
 #
 # Replace grammar language builtins like _digit and similar by rules doing the same.
 # In case this is not a no op than there must a PHASE_GRAMMAR_SIMP round follow.
-use constant PHASE_GRAMMAR_BUILTIN  => 'grammar_builtin';  # Implementation later
+use constant PHASE_GRAMMAR_BUILTIN  => 'grammar_builtin';  # Implementation later if ever
 #
 # Attempt to replay with the actual best replaying grammar.
 use constant PHASE_FINAL_REPLAY     => 'final_replay';
@@ -89,7 +95,7 @@ use constant PHASE_SIMP_END         => 'simp_end';
 # This is the list of values which the user is allowed to set.
 use constant PHASE_SIMP_ALLOWED_VALUE_LIST => [
       PHASE_FIRST_REPLAY, PHASE_THREAD1_REPLAY, PHASE_RVT_SIMP, PHASE_GRAMMAR_SIMP,
-      PHASE_GRAMMAR_CLONE, PHASE_GRAMMAR_BUILTIN, PHASE_FINAL_REPLAY,
+      PHASE_GRAMMAR_DEST, PHASE_GRAMMAR_CLONE, PHASE_GRAMMAR_BUILTIN, PHASE_FINAL_REPLAY,
    ];
 my @simp_chain_default = ( # PHASE_SIMP_BEGIN,
                            PHASE_FIRST_REPLAY,
@@ -222,7 +228,6 @@ use constant QUERIES_DEFAULT        => 1000000;
 # --------------------------------------
 my $seed;
 
-# my $no_mask;
 my $grammar_file;
 
 my $threads;
@@ -412,9 +417,12 @@ sub init {
         join(" ", @ARGV)) if Auxiliary::script_debug("S4");
 
     # Read the command line options which are left over after being processed by rqg_batch.
-    # Hint:
-    # 'variable=s' => \$variable   --variable= --var2     --> $variable is undef
-    # 'variable:s' => \$variable   --variable= --var2     --> $variable is defined and ''
+    # -------------------------------------------------------------------------------------
+    # Hints:
+    # 1. Code                       | Command line        |  Impact
+    #    'variable=s' => \$variable   --variable= --var2     --> $variable is undef
+    #    'variable:s' => \$variable   --variable= --var2     --> $variable is defined and ''
+    # 2. rqg_batch.pl does not process the config file content.
     my $options = {};
     Getopt::Long::Configure('pass_through');
     if (not GetOptions(
@@ -434,8 +442,8 @@ sub init {
         'queries=i'                 ,                           # Handled here
 #       'seed=s'                    => \$seed,                  # Handled(Ignored!) here
     #   'force'                     => \$force,                 # Swallowed and handled by rqg_batch
-#         'no-mask'                   => \$no_mask,               # Rather handle here
-        'grammar=s'                 ,                           # Handle here. Requirement caused by Simplifier
+#         'no-mask'                   => \$no_mask,             # Not supported!
+        'grammar=s'                 => \$grammar_file,          # Handle here. Requirement caused by Simplifier
     #   'gendata=s'                 => \$gendata,               # Rather handle here
     #   'testname=s'                => \$testname,              # Swallowed and handled by rqg_batch
     #   'xml-output=s'              => \$xml_output,            # Swallowed and handled by rqg_batch
@@ -464,8 +472,8 @@ sub init {
     #   'discard-logs'              => \$discard_logs,          # Swallowed and handled by rqg_batch
     #   'script_debug=s'            => \$script_debug,          # Swallowed and handled by rqg_batch
     #   'runid:i'                   => \$runid,                 # No use here
-        'simplify_chain:s'          => \$simplify_chain,
-        'algorithm:s'               => \$algorithm,             # For grammar simplifier only
+        'simplify_chain:s'          => \$simplify_chain,        # For grammar simplifier only.
+        'algorithm:s'               => \$algorithm,             # For grammar simplifier only.
                                                        )) {
         # Somehow wrong option.
         # help_simplifier();
@@ -474,7 +482,7 @@ sub init {
     };
     my $argv_remain = join(" ", @ARGV);
     if (defined $argv_remain and $argv_remain ne '') {
-        say("WARNING: The following command line content is left over ==> gets ignored. ->$argv_remain<-");
+        say("WARN: The following command line content is left over ==> gets ignored. ->$argv_remain<-");
     }
 
     # Read the options found in config_file.
@@ -482,7 +490,6 @@ sub init {
     # We work with the copy only!
     # config_file_copy
     #   'seed=s'                    => \$seed,                  # Handled here
-    #   'no-mask'                   => \$no_mask,               # Rather handle here
     $options->{'config'} = $config_file_copy;
     my $config = GenTest::Properties->new(
         options     => $options,
@@ -564,33 +571,77 @@ sub init {
     # $config->rqg_options->{grammar} (value taken from config file rqg_options section)
     # get_job returns some command line snip to the caller.
     # Around the end of that snip can be a ' --grammar=<dynamic decided grammar>'.
-    # The grammar here is only the initial grammar at begin of simplification process.
+    # The grammar here is only the initial grammar to be used at begin of simplification process.
 
     $config->printProps();
-
     my $rqg_options_begin = $config->genOpt('--', 'rqg_options');
-    $grammar_file = $config->grammar;
+
+    my $warn1 = "WARN: The grammar file finally used is the one found on highest level (" .
+                "command line, config file top level, config file rqg_option section).\n" .
+                "WARN: All assignments to redefine/mask/mask_level on any level will get ignored.";
+    my $warn2 = '';
     if (defined $grammar_file and $grammar_file ne '') {
-        say("DEBUG: Grammar '$grammar_file' was assigned via rqg_batch.pl call or " .
-            "within config file top level. \n" .
-            "DEBUG: Wiping all other occurrences of settings for grammar/redefine.")
-            if Auxiliary::script_debug("S2");
-        delete $config->rqg_options->{'grammar'};
-        delete $config->rqg_options->{'redefine'};
-    } else {
-        $grammar_file = $config->rqg_options->{'grammar'};
-        if (defined $grammar_file and $grammar_file ne '') {
-            say("DEBUG: Grammar '$grammar_file' was assigned in config file rqg_option section. " .
-                "Wiping all other occurrences of settings for grammar/redefine.")
-                if Auxiliary::script_debug("S2");
-            delete $config->rqg_options->{'grammar'};
-            delete $config->rqg_options->{'redefine'};
-        } else {
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: Grammar neither via command line nor via config file assigned. " .
-            Auxiliary::exit_status_text($status));
-            safe_exit($status);
+        my $info = "Grammar '$grammar_file' was assigned via rqg_batch.pl call.";
+
+        say("DEBUG: $info") if Auxiliary::script_debug("S2");
+        $warn1 .= "\nINFO: $info";
+
+        # Only $grammar (and not redefine, mask*) is allowed in config file top level.
+        my $other = $config->grammar;
+        if (defined $other) {
+            $warn2 .= "\nWARN: Removing the grammar assignment in config file top level.";
+            $config->unsetProperty('grammar');
         }
+        if (exists $config->rqg_options->{'grammar'}) {
+            $warn2 .= "\nWARN: Removing the grammar assignment inside of the RQG options section.";
+            delete $config->rqg_options->{'grammar'};
+        }
+    } else {
+        $grammar_file = $config->grammar;
+        if (defined $grammar_file and $grammar_file ne '') {
+            my $info = "Grammar '$grammar_file' was assigned in config file top level.";
+            say("DEBUG: $info") if Auxiliary::script_debug("S2");
+            $warn1 .= "\nINFO: $info";
+
+            if (exists $config->rqg_options->{'grammar'}) {
+                $warn2 .= "\nWARN: Removing the grammar assignment inside of the RQG options section.";
+                delete $config->rqg_options->{'grammar'};
+            }
+        } else {
+            $grammar_file = $config->rqg_options->{'grammar'};
+            if (defined $grammar_file and $grammar_file ne '') {
+                my $info = "Grammar '$grammar_file' was assigned in config file rqg_option section.";
+                say("DEBUG: $info") if Auxiliary::script_debug("S2");
+                $warn1 .= "\nINFO: $info";
+            } else {
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                say("ERROR: Grammar neither via command line nor via config file assigned. " .
+                Auxiliary::exit_status_text($status));
+                safe_exit($status);
+            }
+        }
+    }
+
+    # Any assignments of redefine, mask and mask_level (only possible in RQG options section
+    # of config file must get ignored.
+    if (exists $config->rqg_options->{'redefine'}) {
+        $warn2 .= "\nWARN: Removing the redefine assignment inside of the RQG options section.";
+        delete $config->rqg_options->{'redefine'};
+    }
+    if (exists $config->rqg_options->{'mask'}) {
+        $warn2 .= "\nWARN: Removing the mask assignment inside of the RQG options section.";
+        delete $config->rqg_options->{'mask'};
+    }
+    if (exists $config->rqg_options->{'mask_level'}) {
+        $warn2 .= "\nWARN: Removing the mask_level assignment inside of the RQG options section.";
+        delete $config->rqg_options->{'mask_level'};
+    }
+    if (exists $config->rqg_options->{'no_mask'}) {
+        delete $config->rqg_options->{'no_mask'};
+    }
+
+    if ($warn2 ne '') {
+        say($warn1 . $warn2);
     }
 
     # $trials cannot be in the command line snip.
@@ -609,7 +660,7 @@ sub init {
     $duration = $config->duration;
     if (defined $duration and $duration >= 0) {
         say("DEBUG: duration '$duration' was assigned via rqg_batch.pl call or " .
-            "within config file top level. \n" .
+            "within config file top level.\n" .
             "DEBUG: Wiping all other occurrences of settings for duration.")
             if Auxiliary::script_debug("S2");
         delete $config->rqg_options->{'duration'};
@@ -645,7 +696,7 @@ sub init {
     $queries = $config->queries;
     if (defined $queries and $queries >= 0) {
         say("DEBUG: queries '$queries' was assigned via rqg_batch.pl call or " .
-            "within config file top level. \n" .
+            "within config file top level.\n" .
             "DEBUG: Wiping all other occurrences of settings for queries.")
             if Auxiliary::script_debug("S2");
         delete $config->rqg_options->{'queries'};
@@ -671,7 +722,7 @@ sub init {
     $threads = $config->threads;
     if (defined $threads and $threads >= 0) {
         say("DEBUG: threads '$threads' was assigned via rqg_batch.pl call or " .
-            "within config file top level. \n" .
+            "within config file top level.\n" .
             "DEBUG: Wiping all other occurrences of settings for threads.")
             if Auxiliary::script_debug("S2");
         delete $config->rqg_options->{'threads'};
@@ -691,6 +742,7 @@ sub init {
     }
     $cl_snip_all .= " --threads=" . $threads;
 
+    # This parameter could be part of the command line snip.
     $algorithm = $config->algorithm;
     my $bad_algorithm = $config->rqg_options->{'algorithm'};
     if (defined $bad_algorithm) {
@@ -699,14 +751,10 @@ sub init {
             Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
-    # Note:
-    # This parameter itself is not part of the command line snip.
 
     # Add it in order to be sure that the grammar gets not mangled per mistake.
     $cl_snip_all .= " --no_mask";
     delete $config->rqg_options->{'no_mask'};
-    delete $config->rqg_options->{'mask'};
-    delete $config->rqg_options->{'mask_level'};
 
     # Add it in order to be sure that we work with maximum randomness.
     # This is especially important for PHASE_THREAD1_REPLAY where we go with thread=1.
@@ -728,7 +776,7 @@ sub init {
     say("DEBUG: mysql_options ->$mysql_options<-") if Auxiliary::script_debug("S4");
 
     ### FIXME: Treat these targets of simplification in detail
-    ### Whta happens in case
+    ### What happens in case
     #### $reporters = undef
     #### $reporters = ''
     #### $reporters = 'A,,D'
@@ -854,7 +902,8 @@ sub init {
     # ...  print_rule_hash();
     # ...  analyze_all_rules(); -- Maintains counter except weight and removes unused rules
     # ...  compact_grammar();   -- collapseComponents (unique) and moderate inlining
-    $grammar_string = GenTest::Simplifier::Grammar_advanced::init($grammar_file, $threads, $grammar_flags);
+    $grammar_string = GenTest::Simplifier::Grammar_advanced::init($grammar_file, $threads,
+                                                                  $grammar_flags);
     say("Grammar ->$grammar_string<-") if Auxiliary::script_debug("S4");
     # Dump this parent grammar
     $parent_grammar= "p" . Auxiliary::lfill0($parent_number,5) . ".yy";
@@ -1111,18 +1160,17 @@ print("\n" .
 "duration\n"                                                                                       .
 "   Maximum YY grammar processing runtime assigned to the call of the RQG runner\n"                .
 "   The simplification phase '" . PHASE_GRAMMAR_SIMP . "' might manipulate that value.\n"          .
-"   Default: " . QUERIES_DEFAULT . "\n"                                                            .
+"   Default: " . DURATION_DEFAULT . "\n"                                                           .
 "threads\n"                                                                                        .
 "   Number of connections executing queries generated by YY grammar processing.\n"                 .
 "   The simplification phase '" . PHASE_THREAD1_REPLAY . "' might manipulate that value.\n"        .
 "   Default: " . THREADS_DEFAULT . "\n"                                                            .
 "grammar (mandatory if not set in config file)\n"                                                  .
 "   YY grammar file with absolute path or path relative to top level directory of RQG.\n"          .
-"   In case the YY grammar gets assigned this way than any grammar/redefine maybe assigned in "    .
-"the config file will get ignored.\n"                                                              .
-"   YY grammar file with absolute path or path relative to top level directory of RQG.\n"          .
+"   In case the YY grammar gets assigned this way than any grammar maybe assigned in the config"   .
+"file will get ignored.\n"                                                              .
 "simplify_chain\n"                                                                                 .
-"   Comma separated list of simplification phased.\n"                                              .
+"   Comma separated list of simplification phases.\n"                                              .
 "   The simplifier will work in these phases and in the assigned order.\n"                         .
 "   Default: '" . join("' ==> '",@simp_chain_default) . "'\n"                                      .
 "algorithm\n"                                                                                      .
@@ -1130,7 +1178,7 @@ print("\n" .
 "   Currently only the per experience most effective algorithm '" . SIMP_ALGO_WEIGHT               .
 "' is supported.\n"                                                                                .
 "   Default: '" . SIMP_ALGO_WEIGHT . "'\n\n"                                                       .
-"rqg_batch.pl passes certain parameters to the Simplifier or the Combinator.\n"                    .
+"rqg_batch.pl passes certain parameters to the Simplifier.\n"                                      .
 "Parameters settings which are finally left over and get ignored at all will be reported in a "    .
 "line starting with\n"                                                                             .
 "     WARNING: The following command line content is left over ...\n\n"                            .
@@ -1138,8 +1186,11 @@ print("\n" .
 "   The simplifier will ignore the assigned value and assign to every RQG run\n"                   .
 "       --seed=random\n"                                                                           .
 "   instead because this is per experience the most effective setting.\n\n"                        .
-"FIXME: Comment to redefine and --no-mask is missing.\n\n"                                         .
-
+"Warning:\n"                                                                                       .
+"The file assigned to 'grammar' will get treated as 'effective' grammar.\n"                        .
+"This means any assignment of redefine/mask/mask_level will get removed/ignored and cause a "      .
+"warning.\n"                                                                                       .
+"'--no-mask' will be added to most RQG calls.\n"                                                   .
 "\n");
 
 }
@@ -1491,12 +1542,25 @@ sub register_result {
         return (STATUS_OK, Batch::REGISTER_GO_ON);
     } else {
         if (PHASE_FIRST_REPLAY   eq $phase) {
-            say("No replay with the initial grammar. Giving up.");
+            say("SUMMARY: No replay with the initial grammar.");
+            say("HINT: Maybe the\n" .
+                "HINT: - black/white lists (especially the pattern sections) are faulty or " .
+                "HINT: - RQG test setup (basedir, grammar etc.) is wrong or "                .
+                "HINT: - trials/duration are too small.");
+            say("Giving up.");
             return (STATUS_OK, Batch::REGISTER_END);
         } elsif (PHASE_THREAD1_REPLAY eq $phase) {
             say("No replay with threads=1.");
+            say("HINT: So it seems to be a concurrency problem like connection/thread m "          .
+                "activity clashes with\n"                                                          .
+                "HINT: - connection/thread n activity or\n"                                        .
+                "HINT: - execution of an EVENT        or\n"                                        .
+                "HINT: - asynchronous activity of replication thread, InnoDB Purge or similar.\n") ;
             $phase_switch = 1;
             return (STATUS_OK, Batch::REGISTER_STOP_ALL);
+        } elsif (PHASE_FINAL_REPLAY eq $phase) {
+            say("Replaying the desired outcome with the final YY grammar and RQG setup failed.");
+            return (STATUS_OK, Batch::REGISTER_END);
         } else {
             return (STATUS_OK, Batch::REGISTER_END);
         }

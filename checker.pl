@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Copyright (C) 2018 MariaDB Corporatin Ab.
+# Copyright (C) 2018, 2019 MariaDB Corporatin Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -242,7 +242,7 @@ SORRY, 2. IS NOT YET IMPLEMENTED.
 
 EOF
 ;
-Verdict::help_verdict();
+Verdict::help();
 }
 
 sub help_long {
@@ -264,11 +264,11 @@ Description for everybody who is not interested to spend serious time on learnin
       perl checker.pl --log_file=112.log --whitelist_patterns="'<snip from RQG log>'"
    which would be the following command line
       perl checker.pl --log_file=112.log --whitelist_patterns="'# 2018-08-22T15:52:02 [16461] | mysqld: /work_m/10.2/storage/innobase/row/row0log.cc:631: void row_log_table_delete(const rec_t*, dict_index_t*, const ulint*, const byte*): Assertion `new_index->n_uniq == index->n_uniq' failed.'"
-In order to get this command into bash history (hopefully configured with do not ignore failing commands) you need to replace any '!' with '.' or prepend a '\' to it.
-   which will
-   a) not work now -- Trouble already in command line
-   b) not work days later after the next push or on boxes with different directory structure
-      even if a) is already fixed.
+   In order to get this command into bash history (hopefully configured with do not ignore failing commands) you need to replace any '!' with '.' or prepend a '\\' to it.
+   Nevertheless its likely that it will
+      a) not work now -- Trouble already in command line
+      b) not work days later after the next push or on boxes with different directory structure
+         even if a) is already fixed.
 2. Be generous in removing content as long as what remains is highly selective.
    Remove the '# 2018-08-22T15:52:02 [16461] | ' which is specific to the historic RQG run.
       "'mysqld: /work_m/10.2/storage/innobase/row/row0log.cc:631: void row_log_table_delete(const rec_t*, dict_index_t*, const ulint*, const byte*): Assertion `new_index->n_uniq == index->n_uniq' failed.'"

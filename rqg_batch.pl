@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Copyright (c) 2018, MariaDB Corporation Ab.
+# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -221,7 +221,7 @@ my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar
     $seed, $testname, $xml_output, $report_xml_tt, $report_xml_tt_type, $max_runtime,
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
     $workers, $servers, $noshuffle, $workdir, $discard_logs,
-    $help, $help_simplifier, $help_combinator, $runner,
+    $help, $help_simplifier, $help_combinator, $help_verdict, $runner,
     $stop_on_replay, $script_debug, $runid, $threads, $type, $algorithm);
 
 # my @basedirs    = ('', '');
@@ -270,23 +270,22 @@ $discard_logs  = 0;
 # - abort in case of meeting some not supported options
 my $opt_result = {};
 sub help();
-sub help();
 
 # Read certain command line options
 # =================================
 # - Read all options (GetOptions removes all options found from @ARGV) which do not need to
-#    be passed to any module in the list Combinator, G_Simplifier, Variator, Replayer
+#    be passed to any module in the list Combinator, Simplifier, Variator, Replayer
 # - 'pass_through' causes that we do not abort in case meeting some option which is not listed here.
 # Example:
 # 'threads'
 # 1. In case the value is assigned on command line than
 # 1.1 rqg_batch could
 #     memorize it, not pass it through to Combinator, Variator, Replayer and glue it to every RQG call.
-# 1.2 if the G_Simplifier is used rqg_batch needs to pass that value through to G_Simplifier because
+# 1.2 if the Simplifier is used rqg_batch needs to pass that value through to Simplifier because
 #     that value is used for optimizing the simplification
 #     Example: If thread = 3 than any thread_< n>3 >_* becomes never used.
 # 2. In case the value is not assigned on command line but can be assigned in config file than
-#    the config file reader (Combinator, G_Simplifier, Variator, Replayer) will read the value and
+#    the config file reader (Combinator, Simplifier, Variator, Replayer) will read the value and
 #    needs to pass it somehow back to rqg_batch.
 # Problem with 'pass_through'
 #    rqg.pl call was with
@@ -297,9 +296,10 @@ sub help();
 Getopt::Long::Configure('pass_through');
 if (not GetOptions(
 #   $opt_result,
-           'help'                      => \$help,     # H
-           'help_simplifier'           => \$help_simplifier,     # H
-           'help_combinator'           => \$help_combinator,     # H
+           'help'                      => \$help,
+           'help_simplifier'           => \$help_simplifier,
+           'help_combinator'           => \$help_combinator,
+           'help_verdict'              => \$help_verdict,
            ### type == Which type of campaign to run
            # pass_through: no
            'type=s'                    => \$type,        # Swallowed and handled by rqg_batch
@@ -373,6 +373,9 @@ if (defined $help) {
     safe_exit(0);
 } elsif (defined $help_simplifier) {
     Simplifier::help();
+    safe_exit(0);
+} elsif (defined $help_verdict) {
+    Verdict::help();
     safe_exit(0);
 }
 
@@ -481,7 +484,7 @@ say("cl_end ->$cl_end<-") if Auxiliary::script_debug("T4");
 
 if      ($Batch::batch_type eq Batch::BATCH_TYPE_COMBINATOR) {
     Combinator::init($config_file, $workdir);
-} elsif ($Batch::batch_type eq Batch::BATCH_TYPE_G_SIMPLIFIER) {
+} elsif ($Batch::batch_type eq Batch::BATCH_TYPE_RQG_SIMPLIFIER) {
     Simplifier::init($config_file, $workdir);
 } else {
     say("INTERNAL ERROR: The batch type '$Batch::batch_type' is unknown. Abort");
@@ -556,7 +559,7 @@ while($Batch::give_up <= 1) {
         if      ($Batch::batch_type eq Batch::BATCH_TYPE_COMBINATOR) {
             # ($order_id, $cl_snip)
             @job = Combinator::get_job($active_workers);
-        } elsif ($Batch::batch_type eq Batch::BATCH_TYPE_G_SIMPLIFIER) {
+        } elsif ($Batch::batch_type eq Batch::BATCH_TYPE_RQG_SIMPLIFIER) {
             # ...REPLAY
             # ($order_id, $cl_snip, grammar      , undef)
             # ...GRAMMAR_SIMP
@@ -693,7 +696,7 @@ while($Batch::give_up <= 1) {
                 undef @worker_array;
                 if      ($Batch::batch_type eq Batch::BATCH_TYPE_COMBINATOR) {
                     undef @Combinator::order_array;
-                } elsif ($Batch::batch_type eq Batch::BATCH_TYPE_G_SIMPLIFIER) {
+                } elsif ($Batch::batch_type eq Batch::BATCH_TYPE_RQG_SIMPLIFIER) {
                     undef @Simplifier::order_array;
                 } else {
                     say("INTERNAL ERROR: The batch type '$Batch::batch_type' is unknown. Abort");
@@ -881,9 +884,9 @@ while($Batch::give_up <= 1) {
     next if defined $dryrun;
 
     # ResourceControl should take care that reasonable big delays between starts are made.
-    # The 0.3 serves for preventing a too busy rqg_batch.
+    # This is completely handled in Batch::check_resources.
+    # So the 0.3 here serves only for preventing a too busy rqg_batch.
       sleep 0.3;
-    # sleep 3;
 
 } # End of while($Batch::give_up <= 1) loop with search for a free RQG runner and a job + starting it.
 
@@ -974,14 +977,8 @@ sub help() {
    "\nSorry, under construction and partially different or not yet implemented.\n\n"               .
    "Purpose: Perform a batch of RQG runs with massive parallelization according to setup/config\n" .
    "         Be a replacement for\n"                                                               .
-   "         (immediate) combinations.pl, bughunt.pl, runall-trials.pl\n"                          .
-   "         (soon)      simplify-grammar.pl\n"                                                    .
+   "         combinations.pl, bughunt.pl, runall-trials.pl, simplify-grammar.pl\n"                 .
    "Terms used:\n"                                                                                 .
-   "combination string\n"                                                                          .
-   "      A fragment of a RQG call generated by rqg_batch.pl based on config file content.\n"      .
-   "      rqg_batch.pl might transform and especially append more settings depending on\n"         .
-   "      content in command line and defaults..\n"                                                .
-   "      The final string is later used for calling the RQG runner.\n"                            .
    "Default\n"                                                                                     .
    "      What you get in case you do not assign some corresponding --<parameter>=<value>.\n"      .
    "RQG Worker\n"                                                                                  .
@@ -993,18 +990,27 @@ sub help() {
    "      rqg_batch.pl might stop (KILL) RQG runs because of technical reasons.\n"                 .
    "      Such stopped runs will be restarted with the same setup as soon as possible.\n"          .
    "\n"                                                                                            .
-   "--run-all-combinations-once\n"                                                                 .
-   "      Generate a deterministic sequence of combinations.\n"                                    .
-   "      The number of combinations limits the maximum number of trials!\n"                       .
-   "      --start-combination=<m>\n'"                                                              .
-   "             Start the execution with the m'th combination.\n"                                 .
-   "--trials=<n>\n"                                                                                .
-   "      rqg_batch.pl will exit if this number of regular finished trials(RQG runs) is reached.\n".
-   "      n = 1 --> Write the output of the RQG runner to screen and do not cleanup at end.\n"     .
-   "                Maybe currently not working or in future removed.                        \n"   .
+   "--help\n"                                                                                      .
+   "      Some general help about rqg_batch.pl and its command line parameters/options which \n"   .
+   "      are not handled by the Combinator or the Simplifier.\n"                                  .
+   "--help_combinator\n"                                                                           .
+   "      Information about the rqg_batch.pl command line parameters/options which are handled "   .
+   "by the Combinator.\n"                                                                          .
+   "      Purpose: Plain bug hunting.\n"                                                           .
+   "--help_simplifier\n"                                                                           .
+   "      Information about the rqg_batch.pl command line parameters/options which are handled "   .
+   "by the Simplifier.\n"                                                                          .
+   "      Purpose: Reduce the complexity (setup+grammar) of a test replaying some problem.\n"      .
+   "--help_verdict\n"                                                                              .
+   "      Information about how to setup the black and whitelist parameters which are used for\n"  .
+   "      defining desired and to be ignored test outcomes.\n"                                     .
+   "\n"                                                                                            .
+   "--type=<Which type of work ('Combinator' or 'Simplifier') to do?>\n"                           .
+   "--config=<config file with path absolute or path relative to top directory of RQG install>\n"  .
+   "      Assigning this file is mandatory.\n"                                                     .
    "--max_runtime=<n>\n"                                                                           .
-   "      Stop ongoing RQG runs if the total runtime in seconds has exceeded this value,\n"        .
-   "      give a summary and exit.\n"                                                              .
+   "      Stop ongoing RQG runs if the total runtime in seconds has exceeded this value, give "    .
+   "a summary and exit.\n"                                                                         .
    "--parallel=<n>\n"                                                                              .
    "      Maximum number of parallel RQG Workers performing RQG runs.\n"                           .
    "      (Default) All OS: If supported <return of OS command nproc> otherwise 1.\n\n"            .
@@ -1014,18 +1020,10 @@ sub help() {
    "         in some very slow reacting testing box up till OS crashes.\n"                         .
    "         Critical candidates: open files, max user processes, free space in tmpfs\n"           .
    "         Future improvement of rqg_batch.pl will reduce these risks drastic.\n\n"              .
-   "Not assignable --queries\n"                                                                    .
-   "      But if its not in the combination string than --queries=100000000 will be appended.\n"   .
    "also not passed through to the RQG runner.\n"                                                  .
    "          If neither --no_mask, --mask or --mask-level is in the combination string than "     .
    "a --mask=.... will be appended to it.\n"                                                       .
    "          Impact of the latter in the RQG runner: mask-level=1 and that --mask=...\n"          .
-   "--seed=...\n"                                                                                  .
-   "      Seed value used here for generation of random combinations. In case the combination \n"  .
-   "      does not already assign seed than this will be appended to the string too.\n"            .
-   "      (Default) 1 do not append to the combination string.\n"                                  .
-   "      --seed=time assigned here or being in combination string will be replaced by\n"          .
-   "      --seed=<value returned by some call of time() in perl>.\n"                               .
    "--runner=...\n"                                                                                .
    "      The RQG runner to be used. The value assigned must be without path.\n"                   .
    "      (Default) rqg.pl in RQG_HOME.\n"                                                         .
@@ -1035,12 +1033,10 @@ sub help() {
    "--stop_on_replay\n"                                                                            .
    "      As soon as the first RQG run achieved the verdict '" . Verdict::RQG_VERDICT_REPLAY       .
    " , stop all active RQG runners, cleanup, give a summary and exit.\n\n"                         .
-   "--dryrun\n"                                                                                    .
+   "--dryrun=<verdict_value>\n"                                                                    .
    "      Run the complete mechanics except that the RQG worker processes forked\n"                .
    "      - print the RQG call which they would run\n"                                             .
-   "      - do not start RQG at all but fake a few effects checked by the parent process\n"        .
-   "      - exit with STATUS_OK(0).\n"                                                             .
-   "      - exit with STATUS_OK(0).\n"                                                             .
+   "      - do not start a RQG run at all but fake a few effects checked by the parent process\n"  .
    "      Debug functionality of other RQG parts like the RQG runner will be not touched!\n"       .
    "      (Default) No additional information.\n"                                                  .
    "--script_debug=...       FIXME: Only rudimentary and different implemented\n"                  .
@@ -1054,18 +1050,22 @@ sub help() {
    "      Hints:\n"                                                                                .
    "          '--script_debug=SB' == Debug Simplifier and Batch ...\n"                             .
    "      The combination\n"                                                                       .
-   "                  --dryrun --script_debug¸\n"                                                  .
+   "                  --dryrun=ignore  --script_debug¸\n"                                          .
    "      is an easy/fast way to check certains aspects of\n"                                      .
    "      - the order and job management in rqg_batch in general\n"                                .
    "      - optimizations (depend on progress) for grammar simplification\n"                       .
    "-------------------------------------------------------------------------------------------\n" .
-   "Group of parameters which get appended to the combination string and so passed through to \n"  .
-   "the RQG runner. For their meaning please look into the output of '<runner> --help'.       \n"  .
+   "Group of parameters which get either passed through to the Simplifier or appended to the\n"    .
+   "final command line of the RQG runner. Both things cause that certain settings within the\n"    .
+   "the Combinator or Simplifier config files get overridden or deleted.\n"                        .
+   "For their meaning please look into the output of '<runner> --help'.\n"                         .
    "--duration=<n>\n"                                                                              .
    "--gendata=...\n"                                                                               .
    "--grammar=...\n"                                                                               .
-   "--threads=<n>  (Hint: Set it once to 1. Maybe its not a concurrency bug.)\n"                   .
-   "--no_mask      (Assigning --mask or --mask-level on command line is not supported.)\n"         .
+   "  Combinator: Override only the grammar maybe assigned in config file.\n"                      .
+   "  Simplifier: Ignore any grammar and redefine file maybe assigned in config file.\n"           .
+   "--threads=<n>\n"                                                                               .
+   "--no_mask      (Assigning --mask or --mask-level on command line is not supported anyway.)\n"  .
    "--testname=...\n"                                                                              .
    "--xml-output=...\n"                                                                            .
    "--report-xml-tt=...\n"                                                                         .
@@ -1082,19 +1082,10 @@ sub help() {
    "What to do on Linux in the rare case (RQG core or runner broken) that this somehow fails?\n"   .
    "    killall -9 perl ; killall -9 mysqld ; rm -rf /dev/shm/vardir/*\n"                          .
    "-------------------------------------------------------------------------------------------\n" .
-   "How to cause some non-random run with fixed range of combinations covered?\n"                  .
-   "Assign\n"                                                                                      .
-   "   --run-all-combinations-once --> Generation of a deterministic sequence of combinations\n"   .
-   "with optional\n"                                                                               .
-   "   --start_combination<m> --> Omit trying the first <m - 1> combinations.\n"                   .
-   "The range of combinations covered could be limited/extended via trials and/or max_runtime.\n"  .
-   "In case none of them is set than the rqg_batch.pl run ends after the RQG run with the last \n" .
-   "not yet tried combination has finished regular.\n"                                             .
-   "-------------------------------------------------------------------------------------------\n" .
    "Impact of RQG_HOME if found in environment and the current working directory:\n"               .
    "Around its start rqg_batch.pl searches for RQG components in <CWD>/lib and ENV(\$RQG_HOME)/lib\n" .
-   "- rqg_batch.pl computes RQG_HOME from its call and sets than some corresponding "              .
-   "  environment variable.\n"                                                                     .
+   "- rqg_batch.pl computes than a RQG_HOME based on its call and sets than some corresponding "   .
+   "  environment variable or aborts.\n"                                                           .
    "  All required RQG components (runner/reporter/validator/...) will be taken from this \n"      .
    "  RQG_HOME 'Universe' in order to ensure consistency between these components.\n"              .
    "- All other ingredients with relationship to some filesystem like\n"                           .
