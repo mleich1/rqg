@@ -1509,7 +1509,7 @@ sub register_result {
                 # Its a second winner. But the order was quite good. So try it again.
                 Batch::add_to_try_first($order_id);
                 # Increase ORDER_EFFORTS_LEFT because if its <= 0 we will get no repetition.
-                # Increase by 2 because it a thta promising candidate.
+                # Increase by 2 because it a that promising candidate.
                 $order_array[$order_id][ORDER_EFFORTS_LEFT]++;
                 $order_array[$order_id][ORDER_EFFORTS_LEFT]++;
             }
@@ -1519,7 +1519,11 @@ sub register_result {
              $verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST  or
              $verdict eq Verdict::RQG_VERDICT_INTEREST          or
              $verdict eq Verdict::RQG_VERDICT_INIT                ) {
-        Batch::add_to_try_over($order_id);
+        if ( 0 >= $order_array[$order_id][ORDER_EFFORTS_LEFT] ) {
+            Batch::add_to_try_over($order_id);
+        } else {
+            Batch::add_to_try_first($order_id);
+        }
     } else {
         say("INTERNAL ERROR: Final Verdict '$verdict' is not treated/unknown. " .
             "Will ask for an emergency_exit.");
