@@ -1989,12 +1989,12 @@ sub _fill_check {
                     exit_status_text($status));
         safe_exit($status);
     }
-    if (length($string) > $length) {
-        my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: Length of string '$string' is bigger than allowed " .
-                    "length $length'. " . exit_status_text($status));
-        safe_exit($status);
-    }
+#   if (length($string) > $length) {
+#       my $status = STATUS_INTERNAL_ERROR;
+#       Carp::cluck("INTERNAL ERROR: Length of string '$string' is bigger than allowed " .
+#                   "length $length'. " . exit_status_text($status));
+#       safe_exit($status);
+#   }
 }
 
 sub rfill {

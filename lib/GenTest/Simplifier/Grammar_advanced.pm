@@ -1,4 +1,4 @@
-# Copyright (C) 2018 MariaDB Corporation Ab.
+# Copyright (C) 2018, 2019 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -45,26 +45,13 @@ use GenTest::Constants;
 use GenTest::Grammar;
 use GenTest::Grammar::Rule;
 
-1;
-
 my $script_debug = 0;
-
-# sub new {
-#     my $class = shift;
-# 
-#     my $simplifier = $class->SUPER::new({
-#         'oracle'        => SIMPLIFIER_ORACLE,
-#         'grammar_flags' => SIMPLIFIER_GRAMMAR_FLAGS
-#     }, @_);
-# 
-#     return $simplifier;
-# }
 
 # sub fill_rule_hash();
 # sub print_rule_hash();
 # sub analyze_all_rules();
 
-
+# Constants mayne used in future.
 use constant SIMP_GRAMMAR_OBJ     => 0;
 use constant SIMP_RULE_HASH       => 1;
 use constant SIMP_GRAMMAR_FLAGS   => 2; # Unclear if that will persist
@@ -76,12 +63,19 @@ my %rule_hash;
 my ($threads, $grammar_flags);
 
 sub init {
-    (my $grammar_file, $threads, $grammar_flags) = @_;
+    (my $grammar_file, $threads, my $max_inline_length, $grammar_flags) = @_;
 
-    # FIXME: Check input values
+    Carp::cluck("DEBUG: Grammar_advanced::init (grammar_file, threads, max_inline_length, " .
+                "grammar_flags) entered") if $script_debug;
 
-    Carp::cluck("DEBUG: Grammar_advanced::init (grammar_file, $threads, $grammar_flags) entered")
-       if $script_debug;
+    if (not defined $max_inline_length) {
+        Carp::cluck("INTERNAL ERROR: max_inline_length is not defined. Will return undef.");
+        return undef;
+    }
+    if (not defined $threads) {
+        Carp::cluck("INTERNAL ERROR: threads is not defined. Will return undef.");
+        return undef;
+    }
 
     my $status = load_grammar($grammar_file);
     if (STATUS_OK != $status) {
@@ -94,7 +88,8 @@ sub init {
     # print_rule_hash();
     analyze_all_rules();
     print_rule_hash() if $script_debug;
-    compact_grammar();
+    # Inline anything which has a length <= $max_inline_length.
+    compact_grammar($max_inline_length);
     if (not defined $grammar_obj) {
         Carp::confess("grammar_obj is not defined");
     }
@@ -113,23 +108,28 @@ sub reload_grammar {
 # order to harvest the progress. And that's the most frequent use case of the current routine.
 #
 
-    (my $grammar_file, $threads, $grammar_flags) = @_;
-    # !!! The caller might have changed threads !!!
+    my ($grammar_file, $threads, $grammar_flags) = @_;
+    # !!! The caller might have changed the value for threads compared to the previous run !!!
 
-    # FIXME: Check input values
+    Carp::cluck("DEBUG: Grammar_advanced::reload_grammar (grammar_file, $threads, $grammar_flags)" .
+                " entered") if $script_debug;
 
-    Carp::cluck("DEBUG: Grammar_advanced::reload_grammar (grammar_file, $threads, $grammar_flags) " .
-                "entered") if $script_debug;
-
+    if (not defined $threads) {
+        say("INTERNAL ERROR: threads is not defined. Will return undef.");
+        return undef;
+    }
     my $status = load_grammar($grammar_file);
     if (STATUS_OK != $status) {
         return undef;
     }
-    reset_rule_hash_values(); # This sets all rule_hash and there especially RULE_JOBS_GENERATED
+    reset_rule_hash_values(); # This resets most rule_hash values belonging to a rule
+                              # except RULE_JOBS_GENERATED.
     # print_rule_hash();
     analyze_all_rules();
     print_rule_hash() if $script_debug;
-    compact_grammar();
+    # Do not inline anything because we are inside a grammar simplification campaign.
+    my $max_inline_length = -1;
+    compact_grammar($max_inline_length);
     if (not defined $grammar_obj) {
         Carp::confess("grammar_obj is not defined");
     }
@@ -159,10 +159,6 @@ sub get_unique_component_list {
 # at runtime drastic compared to the original non touched grammar.
 # Going via 'get_unique_component_list' does not increase the number of simplification steps.
 #
-# property to eliminate at simplification begin the duplicates
-# No need to go with the grammar_flag GRAMMAR_FLAG_COMPACT_RULES which has the questionable
-# property to eliminate at simplification begin the duplicates
-#
 # Example
 # -------
 # rule: a | b | a | d ; ==> unique_component_list: d, a, b ;
@@ -175,23 +171,7 @@ sub get_unique_component_list {
 }
 
 
-sub shrink_rule {
-# FIXME: Implement or stick to shrink_grammar which is implemented.
-
-# Purpose
-# -------
-# Shrink a rule according to the parameters assigned.
-# Return the definition of the rule with all occurrences of unique_component removed as
-# printable string. Maybe return the complete grammar instead.
-# In case unique_component does already no more occur in the rule than return undef.
-#
-
-    my ($rule_name, $unique_component) = @_;
-
-}
-
 # our $grammar_obj;
-
 
 sub load_grammar {
 
@@ -328,14 +308,16 @@ sub print_rule_info {
                     Auxiliary::exit_status_text($status));
         return $status;
     }
-    say("DEBUG: '$rule_name' RULE_WEIGHT : " . $rule_hash{$rule_name}->[RULE_WEIGHT]);
-    say("DEBUG: '$rule_name' RULE_RECURSIVE : " . $rule_hash{$rule_name}->[RULE_RECURSIVE]);
-    say("DEBUG: '$rule_name' RULE_REFERENCING : " . $rule_hash{$rule_name}->[RULE_REFERENCING]);
-    say("DEBUG: '$rule_name' RULE_REFERENCED : " . $rule_hash{$rule_name}->[RULE_REFERENCED]);
-    say("DEBUG: '$rule_name' RULE_JOBS_GENERATED : " . $rule_hash{$rule_name}->[RULE_JOBS_GENERATED]);
-    say("DEBUG: '$rule_name' RULE_IS_PROCESSED : " . $rule_hash{$rule_name}->[RULE_IS_PROCESSED]);
-    say("DEBUG: '$rule_name' RULE_UNIQUE_COMPONENTS : " . $rule_hash{$rule_name}->[RULE_UNIQUE_COMPONENTS]);
-    say("DEBUG: '$rule_name' RULE_IS_TOP_LEVEL : " . $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL]);
+
+    my $rule_info = $rule_hash{$rule_name};
+    say("DEBUG: '$rule_name' RULE_WEIGHT : "            . $rule_info->[RULE_WEIGHT]);
+    say("DEBUG: '$rule_name' RULE_RECURSIVE : "         . $rule_info->[RULE_RECURSIVE]);
+    say("DEBUG: '$rule_name' RULE_REFERENCING : "       . $rule_info->[RULE_REFERENCING]);
+    say("DEBUG: '$rule_name' RULE_REFERENCED : "        . $rule_info->[RULE_REFERENCED]);
+    say("DEBUG: '$rule_name' RULE_JOBS_GENERATED : "    . $rule_info->[RULE_JOBS_GENERATED]);
+    say("DEBUG: '$rule_name' RULE_IS_PROCESSED : "      . $rule_info->[RULE_IS_PROCESSED]);
+    say("DEBUG: '$rule_name' RULE_UNIQUE_COMPONENTS : " . $rule_info->[RULE_UNIQUE_COMPONENTS]);
+    say("DEBUG: '$rule_name' RULE_IS_TOP_LEVEL : "      . $rule_info->[RULE_IS_TOP_LEVEL]);
 }
 
 sub print_rule_hash {
@@ -487,6 +469,10 @@ sub analyze_all_rules {
         # Remove unused thread<number>* rules.
         foreach my $rule_name (@top_rule_list) {
             my $val = extract_thread_from_rule_name($rule_name);
+            if (not defined $threads) {
+                Carp::cluck("threads is undef");
+                exit STATUS_INTERNAL_ERROR;
+            }
             if ($threads < $val) {
                 say("DEBUG: threads is $threads and therefore the rule '$rule_name' will be never " .
                     "used as toplevel rule.") if $script_debug;
@@ -654,7 +640,7 @@ sub collapseComponents {
     my $rule_obj = $grammar_obj->rule($rule_name);
     if (not defined $rule_obj) {
         Carp::cluck("INTERNAL ERROR: Rule '$rule_name' : Undef rule object got.");
-       exit 99;
+       exit STATUS_INTERNAL_ERROR;
     }
     my @unique_components = $rule_obj->unique_components();
     my $components = $rule_obj->components();
@@ -668,25 +654,39 @@ sub collapseComponents {
 
 
 sub compact_grammar {
-# FIXME: Complete implementation!
 
 # Purpose
 # -------
 # Replace rules consisting of one component only (best non rare case: Its an empty string),
 # by their content wherever they are used. Run remove_unused_rules after any of such operations.
-# This makes grammars also more handy.
+# Advantage:
+#    This makes grammars more handy.
 # Minor disadvantage:
-# An inspection of the final grammar will no more show what was shrinked away.
-# Example:
-# - non compacted:  dml: ;
-# - compacted: There is no rule 'dml'. But only a comparison with the original grammar will
-#              show what was shrinked away.
-#   Well, you need to search for the keywords INSERT/UPDATE/REPLACE/DELETE through the complete
-#   grammar in order to figure out what is gone.
+#    An inspection of the final grammar will no more show what was shrinked away.
+#    Example:
+#    - non compacted:  dml: ;
+#    - compacted: There is no rule 'dml'. But only a comparison with the original grammar will
+#                 show that a rule 'dml' (enlighting name) was shrinked away.
+#    Well, you need to search for the keywords INSERT/UPDATE/REPLACE/DELETE through the complete
+#    grammar in order to figure out what is gone.
+# Medium disadvantage:
+#    When doing manual simplification later some
+#    rule:
+#        <a very long sentence> ;
+#    expanded into several components of other rules might be quite unconvenient.
 #
 # Important:
-# Any code change by compact_grammar might cause that counters in %rule_hash get outdated!
+# 1. Any code change by compact_grammar might cause that counters in %rule_hash get outdated!
+# 2. Inlining rules changes most probably components of other rules and that makes proposed
+#    jobs invalid because the component_sentence of already processed rules gets modified.
 #
+
+    my ($max_inline_length) = @_;
+
+    if (not defined $max_inline_length) {
+        Carp::cluck("INTERNAL ERROR: max_inline_length is undef.");
+        exit STATUS_INTERNAL_ERROR;
+    }
 
     foreach my $rule_name ( keys %{$grammar_obj->rules()} ) {
         # Handle: rule_A: SELECT 13 | SELECT 13 ;
@@ -706,11 +706,11 @@ sub compact_grammar {
             next;
         }
 
-        my $snip = $debug_snip . " Rule '$rule_name':";
+        my $snip     = $debug_snip . " Rule '$rule_name':";
         my $rule_obj = $grammar_obj->rule($rule_name);
         if (not defined $rule_obj) {
             Carp::cluck("INTERNAL ERROR: Rule '$rule_name' : Undef rule object got.");
-            exit 99;
+            exit STATUS_INTERNAL_ERROR;
         }
         my $components = $rule_obj->components();
         # Rules with more than component cannot get inlined.
@@ -718,7 +718,7 @@ sub compact_grammar {
 
         say("$snip Candidate for inlining. ->" . $rule_obj->toString() . "<-")
             if $script_debug;
-        my @the_component = @{$rule_obj->components->[0]};
+        my @the_component          = @{$rule_obj->components->[0]};
         my $the_component_sentence = join('', @the_component );
         say("$snip Component as Sentence ->$the_component_sentence<-") if $script_debug;
         # FIXME: New parameter needed.
@@ -727,7 +727,7 @@ sub compact_grammar {
         #    get inlined or not. The latter makes manual work on
         #    simplified grammar far way more convenient.
         #--------------
-        if (length($the_component_sentence) > 10) {
+        if (length($the_component_sentence) > $max_inline_length) {
             say("$snip Omit inlining of rule because the component " .
                 "->$the_component_sentence<- is too long.") if $script_debug;
             next;
@@ -742,7 +742,7 @@ sub compact_grammar {
             my $inspect_rule_obj = $grammar_obj->rule($inspect_rule_name);
             if (not defined $inspect_rule_obj) {
                 Carp::cluck("INTERNAL ERROR: Rule '$inspect_rule_name' : Undef rule object got.");
-                exit 99;
+                exit STATUS_INTERNAL_ERROR;
             }
             my $inspect_components = $inspect_rule_obj->components();
 
@@ -778,7 +778,7 @@ sub compact_grammar {
         say("$snip The Rule was inlined and therefore deleted.") if $script_debug;
     } # End of search for inline candidates and inlining
     grammar_rule_hash_consistency;
-}
+} # End of sub compact_grammar
 
 
 sub calculate_weights {
@@ -812,7 +812,7 @@ sub calculate_weights {
 
     sub inspect_rule_and_charge {
         my ($rule_name) = @_;
-        
+
         my $rule_obj = $grammar_obj->rule($rule_name);
 
         # Decompose the rule.
@@ -839,7 +839,6 @@ sub calculate_weights {
             }
         }
     }
-      
 
     analyze_all_rules();
     foreach my $rule_name (keys %rule_hash) {
@@ -950,7 +949,7 @@ sub calculate_weights {
     say("DEBUG: calculate_weights processing round is over. Will return STATUS_OK.") if $script_debug;
     return STATUS_OK;
 
-}
+} # End of sub calculate_weights
 
 
 sub next_rule_to_process {
@@ -1005,50 +1004,6 @@ sub set_rule_jobs_generated {
 }
 
 
-sub critical_word_count {
-
-# Purpose
-# -------
-# Count the number of phrases belonging to SQL's which might cause that other SQL's
-# - can get executed only once with success if ever but will fail on the second time because
-#   the object/row(duplicate key or similar) exists.
-#   --> protect DROP
-#       DROP TABLE ..., ALTER TABLE ... DROP ..., ...
-#       because this might affect CREATE ..., ALTER TABLE ... ADD ..., ...
-#   --> protect TRUNCATE and DELETE
-#       because this might affect INSERT/UPDATE/DELETE/REPLACE
-# - INSERT/REPLACE lead to some dramatic growth of storage space consumed
-#   --> protect DROP, DELETE and TRUNCATE
-#
-# Return the number of the words (-> rule component part) case insensitive
-#    drop/truncate/delete
-# which are not the name of a rule.
-#
-# Usage is experimental
-# a) Have some early phase of grammar simplification where this counter must not change
-#    because of simplification.
-# b) Have some later phase where this counter is allowed to decrease but run
-#    for the corresponding simplification some "competition" and revert the
-#    simplification if its bad for replay likelihood.
-#
-# Serious obstacle:
-# Getting the critical_word_count for the current parent grammar (base for simplification
-# attempts) is easy. But getting the same for some potential simplification requires several
-# work steps
-# 1. child grammar = parent grammar with rewritten/simplified rule appended.
-# 2. Run a "remove unused rules round" on child grammar but do NOT
-#    - collapse duplicates (critical case ruleX: TRUNCATE t1 | TRUNCATE t1;) or
-#    - inline (most probably not critical but with collapse probably yes)
-# 3. Count critical words in child grammar.
-#    For that (assume we find a 'truncate') some checking against the names of existing
-#    rules is required.
-# This implies that we need a grammar_obj and a rulehash for this child grammar
-# including that routines like "next_rule_to_process" or similar work on the right
-# objects (parent vs. child).
-#
-
-}
-
 sub shrink_grammar {
 
 # Return
@@ -1085,58 +1040,81 @@ sub shrink_grammar {
         return undef;
     }
 
-    my $rule_obj = $grammar_obj->rule($rule_name);
+    my @reduced_components;
+    my $rule_obj          = $grammar_obj->rule($rule_name);
     my @unique_components = $rule_obj->unique_components();
 
-    # say("DEBUG: no_of_unique_components $no_of_unique_components ->" .
-    #     $rule_obj->toString . "<-");
-    if      (0 >= scalar @unique_components) {
-        Carp::confess("INTERNAL ERROR: Met 0 >= unique components in rule '$rule_name'.");
-    } elsif (1 == scalar @unique_components) {
-        say("DEBUG: shrink_grammar: The rule '$rule_name' has already only one unique component.") if $script_debug;
-        return undef;
+    my $indent = "    ";
+    my $reduced_rule_string;
+    if ('_to_empty_string_only' ne $component_string) {
+        #### Non destructive simplification ####
+
+        # say("DEBUG: no_of_unique_components $no_of_unique_components ->" .
+        #     $rule_obj->toString . "<-");
+        if      (0 >= scalar @unique_components) {
+            Carp::confess("INTERNAL ERROR: Met 0 >= unique components in rule '$rule_name'.");
+        } elsif (1 == scalar @unique_components) {
+            say("DEBUG: shrink_grammar: The rule '$rule_name' has already only one unique component.") if $script_debug;
+            return undef;
+        } else {
+            # Nothing to do.
+        }
+
+        my $not_found = 1;
+        foreach my $existing_component_string ( $rule_obj->unique_components()) {
+            if ($component_string eq $existing_component_string) {
+                $not_found = 0;
+                last;
+            }
+        }
+        if($not_found) {
+            say("DEBUG: shrink_grammar: The rule '$rule_name' is no more containing the " .
+                "component_string ->$component_string<-") if $script_debug;
+            return undef;
+        }
+
+        # All above was tested.
+        # So we can at least think about removing that component_string.
+        # The rule exists, it contains $component_string and there are more than one unique components.
+
+        my $components = $rule_obj->components();
+        foreach my $component (@$components) {
+            my $existing_component_string = join('', @$component);
+            say("DEBUG: existing_component_string ->$existing_component_string<-") if $script_debug;
+            if ($existing_component_string ne $component_string) {
+                push @reduced_components, $existing_component_string;
+            }
+        }
     } else {
-        # Nothing to do.
+        #### Destructive simplification ####
+        @reduced_components = ( '' );
     }
 
-    my $not_found = 1;
-    foreach my $existing_component_string ( $rule_obj->unique_components()) {
-        if ($component_string eq $existing_component_string) {
-            $not_found = 0;
-            last;
-        }
-    }
-    if($not_found) {
-        say("DEBUG: shrink_grammar: The rule '$rule_name' is no more containing the " .
+    # Construct something like
+    # rule:                      or     rule:
+    #      ;                                'A' |
+    #                                       'B' ;
+    $reduced_rule_string = "$rule_name:\n$indent" .
+                           join(" |\n$indent", @reduced_components) . ' ;';
+    if ($reduced_rule_string eq $rule_obj->toString()) {
+        # Known special case:
+        # The last campaign had success and we have caused by that or another campaign
+        # <top_level_rule>:
+        # <indent> ;
+        # In the current campaign '_to_empty_string_only' was proposed for that <top_level_rule>.
+        # In case we do not return undef than we get a valueless RQG run harvesting success and
+        # therefore some next campaign --> ~ "endless".
+        say("DEBUG: shrink_grammar: The rule '$rule_name' cannot be shrinked by applying " .
             "component_string ->$component_string<-") if $script_debug;
         return undef;
     }
-
-    # All above was tested.
-    # So we can at least think about removing that component_string.
-    # The rule exists, it contains $component_string and there are more than one unique components.
-
-    my @reduced_components;
-    my $components = $rule_obj->components();
-    foreach my $component (@$components) {
-        my $existing_component_string = join('', @$component);
-        say("DEBUG: existing_component_string ->$existing_component_string<-") if $script_debug;
-        if ($existing_component_string ne $component_string) {
-            push @reduced_components, $existing_component_string;
-        }
-    }
-
-    my $indent = "    ";
-    my $reduced_rule_string = "$rule_name:\n$indent" .
-                              join(" |\n$indent", @reduced_components) . ' ;';
 
     say("DEBUG: Original rule '$rule_name' ->" . $rule_obj->toString() . "<-") if $script_debug;
     say("DEBUG: Reduced  rule '$rule_name' ->" . $reduced_rule_string  . "<-") if $script_debug;
 
     return $reduced_rule_string;
 
-}
+} # End of sub shrink_grammar
 
-# exists $rule_hash{'thread_connect'} and 1 == $rule_hash{'thread_connect'}->[RULE_IS_TOP_LEVEL]) {
 
 1;

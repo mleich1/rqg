@@ -65,10 +65,6 @@ use constant RQG_LOG_LENGTH      => 10;             # 999999.log or <deleted>
 use constant RQG_ORDERID_TITLE   => 'OrderId';
 use constant RQG_ORDERID_LENGTH  => 7;              # Maximum is 9999999/Title
 
-use constant RQG_GRAMMAR_C_TITLE => 'Grammar used';
-use constant RQG_GRAMMAR_P_TITLE => 'Parent      ';
-use constant RQG_GRAMMAR_LENGTH  => 12;             # Maximum is Title
-
 
 # get_job
 # - implemented in Combinator/Simplifier/...

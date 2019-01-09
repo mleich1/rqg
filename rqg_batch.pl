@@ -733,6 +733,8 @@ while($Batch::give_up <= 1) {
                     # The parent waits for the take over of the RQG worker (rqg.pl) which is visible
                     # per setting the phase to Auxiliary::RQG_PHASE_START.
                     # So we fake that here.
+                    Batch::append_string_to_file($rqg_log,
+                                                 "LIST: ==>$command<==\n");
                     my $return = Auxiliary::set_rqg_phase($rqg_workdir, Auxiliary::RQG_PHASE_START);
                     if (STATUS_OK != $return){
                         my $status = STATUS_ENVIRONMENT_FAILURE;
@@ -755,7 +757,7 @@ while($Batch::give_up <= 1) {
                         safe_exit($status);
                     }
                     Batch::append_string_to_file($rqg_log,
-                                                 "SUMMARY: RQG GenTest runtime in s : 60");
+                                                 "SUMMARY: RQG GenTest runtime in s : 60\n");
                     safe_exit(STATUS_OK);
                 } else {
                     # say("DEBUG =>" . $command . "<=");

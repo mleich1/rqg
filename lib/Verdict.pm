@@ -563,7 +563,7 @@ sub calculate_verdict {
     my $ok_match       = 0;
     my $was_stopped    = 0;
 
-    my $script_debug = 1;
+    my $script_debug   = 1;
 
     my @list;
     $list[0] = 'STATUS_OK';
