@@ -1451,8 +1451,8 @@ sub register_result {
         Auxiliary::lfill($saved_log_rel,  Batch::RQG_LOG_LENGTH)       . " | " .
         Auxiliary::lfill($order_id,       Batch::RQG_ORDERID_LENGTH)   . " | " .
         Auxiliary::lfill($total_runtime,  Batch::RQG_ORDERID_LENGTH)   . " | " .
-        Auxiliary::rfill($grammar_used,   RQG_DERIVATE_TITLE)          . " | " .
-        Auxiliary::rfill($grammar_parent, RQG_PARENT_TITLE)            . "\n";
+        Auxiliary::rfill($grammar_used,   RQG_SPECIALITY_LENGTH)       . " | " .
+        Auxiliary::rfill($grammar_parent, RQG_SPECIALITY_LENGTH)       . "\n";
     Batch::append_string_to_file ($result_file, $line);
     $arrival_number++;
 
