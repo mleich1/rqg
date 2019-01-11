@@ -1084,6 +1084,11 @@ sub help() {
    "What to do on Linux in the rare case (RQG core or runner broken) that this somehow fails?\n"   .
    "    killall -9 perl ; killall -9 mysqld ; rm -rf /dev/shm/vardir/*\n"                          .
    "-------------------------------------------------------------------------------------------\n" .
+   "How to get the roughly 'smallest' rqg_batch.pl run possible for config file checking?\n"       .
+   "Just assign\n"                                                                                 .
+   "    --parallel=1     --> Have never more than one RQG runner active.\n"                        .
+   "    --trials=1       --> Exit after the first regular finished RQG run.\n"                     .
+   "-------------------------------------------------------------------------------------------\n" .
    "Impact of RQG_HOME if found in environment and the current working directory:\n"               .
    "Around its start rqg_batch.pl searches for RQG components in <CWD>/lib and ENV(\$RQG_HOME)/lib\n" .
    "- rqg_batch.pl computes than a RQG_HOME based on its call and sets than some corresponding "   .

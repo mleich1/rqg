@@ -2084,33 +2084,10 @@ sub help_seed {
 }
 
 
-
-# FIXME: Implement
+# FIXME: Maybe move from the Simplifier to here.
 # Adaptive FIFO
 #
-# init          no of elements n, value
-#               Create list with that number of elements precharged with value
-# store_value   value
-#               Throw top element of list away, append value.
-# get_value     algorithm
-#               Return a value providing a >= 85 % percentil according to algorithm.
-#               1 -- maximum value from list
-#                    Bigger n leads to more save and stable values but is questionable
-#                    because of over all longer timespan (between first and last entry).
-#               2 -- > 85% percentil with some gauss bell curve assumed
-#                    I assume
-#                    - in the first phase (when many elements have precharged value)
-#                      faster starting to have an impact than 1
-#                    - later more stable + smooth than 1
-#                    but more complex.
-#               It is to be expected and in experiments already revealed that neither
-#               - m replay runs with the same effective grammars and settings
-#                 --> elapsed RQG runtime
-#               - n replay runs with increasing simplified grammars
-#                 --> elapsed rqg_batch.pl runtime or rqg.pl runtime of "winner"
-#               have a bell curve regarding the elapsed runtime.
-#
-#
+
 # Conversion routine for 100M etc.
 #
 

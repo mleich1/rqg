@@ -405,8 +405,8 @@ sub stop_worker {
         kill '-KILL', $pid;
         $worker_array[$worker_num][WORKER_STOP_REASON] = $stop_reason;
         my $order_id = $worker_array[$worker_num][WORKER_ORDER_ID];
-        say("DEBUG: Try to stop RQG worker $worker_num with orderid $order_id because of ->$stop_reason<-.")
-            if Auxiliary::script_debug("T6");
+        say("DEBUG: Try to stop RQG worker $worker_num with orderid $order_id because of " .
+            "->$stop_reason<-.") if Auxiliary::script_debug("T6");
     }
 }
 
@@ -418,6 +418,24 @@ sub stop_workers {
 }
 
 sub stop_worker_young {
+# Purpose
+# -------
+# This gets used by the Simplifier only!
+# In case some RQG run using a derivate (according to order properties) of the current parent
+# grammar replayed the desired outcome than
+# - the derivate grammar gets loaded and some new parent grammar gets constructed
+# - all other ongoing RQG runs may replay later too but that requires the efforts till these
+#   runs are finished.
+#   And if they replay than their result(grammar used, shape of order) is regarding the overall
+#   simplification progress only like
+#      We now know that the grammar used IS capable to replay and the shape of the order MIGHT
+#      be capable to replay again. But figuring out the latter requires some new RQG run.
+# So we make here the following optimization
+#   In case the amount of already invested efforts is sufficient low than we stop that RQG run
+#   and restart it with some new grammar which is based on the original order and the latest
+#   parent grammar.
+#
+
     for my $worker_num (1..$workers) {
         my $pid = $worker_array[$worker_num][WORKER_PID];
         if (-1 != $pid) {
@@ -441,7 +459,6 @@ sub stop_worker_young {
 }
 
 sub emergency_exit {
-
     my ($status, $reason) = @_;
     if (defined $reason) {
         say($reason);
@@ -453,7 +470,6 @@ sub emergency_exit {
     $give_up = 3;
     stop_workers();
     safe_exit ($status);
-
 }
 
 my $no_start_before;
@@ -1027,10 +1043,32 @@ use constant ORDER_PROPERTY2        => 3;
 use constant ORDER_PROPERTY3        => 4;
 
 
+# The management of orders via queues
+# ===================================
 # Picking some order for generating a job followed by execution means
 # - looking into several queues in some deterministic order
 # - pick the first element in case there is one, otherwise look into the next queue or similar
-# - an element picked gets removed
+# - an element picked gets removed from the corresponding queue
+#   In case that order is
+#   - is valid == None of the requirements for the test are violated
+#     than some corresponding RQG run gets started and the order id gets added to @try_run_queue
+#   - no more valid (Example: We should remove component x1 from rule X. But X is already removed.)
+#     than the order id gets added to @try_never_queue
+# After finishing some RQG run a decision about the fate of that order is done based on the fate
+# of that RQG run.
+# a) The run was stopped because of reasons like resource shortage or workflow optimization.
+#    Append the order id to @try_first_queue.
+# b) Outcome of the run is not the desired one
+#    Decrement ORDER_EFFORTS_LEFT and
+#    - add order id to @try_over_queue if ORDER_EFFORTS_LEFT <= 0.
+#    - add order id to @try_queue      if ORDER_EFFORTS_LEFT  > 0.
+# c) Outcome of the run is the desired one
+#    Combinator: like b)
+#    Simplifier:
+#    - replay based on current parent grammar
+#      Exploit that progress (=> get new parent grammar) and add order id to @try_never_queue.
+#    - replay based on some parent grammar older than the current one
+#      Increment ORDER_EFFORTS_LEFT by 2 and add order id to @try_first_queue.
 #
 # @try_run_queue
 # --------------
@@ -1038,6 +1076,7 @@ use constant ORDER_PROPERTY3        => 4;
 # They are
 # - after being picked from some queue, being valid, a job was generated and given into execution
 # - before it was detected that the execution ended etc.
+my @try_run_queue;
 #
 # @try_first_queue
 # ----------------
@@ -1105,11 +1144,7 @@ my @try_over_queue;
 #   Place orders which are no more capable to bring any progress here.
 #   == Never run a job based on this in future.
 my @try_never_queue;
-#
-# @try_run_queue
-# --------------
-# The jobs which are in the moment running
-my @try_run_queue;
+
 
 sub dump_queues {
     say("DEBUG: \@try_run_queue   : " . join (' ', @try_run_queue  ));
@@ -1189,7 +1224,6 @@ sub known_orders_waiting {
 
 
 sub get_order {
-
     my $order_id;
     # Sort @try_first_queue numerically ascending because in average the orders with the lower
     # id's will remove more if having success at all.
@@ -1216,10 +1250,12 @@ sub get_order {
 
 
 sub add_order {
-
     my ($order_id) = @_;
-    # FIXME: Check the input
-
+    if (not defined $order_id) {
+        Carp::cluck("INTERNAL ERROR: order_id is undef.");
+        my $status = STATUS_INTERNAL_ERROR;
+        emergency_exit($status);
+    }
     push @try_queue, $order_id;
 }
 
@@ -1230,7 +1266,6 @@ sub add_to_try_over {
         my $status = STATUS_INTERNAL_ERROR;
         emergency_exit($status);
     }
-
     push @try_over_queue, $order_id;
 }
 sub add_to_try_never {
@@ -1249,7 +1284,6 @@ sub add_to_try_first {
         my $status = STATUS_INTERNAL_ERROR;
         emergency_exit($status);
     }
-
     push @try_first_queue, $order_id;
 }
 
@@ -1438,7 +1472,7 @@ sub process_finished_runs {
             }
         }
     }
-}
+} # End of sub process_finished_runs
 
 
 1;
