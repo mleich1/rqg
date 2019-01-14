@@ -482,6 +482,15 @@ sub doGenTest {
 
    $errorfilter_p->kill();
 
+   # This is some vague value because
+   # - it is not 100% ensured that all threads are gone
+   # - even if all threads are gone than we had the overhead for stopping threads + reporters.
+   # Nevertheless the values got
+   # - seem to be surprising accurate
+   # - do not include the time required by gdb for analysing cores.
+   # So this time can be used for the duration adaption mechanism of the Simplifier.
+   say("INFO: GenTest: Effective duration in s : " . (time() - $self->[GT_TEST_START]));
+
    return $self->reportResults($total_status);
 
 } # End of sub doGenTest

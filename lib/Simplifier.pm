@@ -1427,13 +1427,18 @@ sub register_result {
     #    parameters but contained around end of the RQG run log.
     my $gentest_runtime;
     if ($verdict eq Verdict::RQG_VERDICT_REPLAY) {
+        # 2019-01-11T18:44:45 [21041] INFO: GenTest: Effective duration in s : 193
         # 2018-11-19T16:16:19 [19309] SUMMARY: RQG GenData runtime in s : 0
         # 2018-11-19T16:16:19 [19309] SUMMARY: RQG GenTest runtime in s : 31
         # 2018-11-19T16:16:19 [19309] SUMMARY: RQG total runtime in s : 34
         ##### 2018-11-19T16:16:19 [19309] SUMMARY: RQG verdict : replay
         my $logfile = $workdir . "/" . $saved_log_rel;
         $gentest_runtime = Batch::get_string_after_pattern($logfile,
-                               "SUMMARY: RQG GenTest runtime in s : ");
+                               "INFO: GenTest: Effective duration in s : ");
+        if (not defined $gentest_runtime) {
+            $gentest_runtime = Batch::get_string_after_pattern($logfile,
+                                   "SUMMARY: RQG GenTest runtime in s : ");
+        }
         replay_runtime_fifo_update($gentest_runtime);
         say("DEBUG: Replayer with orderid : $order_id needed gentest_runtime : $gentest_runtime")
             if Auxiliary::script_debug("S5");
@@ -1740,11 +1745,14 @@ sub switch_phase {
         Batch::write_result("$iso_ts ---------- $phase ---------- ($child_grammar)\n" .
                             $iso_ts . $title_line_part);
     } elsif (PHASE_SIMP_END eq $phase)   {
+        $grammar_string = GenTest::Simplifier::Grammar_advanced::init(
+                              $workdir . "/" . $parent_grammar, $threads, 200, $grammar_flags);
+        Batch::make_file($workdir . "/final.yy", $grammar_string . "\n");
         say("");
         say("");
         say("SUMMARY: Maybe simplified number of threads : $threads");
         say("SUMMARY: Maybe simplified RVT setting :       '" . $rvt_snip . "'");
-        say("SUMMARY: Maybe Simplified RQG Grammar :       '" . $workdir  . "/$best_grammar'");
+        say("SUMMARY: Maybe Simplified best tested RQG Grammar : '" . $workdir . "/$best_grammar'");
         say("");
         say("");
     } else {
