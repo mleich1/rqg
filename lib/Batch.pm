@@ -380,10 +380,10 @@ use constant WORKER_ORDER_LENGTH =>  8;
         # Omit inactive workers.
         next if -1 == $worker_array[$worker_num][WORKER_START];
         $message = $message . Auxiliary::lfill($worker_num, WORKER_ID_LENGTH) .
-           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_PID],   WORKER_PID_LENGTH)      .
-           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_START], WORKER_START_LENGTH)    .
-           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_END],   WORKER_START_LENGTH)      .
-           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_ORDER_ID], WORKER_ORDER_LENGTH)  ;
+           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_PID],      WORKER_PID_LENGTH)   .
+           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_START],    WORKER_START_LENGTH) .
+           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_END],      WORKER_START_LENGTH) .
+           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_ORDER_ID], WORKER_ORDER_LENGTH) ;
         foreach my $index (WORKER_EXTRA1, WORKER_EXTRA2, WORKER_EXTRA3,WORKER_VERDICT,WORKER_LOG) {
             my $val = $worker_array[$worker_num][$index];
             if (not defined $val) {
@@ -441,7 +441,7 @@ sub stop_worker_young {
         if (-1 != $pid) {
             # Per last update of bookkeeping the RQG Woorker was alive.
             my $rqg_workdir = $workdir . "/" . $worker_num;
-            my $rqg_phase = Auxiliary::get_rqg_phase($rqg_workdir);
+            my $rqg_phase   = Auxiliary::get_rqg_phase($rqg_workdir);
             if      (not defined $rqg_phase) {
                 my $status = STATUS_ENVIRONMENT_FAILURE;
                 emergency_exit($status, "ERROR: Batch::stop_worker_young : No phase for " .
@@ -537,7 +537,7 @@ sub check_resources {
             my $max_wait = 30;
             my $end_time = time() + $max_wait;
             # FIXME:
-            # The activity of the other RQG workers could be also dangerous.
+            # The activity of the other RQG workers could be also dangerous and 30s is long.
             while (time() < $end_time and -1 != $worker_array[$worker_number][WORKER_PID]) {
                 reap_workers();
                 sleep 0.1;
@@ -1043,45 +1043,37 @@ use constant ORDER_PROPERTY2        => 3;
 use constant ORDER_PROPERTY3        => 4;
 
 
-# The management of orders via queues
-# ===================================
+# The management of orders via queues and hashes
+# ==============================================
 # Picking some order for generating a job followed by execution means
-# - looking into several queues in some deterministic order
-# - pick the first element in case there is one, otherwise look into the next queue or similar
-# - an element picked gets removed from the corresponding queue
+# - looking into several queues and hashes in some deterministic order
+# - pick the first element in case there is one, otherwise look into the next or similar
+# - an element picked gets removed from the corresponding queue or hash
 #   In case that order is
-#   - is valid == None of the requirements for the test are violated
-#     than some corresponding RQG run gets started and the order id gets added to @try_run_queue
+#   - is valid (none of the requirements for the test are violated) than some corresponding
+#     RQG run gets started.
 #   - no more valid (Example: We should remove component x1 from rule X. But X is already removed.)
-#     than the order id gets added to @try_never_queue
+#     than the order id gets added to %try_never_hash
 # After finishing some RQG run a decision about the fate of that order is done based on the fate
 # of that RQG run.
 # a) The run was stopped because of reasons like resource shortage or workflow optimization.
-#    Append the order id to @try_first_queue.
-# b) Outcome of the run is not the desired one
-#    Decrement ORDER_EFFORTS_LEFT and
-#    - add order id to @try_over_queue if ORDER_EFFORTS_LEFT <= 0.
-#    - add order id to @try_queue      if ORDER_EFFORTS_LEFT  > 0.
+#    Add the order id to @try_first_hash.
+# b) Outcome of the run is not the desired one than add the order id to %try_over_hash or
+#    %try_over_hash.
 # c) Outcome of the run is the desired one
 #    Combinator: like b)
 #    Simplifier:
 #    - replay based on current parent grammar
-#      Exploit that progress (=> get new parent grammar) and add order id to @try_never_queue.
+#      Exploit that progress (=> get new parent grammar) and add order id to %try_never_hash
+#      and clean other try_*hashes.
 #    - replay based on some parent grammar older than the current one
-#      Increment ORDER_EFFORTS_LEFT by 2 and add order id to @try_first_queue.
+#      Add order id to %try_first_hash, %try_later_hash, %try_last_hash.
 #
-# @try_run_queue
-# --------------
-# Queue containing orders (-> order_id) which have in the moment the following state
-# They are
-# - after being picked from some queue, being valid, a job was generated and given into execution
-# - before it was detected that the execution ended etc.
-my @try_run_queue;
 #
-# @try_first_queue
-# ----------------
+# %try_first_hash
+# ---------------
 # Queue containing orders (-> order_id) which should be executed before any order from some other
-# queue is picked.
+# hash is picked.
 # Usage:
 # - In case the execution of some order Y had to be stopped because of technical reasons than
 #   repeating that should be favoured
@@ -1089,53 +1081,71 @@ my @try_run_queue;
 #     In addition being forced to end could come at any arbitrary point of time or progress.
 #     So we need to take care immediate and should not delay that.
 #   - partially in case we run grammar simplification because we try the simplification ordered
-#     from the in average most efficient steps to the less efficient steps.  ???
+#     from the in average most greedy steps to the less greedy steps.
 # - In case the execution of some order Y (simplification Y applied to good grammar G replayed
 #   but was a "too late replayer" than this simplification Y could be not applied.
-#   But from the candidates we have in the queues
-#       @try_queue, @try_later_queue maybe even @try_over_queue
-#   we do not know if they are capable to replay at all and either we
-#   - have them already tried with some efforts invested but no replay
-#   - have them not tried at all
-#   and so the order Y gets appended to @try_first_queue.
-#   Note:
-#   We pick the first order from @try_first_queue , if there is one, anyway because that is
-#   in average even better.
-my @try_first_queue;
+#   Compared to the candidates we have in the hashes
+#       %try_first_hash, %try_hash, %try_over_hash, %try_over_bl_hash
+#   the current one (second "winner") seems to be the best one (some more explanation below).
+#   Therefore we add this order id to %try_first_hash.
+my %try_first_hash;
 #
 # @try_queue
 # ----------
-# Queue containing orders (-> order_id) which should be executed if @try_first_queue is empty
-# and before any order from some queue like @try_later_queue or @try_over_queue is picked.
+# Queue (driven as FIFO) containing orders (-> order_id) which should be executed if
+# %try_first_hash is empty.
+# Reasons of using a FIFO:
+# 1. Duplication of orders in them should be supported even though being in the moment not
+#    used intentional.
+#    ... 13 - 24 - 13 - 17 ...
+# 2. It could happen that two chunks of order id's get appended and that the consumption order
+#    should be different than order id asc.
 # Usage:
 # In case orders get generated than they get appended to @try_queue.
-my @try_queue;
+# In case all possible orders were already generated than the sorted keys from certain hashes get
+# appended to @try_queue.
+my %try_hash;
 #
-# @try_later_queue
-# ----------------
-# If ever used than in grammar simplification only.
+# %try_later_hash, %try_last_hash, (%try_first_hash)
+# --------------------------------------------------
+# Used than in grammar simplification only.
 # Roughly:
-# We have already some efforts invested but had no replay.
-# There are some efforts to be invested left over.
-# It seems to be better to generate more orders and add them to @try_queue than to run the
-# orders with left over efforts soon again.
-my @try_later_queue;
+# Some RQG test with a grammar based on that order replayed. But we could not exploit that
+# (mean reload grammar and get a new parent grammar) because some other test won.
+# So how does that compare to test results with other orders
+# Result of other order | remark
+# ----------------------+---------------------------------------------------------------------------
+# status_ignore_ok      | Maybe the other grammar ~~> order is not capable to replay or maybe just
+#                       | the likelihood to replay is lower.
+# ----------------------+---------------------------------------------------------------------------
+# status_ignore_bl      | Maybe the other grammar ~~> order is not capable to replay or maybe just
+#                       | the likelihood to replay is lower or maybe just the likelihood to hit
+# ----------------------+---------------------------------------------------------------------------
+# in %try_first_hash    | The stopped ones are probably in average a bit better than the 
+# == status_replay or   | - a bit better than the status_ignore_ok and status_ignore_bl above.
+# status_ignore_stopped | - less good than the replayer we are talking about.
+#                       | Replayers in %try_first_hash are roughly as good as the current one.
 #
-# @try_over_queue
-# ---------------
+# It seems to be better to generate more orders and add them to @try_hash than to run the
+# orders with left over efforts soon again.
+my %try_later_hash;
+my %try_last_hash;
+#
+# %try_over_bl_hash, %try_over_hash
+# ---------------------------------
 # Usage:
 # combinations and grammar simplification
-#   Orders where left over efforts <= 0 was reached get appended to @try_over_queue.
+#   Orders where left over efforts <= 0 was reached get appended to %try_over_hash.
 #   In case of
-#       @try_first_queue and @try_queue empty
+#       %try_first_hash and %try_hash empty
 #       and all possible combinations/simplifications were already generated
 #       and no other limitation (example: maxruntime) was exceeded
-#   the content of @try_over_queue gets sorted, the left over efforts of the orders get increased
-#   and all these orders get moved to @try_queue. Direct after that operation @try_over_queue
-#   is empty.
-my @try_over_queue;
+#   the content of %try_over_hash gets sorted and all these orders get moved to @try_hash.
+#   Direct after that operation @try_over_hash is empty.
+my %try_over_bl_hash;
+my %try_over_hash;
 #
-# @try_never_queue
+# @try_never_hash
 # ----------------
 # Usage:
 # - combinations
@@ -1143,153 +1153,158 @@ my @try_over_queue;
 # - grammar simplification
 #   Place orders which are no more capable to bring any progress here.
 #   == Never run a job based on this in future.
-my @try_never_queue;
+my %try_never_hash;
 
 
-sub dump_queues {
-    say("DEBUG: \@try_run_queue   : " . join (' ', @try_run_queue  ));
-    say("DEBUG: \@try_first_queue : " . join (' ', @try_first_queue));
-    say("DEBUG: \@try_queue       : " . join (' ', @try_queue      ));
-    say("DEBUG: \@try_later_queue : " . join (' ', @try_later_queue));
-    say("DEBUG: \@try_over_queue  : " . join (' ', @try_over_queue ));
-    say("DEBUG: \@try_never_queue : " . join (' ', @try_never_queue));
+sub dump_try_hashes {
+    say("DEBUG: \%try_first_hash   : " . join (' ', sort {$a <=> $b} keys %try_first_hash));
+    say("DEBUG: \%try_hash         : " . join (' ', sort {$a <=> $b} keys %try_hash ));
+    say("DEBUG: \%try_later_hash   : " . join (' ', sort {$a <=> $b} keys %try_later_hash));
+    say("DEBUG: \%try_last_hash    : " . join (' ', sort {$a <=> $b} keys %try_last_hash));
+    say("DEBUG: \%try_over_bl_hash : " . join (' ', sort {$a <=> $b} keys %try_over_bl_hash ));
+    say("DEBUG: \%try_over_hash    : " . join (' ', sort {$a <=> $b} keys %try_over_hash ));
+    say("DEBUG: \%try_never_hash   : " . join (' ', sort {$a <=> $b} keys %try_never_hash));
 }
-sub init_queues {
-    @try_run_queue   = ();
-    @try_first_queue = ();
-    @try_queue       = ();
-    @try_later_queue = ();
-    @try_over_queue  = ();
-    @try_never_queue = ();
+sub init_try_hashes {
+    undef %try_first_hash;
+    undef %try_hash;
+    undef %try_later_hash;
+    undef %try_last_hash;
+    undef %try_over_bl_hash;
+    undef %try_over_hash;
+    undef %try_never_hash;
 }
-sub check_queues {
-    my %check_hash;
-    for my $order_id (@try_run_queue, @try_first_queue, @try_queue, @try_later_queue,
-                @try_over_queue, @try_never_queue)                              {
-        if (exists($check_hash{$order_id})) {
-            Carp:cluck("INTERNAL ERROR: The Order Id occurs more than once in the queues.");
-            dump_queues();
-            my $status = STATUS_INTERNAL_ERROR;
-            emergency_exit($status);
-        } else {
-            $check_hash{$order_id} = 1;
-        }
-    }
-    say("DEBUG: The queues are consistent.") if Auxiliary::script_debug("T6");
-}
-sub add_id_to_run_queue {
-    my ($order_id) = @_;
-    if (not defined $order_id) {
-        Carp::cluck("INTERNAL ERROR: order_id is undef.");
-        my $status = STATUS_INTERNAL_ERROR;
-        emergency_exit($status);
-    }
-    push @try_run_queue, $order_id;
-}
-sub remove_id_from_run_queue {
-    my ($order_id) = @_;
-    if (not defined $order_id) {
-        Carp::cluck("INTERNAL ERROR: order_id is undef.");
-        my $status = STATUS_INTERNAL_ERROR;
-        emergency_exit($status);
-    }
-    my @replace_queue = ();
-    my $have_removed  = 0;
-    foreach my $id (@try_run_queue) {
-        if ($order_id != $id) {
-           push @replace_queue, $id;
-        } else {
-            $have_removed = 1;
-        }
-    }
-    if (not $have_removed) {
-        Carp::cluck("INTERNAL ERROR: Order id $order_id not found in \@try_run_queue.");
-        dump_queues();
-        my $status = STATUS_INTERNAL_ERROR;
-        emergency_exit($status);
-    }
-    @try_run_queue = @replace_queue;
-}
+# sub check_queues {
+#     return;
+#     my %check_hash;
+#     for my $order_id (@try_run_queue, @try_first_queue, @try_queue, @try_later_queue,
+#                       @try_last_queue, @try_over_bl_queue, @try_over_queue, @try_never_queue) {
+#         if (exists($check_hash{$order_id})) {
+#             Carp:cluck("INTERNAL ERROR: The Order Id occurs more than once in the queues.");
+#             dump_queues();
+#             my $status = STATUS_INTERNAL_ERROR;
+#             emergency_exit($status);
+#         } else {
+#             $check_hash{$order_id} = 1;
+#         }
+#     }
+#     say("DEBUG: The queues are consistent.") if Auxiliary::script_debug("T6");
+# }
 sub known_orders_waiting {
 # Purpose:
 # Detect the following state of grammar simplification.
 # 0. All possible orders were generated ($out_of_ideas==1), which is not checked here.
 # 1. None of the orders is
-#    - currently in trial/running                  --> @try_run_queue
-#    - waiting for trial/running                   --> @try_first_queue, @try_queue
-#    - delayed candidate for repetition of the run --> @try_later_queue
-    my @join_array = (@try_run_queue, @try_first_queue, @try_queue, @try_later_queue);
-    return scalar @join_array;
+#    - currently in trial/running                  --> count_active_workers()
+#    - waiting for trial/running                   --> @try_first_hash, @try_hash
+#    Delayed candidates for repetition of the run are ignored!
+    my @join_array = (keys %try_first_hash, keys %try_hash);
+    say("DEBUG: known_orders_waiting : " . join(' ', @join_array))
+                if Auxiliary::script_debug("B5");
+    return (count_active_workers() + scalar @join_array);
 }
 
 
 sub get_order {
     my $order_id;
-    # Sort @try_first_queue numerically ascending because in average the orders with the lower
-    # id's will remove more if having success at all.
-    @try_first_queue = sort {$a <=> $b} @try_first_queue;
-    $order_id = shift @try_first_queue;
+    my @array;
+    # Sort keys of %try_first_queue numerically ascending because in average the orders with the
+    # lower id's will remove more if having success at all.
+    @array    = sort {$a <=> $b} keys %try_first_hash;
+    $order_id = shift @array;
     if (defined $order_id) {
-        say("DEBUG: Order $order_id picked from \@try_first_queue.")
+        say("DEBUG: Order $order_id picked from \%try_first_hash.")
             if Auxiliary::script_debug("B5");
+        delete $try_first_hash{$order_id};
     } else {
-        # @try_first_queue was empty.
-        $order_id = shift @try_queue;
+        # %try_first_hash was empty.
+        @array    = sort {$a <=> $b} keys %try_hash;
+        $order_id = shift @array;
         if (defined $order_id) {
-            say("DEBUG: Order $order_id picked from \@try_queue.")
+            say("DEBUG: Order $order_id picked from \%try_hash.")
                 if Auxiliary::script_debug("B5");
+            delete $try_hash{$order_id};
         } else {
-            # @try_queue was empty too.
-            say("DEBUG: \@try_first_queue and \@try_queue are empty.")
+            # %try_hash was empty too.
+            say("DEBUG: \%try_first_hash and \%try_hash are empty.")
                 if Auxiliary::script_debug("B5");
-            return undef;
         }
     }
     return $order_id;
 }
 
-
-sub add_order {
+sub check_order_id {
     my ($order_id) = @_;
     if (not defined $order_id) {
         Carp::cluck("INTERNAL ERROR: order_id is undef.");
         my $status = STATUS_INTERNAL_ERROR;
         emergency_exit($status);
     }
-    push @try_queue, $order_id;
+}
+
+sub add_order {
+    my ($order_id) = @_;
+    check_order_id($order_id);
+    # FIXME: Bail out if order_id is already known?
+    $try_hash{$order_id} = 1;
 }
 
 sub add_to_try_over {
     my ($order_id) = @_;
-    if (not defined $order_id) {
-        Carp::cluck("INTERNAL ERROR: order_id is undef.");
-        my $status = STATUS_INTERNAL_ERROR;
-        emergency_exit($status);
-    }
-    push @try_over_queue, $order_id;
+    check_order_id($order_id);
+    # FIXME: Bail out if order_id is already known?
+    $try_over_hash{$order_id} = 1;
+}
+sub add_to_try_over_bl {
+    my ($order_id) = @_;
+    check_order_id($order_id);
+    $try_over_bl_hash{$order_id} = 1;
 }
 sub add_to_try_never {
     my ($order_id) = @_;
-    if (not defined $order_id) {
-        Carp::cluck("INTERNAL ERROR: order_id is undef.");
-        my $status = STATUS_INTERNAL_ERROR;
-        emergency_exit($status);
-    }
-    push @try_never_queue, $order_id;
+    check_order_id($order_id);
+    $try_never_hash{$order_id} = 1;
+    delete $try_over_hash{$order_id};
+    delete $try_over_bl_hash{$order_id};
+    delete $try_first_hash{$order_id};
+    delete $try_later_hash{$order_id};
+    delete $try_last_hash{$order_id};
+    delete $try_hash{$order_id};
 }
+
 sub add_to_try_first {
     my ($order_id) = @_;
-    if (not defined $order_id) {
-        Carp::cluck("INTERNAL ERROR: order_id is undef.");
-        my $status = STATUS_INTERNAL_ERROR;
-        emergency_exit($status);
-    }
-    push @try_first_queue, $order_id;
+    check_order_id($order_id);
+    $try_first_hash{$order_id} = 1;
+}
+sub add_to_try_intensive_again {
+    my ($order_id) = @_;
+    check_order_id($order_id);
+    $try_first_hash{$order_id} = 1;
+    $try_later_hash{$order_id} = 1;
+    $try_last_hash{$order_id}  = 1;
+}
+
+sub consume_try_later_hash {
+    %try_hash = %try_later_hash;
+    undef %try_later_hash;
+}
+sub consume_try_over_hash {
+    %try_hash = %try_over_hash;
+    undef %try_over_hash;
+}
+sub consume_try_over_bl_hash {
+    %try_hash = %try_over_bl_hash;
+    undef %try_over_bl_hash;
+}
+sub consume_try_last_hash {
+    %try_hash = %try_last_hash;
+    undef %try_last_hash;
 }
 
 # Certain routines which are based on routines with the same name and located in Auxiliary.pm.
 # --------------------------------------------------------------------------------------------
-# The important diff is that we perform an emergency_exit in order to minimize possible
+# The important difference is that we perform an emergency_exit in order to minimize possible
 # future trouble on the testing box like
 # - space consumed in general vardir (usually tmpfs of small size)
 # - further running MariaDB server which consume ressources and block ports etc.

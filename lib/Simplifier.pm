@@ -177,11 +177,6 @@ my @order_array = ();
 # Number of RQG runs for that orderid or sum of their runtimes
 use constant ORDER_EFFORTS_INVESTED => 0;
 
-# ORDER_EFFORTS_LEFT
-# Number or sum of runtimes of possible executions in future which maybe have finished regular.
-# Example: rqg_batch will not pick some order with ORDER_EFFORTS_LEFT <= 0 for execution.
-use constant ORDER_EFFORTS_LEFT     => 1;
-#
 # ORDER_PROPERTY1
 # Snip of the command line for the RQG runner.
 use constant ORDER_PROPERTY1        => 2;
@@ -375,9 +370,6 @@ sub init {
     # - Combinator/Simplifier init gets called before any Worker is running
     # - this init will be never called again
     # we can run safe_exit($status) and do not need to initiate an emergency_exit.
-    # FIXME:
-    # Maybe return ($status, $action) like register_result and than we could reinit
-    # if useful and do other wild stuff.
     #
     if (2 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
@@ -790,12 +782,6 @@ sub init {
     }
     say("DEBUG: mysql_options ->$mysql_options<-") if Auxiliary::script_debug("S4");
 
-    ### FIXME: Treat these targets of simplification in detail
-    ### What happens in case
-    #### $reporters = undef
-    #### $reporters = ''
-    #### $reporters = 'A,,D'
-
     # $config->reporters , $config->validators and $config->transformers are all pointers to
     # corresponding arrays.
     my $reporters = $config->reporters;
@@ -1011,13 +997,6 @@ sub get_job {
             say("DEBUG: Batch::get_order delivered order_id $order_id.")
                 if Auxiliary::script_debug("S6");
             my $order_is_valid = 0;
-            if ($order_array[$order_id][ORDER_EFFORTS_LEFT] <= 0) {
-                say("DEBUG: Order with id $order_id is no more valid.")
-                    if Auxiliary::script_debug("S4");
-                $order_is_valid = 0;
-                Batch::add_to_try_over($order_id);
-                $order_id = undef;
-            } else {
                 # PHASE_SIMP_BEGIN        not relevant
                 # PHASE_FIRST_REPLAY      handled
                 # PHASE_THREAD1_REPLAY    handled
@@ -1031,7 +1010,6 @@ sub get_job {
                     # Any order is valid. The sufficient enough tried were already sorted out above.
                     $order_is_valid = 1;
                     # The grammar to be used is the parent grammar when entering the phase.
-                    # Caused by MLML
                     $job[Batch::JOB_CL_SNIP]  = $cl_snip_all . $cl_snip_phase .
                                          " --grammar=" . $workdir . "/" . $child_grammar;
                     $job[Batch::JOB_ORDER_ID] = $order_id;
@@ -1099,32 +1077,40 @@ sub get_job {
                     my $status = STATUS_INTERNAL_ERROR;
                     Batch::emergency_exit($status);
                 }
-            }
         } else {
-            # @try_first_queue and @try_queue were empty.
+            # %try_first_hash and %try_hash were empty and so $order_id is undef.
             say("DEBUG: Batch::get_order delivered an undef order_id.")
                 if Auxiliary::script_debug("S5");
-            if (not $out_of_ideas) {
+            if (0 == $out_of_ideas) {
                 # We do not already know if generating a new order is impossible.
                 # So we need to try it.
                 if (not generate_orders()) {
                     say("DEBUG: generate_orders delivered nothing. Setting out_of_ideas")
                          if Auxiliary::script_debug("S4");
                     $out_of_ideas = 1;
-                    last;
                 } else {
-                    # There must be now one or more new orders in @try_queue.
+                    # There must be now one or more new orders in %try_hash.
                     # So let them get found by Batch::get_order() and checked if valid.
-                    next;
                 }
+                next;
+            } elsif (1 == $out_of_ideas) {
+                $out_of_ideas = 2;
+                Batch::consume_try_later_hash;
+            } elsif (2 == $out_of_ideas) {
+                $out_of_ideas = 3;
+                Batch::consume_try_over_hash;
+            } elsif (3 == $out_of_ideas) {
+                $out_of_ideas = 4;
+                Batch::consume_try_over_bl_hash;
+            } elsif (4 == $out_of_ideas) {
+                $out_of_ideas = 5;
+                Batch::consume_try_last_hash;
             } else {
                 last;
             }
-            # FIXME:
-            # Depending on phase orders from @try_over_queue could get "reactivated".
         }
         say("DEBUG: End of loop for getting an order.") if Auxiliary::script_debug("S6");
-    }
+    } # End of while (not defined $order_id)
     if (Auxiliary::script_debug("S6")) {
         if (defined $order_id) {
             say("DEBUG: OrderID is $order_id.");
@@ -1136,14 +1122,14 @@ sub get_job {
     }
 
     if (not defined $order_id) {
-        # @try_first_queue empty , @try_queue empty too and extending obviously impossible
-        # because otherwise @try_queue would be not empty.
+        # %try_first_hash empty , %try_hash empty too and extending obviously impossible
+        # because otherwise %try_hash would be not empty.
         # == All possible orders were generated.
-        #    Some might be in execution and all other must be in @try_over_queue or
-        #    @try_never_queue.
+        #    Some might be in execution and all other must be in %try_over_hash or
+        #    %try_never_hash.
         say("DEBUG: No order got, active : $active, out_of_ideas : $out_of_ideas")
             if Auxiliary::script_debug("S5");
-        Batch::dump_queues() if Auxiliary::script_debug("S6");
+        Batch::dump_try_hashes() if Auxiliary::script_debug("S6");
         if (not $active and $out_of_ideas) {
             $phase_switch     = 1;
             say("DEBUG: Simplifier::get_job : No valid order found, active : $active, " ,
@@ -1159,7 +1145,6 @@ sub get_job {
             Batch::emergency_exit($status);
         }
         # Prepare the job according to phase
-        Batch::add_id_to_run_queue($order_id);
         return @job;
     }
 
@@ -1218,12 +1203,7 @@ print("\n" .
 sub print_order {
 
     my ($order_id) = @_;
-
-    if (not defined $order_id) {
-        say("INTERNAL ERROR: print_order was called with some not defined \$order_id.\n");
-        my $status = STATUS_INTERNAL_ERROR;
-        Batch::emergency_exit($status);
-    }
+    Batch::check_order_id($order_id);
     my @order = @{$order_array[$order_id]};
     say("$order_id § " . join (' § ', @order));
 
@@ -1248,7 +1228,7 @@ sub generate_orders {
     $generate_calls++;
     say("DEBUG: Number of generate_orders calls : $generate_calls")
         if Auxiliary::script_debug("S5");
-    Batch::dump_queues() if Auxiliary::script_debug("S5");
+    Batch::dump_try_hashes() if Auxiliary::script_debug("S5");
     my $success = 0;
     # PHASE_SIMP_BEGIN        should not be relevant but is handled in the else branch
     # PHASE_FIRST_REPLAY      handled
@@ -1355,7 +1335,7 @@ sub generate_orders {
     if ($success) {
         if (Auxiliary::script_debug("S5")) {
             dump_orders();
-            Batch::dump_queues();
+            Batch::dump_try_hashes();
         }
         return 1;
     } else {
@@ -1376,7 +1356,6 @@ sub add_order {
     $order_id_now++;
 
     $order_array[$order_id_now][ORDER_EFFORTS_INVESTED] = 0;
-    $order_array[$order_id_now][ORDER_EFFORTS_LEFT]     = 1;
     $order_array[$order_id_now][ORDER_PROPERTY1]        = $order_property1;
     $order_array[$order_id_now][ORDER_PROPERTY2]        = $order_property2;
     $order_array[$order_id_now][ORDER_PROPERTY3]        = $order_property3;
@@ -1411,7 +1390,7 @@ sub register_result {
     }
     if (not defined $order_id or not defined $verdict) {
         my $status = STATUS_INTERNAL_ERROR;
-        say("INTERNAL ERROR: order_id is undef");
+        Carp::cluck("INTERNAL ERROR: order_id is undef");
         Batch::emergency_exit($status);
     }
     Carp::cluck("DEBUG: Simplifier::register_result(order_id, verdict, saved_log_rel, " .
@@ -1419,9 +1398,6 @@ sub register_result {
         if Auxiliary::script_debug("S4");
 
     $arrival_number = 1 if not defined $arrival_number;
-
-    # -1. Remove the order_id from the queue of just executed orders.
-    Batch::remove_id_from_run_queue($order_id);
 
     # 0. In case of a replay we need to pull information which is not part of the routine
     #    parameters but contained around end of the RQG run log.
@@ -1461,7 +1437,7 @@ sub register_result {
     Batch::append_string_to_file ($result_file, $line);
     $arrival_number++;
 
-    # 2. Update $left_over_trials, ORDER_EFFORTS_INVESTED and ORDER_EFFORTS_LEFT
+    # 2. Update $left_over_trials, ORDER_EFFORTS_INVESTED
     if      ($verdict eq Verdict::RQG_VERDICT_IGNORE           or
              $verdict eq Verdict::RQG_VERDICT_IGNORE_STATUS_OK or
              $verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST or
@@ -1469,7 +1445,6 @@ sub register_result {
              $verdict eq Verdict::RQG_VERDICT_REPLAY           or
              $verdict eq Verdict::RQG_VERDICT_INIT       ) {
         $order_array[$order_id][ORDER_EFFORTS_INVESTED]++;
-        $order_array[$order_id][ORDER_EFFORTS_LEFT]--;
         $left_over_trials--;
     } elsif ($verdict eq Verdict::RQG_VERDICT_IGNORE_STOPPED) {
         # Do nothing with the $order_array[$order_id][ORDER_EFFORTS_*].
@@ -1525,11 +1500,7 @@ sub register_result {
                 return (STATUS_OK, Batch::REGISTER_GO_ON);
             } else {
                 # Its a too late winner.
-                Batch::add_to_try_first($order_id);
-                # Increase ORDER_EFFORTS_LEFT because if its <= 0 we will get no repetition.
-                # Increase by 2 because it a thta promising candidate.
-                $order_array[$order_id][ORDER_EFFORTS_LEFT]++;
-                $order_array[$order_id][ORDER_EFFORTS_LEFT]++;
+                Batch::add_to_try_intensive_again($order_id);
             }
         } elsif (PHASE_GRAMMAR_SIMP eq $phase or
                  PHASE_GRAMMAR_DEST eq $phase   ) {
@@ -1538,11 +1509,7 @@ sub register_result {
                 Batch::add_to_try_never($order_id);
             } else {
                 # Its a second winner. But the order was quite good. So try it again.
-                Batch::add_to_try_first($order_id);
-                # Increase ORDER_EFFORTS_LEFT because if its <= 0 we will get no repetition.
-                # Increase by 2 because it a that promising candidate.
-                $order_array[$order_id][ORDER_EFFORTS_LEFT]++;
-                $order_array[$order_id][ORDER_EFFORTS_LEFT]++;
+                Batch::add_to_try_intensive_again($order_id);
             }
         } else {
             my $status = STATUS_INTERNAL_ERROR;
@@ -1555,10 +1522,10 @@ sub register_result {
              $verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST  or
              $verdict eq Verdict::RQG_VERDICT_INTEREST          or
              $verdict eq Verdict::RQG_VERDICT_INIT                ) {
-        if ( 0 >= $order_array[$order_id][ORDER_EFFORTS_LEFT] ) {
-            Batch::add_to_try_over($order_id);
+        if ($verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST) {
+            Batch::add_to_try_over_bl($order_id);
         } else {
-            Batch::add_to_try_first($order_id);
+            Batch::add_to_try_over($order_id);
         }
     } else {
         say("INTERNAL ERROR: Final Verdict '$verdict' is not treated/unknown. " .
@@ -1567,21 +1534,21 @@ sub register_result {
         Batch::emergency_exit($status);
     }
 
-    Batch::dump_queues if Auxiliary::script_debug("S6");
-    # Check consistency of the queues.
-    Batch::check_queues();
+    Batch::dump_try_hashes if Auxiliary::script_debug("S6");
+    # Check consistency of the hash.
+    # Batch::check_try_hashes();
 
     if ($left_over_trials) {
         if((PHASE_GRAMMAR_SIMP eq $phase or PHASE_GRAMMAR_DEST eq $phase) and
-           $out_of_ideas                and
+           5 == $out_of_ideas and
            0 == Batch::known_orders_waiting ) {
            say("DEBUG: The current campaign has reached the end after $campaign_success replays.");
-           Batch::dump_queues if Auxiliary::script_debug("S4");
+           Batch::dump_try_hashes if Auxiliary::script_debug("S4");
            $phase_switch = 1;
         }
         return (STATUS_OK, Batch::REGISTER_GO_ON);
     } else {
-        if (PHASE_FIRST_REPLAY   eq $phase) {
+        if (PHASE_FIRST_REPLAY eq $phase) {
             say("SUMMARY: No replay with the initial grammar.");
             say("HINT: Maybe the\n" .
                 "HINT: - black/white lists (especially the pattern sections) are faulty or " .
@@ -1636,16 +1603,7 @@ sub switch_phase {
         #   We might have a high fraction of verdicts != replay because hitting other errors or
         #   STATUS_OK even though the grammar is capable to replay.
         # - success within the last grammar simplification campaign
-        # and so run one more.
-        # Some alternative would be
-        #    Move all members of the @try_over_queue into @try_queue == reactivate them.
-        #    But I expect that the following will happen:
-        #    1. Some share of these old orders will be invalid. The check is cheap.
-        #    2. The remaining share should be the same amount like with starting an
-        #       additional campaign. So its not per se bad.
-        #    3. The remaining share should be sorted order_id ascending.
-        #       Slight disadvantage: An additional campaign gives some improved order
-        #                            because of fresh recalculated weights.
+        # and so we run one campaign more.
         $campaign_number++;
         $left_over_trials  = TRIALS_SIMP;
         $cl_snip_phase     = " $rvt_snip";
@@ -1655,7 +1613,7 @@ sub switch_phase {
         # Q2:
 
         load_grammar($parent_grammar, 10);
-        Batch::init_queues;
+        Batch::init_try_hashes();
         say("DEBUG: Simplifier::switch_phase: Leaving routine. Current phase is '$phase'.")
                 if Auxiliary::script_debug("S4");
         $campaign_success  = 0;
@@ -1671,15 +1629,6 @@ sub switch_phase {
         # - less than two grammar simplification campaigns at all (only one is frequent not enough)
         # - success within the last grammar simplification campaign
         # and so run one more.
-        # Some alternative would be
-        #    Move all members of the @try_over_queue into @try_queue == reactivate them.
-        #    But I expect that the following will happen:
-        #    1. Some share of these old orders will be invalid. The check is cheap.
-        #    2. The remaining share should be the same amount like with starting an
-        #       additional campaign. So its not per se bad.
-        #    3. The remaining share should be sorted order_id ascending.
-        #       Slight disadvantage: An additional campaign gives some improved order
-        #                            because of fresh recalculated weights.
         $campaign_number++;
         $have_rvt_generated = 0;
         my $target          = $workdir . "/" . $child_grammar;
@@ -1687,7 +1636,7 @@ sub switch_phase {
         $cl_snip_phase      = " --grammar=" . $target ;
         Batch::write_result("$iso_ts ---------- $phase campaign $campaign_number ---------- ($child_grammar)\n" .
                             $iso_ts . $title_line_part);
-        Batch::init_queues;
+        Batch::init_try_hashes();
         say("DEBUG: Simplifier::switch_phase: Leaving routine. Current phase is '$phase'.")
                 if Auxiliary::script_debug("S4");
         $campaign_success   = 0;
@@ -1760,7 +1709,7 @@ sub switch_phase {
         my $status = STATUS_INTERNAL_ERROR;
         Batch::emergency_exit($status);
     }
-    Batch::init_queues;
+    Batch::init_try_hashes();
     say("DEBUG: Simplifier::switch_phase: Leaving routine. Current phase is '$phase'.")
         if Auxiliary::script_debug("S4");
     $campaign_success = 0;
@@ -1944,19 +1893,20 @@ sub report_replay {
             Batch::copy_file($source,$target);
             # This means the child grammar used should become the base of the next parent grammar.
             reload_grammar($replay_grammar, 0);
-            # Adding to @try_never_queue would be correct but we cannot do this because the run
+            # FIXME: Is what follows really true? Is it really impossible to improve this?
+            # Adding to %try_never_hash would be correct but we cannot do this because the run
             # has not ended yet (main process is active).
             # The ugly sideeffect would otherwise be
-            # - added to @try_never_queue     -- fine
-            # - removed from @try_run_queue   -- fine
-            # - added to from @try_over_queue -- bad
+            # - added to %try_never_hash     -- fine
+            # - added to from %try_over_hash later -- bad
             # Batch::add_to_try_never($order_id);
-            # FIXME:
-            # In case we know the total RQG runtime required for some lets say 85 till 95%
-            # percentil (runtime_90) than we could stop all RQG workers with
+            # FIXME: At least think about advantages/disadvantages
+            # In case we know the total RQG runtime required for some lets say 95%
+            # percentil than we could stop all RQG workers with
             # - outdated parent grammar and
-            # - being in a phase before gendata or
-            #   being in a phase gendata or later and a time - start_time < 0.1 * runtime_90.
+            # - being in a phase before gentest or
+            #   being in a phase gentest or later and a time - start_time < 0.1 * runtime_95.
+            #
             $response = Batch::REGISTER_STOP_YOUNG;
         } else {
             # Its a replayer with outdated grammar.

@@ -171,9 +171,6 @@ sub init {
     # - Combinator/Simplifier init gets called before any Worker is running
     # - this init will be never called again
     # we can run safe_exit($status) and do not need to initiate an emergency_exit.
-    # FIXME:
-    # Maybe return ($status, $action) like register_result and than we could reinit
-    # if useful and do other wild stuff.
     #
     if (2 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
@@ -307,15 +304,12 @@ sub init {
     }
 
     if (defined $grammar_file and $grammar_file ne '') {
-        # FIXME: Check routine in Auxiliary
         $cl_snip_end .= " --grammar=" . $grammar_file;
     }
     if (defined $duration and $duration != 0) {
-        # FIXME: Routine in Auxiliary
         $cl_snip_end .= " --duration=" . $duration;
     }
     if (defined $threads and $threads != 0) {
-        # FIXME: Routine in Auxiliary
         $cl_snip_end .= " --threads=" . $threads;
     }
     if (defined $no_mask) {
@@ -446,9 +440,9 @@ sub get_job {
     }
 
     if (not defined $order_id) {
-        # @try_first_queue empty , @try_queue empty too and extending impossible.
-        # == All possible orders were generated.
-        #    Some might be in execution and all other must be in @try_over_queue.
+        # %try_first_hash empty , %try_hash empty too and extending impossible.
+        # This means all possible orders were generated. Some might be in execution and
+        # all other must be in %try_over_hash or %try_over_bl_hash.
         say("DEBUG: No order got") if Auxiliary::script_debug("C5");
         return undef;
     } else {
@@ -458,7 +452,6 @@ sub get_job {
             Batch::emergency_exit($status);
         }
         my $cl_snip = $order_array[$order_id][ORDER_PROPERTY1];
-        Batch::add_id_to_run_queue($order_id);
         return ($cl_snip . $cl_snip_end, $order_id);
     }
 
@@ -663,7 +656,7 @@ sub generate_orders {
     $generate_calls++;
     say("DEBUG: Number of generate_orders calls : $generate_calls")
         if Auxiliary::script_debug("C5");
-    Batch::dump_queues() if Auxiliary::script_debug("C5");
+    Batch::dump_try_hashes() if Auxiliary::script_debug("C5");
 
     my $success = 0;
     if ($exhaustive) {
@@ -682,7 +675,7 @@ sub generate_orders {
 
     if ($success) {
         dump_orders() if Auxiliary::script_debug("C5");
-        Batch::dump_queues() if Auxiliary::script_debug("C5");
+        Batch::dump_try_hashes() if Auxiliary::script_debug("C5");
         return 1;
     } else {
         say("DEBUG: All possible orders were already generated. Will return 0.");
@@ -706,7 +699,6 @@ sub add_order {
     $order_array[$order_id_now][ORDER_PROPERTY2]        = $order_property2;
     $order_array[$order_id_now][ORDER_PROPERTY3]        = $order_property3;
 
-    # push @Batch::try_queue, $order_id_now;
     Batch::add_order($order_id_now);
     print_order($order_id_now) if Auxiliary::script_debug("C5");
 }
@@ -729,9 +721,6 @@ sub register_result {
     say("DEBUG: Combinator::register_result : OrderID : $order_id, Verdict: $verdict, " .
         "RQG log : '$saved_log_rel', total_runtime : $total_runtime")
         if Auxiliary::script_debug("C4");
-
-    # Remove the order_id from the queue of just executed orders.
-    Batch::remove_id_from_run_queue($order_id);
 
     if      ($verdict eq Verdict::RQG_VERDICT_IGNORE           or
              $verdict eq Verdict::RQG_VERDICT_IGNORE_STATUS_OK or
@@ -767,7 +756,7 @@ sub register_result {
 
     say("DEBUG: Combinator::register_result : left_over_trials : $left_over_trials")
         if Auxiliary::script_debug("C4");
-    Batch::check_queues();
+    # Batch::check_try_hashes();
     if ($left_over_trials) {
         return (STATUS_OK, Batch::REGISTER_GO_ON);
     } else {

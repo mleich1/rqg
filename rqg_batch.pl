@@ -924,7 +924,7 @@ while (Batch::reap_workers()) {
 # But in case this returns 0 than we will not run the loop body and so Batch::process_finished_runs
 # would be not called.  So we must do that here again.
 Batch::process_finished_runs();
-Batch::dump_queues() if Auxiliary::script_debug("T3");
+Batch::dump_try_hashes() if Auxiliary::script_debug("T3");
 # dump_orders();
 
 if ($Batch::give_up < 2) {
