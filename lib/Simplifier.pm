@@ -179,7 +179,7 @@ use constant ORDER_EFFORTS_INVESTED => 0;
 
 # ORDER_PROPERTY1
 # Snip of the command line for the RQG runner.
-use constant ORDER_PROPERTY1        => 2;
+use constant ORDER_PROPERTY1        => 1;
 #
 # ORDER_PROPERTY2 , comb_counter
 # Example: start_combination = 2 , trials = 3
@@ -189,10 +189,10 @@ use constant ORDER_PROPERTY1        => 2;
 #            3 |        2
 #            4 |        3
 #
-use constant ORDER_PROPERTY2        => 3;
+use constant ORDER_PROPERTY2        => 2;
 #
 # ORDER_PROPERTY3 , unused
-use constant ORDER_PROPERTY3        => 4;
+use constant ORDER_PROPERTY3        => 3;
 
 my $workdir;
 
