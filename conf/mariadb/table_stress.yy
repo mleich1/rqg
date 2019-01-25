@@ -144,8 +144,17 @@ correct_rqg_sessions_table:
    UPDATE test . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 create_table:
-     CREATE TABLE IF NOT EXISTS t1 (col1 INT, col2 INT, col_int_properties $col_name $col_type , col_varchar_properties $col_name $col_type, col_text_properties $col_name $col_type, col_int_g_properties $col_name $col_type) ENGINE = InnoDB;
+     CREATE TABLE IF NOT EXISTS t1 (col1 INT, col2 INT, col_int_properties $col_name $col_type , col_varchar_properties $col_name $col_type, col_text_properties $col_name $col_type, col_int_g_properties $col_name $col_type) engine_settings ;
    # CREATE TABLE IF NOT EXISTS t1 (col1 INT, col2 INT, col_int_properties $col_name $col_type , col_text_properties $col_name $col_type) ENGINE = InnoDB;
+
+engine_settings:
+   innodb_settings ;
+
+innodb_settings:
+   # ENGINE = InnoDB ROW_FORMAT = Dynamic    |
+   # ENGINE = InnoDB ROW_FORMAT = Compressed |
+   # ENGINE = InnoDB ROW_FORMAT = Compact    |
+   ENGINE = InnoDB ROW_FORMAT = Redundant  ;
 
 # preload_properties?
 
@@ -225,8 +234,15 @@ ddl:
    # but KILL ... etc. is like most DDL some rather heavy impact DDL.
    ALTER TABLE t1 enable_disable KEYS                                           |
    rename_column                                      ddl_algorithm_lock_option |
+   ALTER TABLE t1 null_notnull_column                                ddl_algorithm_lock_option |
    block_stage                                                                  |
    kill_query_or_session_or_release                                             ;
+
+null_notnull_column:
+   random_column_properties MODIFY COLUMN $col_name $column_type null_not_null ;
+null_not_null:
+   NULL     |
+   NOT NULL ;
 
 enable_disable:
    ENABLE  |
@@ -301,8 +317,8 @@ ftidx_name:
 
 # The hope is that the 'ã' makes some stress.
 idx_name_prefix:
-   { $idx_name_prefix = 'Marvão_' ; return undef } |
-   { $idx_name_prefix = ''        ; return undef } ;
+   { $idx_name_prefix = ''        ; return undef } |
+   { $idx_name_prefix = 'Marvão_' ; return undef } ;
 
 random_column_name:
 # The import differences to the rule 'random_column_properties' are
@@ -486,50 +502,57 @@ random_column_properties:
 #  col_int_g_properties |
    col_text_properties  ;
 
-###### col<number>_properties
+###### col<number_or_type>_properties
 # Get the properties for some random picked column.
 #    $col_name -- column name like "col1"
 #    $col_type -- column base type like "TEXT"
+#    $col_idx  -- part of key definition related to the base column (Main question: Full column or prefix).
 #
 col1_properties:
-   { $col_name= 'col1'; $col_type= 'INT'  ; $col_idx= $col_name;          return undef } ;
+             { $col_name= "col1"         ; $col_type= "INT"                                                                     ; return undef } col_to_idx ;
 col2_properties:
-   { $col_name= 'col2'; $col_type= 'INT'  ; $col_idx= $col_name;          return undef } ;
-col_varchar_properties:
-   { $col_name= 'col_varchar'  ; $col_type= 'VARCHAR(500)'                                                            ; return undef }   col_varchar_idx ;
-col_varchar_g_properties:
-   gcol_prop { $col_name= 'col_varchar_g'; $col_type= "VARCHAR(500) GENERATED ALWAYS AS (SUBSTR(col_varchar,1,499)) $gcol_prop" ; return undef }   col_varchar_idx ;
-col_varchar_idx:
-   { $col_idx= $col_name         ; return undef } |
-   { $col_idx= $col_name . "(10)"; return undef } ;
+             { $col_name= "col2"         ; $col_type= "INT"                                                                     ; return undef } col_to_idx ;
 
-gcol_prop:
-   { $gcol_prop = 'PERSISTENT' ; return undef }   |
-   { $gcol_prop = 'VIRTUAL'    ; return undef }   ;
+# ----------------------------------------------------------------------------------------------------------------------------------------------------------------
+# col_varchar and col_text could be/are used roughly the same way except that col_text could keep longer values.
+col_varchar_properties:
+             { $col_name= "col_varchar"  ; $col_type= "VARCHAR(500)"                                                            ; return undef } col_varchar_idx ;
+col_varchar_g_properties:
+   gcol_prop { $col_name= "col_varchar_g"; $col_type= "VARCHAR(500) GENERATED ALWAYS AS (SUBSTR(col_varchar,1,499)) $gcol_prop" ; return undef } col_varchar_idx ;
+col_varchar_idx:
+   col_to_idx   |
+   col10_to_idx ;
 
 col_text_properties:
-   { $col_name= 'col_text'     ; $col_type= 'TEXT'                                                                    ; return undef }   col_text_idx ;
+             { $col_name= "col_text"     ; $col_type= "TEXT"                                                                    ; return undef } col10_to_idx ;
 col_text_g_properties:
-   gcol_prop { $col_name= 'col_text_g'   ; $col_type= "TEXT         GENERATED ALWAYS AS (SUBSTR(col_text,1,499))    $gcol_prop" ; return undef }   col_text_idx ;
-col_text_idx:
-   { $col_idx= $col_name . "(10)"; return undef } ;
+   gcol_prop { $col_name= "col_text_g"   ; $col_type= "TEXT         GENERATED ALWAYS AS (SUBSTR(col_text,1,499))    $gcol_prop" ; return undef } col10_to_idx ;
+
+# ----------------------------------------------------------------------------------------------------------------------------------------------------------------
+# col_s_string (_s_ --> short) is dedicated to switching between CHAR and VARCHAR
+col_s_string:
+   { $col_name= "col_s_string"           ; $col_type= "VARCHAR(10)"                                                             ; return undef } col_to_idx |
+   { $col_name= "col_s_string"           ; $col_type= "CHAR(10)"                                                                ; return undef } col_to_idx ;
 
 col_int_properties:
-   { $col_name= 'col_int'      ; $col_type= 'INTEGER'                                                                 ; return undef }   col_int_idx ;
+             { $col_name= "col_int"      ; $col_type= "INTEGER"                                                                 ; return undef } col_to_idx ;
 col_int_g_properties:
-   { $col_name= 'col_int_g'    ; $col_type= 'INTEGER      GENERATED ALWAYS AS (col_int)                   PERSISTENT' ; return undef }   col_int_idx |
-   { $col_name= 'col_int_g'    ; $col_type= 'INTEGER      GENERATED ALWAYS AS (col_int)                   VIRTUAL'    ; return undef }   col_int_idx ;
+   gcol_prop { $col_name= "col_int_g"    ; $col_type= "INTEGER      GENERATED ALWAYS AS (col_int)                   $gcol_prop" ; return undef } col_to_idx ;
 col_int_idx:
-   { $col_idx= $col_name       ; return undef } ;
+   { $col_idx= $col_name          ; return undef } ;
 
 col_float_properties:
-   { $col_name= 'col_float'    ; $col_type= 'FLOAT'                                                                   ; return undef }   col_float_idx ;
+             { $col_name= "col_float"    ; $col_type= "FLOAT"                                                                   ; return undef } col_to_idx ;
 col_float_g_properties:
-   { $col_name= 'col_float_g'  ; $col_type= 'FLOAT        GENERATED ALWAYS AS (col_float)                 PERSISTENT' ; return undef }   col_float_idx |
-   { $col_name= 'col_float_g'  ; $col_type= 'FLOAT        GENERATED ALWAYS AS (col_float)                 VIRTUAL'    ; return undef }   col_float_idx ;
-col_float_idx:
-   { $col_idx= $col_name       ; return undef } ;
+   gcol_prop { $col_name= "col_float_g"  ; $col_type= "FLOAT        GENERATED ALWAYS AS (col_float)                 $gcol_prop" ; return undef } col_to_idx ;
 
+col_to_idx:
+   { $col_idx= $col_name          ; return undef } ;
+col10_to_idx:
+   { $col_idx= $col_name . "(10)" ; return undef } ;
+gcol_prop:
+   { $gcol_prop = "PERSISTENT"    ; return undef }   |
+   { $gcol_prop = "VIRTUAL"       ; return undef }   ;
 
 ######
 # For playing around with
