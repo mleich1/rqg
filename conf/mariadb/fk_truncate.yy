@@ -130,10 +130,10 @@ rand_values:
 my_int:
 # Maybe having some uneven distribution is of some value.
     { $my_int = 1                   } |
-    { $my_int = $prng->int(1,    8) } |
-    { $my_int = $prng->int(1,   64) } |
-    { $my_int = $prng->int(1,  512) } |
-    { $my_int = $prng->int(1, 4096) } |
+    { $my_int = $prng->int(  2,    8) } |
+    { $my_int = $prng->int(  9,   64) } |
+    { $my_int = $prng->int( 65,  512) } |
+    { $my_int = $prng->int(513, 4096) } |
     { $my_int = 'NULL'              } ;
 
 
