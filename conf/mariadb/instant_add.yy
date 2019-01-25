@@ -282,11 +282,10 @@ ia_change_column:
   CHANGE COLUMN ia_if_exists ia_col_name ia_col_name_and_definition ia_algorithm ia_lock
 ;
 
-# MDEV-14694 - ALTER COLUMN does not accept IF EXISTS
-# ia_if_exists
+# MDEV-14694 - ALTER COLUMN does not accept IF EXISTS only fixed in 10.3.5
 ia_alter_column:
-    ALTER COLUMN ia_col_name SET DEFAULT ia_default_val
-  | ALTER COLUMN ia_col_name DROP DEFAULT
+    ALTER COLUMN /*!100305 ia_if_exists */ ia_col_name SET DEFAULT ia_default_val
+  | ALTER COLUMN /*!100305 ia_if_exists */ ia_col_name DROP DEFAULT
 ;
 
 ia_if_exists:
@@ -314,9 +313,8 @@ ia_column_list:
   ia_col_name | ia_col_name, ia_column_list
 ;
 
-# Disabled due to MDEV-11071
 ia_temporary:
-#  | | | | TEMPORARY
+  | | | | TEMPORARY
 ;
 
 ia_flush:
