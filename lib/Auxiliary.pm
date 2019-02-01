@@ -75,6 +75,7 @@ sub script_debug_init {
 
 sub script_debug {
     my ($pattern) = @_;
+
     if (not defined $pattern) {
         Carp::cluck("INTERNAL ERROR: The parameter pattern is undef.");
         exit INTERNAL_TOOL_ERROR;
@@ -85,8 +86,8 @@ sub script_debug {
     }
     # For debugging:
     # say("Auxiliary::script_debug : pattern is ->$pattern<-");
-    $pattern = "_" . $pattern . "_";
-    if (($script_debug =~ /$pattern/) or ($script_debug eq '_all_')) {
+    # $pattern = "_" . $pattern . "_";
+    if (($pattern =~ /$script_debug/) or ($script_debug eq '_all_')) {
         return 1;
     } else {
         return 0;

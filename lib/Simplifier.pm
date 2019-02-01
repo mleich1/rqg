@@ -533,7 +533,7 @@ sub init {
                     'duration'          => DURATION_DEFAULT,
                     'queries'           => QUERIES_DEFAULT,
                     'threads'           => THREADS_DEFAULT,
-                    'validators'        => 'none',
+                    'validators'        => 'None',
                     'grammar_flags'     => undef,
                     'duration_adaption' => DURATION_ADAPTION_MAX,
                     'search_var_size'   => 100000000,

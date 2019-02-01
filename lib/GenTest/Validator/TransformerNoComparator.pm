@@ -44,7 +44,7 @@ sub configure {
 	if (defined $list and $#{$list} >= 0) {
 		@transformer_names = @$list;
 	} else {
-		croak "No transformers were defined to be run by TransformerNoComparator\n";
+		croak "ERROR: No transformers were defined to be run by TransformerNoComparator.";
 	}
 
 	say("TransformerNoComparator Validator will use the following Transformers: ".join(', ', @transformer_names));

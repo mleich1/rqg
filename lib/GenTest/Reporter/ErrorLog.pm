@@ -52,6 +52,7 @@ sub nativeReport {
       }
    }
 
+   say("INFO: Reporter 'ErrorLog' ------------------------------ Begin");
    # ML 2018-06-04 Observation
    # RQG runner --logfile=otto --> The output of the "system" calls is short visible
    # on screen but not in otto. RQG runner ... > otto 2>&1 works well.
@@ -66,6 +67,7 @@ sub nativeReport {
       #  say("$log                          ------------------------------ End");
       }
    }
+   say("INFO: Reporter 'ErrorLog' ------------------------------ End");
 	
    return STATUS_OK;
 }

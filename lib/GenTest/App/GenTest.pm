@@ -80,139 +80,138 @@ use constant GT_QUERY_FILTERS       => 11;
 use constant GT_LOG_FILES_TO_REPORT => 12;
 
 sub new {
-   my $class = shift;
+    my $class = shift;
 
-   my $self = $class->SUPER::new({
+    my $self = $class->SUPER::new({
         'config' => GT_CONFIG}, @_);
 
-   if ($self->config->reporters and not ref $self->config->reporters eq 'ARRAY') {
-      $self->config->reporters([ split /,/, $self->config->reporters ]);
-   }
-   if ($self->config->validators and not ref $self->config->validators eq 'ARRAY') {
-      $self->config->validators([ split /,/, $self->config->validators ]);
-   }
-   if ($self->config->transformers and not ref $self->config->transformers eq 'ARRAY') {
-      $self->config->transformers([ split /,/, $self->config->transformers ]);
-   }
-   if ($self->config->redefine and not ref $self->config->redefine eq 'ARRAY') {
-      $self->config->redefine([ split /,/, $self->config->redefine ]);
-   }
-   if ($self->config->engine and not ref $self->config->engine eq 'ARRAY') {
-      $self->config->engine([ split /,/, $self->config->engine ]);
-   }
-   if ($self->config->dsn and not ref $self->config->dsn eq 'ARRAY') {
-      $self->config->dsn([ split /,/, $self->config->dsn ]);
-   }
-   if ($self->config->vcols and not ref $self->config->vcols eq 'ARRAY') {
-      $self->config->vcols([ split /,/, $self->config->vcols ]);
-   }
-   if ($self->config->views and not ref $self->config->views eq 'ARRAY') {
-      $self->config->views([ split /,/, $self->config->views ]);
-   }
-   if ($self->config->debug_server and not ref $self->config->debug_server eq 'ARRAY') {
-      $self->config->debug_server([ split /,/, $self->config->debug_server ]);
-   }
-   if ($self->config->servers and not ref $self->config->servers eq 'ARRAY') {
-      $self->config->servers([ split /,/, $self->config->servers ]);
-   }
+    if ($self->config->reporters and not ref $self->config->reporters eq 'ARRAY') {
+        $self->config->reporters([ split /,/, $self->config->reporters ]);
+    }
+    if ($self->config->validators and not ref $self->config->validators eq 'ARRAY') {
+        $self->config->validators([ split /,/, $self->config->validators ]);
+    }
+    if ($self->config->transformers and not ref $self->config->transformers eq 'ARRAY') {
+        $self->config->transformers([ split /,/, $self->config->transformers ]);
+    }
+    if ($self->config->redefine and not ref $self->config->redefine eq 'ARRAY') {
+        $self->config->redefine([ split /,/, $self->config->redefine ]);
+    }
+    if ($self->config->engine and not ref $self->config->engine eq 'ARRAY') {
+        $self->config->engine([ split /,/, $self->config->engine ]);
+    }
+    if ($self->config->dsn and not ref $self->config->dsn eq 'ARRAY') {
+        $self->config->dsn([ split /,/, $self->config->dsn ]);
+    }
+    if ($self->config->vcols and not ref $self->config->vcols eq 'ARRAY') {
+        $self->config->vcols([ split /,/, $self->config->vcols ]);
+    }
+    if ($self->config->views and not ref $self->config->views eq 'ARRAY') {
+        $self->config->views([ split /,/, $self->config->views ]);
+    }
+    if ($self->config->debug_server and not ref $self->config->debug_server eq 'ARRAY') {
+        $self->config->debug_server([ split /,/, $self->config->debug_server ]);
+    }
+    if ($self->config->servers and not ref $self->config->servers eq 'ARRAY') {
+        $self->config->servers([ split /,/, $self->config->servers ]);
+    }
 
-   # croak ("Need config") if not defined $self->config;
-   if (not defined $self->config) {
-      Carp::cluck("ERROR: $self->config is not defined but we need it. Will return undef.");
-      return undef;
-   } else {
-      return $self;
-   }
+    if (not defined $self->config) {
+        Carp::cluck("ERROR: \$self->config is not defined but we need it. Will return undef.");
+        return undef;
+    } else {
+        return $self;
+    }
 }
 
 sub config {
-   return $_[0]->[GT_CONFIG];
+    return $_[0]->[GT_CONFIG];
 }
 
 sub grammar {
-   return $_[0]->[GT_GRAMMAR];
+    return $_[0]->[GT_GRAMMAR];
 }
 
 sub generator {
-   return $_[0]->[GT_GENERATOR];
+    return $_[0]->[GT_GENERATOR];
 }
 
 sub XMLTest {
-   return $_[0]->[GT_XML_TEST];
+    return $_[0]->[GT_XML_TEST];
 }
 
 sub XMLReport {
-   return $_[0]->[GT_XML_REPORT];
+    return $_[0]->[GT_XML_REPORT];
 }
 
 sub channel {
-   return $_[0]->[GT_CHANNEL];
+    return $_[0]->[GT_CHANNEL];
 }
 
 sub reporterManager {
-   return $_[0]->[GT_REPORTER_MANAGER];
+    return $_[0]->[GT_REPORTER_MANAGER];
 }
 
 sub queryFilters {
-   return $_[0]->[GT_QUERY_FILTERS];
+    return $_[0]->[GT_QUERY_FILTERS];
 }
 
 sub logFilesToReport {
-   return @{$_[0]->[GT_LOG_FILES_TO_REPORT]};
+    return @{$_[0]->[GT_LOG_FILES_TO_REPORT]};
 }
 
 sub do_init {
-   my $self = shift;
+    my $self = shift;
 
-   our $initialized = 0 if not defined $initialized;
+    our $initialized = 0 if not defined $initialized;
 
-   if (not $initialized ) {
+    if (not $initialized ) {
 
-      $SIG{TERM} = sub { exit(0) };
-      $SIG{CHLD} = "IGNORE" if osWindows();
-      $SIG{INT} = "IGNORE";
+        $SIG{TERM} = sub { exit(0) };
+        $SIG{CHLD} = "IGNORE" if osWindows();
+        $SIG{INT}  = "IGNORE";
 
         # FIXME:
         # Why do we fiddle here again with RQG_HOME?
         # Is there a risk to pull RQG components out of the wrong RQG universe?
-      if (defined $ENV{RQG_HOME}) {
-         $ENV{RQG_HOME} = osWindows() ? $ENV{RQG_HOME}.'\\' : $ENV{RQG_HOME}.'/';
-      }
+        if (defined $ENV{RQG_HOME}) {
+            $ENV{RQG_HOME} = osWindows() ? $ENV{RQG_HOME}.'\\' : $ENV{RQG_HOME}.'/';
+        }
 
-      $ENV{RQG_DEBUG} = 1 if $self->config->debug;
+        $ENV{RQG_DEBUG} = 1 if $self->config->debug;
 
-      $self->initSeed();
+        $self->initSeed();
 
         # FIXME:
         # We only initialize here.
         # - Some hypothetic RQG runner might omit processing the YY grammar.
         # - Even if with the current runner its questionable why to report this
         #   now (probably before gendata) and not when the YY grammar processing happens.
-      my $queries = $self->config->queries;
-      $queries =~ s{K}{000}so;
-      $queries =~ s{M}{000000}so;
-      $self->config->property('queries', $queries);
+        my $queries = $self->config->queries;
+        $queries =~ s{K}{000}so;
+        $queries =~ s{M}{000000}so;
+        $self->config->property('queries', $queries);
 
-      say("-------------------------------\nConfiguration");
-      $self->config->printProps;
-      $initialized = 1;
+        say("-------------------------------\nConfiguration");
+        $self->config->printProps;
+        $initialized = 1;
         # say("DEBUG: GenTest::App::GenTest::do_init : Have initialized.");
-   } else {
+    } else {
         # say("DEBUG: GenTest::App::GenTest::do_init : Additional initialization omitted.");
-   }
+    }
 }
 
 sub run {
-   my $self = shift;
+    my $self = shift;
 
-   $self->do_init();
+    $self->do_init();
 
-   my $gendata_result;
-   $gendata_result = $self->doGenData();
-   return $gendata_result if $gendata_result != STATUS_OK;
+    my $gendata_result;
+    $gendata_result = $self->doGenData();
+    return $gendata_result if $gendata_result != STATUS_OK;
 
-   $gendata_result = $self->doGenTest();
-   return $gendata_result;
+    $gendata_result = $self->doGenTest();
+    return $gendata_result;
 
 }
 
@@ -229,9 +228,9 @@ sub doGenTest {
    # 1. The reporting process has connected and finished a first round.
    #    All workers have connected + got their Mixer.
    #    Except: The setup or server is "ill" and than STATUS_ENVIRONMENT_FAILURE would be right.
-    # 2. Hereby we hopefully mostly avoid the often seen wrong status code
-    #    STATUS_ENVIRONMENT_FAILURE. Some threads connect, get their mixer, start to run DDL/DML
-    #    and crash hereby the server. They all report STATUS_SERVER_CRASHED which is right.
+   # 2. Hereby we hopefully mostly avoid the often seen wrong status code
+   #    STATUS_ENVIRONMENT_FAILURE. Some threads connect, get their mixer, start to run DDL/DML
+   #    and crash hereby the server. They all report STATUS_SERVER_CRASHED which is right.
    #    The reporting process or some other threads are slower (box is heavy loaded), try to
    #    connect first time after the crash, get no connection and report than
    #    STATUS_ENVIRONMENT_FAILURE because its their first connect attempt.
@@ -251,13 +250,13 @@ sub doGenTest {
    # Some crash here ends in
    # ... Reporters: Deadlock, Backtrace, ErrorLog
    # DBI connect ... failed: Lost connection ... at lib/GenTest/Reporter.pm ...
-    # [ERROR] Reporter 'GenTest::Reporter::Deadlock' could not be added.
-    #         Status will be set to ENVIRONMENT_FAILURE
+   # [ERROR] Reporter 'GenTest::Reporter::Deadlock' could not be added.
+   #         Status will be set to ENVIRONMENT_FAILURE
    # GenTest exited with exit status STATUS_ENVIRONMENT_FAILURE (110)
    # Stopping server(s)...
    # Stopping server on port 11100
    # Stale connection to 11100. Reconnecting
-    # [ERROR] (Re)connect to 11100 failed due to 2003: Can't connect to MySQL server on ...
+   # [ERROR] (Re)connect to 11100 failed due to 2003: Can't connect to MySQL server on ...
    # Server has been stopped
    # runall-new.pl will exit with exit status STATUS_ENVIRONMENT_FAILURE(110)
 
@@ -267,16 +266,25 @@ sub doGenTest {
    my $init_validators_result = $self->initValidators();
    return $init_validators_result if $init_validators_result != STATUS_OK;
 
+   if (0) {
+       say("DEBUG: Reporters (in doGenTest): ->"    .
+           join("<->", @{$self->config->reporters})    . "<-");
+       say("DEBUG: Validators (in doGenTest): ->"   .
+           join("<->", @{$self->config->validators})   . "<-");
+       say("DEBUG: Transformers (in doGenTest): ->" .
+           join("<->", @{$self->config->transformers}) . "<-");
+   }
+
    # Some crash here ends in
    # ERROR: connect() to dsn dbi:... failed: Lost connection ...
    # ERROR: Will return STATUS_ENVIRONMENT_FAILURE
-    # ERROR: GenTest::Executor::MySQL::init : Getting a connection for MetaDataCacher failed
-    #        with 110. Will return that status.
+   # ERROR: GenTest::Executor::MySQL::init : Getting a connection for MetaDataCacher failed
+   #        with 110. Will return that status.
    # GenTest exited with exit status STATUS_ENVIRONMENT_FAILURE (110)
    # Stopping server(s)...
    # Stopping server on port 11100
    # Stale connection to 11100. Reconnecting
-    # ERROR] (Re)connect to 11100 failed due to 2003: Can't connect to MySQL server on ...
+   # ERROR] (Re)connect to 11100 failed due to 2003: Can't connect to MySQL server on ...
    # Server has been stopped
    # runall-new.pl will exit with exit status STATUS_ENVIRONMENT_FAILURE(110)
 
@@ -366,7 +374,7 @@ sub doGenTest {
 
    ### Start worker children ###
 
-   my %worker_pids;   # OS pid -- Task of that process inside RQG
+   my %worker_pids;   # Hash with pairs: OS pid -- Task of that process inside RQG.
 
    if ($self->config->threads > 0) {
       foreach my $worker_id (1..$self->config->threads) {
@@ -902,24 +910,33 @@ sub initReporters {
     if (not defined $self->config->reporters or $#{$self->config->reporters} < 0) {
         $self->config->reporters([]);
     }
+    my @reporter_array;
+    my %reporter_hash;
+    my $array_ref;
+    my $hash_ref;
+    ($array_ref, $hash_ref) = Auxiliary::unify_rvt_array($self->config->reporters);
+    @reporter_array = @{$array_ref};
+    %reporter_hash  = %{$hash_ref};
 
-    # If reporters were set to None or empty string explicitly,
-    # remove the "None" reporter and don't add any reporters automatically
-    my $no_reporters= 0;
-    foreach my $i (0..$#{$self->config->reporters}) {
-        my $reporter = $self->config->reporters->[$i];
-        if (lc($reporter) eq lc("None") or $reporter eq '') {
-            delete $self->config->reporters->[$i];
-            $no_reporters= 1;
-        }
+    say("DEBUG: Reporters (before check_and_set): ->" . join("<->", sort keys %reporter_hash) .
+        "<-");
+    # If one of the reporters is 'None' than don't add any reporters automatically.
+    my $no_reporters;
+    if (exists $reporter_hash{'None'}) {
+        $no_reporters = 1;
+    } else {
+        $no_reporters = 0;
     }
+    # say("DEBUG: initReporters : no_reporters : $no_reporters");
 
     if (not $no_reporters) {
         if ($self->isMySQLCompatible()) {
-            $self->config->reporters(['ErrorLog', 'Backtrace'])
-                unless scalar(@{$self->config->reporters});
-            push @{$self->config->reporters}, 'ValgrindXMLErrors'
-                if (defined $self->config->property('valgrind-xml'));
+            $reporter_hash{'ErrorLog'}   = 1;
+            $reporter_hash{'Backtrace'}  = 1;
+            $reporter_hash{'ServerDead'} = 1;
+            if (defined $self->config->property('valgrind-xml')) {
+                $reporter_hash{'ValgrindXMLErrors'} = 1;
+            }
             my $rpl_mode = $self->config->rpl_mode;
             if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
                 ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
@@ -928,53 +945,58 @@ sub initReporters {
                 ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
                 ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         ) {
                 # We run MariaDB/MySQL replication.
-
-                if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
-                    ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)            or
-                    ($rpl_mode eq Auxiliary::RQG_RPL_ROW)                ) {
+                $reporter_hash{'ReplicationSlaveStatus'} = 1;
+                if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT) or
+                    ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)     or
+                    ($rpl_mode eq Auxiliary::RQG_RPL_ROW)         ) {
                     # Its synchronous replication.
-                    push @{$self->config->reporters}, 'ReplicationConsistency';
-                    say("INFO: 'ReplicationConsistency' added to the list of reporters.");
+                    $reporter_hash{'ReplicationConsistency'} = 1;
                 }
-                push @{$self->config->reporters}, 'ReplicationSlaveStatus';
-                say("INFO: 'ReplicationSlaveStatus' added to the list of reporters.");
             }
         }
-        if ($self->config->property('upgrade-test') and $self->config->property('upgrade-test') =~ /undo/) {
-            push @{$self->config->reporters}, 'UpgradeUndoLogs';
+        if ($self->config->property('upgrade-test') and
+            $self->config->property('upgrade-test') =~ /undo/) {
+            $reporter_hash{'UpgradeUndoLogs'} = 1;
         } elsif ($self->config->property('upgrade-test')) {
-            push @{$self->config->reporters}, 'Upgrade';
+            $reporter_hash{'Upgrade'} = 1;
         } else {
-            foreach (@{$self->config->reporters}) {
-                if ($_ eq 'Upgrade') {
-                    say("WARNING: Upgrade reporter is requested, but --upgrade-test option is " .
+            if (exists $reporter_hash{'Upgrade'}) {
+                say("WARNING: Upgrade reporter is requested, but --upgrade-test option is " .
                         "not set, the behavior is undefined");
-                    last;
-                }
             }
         }
+        $reporter_hash{'None'} = 1;
     }
-
-    say("Reporters: ".($#{$self->config->reporters} > -1 ? join(', ', @{$self->config->reporters}) : "(none)"));
+    say("Reporters (for Simplifier): ->" . join("<->", sort keys %reporter_hash) . "<-");
+    # The reporter 'None' is used as
+    # - switch if to extend the amount of reporters or not
+    # - hint for the simplifier (see message above) if extending is expected or not.
+    # But its no real reporter and a file with that name also does not exist.
+    # So we delete this reporter now.
+    delete $reporter_hash{'None'};
+    @{$self->config->reporters} = sort keys %reporter_hash;
+    say("DEBUG: Reporters (after check_and_set): ->" . join("<->", @{$self->config->reporters}) .
+        "<-");
 
     my $reporter_manager = GenTest::ReporterManager->new();
 
     # pass option debug server to the reporter, for detecting the binary type.
     foreach my $i (0..2) {
-      last if $self->config->property('upgrade-test') and $i>0;
-      next unless $self->config->dsn->[$i];
-      foreach my $reporter (@{$self->config->reporters}) {
-         my $add_result = $reporter_manager->addReporter($reporter, {
-               dsn             => $self->config->dsn->[$i],
-               test_start      => $self->[GT_TEST_START],
-               test_end        => $self->[GT_TEST_END],
-               test_duration   => $self->config->duration,
-               debug_server    => (defined $self->config->debug_server ? ${$self->config->debug_server}[$i] : undef),
-               properties      => $self->config
-         });
+        last if $self->config->property('upgrade-test') and $i > 0;
+        next unless $self->config->dsn->[$i];
+        foreach my $reporter (@{$self->config->reporters}) {
+            my $add_result = $reporter_manager->addReporter($reporter, {
+                dsn             => $self->config->dsn->[$i],
+                test_start      => $self->[GT_TEST_START],
+                test_end        => $self->[GT_TEST_END],
+                test_duration   => $self->config->duration,
+                debug_server    => (defined $self->config->debug_server ?
+                                       ${$self->config->debug_server}[$i] : undef),
+                properties      => $self->config
+            });
 
-         return $add_result if $add_result > STATUS_OK;
-      }
+            return $add_result if $add_result > STATUS_OK;
+        }
     }
 
     $self->[GT_REPORTER_MANAGER] = $reporter_manager;
@@ -987,62 +1009,106 @@ sub initValidators {
     if (not defined $self->config->validators or $#{$self->config->validators} < 0) {
         $self->config->validators([]);
     }
+    my @validator_array;
+    my %validator_hash;
+    my $array_ref;
+    my $hash_ref;
+    ($array_ref, $hash_ref) = Auxiliary::unify_rvt_array($self->config->validators);
+    @validator_array = @{$array_ref};
+    %validator_hash  = %{$hash_ref};
 
-    # If validators were set to None or empty string explicitly,
-    # remove the "None" validators and don't add any reporters automatically
-    my $no_validators= 0;
-    foreach my $i (0..$#{$self->config->validators}) {
-        if ((lc($self->config->validators->[$i])) eq lc("None")
-            or $self->config->validators->[$i] eq '') {
-            delete $self->config->validators->[$i];
-            $no_validators= 1;
-        }
+    say("DEBUG: Validators (before check_and_set): ->" . join("<->", sort keys %validator_hash) .
+        "<-");
+    # If one of the validators is 'None' than don't add any validators automatically.
+    my $no_validators;
+    if (exists $validator_hash{'None'}) {
+        $no_validators = 1;
+    } else {
+        $no_validators = 0;
     }
+    # say("DEBUG: initValidators : no_validators : $no_validators");
 
     if (not $no_validators) {
 
         # In case of multi-master topology (e.g. Galera with multiple "masters"),
         # we don't want to compare results after each query.
-
         unless ($self->config->property('multi-master')) {
             if ($self->config->dsn->[2] ne '') {
-                push @{$self->config->validators}, 'ResultsetComparator3';
+                $validator_hash{'ResultsetComparator3'} = 1;
             } elsif ($self->config->dsn->[1] ne '') {
-                push @{$self->config->validators}, 'ResultsetComparator';
+                $validator_hash{'ResultsetComparator'} = 1;
             }
         }
-        push @{$self->config->validators}, 'MarkErrorLog'
+
+        $validator_hash{'MarkErrorLog'} = 1
             if (defined $self->config->valgrind) && $self->isMySQLCompatible();
 
-        push @{$self->config->validators}, 'QueryProperties'
+        $validator_hash{'QueryProperties'} = 1
             if defined $self->grammar() && $self->grammar()->hasProperties() &&
-               $self->isMySQLCompatible();
+                $self->isMySQLCompatible();
 
-        ## Add the transformer validator if --transformers is specified
-        ## and transformer validator not allready specified.
+    }
 
-        if (defined $self->config->transformers and
-            $#{$self->config->transformers} >= 0)   {
+    if (not defined $self->config->transformers or $#{$self->config->transformers} < 0) {
+        $self->config->transformers([]);
+    }
+    my @transformer_array;
+    my %transformer_hash;
+    my $array_ref;
+    my $hash_ref;
+    ($array_ref, $hash_ref) = Auxiliary::unify_rvt_array($self->config->transformers);
+    @transformer_array      = @{$array_ref};
+    %transformer_hash       = %{$hash_ref};
+
+    say("DEBUG: Transformers (before check_and_set): ->" . join("<->",
+        sort keys %transformer_hash) . "<-");
+    # If one of the transformers is 'None' than don't add any transformers automatically.
+    my $no_transformers;
+    if (exists $transformer_hash{'None'}) {
+        $no_transformers = 1;
+    } else {
+        $no_transformers = 0;
+    }
+    # say("DEBUG: initValidators : no_transformers : $no_transformers");
+    # Hint:
+    # The code determining if there exists a transformer 'None' is just for
+    # - similarity to the handling of reporters/validators
+    # - be prepared for some situation which might come or never come in future
+    # is currently unimportant.
+    $transformer_hash{'None'} = 1;
+    say("Transformers (for Simplifier): ->" . join("<->", sort keys %transformer_hash) . "<-");
+    delete $transformer_hash{'None'};
+    @{$self->config->transformers} = sort keys %transformer_hash;
+    say("DEBUG: Transformers (after check_and_set): ->" . join("<->",
+        @{$self->config->transformers}) . "<-");
+
+    ## Add the validator 'Transformer' if
+    ##    extending the list of Validators is allowed
+    ##    --transformers is specified and
+    ##    the transformers specified are not just list with one element and
+    ##    that has the value 'None' or '' and
+    ##    the validator 'Transformer' is not already specified
+    if (not $no_validators) {
+        if (0 != scalar keys %validator_hash) {
             my $hasTransformer = 0;
-            foreach my $t (@{$self->config->validators}) {
+            foreach my $t (keys %validator_hash) {
                 if ($t =~ /^Transformer/) {
                     $hasTransformer = 1;
                     last;
                 }
             }
-            push @{$self->config->validators}, 'Transformer' if !$hasTransformer;
+            $validator_hash{'Transformer'} = 1 if !$hasTransformer;
         }
     }
 
-    # say("INFO: Validators: " . (defined $self->config->validators and $#{$self->config->validators} > -1 ? join(', ', @{$self->config->validators}) : "(none)"));
-    if (defined $self->config->validators and scalar @{$self->config->validators}) {
-        say("Validators: " . join(', ', @{$self->config->validators}));
-    } else {
-        say("Validators: (none)");
-    }
+    say("Validators (for Simplifier): ->" . join("<->", sort keys %validator_hash) . "<-");
+    delete $validator_hash{'None'};
+    @{$self->config->validators} = sort keys %validator_hash;
+        say("DEBUG: Validators (after check_and_set): ->" . join("<->",
+            @{$self->config->validators}) . "<-");
 
-    say("Transformers: " . join(', ', @{$self->config->transformers}))
-        if defined $self->config->transformers and $#{$self->config->transformers} > -1;
+    # For testing/debugging
+    # push @{$self->config->validators}, 'Huhu';
 
     return STATUS_OK;
 }
