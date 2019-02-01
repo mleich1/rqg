@@ -1084,8 +1084,8 @@ use constant ORDER_PROPERTY3        => 4;
 #     from the in average most greedy steps to the less greedy steps.
 # - In case the execution of some order Y (simplification Y applied to good grammar G replayed
 #   but was a "too late replayer" than this simplification Y could be not applied.
-#   Compared to the candidates we have in the hashes
-#       %try_first_hash, %try_hash, %try_over_hash, %try_over_bl_hash
+#   Compared to the candidates we have in the hashes+queue
+#       %try_first_hash, @try_queue, %try_over_hash, %try_over_bl_hash
 #   the current one (second "winner") seems to be the best one (some more explanation below).
 #   Therefore we add this order id to %try_first_hash.
 my %try_first_hash;
@@ -1104,7 +1104,7 @@ my %try_first_hash;
 # In case orders get generated than they get appended to @try_queue.
 # In case all possible orders were already generated than the sorted keys from certain hashes get
 # appended to @try_queue.
-my %try_hash;
+my @try_queue;
 #
 # %try_later_hash, %try_last_hash, (%try_first_hash)
 # --------------------------------------------------
@@ -1121,7 +1121,7 @@ my %try_hash;
 # status_ignore_bl      | Maybe the other grammar ~~> order is not capable to replay or maybe just
 #                       | the likelihood to replay is lower or maybe just the likelihood to hit
 # ----------------------+---------------------------------------------------------------------------
-# in %try_first_hash    | The stopped ones are probably in average a bit better than the 
+# in %try_first_hash    | The stopped ones are probably in average a bit better than the
 # == status_replay or   | - a bit better than the status_ignore_ok and status_ignore_bl above.
 # status_ignore_stopped | - less good than the replayer we are talking about.
 #                       | Replayers in %try_first_hash are roughly as good as the current one.
@@ -1137,7 +1137,7 @@ my %try_last_hash;
 # combinations and grammar simplification
 #   Orders where left over efforts <= 0 was reached get appended to %try_over_hash.
 #   In case of
-#       %try_first_hash and %try_hash empty
+#       %try_first_hash and @try_queue empty
 #       and all possible combinations/simplifications were already generated
 #       and no other limitation (example: maxruntime) was exceeded
 #   the content of %try_over_hash gets sorted and all these orders get moved to @try_hash.
@@ -1157,8 +1157,14 @@ my %try_never_hash;
 
 
 sub dump_try_hashes {
+    my @try_run_queue;
+    for my $worker_num (1..$workers) {
+        my $order_id = $worker_array[$worker_num][WORKER_ORDER_ID];
+        push @try_run_queue, $order_id if -1 != $order_id;
+    }
+    say("DEBUG: Orders in work    : "  . join (' ', sort {$a <=> $b} @try_run_queue));
     say("DEBUG: \%try_first_hash   : " . join (' ', sort {$a <=> $b} keys %try_first_hash));
-    say("DEBUG: \%try_hash         : " . join (' ', sort {$a <=> $b} keys %try_hash ));
+    say("DEBUG: \@try_queue        : " . join (' ', sort {$a <=> $b} @try_queue ));
     say("DEBUG: \%try_later_hash   : " . join (' ', sort {$a <=> $b} keys %try_later_hash));
     say("DEBUG: \%try_last_hash    : " . join (' ', sort {$a <=> $b} keys %try_last_hash));
     say("DEBUG: \%try_over_bl_hash : " . join (' ', sort {$a <=> $b} keys %try_over_bl_hash ));
@@ -1167,7 +1173,7 @@ sub dump_try_hashes {
 }
 sub init_try_hashes {
     undef %try_first_hash;
-    undef %try_hash;
+    undef @try_queue;
     undef %try_later_hash;
     undef %try_last_hash;
     undef %try_over_bl_hash;
@@ -1198,7 +1204,7 @@ sub known_orders_waiting {
 #    - currently in trial/running                  --> count_active_workers()
 #    - waiting for trial/running                   --> @try_first_hash, @try_hash
 #    Delayed candidates for repetition of the run are ignored!
-    my @join_array = (keys %try_first_hash, keys %try_hash);
+    my @join_array = (keys %try_first_hash, @try_queue);
     say("DEBUG: known_orders_waiting : " . join(' ', @join_array))
                 if Auxiliary::script_debug("B5");
     return (count_active_workers() + scalar @join_array);
@@ -1218,15 +1224,13 @@ sub get_order {
         delete $try_first_hash{$order_id};
     } else {
         # %try_first_hash was empty.
-        @array    = sort {$a <=> $b} keys %try_hash;
-        $order_id = shift @array;
+        $order_id = shift @try_queue;
         if (defined $order_id) {
-            say("DEBUG: Order $order_id picked from \%try_hash.")
+            say("DEBUG: Order $order_id picked from \@try_queue.")
                 if Auxiliary::script_debug("B5");
-            delete $try_hash{$order_id};
         } else {
-            # %try_hash was empty too.
-            say("DEBUG: \%try_first_hash and \%try_hash are empty.")
+            # @try_queue was empty too.
+            say("DEBUG: \%try_first_hash and \@try_queue are empty.")
                 if Auxiliary::script_debug("B5");
         }
     }
@@ -1245,8 +1249,8 @@ sub check_order_id {
 sub add_order {
     my ($order_id) = @_;
     check_order_id($order_id);
-    # FIXME: Bail out if order_id is already known?
-    $try_hash{$order_id} = 1;
+    # Duplicates are acceptable
+    push @try_queue, $order_id;
 }
 
 sub add_to_try_over {
@@ -1269,7 +1273,8 @@ sub add_to_try_never {
     delete $try_first_hash{$order_id};
     delete $try_later_hash{$order_id};
     delete $try_last_hash{$order_id};
-    delete $try_hash{$order_id};
+    # @try_queue does not get touched.
+    # The validation before test start will detect that its invalid.
 }
 
 sub add_to_try_first {
@@ -1286,20 +1291,24 @@ sub add_to_try_intensive_again {
 }
 
 sub consume_try_later_hash {
-    %try_hash = %try_later_hash;
+    push @try_queue , sort {$a <=> $b} keys %try_later_hash;
     undef %try_later_hash;
+    return scalar @try_queue;
 }
 sub consume_try_over_hash {
-    %try_hash = %try_over_hash;
+    push @try_queue , sort {$a <=> $b} keys %try_over_hash;
     undef %try_over_hash;
+    return scalar @try_queue;
 }
 sub consume_try_over_bl_hash {
-    %try_hash = %try_over_bl_hash;
+    push @try_queue , sort {$a <=> $b} keys %try_over_bl_hash;
     undef %try_over_bl_hash;
+    return scalar @try_queue;
 }
 sub consume_try_last_hash {
-    %try_hash = %try_last_hash;
+    push @try_queue , sort {$a <=> $b} keys %try_last_hash;
     undef %try_last_hash;
+    return scalar @try_queue;
 }
 
 # Certain routines which are based on routines with the same name and located in Auxiliary.pm.

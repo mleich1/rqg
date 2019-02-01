@@ -106,6 +106,9 @@ use constant PHASE_SIMP_ALLOWED_VALUE_LIST => [
       PHASE_FIRST_REPLAY, PHASE_THREAD1_REPLAY, PHASE_RVT_SIMP, PHASE_GRAMMAR_SIMP,
       PHASE_GRAMMAR_DEST, PHASE_GRAMMAR_CLONE, PHASE_GRAMMAR_BUILTIN, PHASE_FINAL_REPLAY,
    ];
+# FIXME:
+# PHASE_THREAD1_REPLAY, PHASE_RVT_SIMP are capable to cut the replay runtime+complexity of test
+# serious down. But they could also suffer from a low likelihood to replay.
 my @simp_chain_default = ( # PHASE_SIMP_BEGIN,
                            PHASE_FIRST_REPLAY,
                            PHASE_THREAD1_REPLAY,
@@ -114,8 +117,6 @@ my @simp_chain_default = ( # PHASE_SIMP_BEGIN,
                            PHASE_FINAL_REPLAY,
                            # PHASE_SIMP_END,
                          );
-
-
 
 # Attack_mode     --- not to be set from outside
 # with (most probably) impact on
@@ -135,7 +136,6 @@ use constant SIMP_ALGO_WEIGHT     => 'weight';
 use constant SIMP_ALGO_RANDOM     => 'random';  # not yet implemented
 use constant SIMP_ALGO_MASKING    => 'masking'; # not yet implemented
 
-my $script_debug = 1;
 
 # Structure for managing orders
 # -----------------------------
@@ -1025,7 +1025,7 @@ sub get_job {
                                                                     $value_to_remove, 0);
                     if (not defined $cl_snip_step) {
                         say("DEBUG: Order id '$order_id' with option_to_attack " .
-                            "'$option_to_attack' value_to_remove $value_to_remove' is invalid.")
+                            "'$option_to_attack' value_to_remove '$value_to_remove' is invalid.")
                             if Auxiliary::script_debug("S4");
                         $order_is_valid = 0;
                         Batch::add_to_try_never($order_id);
@@ -1078,7 +1078,7 @@ sub get_job {
                     Batch::emergency_exit($status);
                 }
         } else {
-            # %try_first_hash and %try_hash were empty and so $order_id is undef.
+            # %try_first_hash and @try_queue were empty and so $order_id is undef.
             say("DEBUG: Batch::get_order delivered an undef order_id.")
                 if Auxiliary::script_debug("S5");
             if (0 == $out_of_ideas) {
@@ -1089,21 +1089,18 @@ sub get_job {
                          if Auxiliary::script_debug("S4");
                     $out_of_ideas = 1;
                 } else {
-                    # There must be now one or more new orders in %try_hash.
+                    # There must be now one or more new orders in @try_queue.
                     # So let them get found by Batch::get_order() and checked if valid.
                 }
                 next;
             } elsif (1 == $out_of_ideas) {
+                next if (Batch::consume_try_later_hash);
                 $out_of_ideas = 2;
-                Batch::consume_try_later_hash;
-            } elsif (2 == $out_of_ideas) {
-                $out_of_ideas = 3;
                 Batch::consume_try_over_hash;
-            } elsif (3 == $out_of_ideas) {
-                $out_of_ideas = 4;
                 Batch::consume_try_over_bl_hash;
-            } elsif (4 == $out_of_ideas) {
-                $out_of_ideas = 5;
+            } elsif (2 == $out_of_ideas) {
+                next if (Batch::consume_try_later_hash);
+                $out_of_ideas = 3;
                 Batch::consume_try_last_hash;
             } else {
                 last;
@@ -1243,53 +1240,63 @@ sub generate_orders {
         add_order($cl_snip_all . $cl_snip_phase, 'unused', '_unused_');
         $success = 1;
     } elsif (PHASE_RVT_SIMP eq $phase) {
+        # RVT_SIMP:
+        # - best     'None'
+        # - good     ...,'None'
+        # - good     ...
         if (not $have_rvt_generated) {
             $have_rvt_generated = 1;
-            # If empty than the goal is to get 'None'
-            # If only one and that is 'None' -> do nothing.
-            # ....
-            if (0 == scalar keys %reporter_hash) {
-                add_order($cl_snip_all . $cl_snip_phase, 'reporter', '_to_None');
-                $success++;
-            } else {
-                if (1 < scalar keys %reporter_hash) {
-                    add_order($cl_snip_all . $cl_snip_phase, 'reporter', '_to_None');
-                    $success++;
+            sub generate_rvt_orders {
+                my ($category) = @_;
+                my %hash;
+                if (not defined $category) {
+                    Carp::cluck("INTERNAL ERROR: category is undef.");
+                    my $status = STATUS_INTERNAL_ERROR;
+                    Batch::emergency_exit($status);
+                } elsif ('reporter' eq $category) {
+                    %hash = %reporter_hash;
+                } elsif ('validator' eq $category) {
+                    %hash = %validator_hash;
+                } elsif ('transformer' eq $category) {
+                    %hash = %transformer_hash;
+                } else {
+                    Carp::cluck("INTERNAL ERROR: category '$category' is unknown.");
+                    my $status = STATUS_INTERNAL_ERROR;
+                    Batch::emergency_exit($status);
                 }
-                foreach my $value_to_remove (keys %reporter_hash) {
-                    next if $value_to_remove eq 'None';
-                    add_order($cl_snip_all . $cl_snip_phase, 'reporter', $value_to_remove);
+
+                if      (0 == scalar keys %hash) {
+                    add_order($cl_snip_all . $cl_snip_phase, $category, '_add_None');
                     $success++;
+                } elsif (1 == scalar keys %hash) {
+                    if (not exists $hash{'None'}) {
+                        add_order($cl_snip_all . $cl_snip_phase, $category, '_all_to_None');
+                        $success++;
+                        add_order($cl_snip_all . $cl_snip_phase, $category, '_add_None');
+                        $success++;
+                    } else {
+                        # Nothing to do because the one and only value is already 'None'.
+                    }
+                } else {
+                    # In minimum one of the elements must be != 'None'.
+                    add_order($cl_snip_all . $cl_snip_phase, $category, '_all_to_None');
+                    $success++;
+                    if (not exists $hash{'None'}) {
+                        add_order($cl_snip_all . $cl_snip_phase, $category, '_add_None');
+                        $success++;
+                    }
+                    foreach my $value_to_remove (keys %hash) {
+                        next if $value_to_remove eq 'None';
+                        add_order($cl_snip_all . $cl_snip_phase, $category, $value_to_remove);
+                        $success++;
+                    }
                 }
             }
-            if (0 == scalar keys %validator_hash) {
-                add_order($cl_snip_all . $cl_snip_phase, 'validator', '_to_None');
-                $success++;
-            } else {
-                if (1 < scalar keys %validator_hash) {
-                    add_order($cl_snip_all . $cl_snip_phase, 'validator', '_to_None');
-                    $success++;
-                }
-                foreach my $value_to_remove (keys %validator_hash) {
-                    next if $value_to_remove eq 'None';
-                    add_order($cl_snip_all . $cl_snip_phase, 'validator', $value_to_remove);
-                    $success++;
-                }
-            }
-            if (0 == scalar keys %transformer_hash) {
-                add_order($cl_snip_all . $cl_snip_phase, 'transformer', '_to_None');
-                $success++;
-            } else {
-                if (1 < scalar keys %transformer_hash) {
-                    add_order($cl_snip_all . $cl_snip_phase, 'transformer', '_to_None');
-                    $success++;
-                }
-                foreach my $value_to_remove (keys %transformer_hash) {
-                    next if $value_to_remove eq 'None';
-                    add_order($cl_snip_all . $cl_snip_phase, 'transformer', $value_to_remove);
-                    $success++;
-                }
-            }
+            generate_rvt_orders('reporter');
+            generate_rvt_orders('validator');
+            generate_rvt_orders('transformer');
+        } else {
+            $success = 0;
         }
     } elsif (PHASE_GRAMMAR_SIMP eq $phase or
              PHASE_GRAMMAR_DEST eq $phase   ) {
@@ -1538,7 +1545,9 @@ sub register_result {
     # Check consistency of the hash.
     # Batch::check_try_hashes();
 
+    my $hint_given;
     if ($left_over_trials) {
+        $hint_given = 0;
         if((PHASE_GRAMMAR_SIMP eq $phase or PHASE_GRAMMAR_DEST eq $phase) and
            5 == $out_of_ideas and
            0 == Batch::known_orders_waiting ) {
@@ -1557,12 +1566,15 @@ sub register_result {
             say("Giving up.");
             return (STATUS_OK, Batch::REGISTER_END);
         } elsif (PHASE_THREAD1_REPLAY eq $phase) {
-            say("No replay with threads=1.");
-            say("HINT: So it seems to be a concurrency problem like connection/thread m "          .
-                "activity clashes with\n"                                                          .
-                "HINT: - connection/thread n activity or\n"                                        .
-                "HINT: - execution of an EVENT        or\n"                                        .
-                "HINT: - asynchronous activity of replication thread, InnoDB Purge or similar.\n") ;
+            if (not $hint_given) {
+                say("No replay with threads=1."                                                    .
+                    "HINT: So it seems to be a concurrency problem like connection/thread m "      .
+                    "activity clashes with\n"                                                      .
+                    "HINT: - connection/thread n activity or\n"                                    .
+                    "HINT: - execution of an EVENT        or\n"                                    .
+                    "HINT: - asynchronous activity of replication thread, InnoDB Purge or "        .
+                    "similar.\n") ;
+            }
             $phase_switch = 1;
             return (STATUS_OK, Batch::REGISTER_STOP_ALL);
         } elsif (PHASE_FINAL_REPLAY eq $phase) {
@@ -1623,12 +1635,9 @@ sub switch_phase {
         #            for another campaign.
         return;
     }
-    if ((PHASE_RVT_SIMP eq $phase) and
-        ($campaign_success or 2 > $campaign_number)) {
-        # We had either
-        # - less than two grammar simplification campaigns at all (only one is frequent not enough)
-        # - success within the last grammar simplification campaign
-        # and so run one more.
+    if ((PHASE_RVT_SIMP eq $phase) and ($campaign_success)) {
+        # We had success within the last grammar simplification campaign and so run one more.
+        # No use of $campaign_number == 1 as criterion for repetition.
         $campaign_number++;
         $have_rvt_generated = 0;
         my $target          = $workdir . "/" . $child_grammar;
@@ -2042,18 +2051,25 @@ sub get_shrinked_rvt_options {
     if (defined $option_to_attack) {
         my $shrinked = 0;
         if      ($option_to_attack eq 'reporter') {
-            if ("_to_None" eq $value_to_remove) {
+            if ("_all_to_None" eq $value_to_remove) {
                 if ((1 != scalar keys %reporter_hash_copy)    or
                     (1 == scalar keys %reporter_hash_copy and
                      not exists $reporter_hash_copy{'None'})    ) {
-                    # Empty                           --> get defaults
-                    # Just one but that is not 'None' --> get that + defaults
-                    # Several --> Get them and maybe defaults too
-                    # ==> Only 'None' would be a progress.
+                    # We have either
+                    # - more elements than just one (-> in minimum one cannot be 'None')
+                    # - one element and that is not 'None'
                     %reporter_hash_copy = ();
                     $reporter_hash_copy{'None'} = 1;
                     $shrinked = 1;
                 } else {
+                    $shrinked = 0;
+                }
+            } elsif ("_add_None" eq $value_to_remove) {
+                if (not exists $reporter_hash_copy{'None'}) {
+                    $reporter_hash_copy{'None'} = 1;
+                    $shrinked = 1;
+                } else {
+                    $shrinked = 0;
                 }
             } else {
                 # Other value --> We try a removal
@@ -2065,21 +2081,30 @@ sub get_shrinked_rvt_options {
                 } else {
                     say("DEBUG: get_shrinked_rvt_options : reporter already without " .
                         "$value_to_remove") if Auxiliary::script_debug("S6");
+                    $shrinked = 0;
                 }
             }
         } elsif ($option_to_attack eq 'validator') {
-            if ("_to_None" eq $value_to_remove) {
+
+            if ("_all_to_None" eq $value_to_remove) {
                 if ((1 != scalar keys %validator_hash_copy)    or
                     (1 == scalar keys %validator_hash_copy and
                      not exists $validator_hash_copy{'None'})    ) {
-                    # Empty                           --> get defaults
-                    # Just one but that is not 'None' --> get that + defaults
-                    # Several --> Get them and maybe defaults too
-                    # ==> Only 'None' would be a progress.
+                    # We have either
+                    # - more elements than just one (-> in minimum one cannot be 'None')
+                    # - one element and that is not 'None'
                     %validator_hash_copy = ();
                     $validator_hash_copy{'None'} = 1;
                     $shrinked = 1;
                 } else {
+                    $shrinked = 0;
+                }
+            } elsif ("_add_None" eq $value_to_remove) {
+                if (not exists $validator_hash_copy{'None'}) {
+                    $validator_hash_copy{'None'} = 1;
+                    $shrinked = 1;
+                } else {
+                    $shrinked = 0;
                 }
             } else {
                 # Other value --> We try a removal
@@ -2091,21 +2116,30 @@ sub get_shrinked_rvt_options {
                 } else {
                     say("DEBUG: get_shrinked_rvt_options : validator already without " .
                         "$value_to_remove") if Auxiliary::script_debug("S6");
+                    $shrinked = 0;
                 }
             }
+
         } elsif ($option_to_attack eq 'transformer') {
-            if ("_to_None" eq $value_to_remove) {
+            if ("_all_to_None" eq $value_to_remove) {
                 if ((1 != scalar keys %transformer_hash_copy)    or
                     (1 == scalar keys %transformer_hash_copy and
                      not exists $transformer_hash_copy{'None'})    ) {
-                    # Empty                           --> get defaults
-                    # Just one but that is not 'None' --> get that + defaults
-                    # Several --> Get them and maybe defaults too
-                    # ==> Only 'None' would be a progress.
+                    # We have either
+                    # - more elements than just one (-> in minimum one cannot be 'None')
+                    # - one element and that is not 'None'
                     %transformer_hash_copy = ();
                     $transformer_hash_copy{'None'} = 1;
                     $shrinked = 1;
                 } else {
+                    $shrinked = 0;
+                }
+            } elsif ("_add_None" eq $value_to_remove) {
+                if (not exists $transformer_hash_copy{'None'}) {
+                    $transformer_hash_copy{'None'} = 1;
+                    $shrinked = 1;
+                } else {
+                    $shrinked = 0;
                 }
             } else {
                 # Other value --> We try a removal
@@ -2117,8 +2151,10 @@ sub get_shrinked_rvt_options {
                 } else {
                     say("DEBUG: get_shrinked_rvt_options : transformer already without " .
                         "$value_to_remove") if Auxiliary::script_debug("S6");
+                    $shrinked = 0;
                 }
             }
+
         }
         if (not $shrinked) {
             say("DEBUG: get_shrinked_rvt_options : The combination option_to_attack " .
@@ -2142,7 +2178,7 @@ sub get_shrinked_rvt_options {
         %reporter_hash    = %reporter_hash_copy;
         %validator_hash   = %validator_hash_copy;
         %transformer_hash = %transformer_hash_copy;
-        say("INFO: Reporter/validator/transformer hash rewrite to ->$rvt_option_snip<-.");
+        say("INFO: Reporter/validator/transformer setting rewrite to ->$rvt_option_snip<-.");
         my $iso_ts = isoTimestamp();
         Batch::write_result("$iso_ts          Reporter/validator/transformer shrinked " .
                         "==> new setting '" . $rvt_option_snip . "'.\n");
