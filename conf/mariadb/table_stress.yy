@@ -1,4 +1,4 @@
-# Copyright (c) 2018, MariaDB Corporation
+# Copyright (c) 2018, 2019 MariaDB Corporation
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -68,6 +68,8 @@
 #    - after some maximum lifetime and/or
 #    - after detecting the defect (no of columns smaller than expected)
 #
+#
+# _digit --> Range 0 till 9
 
 
 start_delay:
@@ -140,23 +142,34 @@ kill_age_cond:
    UNIX_TIMESTAMP() - connect_time > 10;
 
 correct_rqg_sessions_table:
-   # UPDATE test . rqg_sessions SET processlist_id = NULL, connect_time = NULL WHERE processlist_id NOT IN (SELECT id FROM information_schema. processlist);
    UPDATE test . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 create_table:
-     CREATE TABLE IF NOT EXISTS t1 (col1 INT, col2 INT, col_int_properties $col_name $col_type , col_varchar_properties $col_name $col_type, col_text_properties $col_name $col_type, col_int_g_properties $col_name $col_type) engine_settings ;
-   # CREATE TABLE IF NOT EXISTS t1 (col1 INT, col2 INT, col_int_properties $col_name $col_type , col_text_properties $col_name $col_type) ENGINE = InnoDB;
+   CREATE TABLE IF NOT EXISTS t1 ( non_generated_cols generated_cols ) ENGINE = InnoDB ROW_FORMAT = Dynamic    |
+   CREATE TABLE IF NOT EXISTS t2 ( non_generated_cols generated_cols ) ENGINE = InnoDB ROW_FORMAT = Compressed |
+   CREATE TABLE IF NOT EXISTS t3 ( non_generated_cols generated_cols ) ENGINE = InnoDB ROW_FORMAT = Compact    |
+   CREATE TABLE IF NOT EXISTS t4 ( non_generated_cols generated_cols ) ENGINE = InnoDB ROW_FORMAT = Redundant  ;
+
+table_names:
+   t1 |
+   t2 |
+   t3 |
+   t4 ;
+
+non_generated_cols:
+   col1 INT, col2 INT, col_int_properties $col_name $col_type , col_string_properties $col_name $col_type, col_varchar_properties $col_name $col_type, col_text_properties $col_name $col_type ;
+generated_cols:
+                                                                                                                                       |
+   , col_int_g_properties $col_name $col_type, col_string_g_properties $col_name $col_type , col_text_g_properties $col_name $col_type ;
 
 engine_settings:
    innodb_settings ;
 
 innodb_settings:
-   # ENGINE = InnoDB ROW_FORMAT = Dynamic    |
-   # ENGINE = InnoDB ROW_FORMAT = Compressed |
-   # ENGINE = InnoDB ROW_FORMAT = Compact    |
+   ENGINE = InnoDB ROW_FORMAT = Dynamic    |
+   ENGINE = InnoDB ROW_FORMAT = Compressed |
+   ENGINE = InnoDB ROW_FORMAT = Compact    |
    ENGINE = InnoDB ROW_FORMAT = Redundant  ;
-
-# preload_properties?
 
 query:
    set_dbug ; ddl ; set_dbug_null |
@@ -164,19 +177,21 @@ query:
    set_dbug ; dml ; set_dbug_null ;
 
 dml:
-   # Ensure that the table does not grow endless.                                                      |
-   delete ; COMMIT                                                                                     |
-   # Make likely: Get duplicate key based on the two row INSERT only.                                  |
-   enforce_duplicate1 ;                                                                commit_rollback |
-   # Make likely: Get duplicate key based on two row UPDATE only.                                      |
-   enforce_duplicate2 ;                                                                commit_rollback |
-   # Make likely: Get duplicate key based on the row INSERT and the already committed data.            |
-   insert_part ( my_int , $my_int,     $my_int,     fill_begin $my_int     fill_end ); commit_rollback |
-   insert_part ( my_int , $my_int - 1, $my_int,     fill_begin $my_int     fill_end ); commit_rollback |
-   insert_part ( my_int , $my_int,     $my_int - 1, fill_begin $my_int     fill_end ); commit_rollback |
-   insert_part ( my_int , $my_int,     $my_int,     fill_begin $my_int - 1 fill_end ); commit_rollback ;
+   # Ensure that the table does not grow endless.                                                                   |
+   delete ; COMMIT                                                                                                  |
+   # Make likely: Get duplicate key based on the two row INSERT only.                                               |
+   enforce_duplicate1 ;                                                                             commit_rollback |
+   # Make likely: Get duplicate key based on two row UPDATE only.                                                   |
+   enforce_duplicate2 ;                                                                             commit_rollback |
+   # Make likely: Get duplicate key based on the row INSERT and the already committed data.                         |
+   insert_part ( my_int , $my_int,     $my_int,     string_fill, fill_begin $my_int     fill_end ); commit_rollback |
+   insert_part ( my_int , $my_int - 1, $my_int,     string_fill, fill_begin $my_int     fill_end ); commit_rollback |
+   insert_part ( my_int , $my_int,     $my_int - 1, string_fill, fill_begin $my_int     fill_end ); commit_rollback |
+   insert_part ( my_int , $my_int,     $my_int,     string_fill, fill_begin $my_int - 1 fill_end ); commit_rollback ;
 
-# SUBSTR(CAST( 200 AS CHAR),1,1) ==> 200
+# CAST( 200 AS CHAR)                         ==> '200'
+# SUBSTR(CAST( 200 AS CHAR),1,1)             ==> '2'
+# REPEAT(SUBSTR(CAST( 200 AS CHAR),1,1), 10) ==> '2222222222'
 fill_begin:
    REPEAT(SUBSTR(CAST( ;
 fill_end:
@@ -186,26 +201,26 @@ enforce_duplicate1:
    delete ; insert_part /* my_int */ some_record , some_record ;
 
 enforce_duplicate2:
-   UPDATE t1 SET column_name_int = my_int LIMIT 2 ;
+   UPDATE table_names SET column_name_int = my_int LIMIT 2 ;
 
 insert_part:
-   INSERT INTO t1 (col1,col2,col_int_properties $col_name, col_text_properties $col_name) VALUES ;
+   INSERT INTO table_names (col1,col2,col_int_properties $col_name, col_string_properties $col_name, col_text_properties $col_name) VALUES ;
 
 some_record:
-   ($my_int,$my_int,$my_int,fill_begin $my_int fill_end ) ;
+   ($my_int,$my_int,$my_int,string_fill,fill_begin $my_int fill_end ) ;
 
 delete:
-   DELETE FROM t1 WHERE column_name_int = my_int OR $column_name_int IS NULL                              ;
-#   DELETE FROM t1 WHERE MATCH(col_text_properties $col_name) AGAINST (TRIM(' my_int ') IN BOOLEAN MODE) OR column_name_int IS NULL ;
+   DELETE FROM table_names WHERE column_name_int = my_int OR $column_name_int IS NULL                              ;
+#   DELETE FROM table_names WHERE MATCH(col_text_properties $col_name) AGAINST (TRIM(' my_int ') IN BOOLEAN MODE) OR column_name_int IS NULL ;
 
 my_int:
    # Maybe having some uneven distribution is of some value.
-   { $my_int= 1                   } |
-   { $my_int= $prng->int(1,    8) } |
-   { $my_int= $prng->int(1,   64) } |
-   { $my_int= $prng->int(1,  512) } |
-   { $my_int= $prng->int(1, 4096) } |
-   { $my_int= 'NULL'              } ;
+   { $my_int= 1                     } |
+   { $my_int= $prng->int(  2,    8) } |
+   { $my_int= $prng->int(  9,   64) } |
+   { $my_int= $prng->int( 65,  512) } |
+   { $my_int= $prng->int(513, 4096) } |
+   { $my_int= 'NULL'                } ;
 
 commit_rollback:
    COMMIT   |
@@ -214,35 +229,55 @@ commit_rollback:
 # FIXME:
 # https://mariadb.com/kb/en/library/wait-and-nowait/
 ddl:
-   ALTER TABLE t1 add_accelerator                     ddl_algorithm_lock_option |
-   ALTER TABLE t1 add_accelerator                     ddl_algorithm_lock_option |
-   ALTER TABLE t1 add_accelerator                     ddl_algorithm_lock_option |
-   ALTER TABLE t1 add_accelerator                     ddl_algorithm_lock_option |
-   ALTER TABLE t1 drop_accelerator                    ddl_algorithm_lock_option |
-   ALTER TABLE t1 drop_accelerator                    ddl_algorithm_lock_option |
-   ALTER TABLE t1 drop_accelerator                    ddl_algorithm_lock_option |
-   ALTER TABLE t1 drop_accelerator                    ddl_algorithm_lock_option |
-   ALTER TABLE t1 add_accelerator  , add_accelerator  ddl_algorithm_lock_option |
-   ALTER TABLE t1 drop_accelerator , drop_accelerator ddl_algorithm_lock_option |
-   ALTER TABLE t1 drop_accelerator , add_accelerator  ddl_algorithm_lock_option |
+   ALTER TABLE table_names add_accelerator                     ddl_algorithm_lock_option |
+   ALTER TABLE table_names add_accelerator                     ddl_algorithm_lock_option |
+   ALTER TABLE table_names add_accelerator                     ddl_algorithm_lock_option |
+   ALTER TABLE table_names add_accelerator                     ddl_algorithm_lock_option |
+   ALTER TABLE table_names drop_accelerator                    ddl_algorithm_lock_option |
+   ALTER TABLE table_names drop_accelerator                    ddl_algorithm_lock_option |
+   ALTER TABLE table_names drop_accelerator                    ddl_algorithm_lock_option |
+   ALTER TABLE table_names drop_accelerator                    ddl_algorithm_lock_option |
+   ALTER TABLE table_names add_accelerator  , add_accelerator  ddl_algorithm_lock_option |
+   ALTER TABLE table_names drop_accelerator , drop_accelerator ddl_algorithm_lock_option |
+   ALTER TABLE table_names drop_accelerator , add_accelerator  ddl_algorithm_lock_option |
    # ddl_algorithm_lock_option is not supported by some statements
-   check_table                                                                  |
-   TRUNCATE TABLE t1                                                            |
+   check_table                                                                           |
+   TRUNCATE TABLE table_names                                                            |
    # ddl_algorithm_lock_option is within the replace_column sequence
-   replace_column                                                               |
+   replace_column                                                                        |
    # It is some rather arbitrary decision to place KILL session etc. here
    # but KILL ... etc. is like most DDL some rather heavy impact DDL.
-   ALTER TABLE t1 enable_disable KEYS                                           |
-   rename_column                                      ddl_algorithm_lock_option |
-   ALTER TABLE t1 null_notnull_column                                ddl_algorithm_lock_option |
-   block_stage                                                                  |
-   kill_query_or_session_or_release                                             ;
+   ALTER TABLE table_names enable_disable KEYS                                           |
+   rename_column                                      ddl_algorithm_lock_option          |
+   null_notnull_column                                ddl_algorithm_lock_option          |
+   ALTER TABLE table_names MODIFY column_name_int int_bigint   ddl_algorithm_lock_option |
+   move_column                                        ddl_algorithm_lock_option          |
+   chaos_column                                       ddl_algorithm_lock_option          |
+   block_stage                                                                           |
+   kill_query_or_session_or_release                                                      ;
+
+chaos_column:
+   # Basic idea
+   # - have a length in bytes = 3 which is not the usual 2, 4 or more
+   # - let the column stray like it exists/does not exist/gets moved to other position
+   ALTER TABLE table_names ADD COLUMN IF NOT EXISTS col_date DATE DEFAULT CUR_DATE() |
+   ALTER TABLE table_names DROP COLUMN IF EXISTS col_date                            |
+   ALTER TABLE table_names MODIFY COLUMN IF EXISTS col_date DATE column_position     ;
+
+move_column:
+   # Unfortunately I cannot prevent that the column type gets maybe changed.
+   random_column_properties ALTER TABLE table_names MODIFY COLUMN $col_name $col_type column_position ;
 
 null_notnull_column:
-   random_column_properties MODIFY COLUMN $col_name $column_type null_not_null ;
+   # Unfortunately I cannot prevent that the column type gets maybe changed.
+   random_column_properties ALTER TABLE table_names MODIFY COLUMN $col_name $col_type null_not_null ;
 null_not_null:
    NULL     |
    NOT NULL ;
+
+int_bigint:
+   INT     |
+   BIGINT  ;
 
 enable_disable:
    ENABLE  |
@@ -270,10 +305,10 @@ ddl_lock:
 
 
 add_accelerator:
-   ADD  UNIQUE   key_or_index  if_not_exists_mostly  uidx_name ( column_name_list_for_key ) |
-   ADD           key_or_index  if_not_exists_mostly   idx_name ( column_name_list_for_key ) |
-   ADD  PRIMARY  KEY           if_not_exists_mostly            ( column_name_list_for_key ) |
-   ADD  FULLTEXT key_or_index  if_not_exists_mostly ftidx_name ( col_text                     ) ;
+   ADD  UNIQUE   key_or_index if_not_exists_mostly  uidx_name ( column_name_list_for_key ) |
+   ADD           key_or_index if_not_exists_mostly   idx_name ( column_name_list_for_key ) |
+   ADD  PRIMARY  KEY          if_not_exists_mostly            ( column_name_list_for_key ) |
+   ADD  FULLTEXT key_or_index if_not_exists_mostly ftidx_name ( col_text                 ) ;
 
 drop_accelerator:
    DROP         key_or_index  uidx_name |
@@ -286,7 +321,7 @@ key_or_index:
    KEY   ;
 
 check_table:
-   CHECK TABLE t1 ;
+   CHECK TABLE table_names ;
 
 column_position:
                             |
@@ -325,37 +360,49 @@ random_column_name:
 # 1. No replacing of content in the variables $col_name , $col_type , $col_idx
 #    ==> No impact on text of remaining statement sequence.
 # 2. The column name just gets printed(returned).
-   col1      |
-   col2      |
-   col_int   |
-   # col_int_g |
-   col_text  ;
+   col1         |
+   col2         |
+   col_int      |
+   col_int_g    |
+   col_varchar  |
+   col_string   |
+   col_string_g |
+   col_text     |
+   col_text_g   ;
 
-
-
-
-#----------------------------------------------------------
+#===========================================================
+# Concept of "replace_column"
+# ---------------------------
+# Add a logical (maybe not the same data type but a compatible data type) copy of some column.
+# Fill that new column with data taken from the original.
+# Drop the original column.
+# Rename the new column to the original one.
 replace_column:
-   random_column_properties replace_column_add ; replace_column_update ; replace_column_drop ; replace_column_rename ;
+   random_column_properties   replace_column_add ; replace_column_update ; replace_column_drop ; replace_column_rename |
+   random_column_g_properties replace_column_add ;                         replace_column_drop ; replace_column_rename ;
 
 replace_column_add:
-   ALTER TABLE t1 ADD COLUMN if_not_exists_mostly {$forget= $col_name."_copy"} $col_type column_position ddl_algorithm_lock_option ;
+   ALTER TABLE table_names ADD COLUMN if_not_exists_mostly {$forget= $col_name."_copy"} $col_type column_position ddl_algorithm_lock_option ;
 replace_column_update:
-   UPDATE t1 SET $forget = $col_name ;
+   UPDATE table_names SET $forget = $col_name ;
 replace_column_drop:
-   ALTER TABLE t1 DROP COLUMN if_exists_mostly $col_name ddl_algorithm_lock_option ;
+   ALTER TABLE table_names DROP COLUMN if_exists_mostly $col_name ddl_algorithm_lock_option ;
 replace_column_rename:
-   ALTER TABLE t1 CHANGE COLUMN if_exists_mostly $forget {$name = $col_name; return undef} name_convert $col_type ddl_algorithm_lock_option ;
-#----------------------------------------------------------
+   # Unfortunately I cannot prevent that the column type gets maybe changed.
+   ALTER TABLE table_names CHANGE COLUMN if_exists_mostly $forget {$name = $col_name; return undef} name_convert $col_type ddl_algorithm_lock_option ;
+#===========================================================
 # Names should be compared case insensitive.
-# Given the fact that the current test should hunt bugs in storage engine and
-# server -- storage engine relation I hope its sufficient to mangle column and
-# index names within the column or index related DDL but not in other SQL.
+# Given the fact that the current test should hunt bugs in
+# - storage engine only or
+# - server -- storage engine relation
+# I hope its sufficient to mangle column and index names within the column or index related DDL but
+# not in other SQL.
 rename_column:
+   # Unfortunately I cannot prevent that the column type gets maybe changed.
    rename_column_begin {$name = $col_name; return undef} name_convert $col_name $col_type |
    rename_column_begin {$name = $col_name; return undef} $col_name name_convert $col_type ;
 rename_column_begin:
-   random_column_properties ALTER TABLE t1 CHANGE COLUMN if_exists_mostly ;
+   random_column_properties ALTER TABLE table_names CHANGE COLUMN if_exists_mostly ;
 name_convert:
    $name                                                                                                   |
    $name                                                                                                   |
@@ -381,7 +428,7 @@ get_cdigit:
 #    regarding the 255-byte maximum length only applies to other ROW_FORMAT.
 # FIXME: Complete the implementation.
 resize_varchar:
-   col_varchar_properties ALTER TABLE t1 MODIFY COLUMN $col_name $col_type |
+   col_varchar_properties ALTER TABLE table_names MODIFY COLUMN $col_name $col_type |
                                                                            ;
 
 # MDEV-5336 Implement LOCK FOR BACKUP
@@ -454,8 +501,6 @@ resize_varchar:
 # - One of the SQL's above diced. (== Wrong programmed backup tool). -- Use rare
 # - Two sequence runner. == Use rare --> Check first in MTR
 #
-########## MDEV-5336 Implement LOCK FOR BACKUP  ####################
-# More comments about that in table_stress.yy
 block_stage:
    block_stage_sequence        |
    block_stage_diced           ;
@@ -496,17 +541,22 @@ if_exists_mostly:
    IF     EXISTS ;
 
 random_column_properties:
-   col1_properties      |
-   col2_properties      |
-   col_int_properties   |
-#  col_int_g_properties |
-   col_text_properties  ;
+   col1_properties         |
+   col2_properties         |
+   col_int_properties      |
+   col_string_properties   |
+   col_text_properties     ;
+
+random_column_g_properties:
+   col_int_g_properties    |
+   col_string_g_properties |
+   col_text_g_properties   ;
 
 ###### col<number_or_type>_properties
 # Get the properties for some random picked column.
 #    $col_name -- column name like "col1"
 #    $col_type -- column base type like "TEXT"
-#    $col_idx  -- part of key definition related to the base column (Main question: Full column or prefix).
+#    $col_idx  -- part of key definition related to the base column (Main question: Full column or prefix or both).
 #
 col1_properties:
              { $col_name= "col1"         ; $col_type= "INT"                                                                     ; return undef } col_to_idx ;
@@ -516,23 +566,60 @@ col2_properties:
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------------
 # col_varchar and col_text could be/are used roughly the same way except that col_text could keep longer values.
 col_varchar_properties:
-             { $col_name= "col_varchar"  ; $col_type= "VARCHAR(500)"                                                            ; return undef } col_varchar_idx ;
+             { $col_name= "col_varchar"  ; $col_type= "VARCHAR(500)"                                                            ; return undef } col_to_idx_both ;
 col_varchar_g_properties:
-   gcol_prop { $col_name= "col_varchar_g"; $col_type= "VARCHAR(500) GENERATED ALWAYS AS (SUBSTR(col_varchar,1,499)) $gcol_prop" ; return undef } col_varchar_idx ;
-col_varchar_idx:
-   col_to_idx   |
-   col10_to_idx ;
+   gcol_prop { $col_name= "col_varchar_g"; $col_type= "VARCHAR(500) GENERATED ALWAYS AS (SUBSTR(col_varchar,1,499)) $gcol_prop" ; return undef } col_to_idx_both ;
 
 col_text_properties:
-             { $col_name= "col_text"     ; $col_type= "TEXT"                                                                    ; return undef } col10_to_idx ;
+             { $col_name= "col_text"     ; $col_type= "TEXT"                                                                    ; return undef } col9_to_idx ;
 col_text_g_properties:
-   gcol_prop { $col_name= "col_text_g"   ; $col_type= "TEXT         GENERATED ALWAYS AS (SUBSTR(col_text,1,499))    $gcol_prop" ; return undef } col10_to_idx ;
+   gcol_prop { $col_name= "col_text_g"   ; $col_type= "TEXT         GENERATED ALWAYS AS (SUBSTR(col_text,1,499))    $gcol_prop" ; return undef } col9_to_idx ;
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------------
-# col_s_string (_s_ --> short) is dedicated to switching between CHAR and VARCHAR
-col_s_string:
-   { $col_name= "col_s_string"           ; $col_type= "VARCHAR(10)"                                                             ; return undef } col_to_idx |
-   { $col_name= "col_s_string"           ; $col_type= "CHAR(10)"                                                                ; return undef } col_to_idx ;
+# col_string is dedicated to switching between CHAR and VARCHAR and size 19 and 20
+# Base idea:
+# - column value size = 10 --> no problem with the column size used (19 or 20)
+# - column size (19 or 20) is all time a bit longer than the maybe used prefix size for index (9)
+# - the purpose of the    if ( 1 < ( time() + 1 ) % 4 ) { ... } else { ... }
+#   is to reduce the frequency of data type alternations so that we have some increased
+#   likelihood for
+#   - change column name but not the type
+#   - change column position but not the type
+#   ...
+col_string_properties:
+   string_col_name string_col_type col_to_idx_both ;
+
+string_col_name:
+   { $col_name= "col_string" ; return undef } ;
+string_col_type:
+   char_or_varchar size19_or_size20 ;
+char_or_varchar:
+   { if ( 1 < ( time()     ) % 4 ) { $col_type = "CHAR" } else { $col_type = "VARCHAR" } ; return undef } ;
+size19_or_size20:
+   { if ( 1 < ( time() + 1 ) % 4 ) { $col_size = 19 } else { $col_size = 20 } ; $col_type .= "($col_size)" ; return undef } ;
+string_fill:
+   REPEAT(SUBSTR(CAST( $my_int AS CHAR),1,1), 10) ;
+
+col_string_g_properties:
+   string_g_col_name string_g_col_type col_to_idx_both ;
+string_g_col_name:
+   { $col_name= "col_string_g" ; return undef } ;
+string_g_col_type:
+   char_or_varchar size12_or_size13 gcol_prop { $col_type .= " GENERATED ALWAYS AS (SUBSTR(col_string,4,$col_size)) $gcol_prop" ; return undef } ;
+size12_or_size13:
+   { $col_size = 12 ; $col_type .= "($col_size)" ; return undef } |
+   { $col_size = 13 ; $col_type .= "($col_size)" ; return undef } ;
+
+col_to_idx_both:
+   col_to_idx  |
+   col9_to_idx ;
+
+col_to_idx:
+   { $col_idx= $col_name         ; return undef } ;
+col9_to_idx:
+   { $col_idx= $col_name . "(9)" ; return undef } ;
+
+
 
 col_int_properties:
              { $col_name= "col_int"      ; $col_type= "INTEGER"                                                                 ; return undef } col_to_idx ;
@@ -546,10 +633,6 @@ col_float_properties:
 col_float_g_properties:
    gcol_prop { $col_name= "col_float_g"  ; $col_type= "FLOAT        GENERATED ALWAYS AS (col_float)                 $gcol_prop" ; return undef } col_to_idx ;
 
-col_to_idx:
-   { $col_idx= $col_name          ; return undef } ;
-col10_to_idx:
-   { $col_idx= $col_name . "(10)" ; return undef } ;
 gcol_prop:
    { $gcol_prop = "PERSISTENT"    ; return undef }   |
    { $gcol_prop = "VIRTUAL"       ; return undef }   ;
