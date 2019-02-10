@@ -111,7 +111,7 @@ sub reload_grammar {
     my ($grammar_file, $threads, $grammar_flags) = @_;
     # !!! The caller might have changed the value for threads compared to the previous run !!!
 
-    Carp::cluck("DEBUG: Grammar_advanced::reload_grammar (grammar_file, $threads, $grammar_flags)" .
+    Carp::cluck("DEBUG: Grammar_advanced::reload_grammar (grammar_file, threads, grammar_flags)" .
                 " entered") if $script_debug;
 
     if (not defined $threads) {
@@ -1073,6 +1073,58 @@ sub shrink_grammar {
             return undef;
         }
 
+        # Avoid simple recursion
+        # ----------------------
+        # What would happen in case we do not avoid such a evil simplification?
+        # a) In the most likely case lib/GenTest/Generator/FromGrammar.pm detects during RQG
+        #    runtime recursion than it returns undef --> STATUS_ENVIRONMENT_FAILURE.
+        #    A simplifier with good setup
+        #        blacklist_patterns contain 'Possible endless loop in grammar.'
+        #    will than judge ... and not use that grammar.
+        #    Overall loss:
+        #    The efforts for one or maybe a few (more than one simplify campaign) RQG runs.
+        # b) Other case (hit in several simplifier runs)
+        #    - very unlikely with many threads using that rule or the rule is rare used
+        #    - unlikely but nevertheless too often with especially threads = 1
+        #    the grammar replays before recursion was detected at all.
+        #    And than quite likely the simplifier will take this grammar as base.
+        #    Overall loss:
+        #    The efforts for many RQG runs ending with STATUS_ENVIRONMENT_FAILURE because of
+        #    recursion. And finally we end up most likely with some grammar which is capable
+        #    to replay but needs many attempts.
+        # Example grammar
+        # query:
+        #     SELECT recursive_rule ;
+        # recursive_rule:
+        #     13                   | <-- harmless
+        #     13, recursive_rule   | <-- is dangerous if only dangerous are left over
+        #     recursive_rule , 13  | <-- is dangerous if only dangerous are left over
+        #     13, Arecursive_rule  | <-- harmless
+        #     Arecursive_rule , 13 | <-- harmless
+        #     13, recursive_ruleA  | <-- harmless
+        #     recursive_ruleA , 13 ; <-- harmless
+        my $is_safe = 0;
+        foreach my $existing_component_string ( $rule_obj->unique_components()) {
+            if ($component_string ne $existing_component_string) {
+                # Its not the component/alternative which we are going to remove.
+                # == This component will survive and so its content matters.
+                my $l_existing_component_string = " " . $existing_component_string . " ";
+                my $l_rule_name                 = " " . $rule_name . " ";
+                if (not $l_existing_component_string =~ /$l_rule_name/) {
+                    $is_safe = 1;
+                  # say("DEBUG: IS SAFE $rule_name Inspecting ->$existing_component_string<-");
+                    last;
+                } else {
+                  # say("DEBUG: IS NOT SAFE $rule_name Inspecting ->$existing_component_string<-");
+                }
+            }
+        }
+        if (not $is_safe) {
+            say("DEBUG: shrink_grammar: Omit rule '$rule_name' because fearing recursion.")
+                if $script_debug;
+            return undef;
+        }
+
         # All above was tested.
         # So we can at least think about removing that component_string.
         # The rule exists, it contains $component_string and there are more than one unique components.
@@ -1109,8 +1161,8 @@ sub shrink_grammar {
         return undef;
     }
 
-    say("DEBUG: Original rule '$rule_name' ->" . $rule_obj->toString() . "<-") if $script_debug;
-    say("DEBUG: Reduced  rule '$rule_name' ->" . $reduced_rule_string  . "<-") if $script_debug;
+    say("DEBUG: Original rule ->" . $rule_obj->toString() . "<-") if $script_debug;
+    say("DEBUG: Reduced  rule ->" . $reduced_rule_string  . "<-") if $script_debug;
 
     return $reduced_rule_string;
 
