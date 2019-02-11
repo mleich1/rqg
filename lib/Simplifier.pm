@@ -199,7 +199,7 @@ use constant ORDER_PROPERTY3         => 3;
 # Create order --> ORDER_EFFORTS_LEFT_OVER = $trials
 # A RQG run with that order was regular finished != stopped (treatment in following order)
 # 1. It was a finished RQG run             --> decrement ORDER_EFFORTS_LEFT_OVER
-# 2. In case the RQG run achieved a replay --> increment ORDER_EFFORTS_LEFT_OVER
+# 2. In case the RQG run achieved a replay --> increment ORDER_EFFORTS_LEFT_OVER two times
 # 3. In case the RQG run achieved no replay and ORDER_EFFORTS_LEFT_OVER <= 0
 #    --> Stop all ongoing RQG runs using that order and
 #        move the order id into %try_exhausted_hash + remove it from other hashes.
@@ -1527,6 +1527,7 @@ sub register_result {
                 # Its a too late replayer.
                 # But the order was quite good. So try it again.
                 $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER]++;
+                $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER]++;
                 Batch::add_to_try_intensive_again($order_id);
                 return Batch::REGISTER_GO_ON;
             }
@@ -1544,6 +1545,7 @@ sub register_result {
             } else {
                 # Its a too late replayer.
                 # But the order was quite good. So try it again.
+                $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER]++;
                 $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER]++;
                 Batch::add_to_try_intensive_again($order_id);
                 return Batch::REGISTER_GO_ON;
