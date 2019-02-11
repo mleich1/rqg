@@ -173,13 +173,13 @@ use constant SIMP_ALGO_MASKING    => 'masking'; # not yet implemented
 my @order_array = ();
 # index is the id of creation in generate_order
 #
-# EFFORTS_INVESTED
+# ORDER_EFFORTS_INVESTED
 # Number of RQG runs for that orderid or sum of their runtimes
-use constant ORDER_EFFORTS_INVESTED => 0;
+use constant ORDER_EFFORTS_INVESTED  => 0;
 
 # ORDER_PROPERTY1
 # Snip of the command line for the RQG runner.
-use constant ORDER_PROPERTY1        => 1;
+use constant ORDER_PROPERTY1         => 1;
 #
 # ORDER_PROPERTY2 , comb_counter
 # Example: start_combination = 2 , trials = 3
@@ -189,10 +189,21 @@ use constant ORDER_PROPERTY1        => 1;
 #            3 |        2
 #            4 |        3
 #
-use constant ORDER_PROPERTY2        => 2;
+use constant ORDER_PROPERTY2         => 2;
 #
 # ORDER_PROPERTY3 , unused
-use constant ORDER_PROPERTY3        => 3;
+use constant ORDER_PROPERTY3         => 3;
+#
+# ORDER_EFFORTS_LEFT_OVER
+# (Current) maximum number of allowed left over finished RQG runs with that order id.
+# Create order --> ORDER_EFFORTS_LEFT_OVER = $trials
+# A RQG run with that order was regular finished != stopped (treatment in following order)
+# 1. It was a finished RQG run             --> decrement ORDER_EFFORTS_LEFT_OVER
+# 2. In case the RQG run achieved a replay --> increment ORDER_EFFORTS_LEFT_OVER
+# 3. In case the RQG run achieved no replay and ORDER_EFFORTS_LEFT_OVER <= 0
+#    --> Stop all ongoing RQG runs using that order and
+#        move the order id into %try_exhausted_hash + remove it from other hashes.
+use constant ORDER_EFFORTS_LEFT_OVER => 4;
 
 my $workdir;
 
@@ -324,7 +335,7 @@ my $ever_success = 0;
 # simplification.
 # Starting at some point all thinkable orders for simplifying some grammar were generated and
 # this variable will be than set to 1.
-my $out_of_ideas = 0;
+# my $out_of_ideas = 0;
 #
 # $campaign_success
 # -----------------
@@ -343,6 +354,11 @@ my $campaign_success = 0;
 # ----------------
 # Incremented whenever such a campaign gets started.
 my $campaign_number  = 0;
+#
+# $campaign_number
+# ----------------
+# Incremented whenever such a campaign gets started.
+my $refill_number    = 0;
 
 
 # Additional parameters maybe being target of simplification
@@ -997,13 +1013,6 @@ sub get_job {
             say("DEBUG: Batch::get_order delivered order_id $order_id.")
                 if Auxiliary::script_debug("S6");
             my $order_is_valid = 0;
-                # PHASE_SIMP_BEGIN        not relevant
-                # PHASE_FIRST_REPLAY      handled
-                # PHASE_THREAD1_REPLAY    handled
-                # PHASE_RVT_SIMP          handled
-                # PHASE_GRAMMAR_SIMP      handled
-                # PHASE_FINAL_REPLAY      handled
-                # PHASE_SIMP_END          not relevant
                 if (PHASE_FIRST_REPLAY   eq $phase or
                     PHASE_THREAD1_REPLAY eq $phase or
                     PHASE_FINAL_REPLAY   eq $phase   ) {
@@ -1071,40 +1080,38 @@ sub get_job {
                         $order_id = undef;
                     }
                 } elsif (PHASE_SIMP_END eq $phase) {
-                    ##############
                 } else {
                     Carp::cluck("INTERNAL ERROR: Handling for phase '$phase' is missing.");
                     my $status = STATUS_INTERNAL_ERROR;
                     Batch::emergency_exit($status);
                 }
         } else {
-            # %try_first_hash and @try_queue were empty and so $order_id is undef.
+            # NO ORDER GOT
             say("DEBUG: Batch::get_order delivered an undef order_id.")
                 if Auxiliary::script_debug("S5");
-            if (0 == $out_of_ideas) {
-                # We do not already know if generating a new order is impossible.
-                # So we need to try it.
-                if (not generate_orders()) {
-                    say("DEBUG: generate_orders delivered nothing. Setting out_of_ideas")
-                         if Auxiliary::script_debug("S4");
-                    $out_of_ideas = 1;
+            # %try_first_hash and @try_queue were empty and so $order_id is undef.
+            if (PHASE_RVT_SIMP     eq $phase or PHASE_GRAMMAR_SIMP eq $phase or
+                PHASE_GRAMMAR_DEST eq $phase                                    ) {
+                if (5 > $refill_number) {
+                    $refill_number++;
+                    Batch::reactivate_try_replayer;
+                    Batch::reactivate_try_over;
+                    Batch::reactivate_try_over_bl;
+                    Batch::reactivate_till_filled;
+                    say("DEBUG: \@try_queue refill : $refill_number")
+                        if Auxiliary::script_debug("S3");
                 } else {
-                    # There must be now one or more new orders in @try_queue.
-                    # So let them get found by Batch::get_order() and checked if valid.
+                    say("DEBUG: No \@try_queue refill. Limit of $refill_number already reached.")
+                        if Auxiliary::script_debug("S3");
+                    last;
                 }
-                next;
-            } elsif (1 == $out_of_ideas) {
-                next if (Batch::consume_try_later_hash);
-                $out_of_ideas = 2;
-                Batch::consume_try_over_hash;
-                Batch::consume_try_over_bl_hash;
-            } elsif (2 == $out_of_ideas) {
-                next if (Batch::consume_try_later_hash);
-                $out_of_ideas = 3;
-                Batch::consume_try_last_hash;
             } else {
-                last;
+                Batch::reactivate_till_filled;
+                say("DEBUG: \@try_queue refilled.") if Auxiliary::script_debug("S3");
             }
+            # FIXME: Is that right?
+            # This implies Batch::get_out_of_ideas() > 0;
+            last;
         }
         say("DEBUG: End of loop for getting an order.") if Auxiliary::script_debug("S6");
     } # End of while (not defined $order_id)
@@ -1112,8 +1119,8 @@ sub get_job {
         if (defined $order_id) {
             say("DEBUG: OrderID is $order_id.");
         } else {
-            if (not $out_of_ideas) {
-                say("WARN: OrderID is not defined AND out_of_ideas is 0.");
+            if (0 == Batch::get_out_of_ideas()) {
+                say("WARN: OrderID is not defined AND Batch::out_of_ideas is 0.");
             }
         }
     }
@@ -1124,14 +1131,14 @@ sub get_job {
         # == All possible orders were generated.
         #    Some might be in execution and all other must be in %try_over_hash or
         #    %try_never_hash.
-        say("DEBUG: No order got, active : $active, out_of_ideas : $out_of_ideas")
+        say("DEBUG: No order got, active : $active, out_of_ideas : " . Batch::get_out_of_ideas())
             if Auxiliary::script_debug("S5");
         Batch::dump_try_hashes() if Auxiliary::script_debug("S6");
-        if (not $active and $out_of_ideas) {
+        if (not $active and Batch::get_out_of_ideas()) {
             $phase_switch     = 1;
-            say("DEBUG: Simplifier::get_job : No valid order found, active : $active, " ,
-                "out_of_ideas : $out_of_ideas --> Set phase_switch = 1 and return undef")
-                if Auxiliary::script_debug("S5");
+            say("DEBUG: Simplifier::get_job : No valid order found, active : $active, " .
+                "out_of_ideas : " . Batch::get_out_of_ideas() . " --> Set phase_switch = 1 " .
+                "and return undef") if Auxiliary::script_debug("S5");
         }
         return undef;
     } else {
@@ -1362,10 +1369,11 @@ sub add_order {
 
     $order_id_now++;
 
-    $order_array[$order_id_now][ORDER_EFFORTS_INVESTED] = 0;
-    $order_array[$order_id_now][ORDER_PROPERTY1]        = $order_property1;
-    $order_array[$order_id_now][ORDER_PROPERTY2]        = $order_property2;
-    $order_array[$order_id_now][ORDER_PROPERTY3]        = $order_property3;
+    $order_array[$order_id_now][ORDER_EFFORTS_INVESTED]  = 0;
+    $order_array[$order_id_now][ORDER_EFFORTS_LEFT_OVER] = $trials;
+    $order_array[$order_id_now][ORDER_PROPERTY1]         = $order_property1;
+    $order_array[$order_id_now][ORDER_PROPERTY2]         = $order_property2;
+    $order_array[$order_id_now][ORDER_PROPERTY3]         = $order_property3;
 
     Batch::add_order($order_id_now);
     print_order($order_id_now) if Auxiliary::script_debug("S5");
@@ -1403,6 +1411,8 @@ sub register_result {
     Carp::cluck("DEBUG: Simplifier::register_result(order_id, verdict, saved_log_rel, " .
                 "total_runtime, grammar_used, grammar_parent, adapted_duration)")
         if Auxiliary::script_debug("S4");
+
+    my $return = 'INIT';
 
     $arrival_number = 1 if not defined $arrival_number;
 
@@ -1444,7 +1454,7 @@ sub register_result {
     Batch::append_string_to_file ($result_file, $line);
     $arrival_number++;
 
-    # 2. Update $left_over_trials, ORDER_EFFORTS_INVESTED
+    # 2. Update $left_over_trials, ORDER_EFFORTS_INVESTED, ORDER_EFFORTS_LEFT_OVER
     if      ($verdict eq Verdict::RQG_VERDICT_IGNORE           or
              $verdict eq Verdict::RQG_VERDICT_IGNORE_STATUS_OK or
              $verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST or
@@ -1452,6 +1462,7 @@ sub register_result {
              $verdict eq Verdict::RQG_VERDICT_REPLAY           or
              $verdict eq Verdict::RQG_VERDICT_INIT       ) {
         $order_array[$order_id][ORDER_EFFORTS_INVESTED]++;
+        $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER]--;
         $left_over_trials--;
     } elsif ($verdict eq Verdict::RQG_VERDICT_IGNORE_STOPPED) {
         # Do nothing with the $order_array[$order_id][ORDER_EFFORTS_*].
@@ -1465,11 +1476,13 @@ sub register_result {
         if Auxiliary::script_debug("S4");
 
     my $target = $workdir . "/" . $best_grammar;
+    my $efforts_invested = $order_array[$order_id][ORDER_EFFORTS_INVESTED];
 
     # 3. React on the verdict and decide about the nearby future of the order.
     if      ($verdict eq Verdict::RQG_VERDICT_IGNORE_STOPPED) {
         # We need to make some additional run with this order as soon as possible.
         Batch::add_to_try_first($order_id);
+        return Batch::REGISTER_GO_ON;
     } elsif ($verdict eq Verdict::RQG_VERDICT_REPLAY) {
         $campaign_success++;
         if (PHASE_FIRST_REPLAY   eq $phase or
@@ -1477,25 +1490,30 @@ sub register_result {
             PHASE_FINAL_REPLAY   eq $phase   ) {
             # The fate of the phase is decided.
             $phase_switch = 1;
+            Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW);
             # In the current phase we have used all time the same grammar and that is the
             # current $child_grammar.
             my $source = $workdir . "/" . $child_grammar;
             Batch::copy_file($source, $target);
             if (PHASE_THREAD1_REPLAY eq $phase) {
+                Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW);
                 say("INFO: We had a replay in phase '$phase'. " .
                     "Will adjust the parent grammar and the number of threads used to 1.");
                 $threads = 1;
                 $cl_snip_all .= " --threads=1";
-                reload_grammar($child_grammar, 0);
+                reload_grammar($child_grammar);
             } elsif (PHASE_FINAL_REPLAY eq $phase) {
-                # return (STATUS_OK, Batch::REGISTER_END);
             }
             Batch::add_to_try_never($order_id);
-            return (STATUS_OK, Batch::REGISTER_STOP_ALL);
+            return Batch::REGISTER_SOME_STOPPED;
         } elsif (PHASE_RVT_SIMP eq $phase) {
             my $rvt_now = get_shrinked_rvt_options(undef, undef, 0);
             if ($grammar_parent eq $rvt_now) {
-                # Its a first winner.
+                # Its a first replayer based on the current parent rvt options.
+                # add_to_try_never stops all running RQG Worker using that order_id.
+                Batch::stop_worker_young;
+                Batch::stop_worker_on_order($order_id);
+                Batch::add_to_try_never($order_id);
                 my $rvt_options = get_shrinked_rvt_options($order_array[$order_id][ORDER_PROPERTY2],
                                          $order_array[$order_id][ORDER_PROPERTY3], 1);
                 if (not defined $rvt_options) {
@@ -1503,20 +1521,32 @@ sub register_result {
                     my $status = STATUS_INTERNAL_ERROR;
                     Batch::emergency_exit($status);
                 }
-                Batch::add_to_try_never($order_id);
-                return (STATUS_OK, Batch::REGISTER_GO_ON);
+              # return Batch::REGISTER_SOME_STOPPED;
+                return Batch::REGISTER_GO_ON;
             } else {
-                # Its a too late winner.
+                # Its a too late replayer.
+                # But the order was quite good. So try it again.
+                $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER]++;
                 Batch::add_to_try_intensive_again($order_id);
+                return Batch::REGISTER_GO_ON;
             }
         } elsif (PHASE_GRAMMAR_SIMP eq $phase or
                  PHASE_GRAMMAR_DEST eq $phase   ) {
             if ($grammar_parent eq $parent_grammar) {
-                reload_grammar($grammar_used, 0);
+                # Its a first replayer based on the current parent grammar.
+                reload_grammar($grammar_used);
+                # add_to_try_never stops all running RQG Worker using that order_id.
+                Batch::stop_worker_young;
+                Batch::stop_worker_on_order($order_id);
                 Batch::add_to_try_never($order_id);
+              # return Batch::REGISTER_SOME_STOPPED;
+                return Batch::REGISTER_GO_ON;
             } else {
-                # Its a second winner. But the order was quite good. So try it again.
+                # Its a too late replayer.
+                # But the order was quite good. So try it again.
+                $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER]++;
                 Batch::add_to_try_intensive_again($order_id);
+                return Batch::REGISTER_GO_ON;
             }
         } else {
             my $status = STATUS_INTERNAL_ERROR;
@@ -1524,15 +1554,29 @@ sub register_result {
                 "Will exit with status " . status2text($status) . "($status)");
             Batch::emergency_exit($status);
         }
+      # The handling of replayers ends here ----------------------------------
     } elsif ($verdict eq Verdict::RQG_VERDICT_IGNORE            or
              $verdict eq Verdict::RQG_VERDICT_IGNORE_STATUS_OK  or
              $verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST  or
              $verdict eq Verdict::RQG_VERDICT_INTEREST          or
              $verdict eq Verdict::RQG_VERDICT_INIT                ) {
-        if ($verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST) {
-            Batch::add_to_try_over_bl($order_id);
+        if (0 >= $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER]) {
+            # We have already too much invested. Stop using that order.
+            say("DEBUG: order_id($order_id), trials($trials), efforts_invested($efforts_invested), " .
+                "efforts_left_over(" . $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER] .
+                ") --> Stop using that order.") if Auxiliary::script_debug("S4");
+            # add_to_try_exhausted stops all running RQG Worker using that order_id.
+            Batch::add_to_try_exhausted($order_id);
+            Batch::stop_worker_on_order($order_id);
+            return Batch::REGISTER_GO_ON;
         } else {
-            Batch::add_to_try_over($order_id);
+            if ($verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST) {
+                Batch::add_to_try_over_bl($order_id);
+                return Batch::REGISTER_GO_ON;
+            } else {
+                Batch::add_to_try_over($order_id);
+                return Batch::REGISTER_GO_ON;
+            }
         }
     } else {
         say("INTERNAL ERROR: Final Verdict '$verdict' is not treated/unknown. " .
@@ -1549,13 +1593,13 @@ sub register_result {
     if ($left_over_trials) {
         $hint_given = 0;
         if((PHASE_GRAMMAR_SIMP eq $phase or PHASE_GRAMMAR_DEST eq $phase) and
-           5 == $out_of_ideas and
+           3 <= Batch::get_out_of_ideas() and
            0 == Batch::known_orders_waiting ) {
            say("DEBUG: The current campaign has reached the end after $campaign_success replays.");
            Batch::dump_try_hashes if Auxiliary::script_debug("S4");
            $phase_switch = 1;
         }
-        return (STATUS_OK, Batch::REGISTER_GO_ON);
+        return $return;
     } else {
         if (PHASE_FIRST_REPLAY eq $phase) {
             say("SUMMARY: No replay with the initial grammar.");
@@ -1564,7 +1608,7 @@ sub register_result {
                 "HINT: - RQG test setup (basedir, grammar etc.) is wrong or "                .
                 "HINT: - trials/duration are too small.");
             say("Giving up.");
-            return (STATUS_OK, Batch::REGISTER_END);
+            return (Batch::REGISTER_END);
         } elsif (PHASE_THREAD1_REPLAY eq $phase) {
             if (not $hint_given) {
                 say("No replay with threads=1."                                                    .
@@ -1576,12 +1620,13 @@ sub register_result {
                     "similar.\n") ;
             }
             $phase_switch = 1;
-            return (STATUS_OK, Batch::REGISTER_STOP_ALL);
+            return $return;
+            # return (Batch::REGISTER_SOME_STOPPED);
         } elsif (PHASE_FINAL_REPLAY eq $phase) {
             say("Replaying the desired outcome with the final YY grammar and RQG setup failed.");
-            return (STATUS_OK, Batch::REGISTER_END);
+            return (Batch::REGISTER_END);
         } else {
-            return (STATUS_OK, Batch::REGISTER_END);
+            return (Batch::REGISTER_END);
         }
     }
 
@@ -1625,11 +1670,12 @@ sub switch_phase {
         # Q2:
 
         load_grammar($parent_grammar, 10);
-        Batch::init_try_hashes();
+        Batch::init_order_management();
         say("DEBUG: Simplifier::switch_phase: Leaving routine. Current phase is '$phase'.")
                 if Auxiliary::script_debug("S4");
         $campaign_success  = 0;
-        $out_of_ideas      = 0;
+        $refill_number     = 0;
+#       $out_of_ideas      = 0;
         $phase_switch      = 0;
         # Essential: We are already in PHASE_GRAMMAR_SIMP/PHASE_GRAMMAR_DEST and will stay there
         #            for another campaign.
@@ -1645,11 +1691,11 @@ sub switch_phase {
         $cl_snip_phase      = " --grammar=" . $target ;
         Batch::write_result("$iso_ts ---------- $phase campaign $campaign_number ---------- ($child_grammar)\n" .
                             $iso_ts . $title_line_part);
-        Batch::init_try_hashes();
+        Batch::init_order_management();
         say("DEBUG: Simplifier::switch_phase: Leaving routine. Current phase is '$phase'.")
                 if Auxiliary::script_debug("S4");
         $campaign_success   = 0;
-        $out_of_ideas       = 0;
+#       $out_of_ideas       = 0;
         $phase_switch       = 0;
         return;
     }
@@ -1718,11 +1764,11 @@ sub switch_phase {
         my $status = STATUS_INTERNAL_ERROR;
         Batch::emergency_exit($status);
     }
-    Batch::init_try_hashes();
+    Batch::init_order_management();
     say("DEBUG: Simplifier::switch_phase: Leaving routine. Current phase is '$phase'.")
         if Auxiliary::script_debug("S4");
     $campaign_success = 0;
-    $out_of_ideas     = 0;
+#   $out_of_ideas     = 0;
 
     $phase_switch     = 0;
 
@@ -1863,7 +1909,7 @@ sub replay_runtime_adapt {
                 $value = $value_e;
             }
             say("DEBUG: num_samples($num_samples), mean($mean), confidence($confidence), " .
-                "value_e($value_e), value($value)");
+                "value_e($value_e), value($value)") if Auxiliary::script_debug("S4");
         } else {
             my $status = STATUS_INTERNAL_ERROR;
             Carp::cluck("INTERNAL ERROR: replay_runtime_adapt : The duration_adaption " .
@@ -1890,6 +1936,21 @@ sub report_replay {
 
     my ($replay_grammar, $replay_grammar_parent, $order_id) = @_;
 
+    if (@_ != 3) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: report_replay : 3 Parameters (replay_grammar, " .
+                    "replay_grammar_parent, order_id) are required.");
+        Batch::emergency_exit($status);
+    }
+    # FIXME:
+    # Activate the code below in case FIRST_REPLAY is adjusted to it
+#   if (not defined $replay_grammar or not defined $replay_grammar_parent or
+#       not defined $order_id                                               ) {
+#       Carp::cluck("INTERNAL ERROR: All values must be defined.");
+#       my $status = STATUS_INTERNAL_ERROR;
+#       Batch::emergency_exit($status);
+#   }
+
     my $response = Batch::REGISTER_GO_ON;
 
     if (PHASE_GRAMMAR_SIMP eq $phase or
@@ -1899,24 +1960,12 @@ sub report_replay {
             # its a first winner (!= a winner with outdated grammar).
             my $source = $workdir . "/" . $replay_grammar;
             my $target = $workdir . "/" . $best_grammar;
-            Batch::copy_file($source,$target);
+            Batch::copy_file($source, $target);
             # This means the child grammar used should become the base of the next parent grammar.
-            reload_grammar($replay_grammar, 0);
-            # FIXME: Is what follows really true? Is it really impossible to improve this?
-            # Adding to %try_never_hash would be correct but we cannot do this because the run
-            # has not ended yet (main process is active).
-            # The ugly sideeffect would otherwise be
-            # - added to %try_never_hash     -- fine
-            # - added to from %try_over_hash later -- bad
-            # Batch::add_to_try_never($order_id);
-            # FIXME: At least think about advantages/disadvantages
-            # In case we know the total RQG runtime required for some lets say 95%
-            # percentil than we could stop all RQG workers with
-            # - outdated parent grammar and
-            # - being in a phase before gentest or
-            #   being in a phase gentest or later and a time - start_time < 0.1 * runtime_95.
-            #
-            $response = Batch::REGISTER_STOP_YOUNG;
+            reload_grammar($replay_grammar);
+            Batch::stop_worker_young;
+            Batch::stop_worker_on_order_except_replayer($order_id);
+            Batch::add_to_try_never($order_id);
         } else {
             # Its a replayer with outdated grammar.
             # Hence we can postpone decision+loading to the point of time when the main process
@@ -1934,20 +1983,20 @@ sub report_replay {
                 my $status = STATUS_INTERNAL_ERROR;
                 Batch::emergency_exit($status);
             }
-            # Batch::add_to_try_never($order_id);
-            $response = Batch::REGISTER_STOP_YOUNG;
+            Batch::stop_worker_young;
+            Batch::stop_worker_on_order_except_replayer($order_id);
+            Batch::add_to_try_never($order_id);
         } else {
             # Its a too late winner.
             # So we do nothing.
         }
     } else {
-        # Its a simplification phase where we do not try different competing grammars or rvt setups
-        # in parallel. Hence we can postpone decision+loading to the point of time
-        # when the main process of the RQG worker was reaped and the result gets processed.
-        # So we do nothing.
+        Batch::stop_worker_young;
+        Batch::stop_worker_on_order_except_replayer($order_id);
+        Batch::add_to_try_never($order_id);
     }
     return $response;
-}
+} # End sub report_replay
 
 sub load_grammar {
 

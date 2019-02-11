@@ -77,6 +77,7 @@ use constant JOB_MEMO1      => 2;  # undef or Child  grammar or Child  rvt_snip
 use constant JOB_MEMO2      => 3;  # undef or Parent grammar or Parent rvt_snip
 use constant JOB_MEMO3      => 4;  # undef or Adapted duration
 
+my $max_rqg_runtime = 600;
 
 # $give_up == Some general prospect for the future of the rqg_batch.pl run.
 # -------------------------------------------------------------------------
@@ -211,15 +212,19 @@ use constant WORKER_STOP_REASON => 9; # in case the run was stopped than the rea
 #       == End of actual simplification phase reached.
 #   Simplifier has given REGISTER_STOP_YOUNG
 #       == Stopping some RQG worker (and start new ones) would give an optimization.
-use constant STOP_REASON_WORK_FLOW => 'work flow';
+use constant STOP_REASON_WORK_FLOW   => 'work flow';
 # - STOP_REASON_RESOURCE
 #   The resource control reported LOAD_DECREASE.
 #       == Stopping a RQG worker is recommended.
-use constant STOP_REASON_RESOURCE  => 'resource';
-# - STOP_REASON_LIMIT
-#   The resource control reported LOAD_DECREASE.
-#       == Stopping a RQG worker is recommended.
-use constant STOP_REASON_LIMIT     => 'limit';
+use constant STOP_REASON_RESOURCE    => 'resource';
+# - STOP_REASON_BATCH_LIMIT
+#   rqg_batch runtime exceeded or similar
+#       == Stopping all RQG worker is recommended.
+use constant STOP_REASON_BATCH_LIMIT => 'batch_limit';
+# - STOP_REASON_RQG_LIMIT
+#   max_rqg_runtime was exceeded
+#       == Stopping of that RQG worker is recommended.
+use constant STOP_REASON_RQG_LIMIT   => 'rqg_limit';
 # than WORKER_STOP_REASON will be set and some corresponding entry will be later written
 # into the log of the RQG worker. The main reason doing this is to have more information about
 # what happened at rqg_batch.pl runtime. And this is required for discovering defects in the
@@ -262,7 +267,8 @@ use constant REGISTER_STOP_YOUNG => 'register_stop_young';
      # Stop all active RQG runs which are in phase init , start or gentest.
      # Use case:
      # The result got made all ongoing RQG runs obsolete and so they should be aborted.
-use constant REGISTER_END        => 'register_end';
+use constant REGISTER_SOME_STOPPED => 'register_some_stopped';
+use constant REGISTER_END          => 'register_end';
 
 
 # The types of batch runs
@@ -405,8 +411,8 @@ sub stop_worker {
         kill '-KILL', $pid;
         $worker_array[$worker_num][WORKER_STOP_REASON] = $stop_reason;
         my $order_id = $worker_array[$worker_num][WORKER_ORDER_ID];
-        say("DEBUG: Try to stop RQG worker $worker_num with orderid $order_id because of " .
-            "->$stop_reason<-.") if Auxiliary::script_debug("T6");
+        Carp::cluck("DEBUG: Tried to stop RQG worker $worker_num with orderid $order_id because " .
+                    "of ->$stop_reason<-.") if Auxiliary::script_debug("T6");
     }
 }
 
@@ -416,6 +422,50 @@ sub stop_workers {
         stop_worker($worker_num, $stop_reason);
     }
 }
+
+# Use cases
+# 1. Register_result detects a first replayer --> grammar reload -> save stuff -> add_to_try_never
+#    All workers running a job based on that order_id should be stopped.
+# 2. Register_result detects a finished job being not a replayer + actual efforts invested >= $trials
+#    All workers running a job based on that order_id should be stopped.
+sub stop_worker_on_order {
+    my ($order_id) = @_;
+
+    check_order_id($order_id);
+    Carp::cluck("DEBUG: Try to stop RQG worker with orderid $order_id begin.")
+        if Auxiliary::script_debug("T6");
+    for my $worker_num (1..$workers) {
+        # Omit not running workers
+        next if -1 == $worker_array[$worker_num][WORKER_PID];
+        # Omit workers with other order_id
+        next if $order_id != $worker_array[$worker_num][WORKER_ORDER_ID];
+        stop_worker($worker_num, STOP_REASON_WORK_FLOW);
+    }
+    Carp::cluck("DEBUG: Try to stop RQG worker with orderid $order_id end.")
+        if Auxiliary::script_debug("T6");
+}
+
+sub stop_worker_on_order_except_replayer {
+    my ($order_id) = @_;
+
+    check_order_id($order_id);
+    Carp::cluck("DEBUG: Try to stop nonreplaying RQG worker with orderid $order_id begin.")
+        if Auxiliary::script_debug("T6");
+    for my $worker_num (1..$workers) {
+        # Omit not running workers
+        next if -1 == $worker_array[$worker_num][WORKER_PID];
+        # Omit workers with other order_id
+        next if $order_id != $worker_array[$worker_num][WORKER_ORDER_ID];
+        # Omit the worker which replayed
+        next if defined $worker_array[$worker_num][WORKER_VERDICT] and
+                Verdict::RQG_VERDICT_REPLAY eq $worker_array[$worker_num][WORKER_VERDICT];
+        stop_worker($worker_num, STOP_REASON_WORK_FLOW);
+    }
+    Carp::cluck("DEBUG: Try to stop nonreplaying RQG worker with orderid $order_id end.")
+        if Auxiliary::script_debug("T6");
+}
+
+# # Stop all jobs with that order_id and same or more older grammar
 
 sub stop_worker_young {
 # Purpose
@@ -435,7 +485,8 @@ sub stop_worker_young {
 #   and restart it with some new grammar which is based on the original order and the latest
 #   parent grammar.
 #
-
+    Carp::cluck("DEBUG: Try to stop RQG worker with phase <= GENDATA begin.")
+        if Auxiliary::script_debug("T6");
     for my $worker_num (1..$workers) {
         my $pid = $worker_array[$worker_num][WORKER_PID];
         if (-1 != $pid) {
@@ -456,6 +507,8 @@ sub stop_worker_young {
             }
         }
     }
+    Carp::cluck("DEBUG: Try to stop RQG worker with phase <= GENDATA end.")
+        if Auxiliary::script_debug("T6");
 }
 
 sub emergency_exit {
@@ -642,7 +695,11 @@ sub reap_workers {
                     # - extreme unlikely a complete archive
                     # ==> The stuff gets thrown away in general.
                     $worker_array[$worker_num][WORKER_END] = time();
-                    $verdict = Verdict::RQG_VERDICT_IGNORE_STOPPED;
+                    if ($worker_array[$worker_num][WORKER_STOP_REASON] eq STOP_REASON_RQG_LIMIT) {
+                        $verdict = Verdict::RQG_VERDICT_INTEREST;
+                    } else {
+                        $verdict = Verdict::RQG_VERDICT_IGNORE_STOPPED;
+                    }
                     append_string_to_file($rqg_log, "# $iso_ts BATCH: Stop the run ".
                         "because of '" . $worker_array[$worker_num][WORKER_STOP_REASON] . "'.\n" .
                                                            "# $iso_ts Verdict: $verdict\n");
@@ -771,11 +828,9 @@ sub reap_workers {
                     if ($verdict eq Verdict::RQG_VERDICT_REPLAY) {
                         my $grammar_used   = $worker_array[$worker_num][WORKER_EXTRA1];
                         my $grammar_parent = $worker_array[$worker_num][WORKER_EXTRA2];
-                        my $response = Simplifier::report_replay($grammar_used,$grammar_parent,
+                        $worker_array[$worker_num][WORKER_VERDICT] = $verdict;
+                        my $response = Simplifier::report_replay($grammar_used, $grammar_parent,
                                                                  $order_id);
-                        if ($response eq REGISTER_STOP_YOUNG) {
-                            stop_worker_young;
-                        }
                     }
                 }
             }
@@ -798,7 +853,7 @@ sub check_exit_file {
     if (-e $exit_file) {
         $give_up = 2;
         say("INFO: Exit file detected. Stopping all RQG Worker.");
-        stop_workers();
+        stop_workers(STOP_REASON_BATCH_LIMIT);
     }
 }
 
@@ -808,7 +863,7 @@ sub check_runtime_exceeded {
         $give_up = 2;
         say("INFO: The maximum total runtime for rqg_batch.pl is exceeded. " .
             "Stopping all RQG Worker.");
-        stop_workers(STOP_REASON_LIMIT);
+        stop_workers(STOP_REASON_BATCH_LIMIT);
     }
 }
 
@@ -824,6 +879,24 @@ sub check_and_set_batch_type {
         if ($result != STATUS_OK) {
             Carp::cluck("ERROR: The batch type '$batch_type' is not supported. Abort");
             safe_exit(STATUS_ENVIRONMENT_FAILURE);
+        }
+    }
+}
+
+sub check_rqg_runtime_exceeded {
+    my ($max_rqg_runtime) = @_;
+
+    if (not defined $max_rqg_runtime) {
+        Carp:cluck("INTERNAL ERROR: \$max_rqg_runtime is not defined.");
+        my $status = STATUS_INTERNAL_ERROR;
+        emergency_exit($status);
+    }
+    for my $worker_num (1..$workers) {
+        # -1 == no main process of that RQG worker running.
+        # Maybe there was never one running or the last running finished and was reaped.
+        next if -1 == $worker_array[$worker_num][WORKER_PID];
+        if (time() > $worker_array[$worker_num][WORKER_START] + $max_rqg_runtime) {
+            stop_worker($worker_num, STOP_REASON_RQG_LIMIT);
         }
     }
 }
@@ -1128,8 +1201,6 @@ my @try_queue;
 #
 # It seems to be better to generate more orders and add them to @try_hash than to run the
 # orders with left over efforts soon again.
-my %try_later_hash;
-my %try_last_hash;
 #
 # %try_over_bl_hash, %try_over_hash
 # ---------------------------------
@@ -1144,8 +1215,10 @@ my %try_last_hash;
 #   Direct after that operation @try_over_hash is empty.
 my %try_over_bl_hash;
 my %try_over_hash;
+my %try_replayer_hash;
+my %try_all_hash;
 #
-# @try_never_hash
+# %try_never_hash
 # ----------------
 # Usage:
 # - combinations
@@ -1154,31 +1227,48 @@ my %try_over_hash;
 #   Place orders which are no more capable to bring any progress here.
 #   == Never run a job based on this in future.
 my %try_never_hash;
+#
+# %try_exhausted_hash
+# -------------------
+# Usage:
+# - combinations
+#   Not yet decided.
+# - grammar simplification
+#   Place orders with EFFORTS_INVESTED >= trials here.
+#   == Never run a job based on this in future.
+my %try_exhausted_hash;
 
-
+our $out_of_ideas;
 sub dump_try_hashes {
     my @try_run_queue;
     for my $worker_num (1..$workers) {
         my $order_id = $worker_array[$worker_num][WORKER_ORDER_ID];
         push @try_run_queue, $order_id if -1 != $order_id;
     }
-    say("DEBUG: Orders in work    : "  . join (' ', sort {$a <=> $b} @try_run_queue));
-    say("DEBUG: \%try_first_hash   : " . join (' ', sort {$a <=> $b} keys %try_first_hash));
-    say("DEBUG: \@try_queue        : " . join (' ', sort {$a <=> $b} @try_queue ));
-    say("DEBUG: \%try_later_hash   : " . join (' ', sort {$a <=> $b} keys %try_later_hash));
-    say("DEBUG: \%try_last_hash    : " . join (' ', sort {$a <=> $b} keys %try_last_hash));
-    say("DEBUG: \%try_over_bl_hash : " . join (' ', sort {$a <=> $b} keys %try_over_bl_hash ));
-    say("DEBUG: \%try_over_hash    : " . join (' ', sort {$a <=> $b} keys %try_over_hash ));
-    say("DEBUG: \%try_never_hash   : " . join (' ', sort {$a <=> $b} keys %try_never_hash));
+    say("DEBUG: Orders in work      : "  . join (' ', sort {$a <=> $b} @try_run_queue));
+    say("DEBUG: \%try_first_hash     : " . join (' ', sort {$a <=> $b} keys %try_first_hash));
+    say("DEBUG: \@try_queue          : " . join (' ', sort {$a <=> $b} @try_queue ));
+    say("DEBUG: \%try_over_bl_hash   : " . join (' ', sort {$a <=> $b} keys %try_over_bl_hash ));
+    say("DEBUG: \%try_over_hash      : " . join (' ', sort {$a <=> $b} keys %try_over_hash ));
+    say("DEBUG: \%try_all_hash       : " . join (' ', sort {$a <=> $b} keys %try_all_hash ));
+    say("DEBUG: \%try_replayer_hash  : " . join (' ', sort {$a <=> $b} keys %try_replayer_hash ));
+    say("DEBUG: \%try_exhausted_hash : " . join (' ', sort {$a <=> $b} keys %try_exhausted_hash));
+    say("DEBUG: \%try_never_hash     : " . join (' ', sort {$a <=> $b} keys %try_never_hash));
+    say("DEBUG: \$out_of_ideas       : " . $out_of_ideas);
 }
-sub init_try_hashes {
+sub init_order_management {
+    $out_of_ideas = 0;
     undef %try_first_hash;
     undef @try_queue;
-    undef %try_later_hash;
-    undef %try_last_hash;
     undef %try_over_bl_hash;
     undef %try_over_hash;
+    undef %try_all_hash;
+    undef %try_replayer_hash;
+    undef %try_exhausted_hash;
     undef %try_never_hash;
+}
+sub get_out_of_ideas {
+    return $out_of_ideas;
 }
 # sub check_queues {
 #     return;
@@ -1197,44 +1287,88 @@ sub init_try_hashes {
 #     say("DEBUG: The queues are consistent.") if Auxiliary::script_debug("T6");
 # }
 sub known_orders_waiting {
+# FIXME: Correct the description
 # Purpose:
 # Detect the following state of grammar simplification.
-# 0. All possible orders were generated ($out_of_ideas==1), which is not checked here.
+# 0. All possible orders were generated ($out_of_ideas>=1), which is not checked here.
 # 1. None of the orders is
 #    - currently in trial/running                  --> count_active_workers()
 #    - waiting for trial/running                   --> @try_first_hash, @try_hash
 #    Delayed candidates for repetition of the run are ignored!
-    my @join_array = (keys %try_first_hash, @try_queue);
-    say("DEBUG: known_orders_waiting : " . join(' ', @join_array))
-                if Auxiliary::script_debug("B5");
-    return (count_active_workers() + scalar @join_array);
+    return 1 if count_active_workers()     > 0;
+    return 1 if scalar %try_first_hash     > 0;
+    return 1 if scalar @try_queue          > 0;
+    return 1 if scalar %try_over_hash      > 0;
+    return 1 if scalar %try_over_bl_hash   > 0;
+    say("DEBUG: Batch::known_orders_waiting : None in work nor planned+left_over.")
+        if Auxiliary::script_debug("B5");
+    return 0;
 }
 
 
 sub get_order {
     my $order_id;
+
+    sub is_order_valid {
+        my ($order_id) = @_;
+        if (not exists $try_exhausted_hash{$order_id} and
+            not exists $try_never_hash{$order_id}        ) {
+            return $order_id;
+        } else {
+            return undef;
+        }
+    }
+
     my @array;
     # Sort keys of %try_first_queue numerically ascending because in average the orders with the
     # lower id's will remove more if having success at all.
     @array    = sort {$a <=> $b} keys %try_first_hash;
     $order_id = shift @array;
     if (defined $order_id) {
-        say("DEBUG: Order $order_id picked from \%try_first_hash.")
+        say("DEBUG: Batch::get_order: Order $order_id picked from \%try_first_hash.")
             if Auxiliary::script_debug("B5");
         delete $try_first_hash{$order_id};
+        $order_id = is_order_valid($order_id);
+        return $order_id if defined $order_id;
+    }
+    @array = ();
+
+    # %try_first_hash was empty.
+    $order_id = shift @try_queue;
+    if (defined $order_id) {
+        say("DEBUG: Order $order_id picked from \@try_queue.")
+            if Auxiliary::script_debug("B5");
+        $order_id = is_order_valid($order_id);
+        return $order_id if defined $order_id;
     } else {
-        # %try_first_hash was empty.
-        $order_id = shift @try_queue;
-        if (defined $order_id) {
-            say("DEBUG: Order $order_id picked from \@try_queue.")
-                if Auxiliary::script_debug("B5");
-        } else {
-            # @try_queue was empty too.
-            say("DEBUG: \%try_first_hash and \@try_queue are empty.")
-                if Auxiliary::script_debug("B5");
+        if (0 == $out_of_ideas) {
+            # Maybe we have not generated all orders possible?
+            if      ($batch_type eq BATCH_TYPE_RQG_SIMPLIFIER) {
+                my $num = Simplifier::generate_orders();
+                say("DEBUG: Batch::get_order: \@try_queue refilled up to " .
+                    scalar @try_queue . " Elements.") if Auxiliary::script_debug("B3");
+            } elsif ($batch_type eq BATCH_TYPE_COMBINATOR) {
+                Combinator::generate_orders();
+                say("DEBUG: Batch::get_order: \@try_queue refilled up to " .
+                    scalar @try_queue . " Elements.") if Auxiliary::script_debug("B3");
+            } else {
+                Carp::cluck("INTERNAL ERROR: batch_type '$batch_type' is not supported.");
+                emergency_exit(STATUS_INTERNAL_ERROR, "ERROR: This must not happen (1).");
+            }
+            $order_id = shift @try_queue;
+            if (defined $order_id) {
+                say("DEBUG: Batch::get_order: \%try_first_hash and \@try_queue are empty.")
+                    if Auxiliary::script_debug("B5");
+                $order_id = is_order_valid($order_id);
+                return $order_id if defined $order_id;
+            }
+            say("DEBUG: Batch::get_order: Setting out_of_ideas = 1.")
+                if Auxiliary::script_debug("B3");
+            $out_of_ideas = 1;
         }
     }
-    return $order_id;
+
+    return undef;
 }
 
 sub check_order_id {
@@ -1245,24 +1379,51 @@ sub check_order_id {
         emergency_exit($status);
     }
 }
+sub check_worker_number {
+    my ($worker_number) = @_;
+    if (not defined $worker_number) {
+        Carp::cluck("INTERNAL ERROR: worker_number is undef.");
+        my $status = STATUS_INTERNAL_ERROR;
+        emergency_exit($status);
+    }
+}
 
 sub add_order {
+# Simplifier::add_order calls Batch::add_order whenever a NEW was generated.
     my ($order_id) = @_;
     check_order_id($order_id);
-    # Duplicates are acceptable
     push @try_queue, $order_id;
+    $try_all_hash{$order_id} = 1;
 }
 
 sub add_to_try_over {
     my ($order_id) = @_;
     check_order_id($order_id);
     # FIXME: Bail out if order_id is already known?
-    $try_over_hash{$order_id} = 1;
+    if (not exists $try_never_hash{$order_id} and
+        not exists $try_exhausted_hash{$order_id} ) {
+        $try_over_hash{$order_id} = 1;
+    }
 }
 sub add_to_try_over_bl {
     my ($order_id) = @_;
     check_order_id($order_id);
-    $try_over_bl_hash{$order_id} = 1;
+    if (not exists $try_never_hash{$order_id} and
+        not exists $try_exhausted_hash{$order_id} ) {
+        $try_over_bl_hash{$order_id} = 1;
+    }
+}
+sub add_to_try_exhausted {
+    my ($order_id) = @_;
+    check_order_id($order_id);
+    delete $try_first_hash{$order_id};
+    delete $try_over_hash{$order_id};
+    delete $try_over_bl_hash{$order_id};
+    delete $try_replayer_hash{$order_id};
+    delete $try_all_hash{$order_id};
+    if (not exists $try_never_hash{$order_id}) {
+        $try_exhausted_hash{$order_id} = 1;
+    }
 }
 sub add_to_try_never {
     my ($order_id) = @_;
@@ -1271,44 +1432,85 @@ sub add_to_try_never {
     delete $try_over_hash{$order_id};
     delete $try_over_bl_hash{$order_id};
     delete $try_first_hash{$order_id};
-    delete $try_later_hash{$order_id};
-    delete $try_last_hash{$order_id};
+    delete $try_replayer_hash{$order_id};
+    delete $try_exhausted_hash{$order_id};
+    delete $try_all_hash{$order_id};
+    # The add_to_try_never could happen in report_replay
+    # == The process of the RQG worker is running and just archives data etc.
+    # stop_worker_on_order($order_id);
+    say("DEBUG: Batch::add_to_try_never: $order_id added to \%try_never_hash.")
+        if Auxiliary::script_debug("B5");
     # @try_queue does not get touched.
     # The validation before test start will detect that its invalid.
 }
-
 sub add_to_try_first {
     my ($order_id) = @_;
     check_order_id($order_id);
-    $try_first_hash{$order_id} = 1;
+    if (not exists $try_never_hash{$order_id} and
+        not exists $try_exhausted_hash{$order_id} ) {
+        $try_first_hash{$order_id} = 1;
+    }
 }
 sub add_to_try_intensive_again {
     my ($order_id) = @_;
     check_order_id($order_id);
-    $try_first_hash{$order_id} = 1;
-    $try_later_hash{$order_id} = 1;
-    $try_last_hash{$order_id}  = 1;
+    if (not exists $try_never_hash{$order_id} and
+        not exists $try_exhausted_hash{$order_id} ) {
+        $try_first_hash{$order_id} = 1;
+        $try_replayer_hash{$order_id} = 1;
+    }
 }
 
-sub consume_try_later_hash {
-    push @try_queue , sort {$a <=> $b} keys %try_later_hash;
-    undef %try_later_hash;
-    return scalar @try_queue;
+sub reactivate_try_replayer {
+    push @try_queue, sort {$a <=> $b} keys %try_replayer_hash;
 }
-sub consume_try_over_hash {
-    push @try_queue , sort {$a <=> $b} keys %try_over_hash;
+sub reactivate_try_over {
+    push @try_queue, sort {$a <=> $b} keys %try_over_hash;
     undef %try_over_hash;
-    return scalar @try_queue;
 }
-sub consume_try_over_bl_hash {
-    push @try_queue , sort {$a <=> $b} keys %try_over_bl_hash;
+sub reactivate_try_over_bl {
+    push @try_queue, sort {$a <=> $b} keys %try_over_bl_hash;
     undef %try_over_bl_hash;
-    return scalar @try_queue;
 }
-sub consume_try_last_hash {
-    push @try_queue , sort {$a <=> $b} keys %try_last_hash;
-    undef %try_last_hash;
-    return scalar @try_queue;
+sub reactivate_try_all {
+    push @try_queue, sort {$a <=> $b} keys %try_all_hash;
+}
+sub reactivate_till_filled {
+    if (0 < scalar %try_all_hash) {
+        while ($workers > scalar @try_queue) {
+            reactivate_try_all;
+        }
+    }
+# Please note that %try_all_hash is empty could happen.
+# Example:
+# query: <some select(mean text without rules) crashing the server>;
+}
+
+
+sub get_active_order_hash {
+# Purpose:    FIXME
+# --------
+# Return all unique orders being just in execution.
+# == During the last reap_workers call we could not reap the main process.
+#    --> $worker_array[$worker_num][WORKER_PID] != -1
+#
+    my %active_orders;
+    for my $worker_num (1..$workers) {
+        next if -1 == $worker_array[$worker_num][WORKER_PID];
+        $active_orders{$worker_array[$worker_num][WORKER_ORDER_ID]} = 1;
+    }
+    return %active_orders;
+}
+
+
+
+
+sub reactivate_orders {
+    push @try_queue, sort {$a <=> $b} keys %try_replayer_hash;
+    push @try_queue, sort {$a <=> $b} keys %try_over_hash;     undef %try_over_hash;
+    push @try_queue, sort {$a <=> $b} keys %try_over_bl_hash;  undef %try_over_bl_hash;
+    say("DEBUG: Batch::reactivate_orders: \@try_queue refilled with finished orders up to " .
+        scalar @try_queue . " Elements.") if Auxiliary::script_debug("B3");
 }
 
 # Certain routines which are based on routines with the same name and located in Auxiliary.pm.
@@ -1421,9 +1623,12 @@ sub check_and_set_stop_on_replay {
 
 sub process_finished_runs {
     for my $worker_num (1..$workers) {
+        next if -1 != $worker_array[$worker_num][WORKER_PID];
         my $verdict  = $worker_array[$worker_num][WORKER_VERDICT];
         my $order_id = $worker_array[$worker_num][WORKER_ORDER_ID];
+        # if (defined $verdict) {
         if (defined $verdict) {
+            # FIXME: Isn't that rather WORKER_PID == -1 ?
             # VERDICT_VALUE | State + reaction
             # --------------+-------------------------------------------------------------------
             #     defined   | State: Process of RQG Worker just reaped + verdict + save ...
@@ -1442,19 +1647,15 @@ sub process_finished_runs {
                     $worker_array[$worker_num][WORKER_EXTRA3]
             );
             if      ($batch_type eq BATCH_TYPE_COMBINATOR) {
-                ($status,$action) = Combinator::register_result(@result_record);
+                ($action) = Combinator::register_result(@result_record);
             } elsif ($batch_type eq BATCH_TYPE_RQG_SIMPLIFIER) {
-                ($status,$action) = Simplifier::register_result(@result_record);
+                ($action) = Simplifier::register_result(@result_record);
             } else {
                 emergency_exit(STATUS_CRITICAL_FAILURE,
                     "INTERNAL ERROR: The batch type '$batch_type' is unknown. ");
             }
 
-            if ($status != STATUS_OK) {
-                emergency_exit($status,
-                               "ERROR: register_result met a failure and asked to abort. " .
-                               Auxiliary::exit_status_text($status));
-            } elsif ( not defined $action or $action eq '' ) {
+            if ( not defined $action or $action eq '' ) {
                 emergency_exit($status,
                                "ERROR: register_result returned an action in (undef, ''). " .
                                Auxiliary::exit_status_text($status));
@@ -1462,13 +1663,7 @@ sub process_finished_runs {
                 # Combinator and Simplifier could tell what to do next.
                 if      ($action eq REGISTER_GO_ON)    {
                     # All is ok. Just go on is required.
-                } elsif ($action eq REGISTER_STOP_ALL) {
-                    stop_workers(STOP_REASON_WORK_FLOW);
-                    if (1 > $give_up) {
-                        $give_up = 1;
-                    }
-                } elsif ($action eq REGISTER_STOP_YOUNG) {
-                    stop_worker_young();
+                } elsif ($action eq REGISTER_SOME_STOPPED) {
                     if (1 > $give_up) {
                         $give_up = 1;
                     }

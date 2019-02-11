@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, MariaDB Corporation Ab.
+#  Copyright (c) 2018, 2019 MariaDB Corporation Ab.
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -66,10 +66,11 @@ use constant INTERNAL_TOOL_ERROR => 200;
 my $script_debug;
 sub script_debug_init {
     ($script_debug) = @_;
-    if (not defined $script_debug) {
-        $script_debug = '';
-    } else {
+    if (defined $script_debug) {
         say("DEBUG: script_debug initialized to '$script_debug'.");
+    }
+    if ($script_debug eq '') {
+        undef $script_debug;
     }
 }
 
@@ -80,10 +81,11 @@ sub script_debug {
         Carp::cluck("INTERNAL ERROR: The parameter pattern is undef.");
         exit INTERNAL_TOOL_ERROR;
     }
-    if (not defined $script_debug) {
-        Carp::cluck("INTERNAL ERROR: script debug was not initialized.");
-        exit INTERNAL_TOOL_ERROR;
-    }
+#   if (not defined $script_debug) {
+#       Carp::cluck("INTERNAL ERROR: script debug was not initialized.");
+#       exit INTERNAL_TOOL_ERROR;
+#   }
+    return 0 if not defined $script_debug;
     # For debugging:
     # say("Auxiliary::script_debug : pattern is ->$pattern<-");
     # $pattern = "_" . $pattern . "_";

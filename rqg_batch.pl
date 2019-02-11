@@ -220,9 +220,11 @@ $SIG{CHLD} = "IGNORE" if osWindows();
 my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar, $gendata,
     $seed, $testname, $xml_output, $report_xml_tt, $report_xml_tt_type, $max_runtime,
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
-    $workers, $servers, $noshuffle, $workdir, $discard_logs,
+    $workers, $servers, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
     $help, $help_simplifier, $help_combinator, $help_verdict, $runner,
     $stop_on_replay, $script_debug, $runid, $threads, $type, $algorithm);
+
+$max_rqg_runtime = 600;
 
 # my @basedirs    = ('', '');
 my @basedirs;
@@ -544,6 +546,9 @@ while($Batch::give_up <= 1) {
     my $delay_start = Batch::check_resources();
     last if $Batch::give_up > 1;
 
+    # MLML Kill the max_rqg_runtime exceeding RQG runner
+    Batch::check_rqg_runtime_exceeded($max_rqg_runtime);
+
     my $just_forked = 0;
 
     my $free_worker = Batch::get_free_worker;
@@ -848,6 +853,8 @@ while($Batch::give_up <= 1) {
             if Auxiliary::script_debug("T5");
         my $poll_time = 0.1;
         while (Batch::reap_workers()) {
+            # MLML Kill the max_rqg_runtime exceeding RQG runner
+            Batch::check_rqg_runtime_exceeded($max_rqg_runtime);
             Batch::process_finished_runs();
             last if $Batch::give_up > 1;
             # First handle all cases for giving up.
@@ -902,6 +909,8 @@ say("INFO: Phase of job generation and bring it into execution is over. give_up 
 my $poll_time = 1;
 # Poll till none of the RQG workers is active
 while (Batch::reap_workers()) {
+            # MLML Kill the max_rqg_runtime exceeding RQG runner
+    Batch::check_rqg_runtime_exceeded($max_rqg_runtime);
     Batch::process_finished_runs();
     say("DEBUG: At begin of loop waiting till all RQG worker have finished.")
         if Auxiliary::script_debug("T5");
