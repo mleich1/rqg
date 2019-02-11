@@ -1295,11 +1295,11 @@ sub known_orders_waiting {
 #    - currently in trial/running                  --> count_active_workers()
 #    - waiting for trial/running                   --> @try_first_hash, @try_hash
 #    Delayed candidates for repetition of the run are ignored!
-    return 1 if count_active_workers()     > 0;
-    return 1 if scalar %try_first_hash     > 0;
-    return 1 if scalar @try_queue          > 0;
-    return 1 if scalar %try_over_hash      > 0;
-    return 1 if scalar %try_over_bl_hash   > 0;
+    return 1 if count_active_workers()           > 0;
+    return 1 if scalar (keys %try_first_hash)    > 0;
+    return 1 if scalar @try_queue                > 0;
+    return 1 if scalar (keys %try_over_hash)     > 0;
+    return 1 if scalar (keys %try_over_bl_hash)  > 0;
     say("DEBUG: Batch::known_orders_waiting : None in work nor planned+left_over.")
         if Auxiliary::script_debug("B5");
     return 0;
@@ -1476,7 +1476,7 @@ sub reactivate_try_all {
     push @try_queue, sort {$a <=> $b} keys %try_all_hash;
 }
 sub reactivate_till_filled {
-    if (0 < scalar %try_all_hash) {
+    if (0 < scalar (keys %try_all_hash)) {
         while ($workers > scalar @try_queue) {
             reactivate_try_all;
         }
