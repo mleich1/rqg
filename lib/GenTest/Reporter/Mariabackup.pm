@@ -1,4 +1,4 @@
-# Copyright (c) 2018, MariaDB Corporation Ab.
+# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -99,7 +99,7 @@ my $first_reporter;
 my $client_basedir;
 
 my $script_debug = 1;
-my $last_call    = time();
+my $last_call    = time() - 15;
 $|=1;
 
 my $reporter_prt = tmpdir() . "/reporter_tmp.prt";
@@ -111,15 +111,15 @@ sub monitor {
     # In case of several servers, we get called or might be called for any of them.
     # We perform only
     # - backup first server, make a clone based on that backup, check clone and destroy clone
-    # - not more often than all 30s.
+    # - not more often than all 15.
 
     direct_to_file();
 
     $first_reporter = $reporter if not defined $first_reporter;
     return STATUS_OK if $reporter ne $first_reporter;
 
-    # Ensure some minimum distance between two runs of the Reporter Mariabackup should be 30s.
-    return STATUS_OK if $last_call + 30 < time();
+    # Ensure some minimum distance between two runs of the Reporter Mariabackup should be 15.
+    return STATUS_OK if $last_call + 15 > time();
     $last_call = time();
 
     # Access data about the first server
@@ -190,8 +190,6 @@ sub monitor {
     my $plugin_dir  = $reporter->serverVariable('plugin_dir');
     my $plugins     = $reporter->serverPlugins();
     my ($version)   = ( $reporter->serverVariable('version') =~ /^(\d+\.\d+)\./ ) ;
-    # FIXME: What follows was found in CloneSlaveXtrabackup.pm
-    # my $xtrabackup_binary = ( $version eq '5.5' ? 'xtrabackup_55' : ( $version gt '5.5' or $version =~ /^10/ ? 'xtrabackup_56' : 'xtrabackup' ) );
     my $backup_binary = "$basedir" . "/extra/mariabackup/mariabackup";
     if (not -e $backup_binary) {
         direct_to_std();
@@ -233,7 +231,7 @@ sub monitor {
         }
         $dbh->disconnect();
         my $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $msg_snip : Backup returned $?. The command output is around end of " .
+        say("ERROR: $msg_snip : Backup returned $res. The command output is around end of " .
             "'$reporter_prt'. Will exit with status " . status2text($status) . "($status)");
         sayFile($reporter_prt);
         exit $status;
@@ -241,10 +239,11 @@ sub monitor {
 
     # FIXME: Replace by some portable solution located in Auxiliary.pm.
     system("cp -R $clone_datadir $rqg_backup_dir");
-    if ($? != 0) {
+    $res = $?;
+    if ($res != 0) {
         direct_to_std();
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $msg_snip : 'cp -R $clone_datadir $rqg_backup_dir' returned $?. " .
+        say("ERROR: $msg_snip : 'cp -R $clone_datadir $rqg_backup_dir' returned $res. " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
@@ -253,11 +252,13 @@ sub monitor {
                              "--target-dir=$clone_datadir";
     say("Executing first prepare: $backup_prepare_cmd");
     system($backup_prepare_cmd);
-    if ($? != 0) {
+    $res = $?;
+    if ($res != 0) {
         direct_to_std();
         my $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $msg_snip : First prepare returned $?. The command output is around end of " .
+        say("ERROR: $msg_snip : First prepare returned $res. The command output is around end of " .
             "'$reporter_prt'. Will exit with status " . status2text($status) . "($status)");
+        sayFile($reporter_prt);
         exit $status;
     }
     my $ib_logfile0 = $clone_datadir . "/ib_logfile0";
@@ -275,10 +276,11 @@ sub monitor {
                           "--target-dir=$clone_datadir";
     say("Executing second prepare: $backup_prepare_cmd");
     system($backup_prepare_cmd);
-    if ($? != 0) {
+    $res = $?;
+    if ($res != 0) {
         direct_to_std();
         my $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $msg_snip : Second prepare returned $?. The command output is around end of " .
+        say("ERROR: $msg_snip : Second prepare returned $res. The command output is around end of " .
             "'$reporter_prt'. Will exit with status " . status2text($status) . "($status)");
         sayFile($reporter_prt);
         exit $status;
