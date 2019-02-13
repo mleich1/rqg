@@ -387,6 +387,8 @@ sub init {
 
     Batch::write_result($header);
 
+    Batch::init_order_management();
+
     say("DEBUG: Leaving 'Combinator::init") if Auxiliary::script_debug("C6");
 
 } # End sub init
@@ -758,9 +760,9 @@ sub register_result {
         if Auxiliary::script_debug("C4");
     # Batch::check_try_hashes();
     if ($left_over_trials) {
-        return (STATUS_OK, Batch::REGISTER_GO_ON);
+        return (Batch::REGISTER_GO_ON);
     } else {
-        return (STATUS_OK, Batch::REGISTER_END);
+        return (Batch::REGISTER_END);
     }
 
 
