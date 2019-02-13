@@ -145,16 +145,20 @@ correct_rqg_sessions_table:
    UPDATE test . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 create_table:
-   CREATE TABLE IF NOT EXISTS t1 ( non_generated_cols generated_cols ) ENGINE = InnoDB ROW_FORMAT = Dynamic    |
-   CREATE TABLE IF NOT EXISTS t2 ( non_generated_cols generated_cols ) ENGINE = InnoDB ROW_FORMAT = Compressed |
-   CREATE TABLE IF NOT EXISTS t3 ( non_generated_cols generated_cols ) ENGINE = InnoDB ROW_FORMAT = Compact    |
-   CREATE TABLE IF NOT EXISTS t4 ( non_generated_cols generated_cols ) ENGINE = InnoDB ROW_FORMAT = Redundant  ;
+   c_t_begin t0 c_t_mid ENGINE = MyISAM ; c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic ; c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed ; c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact ; c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant ; c_t_begin t5 c_t_mid ENGINE = Aria ;
+
+c_t_begin:
+   CREATE TABLE IF NOT EXISTS ;
+c_t_mid:
+   ( non_generated_cols generated_cols ) ;
 
 table_names:
+   t0 |
    t1 |
    t2 |
    t3 |
-   t4 ;
+   t4 |
+   t5 ;
 
 non_generated_cols:
    col1 INT, col2 INT, col_int_properties $col_name $col_type , col_string_properties $col_name $col_type, col_varchar_properties $col_name $col_type, col_text_properties $col_name $col_type ;
@@ -412,8 +416,8 @@ name_convert:
    $name                                                                                                   |
    $name                                                                                                   |
    $name                                                                                                   |
-   get_cdigit {substr($name, 0, $cdigit - 1) . uc(substr($name, $cdigit - 1, 1)) . substr($name, $cdigit)} |
-   get_cdigit {substr($name, 0, $cdigit - 1) . lc(substr($name, $cdigit - 1, 1)) . substr($name, $cdigit)} |
+   get_cdigit {if ($cdigit > length($name)) { $cdigit = length($name)} ; $val = substr($name, 0, $cdigit - 1) . uc(substr($name, $cdigit - 1, 1)) . substr($name, $cdigit) ; return $val} |
+   get_cdigit {if ($cdigit > length($name)) { $cdigit = length($name)} ; $val = substr($name, 0, $cdigit - 1) . lc(substr($name, $cdigit - 1, 1)) . substr($name, $cdigit) ; return $val} |
    $name                                                                                                   ;
 get_cdigit:
    {$cdigit = $prng->int(1,10); return undef} ;
@@ -594,9 +598,11 @@ string_col_name:
 string_col_type:
    char_or_varchar size19_or_size20 ;
 char_or_varchar:
-   { if ( 1 < ( time()     ) % 4 ) { $col_type = "CHAR" } else { $col_type = "VARCHAR" } ; return undef } ;
+   { $col_type = "VARCHAR" ; return undef } |
+   { $col_type = "CHAR"    ; return undef } ;
 size19_or_size20:
-   { if ( 1 < ( time() + 1 ) % 4 ) { $col_size = 19 } else { $col_size = 20 } ; $col_type .= "($col_size)" ; return undef } ;
+   { $col_size = 19 ; $col_type .= "($col_size)" ; return undef } |
+   { $col_size = 20 ; $col_type .= "($col_size)" ; return undef } ;
 string_fill:
    REPEAT(SUBSTR(CAST( $my_int AS CHAR),1,1), 10) ;
 
