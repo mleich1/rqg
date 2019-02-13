@@ -409,10 +409,12 @@ sub stop_worker {
         # Per last update of bookkeeping the RQG Woorker was alive.
         # We ask to kill the processgroup of the RQG Worker.
         kill '-KILL', $pid;
-        $worker_array[$worker_num][WORKER_STOP_REASON] = $stop_reason;
-        my $order_id = $worker_array[$worker_num][WORKER_ORDER_ID];
-        Carp::cluck("DEBUG: Tried to stop RQG worker $worker_num with orderid $order_id because " .
-                    "of ->$stop_reason<-.") if Auxiliary::script_debug("T6");
+        if ($give_up < 3) {
+            $worker_array[$worker_num][WORKER_STOP_REASON] = $stop_reason;
+            my $order_id = $worker_array[$worker_num][WORKER_ORDER_ID];
+            Carp::cluck("DEBUG: Tried to stop RQG worker $worker_num with orderid $order_id because " .
+                        "of ->$stop_reason<-.") if Auxiliary::script_debug("T6");
+        }
     }
 }
 
@@ -521,7 +523,7 @@ sub emergency_exit {
     # - do not the risky things or
     # - ignore the fails.
     $give_up = 3;
-    stop_workers();
+    stop_workers('emergency_exit');
     safe_exit ($status);
 }
 
