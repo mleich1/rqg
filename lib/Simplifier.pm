@@ -52,19 +52,38 @@ use GenTest::Properties;
 use GenTest::Simplifier::Grammar_advanced; # We use the correct working simplifier only.
 use Time::HiRes;
 
+# Simplification phases and the *_success variables
+# -------------------------------------------------
+# The actual simplification phase
 my $phase        = '';
+# If switching from one simplification phase to the next is ahead or not
 my $phase_switch = 0;
+# Pointer to the assigned chain of simplification phases.
+my $simplify_chain;
+# The actual chain of simplification phases.
+my @simp_chain;
+#
+#
+# About the values of the *_success variables
+# -1 -- Running that phase is not planned
+#  0 -- We are or were running that phase but had no success so far.
+#  1 -- We are or were running that phase and had success.
+my $simp_success = 0;
+#
 # (Most probably) needed because of technical reasons.
 use constant PHASE_SIMP_BEGIN       => 'simp_begin';
 #
 # Attempt to replay with the compactified initial grammar.
 use constant PHASE_FIRST_REPLAY     => 'first_replay';
+my $first_replay_success   = -1;
 #
 # Attempt to replay with the actual best replaying grammar and threads = 1,
 use constant PHASE_THREAD1_REPLAY   => 'thread1_replay';
+my $thread1_replay_success = -1;
 #
 # Attempt to shrink the amount of reporters, validators, transformers.
 use constant PHASE_RVT_SIMP         => 'rvt_simp';
+my $rvt_simp_success       = -1;
 #
 # Attempt to shrink the actual best replaying grammar
 # - with avoiding to destroy rules because that could change the semantics of the test.
@@ -94,9 +113,13 @@ use constant PHASE_GRAMMAR_CLONE    => 'grammar_clone';    # Implementation late
 # Replace grammar language builtins like _digit and similar by rules doing the same.
 # In case this is not a no op than there must a PHASE_GRAMMAR_SIMP round follow.
 use constant PHASE_GRAMMAR_BUILTIN  => 'grammar_builtin';  # Implementation later if ever
+# The variable serves for PHASE_GRAMMAR_SIMP, PHASE_GRAMMAR_DEST, PHASE_GRAMMAR_CLONE,
+# PHASE_GRAMMAR_BUILTIN all together.
+my $grammar_simp_success   = -1;
 #
 # Attempt to replay with the actual best replaying grammar.
 use constant PHASE_FINAL_REPLAY     => 'final_replay';
+my $final_replay_success   = -1;
 #
 # (Most probably) needed because of technical reasons.
 use constant PHASE_SIMP_END         => 'simp_end';
@@ -370,8 +393,6 @@ my %transformer_hash;
 my @validator_array;
 my %validator_hash;
 
-my $simplify_chain;
-my @simp_chain;
 
 # Replay Runtime fifo
 # Replay duration fifo
@@ -1248,14 +1269,15 @@ sub generate_orders {
         $success = 1;
     } elsif (PHASE_RVT_SIMP eq $phase) {
         # RVT_SIMP:
-        # - best     'None'
-        # - good     ...,'None'
-        # - good     ...
+        # - best     <whatever>              --> 'None' only
+        # - good     <whatever without None> --> <same whatever>, None
+        # - good     <whatever>              --> <same whatever with some element != None removed>
         if (not $have_rvt_generated) {
             $have_rvt_generated = 1;
             sub generate_rvt_orders {
                 my ($category) = @_;
                 my %hash;
+                my $success = 0;
                 if (not defined $category) {
                     Carp::cluck("INTERNAL ERROR: category is undef.");
                     my $status = STATUS_INTERNAL_ERROR;
@@ -1298,10 +1320,11 @@ sub generate_orders {
                         $success++;
                     }
                 }
+                return $success;
             }
-            generate_rvt_orders('reporter');
-            generate_rvt_orders('validator');
-            generate_rvt_orders('transformer');
+            $success = $success + generate_rvt_orders('reporter');
+            $success = $success + generate_rvt_orders('validator');
+            $success = $success + generate_rvt_orders('transformer');
         } else {
             $success = 0;
         }
@@ -1502,7 +1525,10 @@ sub register_result {
                 $threads = 1;
                 $cl_snip_all .= " --threads=1";
                 reload_grammar($child_grammar);
+                $simp_success           = 1;
+                $thread1_replay_success = 1;
             } elsif (PHASE_FINAL_REPLAY eq $phase) {
+                $final_replay_success   = 1;
             }
             Batch::add_to_try_never($order_id);
             return Batch::REGISTER_SOME_STOPPED;
@@ -1521,7 +1547,8 @@ sub register_result {
                     my $status = STATUS_INTERNAL_ERROR;
                     Batch::emergency_exit($status);
                 }
-              # return Batch::REGISTER_SOME_STOPPED;
+                $simp_success           = 1;
+                $rvt_simp_success       = 1;
                 return Batch::REGISTER_GO_ON;
             } else {
                 # Its a too late replayer.
@@ -1540,7 +1567,8 @@ sub register_result {
                 Batch::stop_worker_young;
                 Batch::stop_worker_on_order($order_id);
                 Batch::add_to_try_never($order_id);
-              # return Batch::REGISTER_SOME_STOPPED;
+                $simp_success           = 1;
+                $grammar_simp_success   = 1;
                 return Batch::REGISTER_GO_ON;
             } else {
                 # Its a too late replayer.
@@ -1564,7 +1592,8 @@ sub register_result {
              $verdict eq Verdict::RQG_VERDICT_INIT                ) {
         if (0 >= $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER]) {
             # We have already too much invested. Stop using that order.
-            say("DEBUG: order_id($order_id), trials($trials), efforts_invested($efforts_invested), " .
+            say("DEBUG: order_id($order_id), trials($trials), " .
+                "efforts_invested($efforts_invested), " .
                 "efforts_left_over(" . $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER] .
                 ") --> Stop using that order.") if Auxiliary::script_debug("S4");
             # add_to_try_exhausted stops all running RQG Worker using that order_id.
@@ -1585,51 +1614,6 @@ sub register_result {
             "Will ask for an emergency_exit.");
         my $status = STATUS_INTERNAL_ERROR;
         Batch::emergency_exit($status);
-    }
-
-    Batch::dump_try_hashes if Auxiliary::script_debug("S6");
-    # Check consistency of the hash.
-    # Batch::check_try_hashes();
-
-    my $hint_given;
-    if ($left_over_trials) {
-        $hint_given = 0;
-        if((PHASE_GRAMMAR_SIMP eq $phase or PHASE_GRAMMAR_DEST eq $phase) and
-           3 <= Batch::get_out_of_ideas() and
-           0 == Batch::known_orders_waiting ) {
-           say("DEBUG: The current campaign has reached the end after $campaign_success replays.");
-           Batch::dump_try_hashes if Auxiliary::script_debug("S4");
-           $phase_switch = 1;
-        }
-        return $return;
-    } else {
-        if (PHASE_FIRST_REPLAY eq $phase) {
-            say("SUMMARY: No replay with the initial grammar.");
-            say("HINT: Maybe the\n" .
-                "HINT: - black/white lists (especially the pattern sections) are faulty or " .
-                "HINT: - RQG test setup (basedir, grammar etc.) is wrong or "                .
-                "HINT: - trials/duration are too small.");
-            say("Giving up.");
-            return (Batch::REGISTER_END);
-        } elsif (PHASE_THREAD1_REPLAY eq $phase) {
-            if (not $hint_given) {
-                say("No replay with threads=1."                                                    .
-                    "HINT: So it seems to be a concurrency problem like connection/thread m "      .
-                    "activity clashes with\n"                                                      .
-                    "HINT: - connection/thread n activity or\n"                                    .
-                    "HINT: - execution of an EVENT        or\n"                                    .
-                    "HINT: - asynchronous activity of replication thread, InnoDB Purge or "        .
-                    "similar.\n") ;
-            }
-            $phase_switch = 1;
-            return $return;
-            # return (Batch::REGISTER_SOME_STOPPED);
-        } elsif (PHASE_FINAL_REPLAY eq $phase) {
-            say("Replaying the desired outcome with the final YY grammar and RQG setup failed.");
-            return (Batch::REGISTER_END);
-        } else {
-            return (Batch::REGISTER_END);
-        }
     }
 
 } # End sub register_result
@@ -1704,50 +1688,62 @@ sub switch_phase {
 
     $phase = shift @simp_chain;
 
-    # Omit phases which make no sense.
     if (PHASE_THREAD1_REPLAY eq $phase and 1 == $threads ) {
         say("INFO: threads is alreay 1. Omitting phase '" . PHASE_THREAD1_REPLAY . "'.");
         $phase = shift @simp_chain;
     }
 
+
+    # Hint:
+    # At least some phases could occur more than one time within @simp_chain.
+    # Therefore the    $var = 0 -->if -1 == $var<--   is required because otherwise we
+    # might change the value from 1 to 0.
     if      (PHASE_FIRST_REPLAY eq $phase)     {
-        $left_over_trials   = $trials;
+        $first_replay_success   = 0 if -1 == $first_replay_success;
+        $left_over_trials       = $trials;
         make_child_from_parent();
-        my $target          = $workdir . "/" . $child_grammar;
-        $cl_snip_phase      = " $rvt_snip --grammar=" . $target;
+        my $target              = $workdir . "/" . $child_grammar;
+        $cl_snip_phase          = " $rvt_snip --grammar=" . $target;
         Batch::write_result("$iso_ts ---------- $phase ---------- ($child_grammar)\n" .
                             $iso_ts . $title_line_part);
     } elsif (PHASE_RVT_SIMP eq $phase)   {
-        $have_rvt_generated = 0;
-        $campaign_number    = 1;
-        $left_over_trials   = TRIALS_SIMP;
+        $simp_success           = 0 if -1 == $simp_success;
+        $rvt_simp_success       = 0 if -1 == $rvt_simp_success;
+        $have_rvt_generated     = 0;
+        $campaign_number        = 1;
+        $left_over_trials       = TRIALS_SIMP;
         make_child_from_parent();
         # $rvt_snip = "";
-        my $target = $workdir . "/" . $child_grammar;
-        # $cl_snip_phase      = " $rvt_snip --grammar=" . $target ;
-        $cl_snip_phase      = " --grammar=" . $target ;
+        my $target              = $workdir . "/" . $child_grammar;
+        # $cl_snip_phase        = " $rvt_snip --grammar=" . $target ;
+        $cl_snip_phase          = " --grammar=" . $target ;
         Batch::write_result("$iso_ts ---------- $phase campaign $campaign_number ---------- ($child_grammar)\n" .
                             $iso_ts . $title_line_part);
     } elsif (PHASE_THREAD1_REPLAY eq $phase)   {
-        $left_over_trials   = $trials;
+        $simp_success           = 0 if -1 == $simp_success;
+        $thread1_replay_success = 0 if -1 == $thread1_replay_success;
+        $left_over_trials       = $trials;
         make_child_from_parent();
-        my $target          = $workdir . "/" . $child_grammar;
-        $cl_snip_phase      = " $rvt_snip --grammar=" . $target . " --threads=1";
+        my $target              = $workdir . "/" . $child_grammar;
+        $cl_snip_phase          = " $rvt_snip --grammar=" . $target . " --threads=1";
         Batch::write_result("$iso_ts ---------- $phase ---------- ($child_grammar)\n" .
                             $iso_ts . $title_line_part);
     } elsif (PHASE_GRAMMAR_SIMP eq $phase or
              PHASE_GRAMMAR_DEST eq $phase   ) {
-        $campaign_number    = 1;
-        $left_over_trials   = TRIALS_SIMP;
-        $cl_snip_phase      = " $rvt_snip";
+        $simp_success           = 0 if -1 == $simp_success;
+        $grammar_simp_success   = 0 if -1 == $grammar_simp_success;
+        $campaign_number        = 1;
+        $left_over_trials       = TRIALS_SIMP;
+        $cl_snip_phase          = " $rvt_snip";
         load_grammar($parent_grammar, 10);
         Batch::write_result("$iso_ts ---------- $phase campaign $campaign_number ----------\n" .
                             $iso_ts . $title_line_part);
     } elsif (PHASE_FINAL_REPLAY eq $phase)   {
-        $left_over_trials   = $trials;
+        $final_replay_success   = 0 if -1 == $final_replay_success;
+        $left_over_trials       = $trials;
         make_child_from_parent();
-        my $target          = $workdir . "/" . $child_grammar;
-        $cl_snip_phase      = " $rvt_snip --grammar=" . $target;
+        my $target              = $workdir . "/" . $child_grammar;
+        $cl_snip_phase          = " $rvt_snip --grammar=" . $target;
         Batch::write_result("$iso_ts ---------- $phase ---------- ($child_grammar)\n" .
                             $iso_ts . $title_line_part);
     } elsif (PHASE_SIMP_END eq $phase)   {
@@ -1756,11 +1752,27 @@ sub switch_phase {
         Batch::make_file($workdir . "/final.yy", $grammar_string . "\n");
         say("");
         say("");
-        say("SUMMARY: Maybe simplified number of threads : $threads");
-        say("SUMMARY: Maybe simplified RVT setting :       '" . $rvt_snip . "'");
-        say("SUMMARY: Maybe Simplified best tested RQG Grammar : '" . $workdir . "/$best_grammar'");
-        say("");
-        say("");
+        if (1 <= $simp_success) {
+            say("SUMMARY: RQG test simplification achieved");
+            say("SUMMARY: simplified number of threads : $threads") if 1 <= $thread1_replay_success;
+            say("SUMMARY: simplified RVT setting : '" . $rvt_snip . "'") if 1 <= $rvt_simp_success;
+            if (1 <= $grammar_simp_success) {
+                say("SUMMARY: simplified(tested) RQG Grammar : '" . $workdir . "/$best_grammar'");
+                say("SUMMARY: simplified(non tested) RQG Grammar : '" . $workdir . "/final.yy'");
+            }
+            say("");
+            say("");
+        } else {
+            say("SUMMARY: No RQG test simplification achieved");
+            if (0 == $first_replay_success) {
+                say("SUMMARY: Even the attempt to make a first replay with the full test failed.");
+                say("SUMMARY: Hence no other simplification steps were tried.");
+                say("HINT: Maybe the\n" .
+                    "HINT: - black/white lists (especially the pattern sections) are faulty or " .
+                    "HINT: - RQG test setup (basedir, grammar etc.) is wrong or "                .
+                    "HINT: - trials/duration/queries are too small.");
+            }
+        }
     } else {
         Carp::cluck("INTERNAL ERROR: Handling for phase '$phase' is missing.");
         my $status = STATUS_INTERNAL_ERROR;
