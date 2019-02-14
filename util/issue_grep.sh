@@ -50,6 +50,7 @@ else
     fi
 fi
 
+OLD_PWD=`pwd`
 set -e
 cd "$WORKDIR"
 set +e
@@ -87,3 +88,5 @@ eval "$MyCmd"
 MyCmd="sort -u issue_frequency.txt > issue_unique.txt"
 eval "$MyCmd"
 
+cd "$OLD_PWD"
+vi "$WORKDIR"/issue_*
