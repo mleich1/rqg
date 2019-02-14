@@ -1,5 +1,5 @@
-My RQG / My workflow
-====================
+My RQG branch and my workflow
+=============================
 Feel free to use this as inspiration, experiment when having a chance to do that, have doubts
 regarding my thoughts and develop your own work flow, propose improvements and so on.
 I apologize in advance for any bad documentation, disaster on your testing box at rqg_batch
@@ -399,6 +399,52 @@ Manual grammar simplification
 Check if that replays via
      perl rqg_batch.pl --type=simplifier --config=<file used by automatic simplification above> \
      --grammar=<just edited grammar> --stop_on_replay
+
+
+How to observe what rqg_batch is doing/the progress?
+====================================================
+- Final output at the end of the rqg_run batch except the run was stopped via exit file creation.
+  Example ( Combinator run with --stop_on_replay ):
+  # 2019-02-14T11:12:10 [25823] STATISTICS: RQG runs -- Verdict
+  # 2019-02-14T11:12:10 [25823] STATISTICS:        1 -- 'replay'           -- Replay of desired effect (Whitelist match, no Blacklist match)
+  # 2019-02-14T11:12:10 [25823] STATISTICS:        0 -- 'interest'         -- Otherwise interesting effect (no Whitelist match, no Blacklist match)
+  # 2019-02-14T11:12:10 [25823] STATISTICS:       29 -- 'ignore_*'         -- Effect is not of interest(Blacklist match or STATUS_OK or stopped)
+  # 2019-02-14T11:12:10 [25823] STATISTICS:       29 -- 'ignore_stopped'   -- RQG run stopped by rqg_batch because of whatever reasons
+  # 2019-02-14T11:12:10 [25823] STATISTICS:        0 -- 'init'             -- RQG run too incomplete (maybe wrong RQG call)
+  # 2019-02-14T11:12:10 [25823] STATISTICS:       30 -- Some verdict made.
+  # 2019-02-14T11:12:10 [25823] STATISTICS: Total runtime in seconds : 134
+  # 2019-02-14T11:12:10 [25823] STATISTICS: RQG runs started         : 30
+  # 2019-02-14T11:12:10 [25823] RESULT:     The logs and archives of the RQG runs performed including files with summaries
+  # 2019-02-14T11:12:10 [25823]             are in the workdir of the rqg_batch.pl run
+  # 2019-02-14T11:12:10 [25823]                  /work/RQG_mleich2/storage/1550138997
+  # 2019-02-14T11:12:10 [25823] HINT:       As long as this was the last run of rqg_batch.pl the symlink
+  # 2019-02-14T11:12:10 [25823]                  last_batch_workdir
+  # 2019-02-14T11:12:10 [25823]             will point to this workdir.
+  # 2019-02-14T11:12:10 [25823] RESULT:     The highest (process) exit status of some RQG run was : 0
+  # 2019-02-14T11:12:10 [25823] RESULT:     The best verdict reached was : 'replay'
+
+- Ongoing presentation of the "fates" of the finished RQG runs.
+      tail -f -n40 last_batch_workdir/result.txt
+  Example ( Combinator run with --stop_on_replay ):
+  2019-02-14T11:05:05 | Number | Verdict          | RQG log    | OrderId | RunTime
+  2019-02-14T11:07:45 |      1 | ignore_stopped   |  <deleted> |      30 |     123
+  2019-02-14T11:07:49 |      2 | ignore_stopped   |  <deleted> |      29 |     128
+  2019-02-14T11:08:45 |      3 | ignore_stopped   |  <deleted> |      28 |     187
+  2019-02-14T11:08:55 |      4 | replay           | 000003.log |      22 |     211
+  2019-02-14T11:08:56 |      5 | ignore_stopped   |  <deleted> |       1 |     230
+  ...
+
+  This is useful for Combinator and Simplifier runs.
+
+- Progress in grammar simplification
+      wc -l last_batch_workdir/p000*.yy
+  Example:
+  257   998  8184 last_batch_workdir/p00000.yy
+  257   998  8178 last_batch_workdir/p00001.yy
+  256   984  8080 last_batch_workdir/p00002.yy
+  255   968  7970 last_batch_workdir/p00003.yy
+  251   944  7718 last_batch_workdir/p00004.yy
+
 
 Matthias Leich, 2019-02-14
 
