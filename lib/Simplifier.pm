@@ -520,7 +520,7 @@ sub init {
         'algorithm:s'               => \$algorithm,             # For grammar simplifier only.
                                                        )) {
         # Somehow wrong option.
-        # help_simplifier();
+        # help();
         my $status = STATUS_ENVIRONMENT_FAILURE;
         safe_exit($status);
     };
@@ -919,14 +919,14 @@ sub init {
 
     if (not defined $grammar_file) {
         say("ERROR: Grammar file is not defined.");
-        help_simplifier();
+        help_();
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("$0 will exit with exit status " . status2text($status) . "($status)");
         safe_exit($status);
     } else {
         if (! -f $grammar_file) {
             say("ERROR: Grammar file '$grammar_file' does not exist or is not a plain file.");
-            help_simplifier();
+            help();
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("$0 will exit with exit status " . status2text($status) . "($status)");
             safe_exit($status);
