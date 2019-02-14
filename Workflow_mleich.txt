@@ -1,0 +1,405 @@
+My RQG / My workflow
+====================
+Feel free to use this as inspiration, experiment when having a chance to do that, have doubts
+regarding my thoughts and develop your own work flow, propose improvements and so on.
+I apologize in advance for any bad documentation, disaster on your testing box at rqg_batch
+runtime and similar.
+
+
+Use rqg_batch.pl on some Linux
+####################################################################################################
+# How to stop some ongoing rqg batch run and especially all the MariaDB servers started?           #
+#                                                                                                  #
+#     touch last_batch_workdir/exit                                                                #
+#                                                                                                  #
+# In the rare case that this does not help than what else to do?                                   #
+#                                                                                                  #
+#     killall -9 perl ; killall -9 mysqld ; rm -rf /dev/shm/var*                                   #
+#                                                                                                  #
+####################################################################################################
+#                                                                                                  #
+# Please take care that the rqg batch resource control is full operable by installing the          #
+# required Perl libs. Its the one and only automatic safety net.                                   #
+# And you will need one in case you have greedy rqg_batch(Combinator/Simplifier) setups.           #
+#                                                                                                  #
+# When making obviously wild/suspicious experiments with rqg_batch use a box where you can reach   #
+# the power off button.                                                                            #
+#                                                                                                  #
+####################################################################################################
+
+
+Some general recommendations
+----------------------------
+- Use Linux
+  A RQG runner might run mostly well on WIN or OSX.
+  I also cannot exclude that rqg_batch.pl is at least runnable on these OS.
+  But I fear that most probably missing features will make it at runtime far way less handy than
+  some modern Linux.
+  Some reasons:
+  - rqg_batch stops RQG worker including all child/grand child/... processes by sending SIGKILL
+    to the corresponding processgroup
+  - the resource control is based on perl libs expecting that the system has the usual proc
+    filesystem like Linux.
+  - the archiver feature expects that "tar" is available
+- How to install "my RQG"
+  git clone https://github.com/mleich1/rqg --branch experimental RQG_mleich1
+  cd RQG_mleich1
+
+  RQG needs certain Perl modules (Example for Ubuntu)
+  ---------------------------------------------------
+  sudo apt-get install libtext-csv-perl             # simplify-mysqltest for CSV files
+  sudo apt-get install libfilesys-df-perl           # rqg_batch with ResourceControl
+  sudo apt-get install libsys-statistics-linux-perl # rqg_batch with ResourceControl
+  sudo apt-get install liblog-log4perl-perl         # RQG GenTest::Validator::TransformerNoComparator?
+  https://metacpan.org/pod/release/PHILIPS/DBIx-MyParsePP-0.50/lib/DBIx/MyParsePP.pm # Transformer
+
+- Please be aware that rqg_batch.pl is optimized for maximum progress.
+  That could have at runtime harmless up till dramatic consequences for your other work in parallel
+  on the same testing box.
+  Lets assume you have not assigned serious restrictions like parallel=1 in the rqg_batch setup.
+  By starting now some rqg_batch run you have invited some "guest" on your testing box which is
+  allowed to be as much greedy as he wants as long as
+  - this serves his progress and
+  - the resource control builtin of rqg_batch does not detect that certain action will harm
+    rqg_batch or the running OS.
+  Most frequent on my notebook:
+      Luck: Editing some file in parallel is sufficient fast, Firefox is already quite slow.
+  Box with swap space on harddisk or the rqg_batch vardir points on harddisk:
+      Let's assume rqg_batch causes heavy paging or excessive writing into the vardir.
+      Ugly: You move the mouse and have to wait some seconds till the impact becomes visible.
+            The same applies for switching to the console or login etc.
+- Perform all rqg_batch.pl runs mentioned in the work flow on the same or at least some comparable
+  box with the same setup of the main rqg_batch variables (--parallel, --vardir).
+- RATHER NEVER use
+  - rqg_batch in parallel to rqg_batch or
+  - rqg_batch in parallel to mysql-test-run.pl
+  and both are configured with high value for "parallel" == allowed to be 'greedy'.
+- Please be aware that rqg_batch.pl tries to avoid clashes with previous, parallel and future
+  test runs using the same setup by concept and thorough picking directories for storage etc.
+  But
+  - having two parallel rqg_batch runs with same setup will clash on ports because using the same
+    MTR buildthread. Ok, this could be prevented by different buildthreads.
+  - it cannot protect you or itself against mistakes in code which it does not have under control.
+    Examples:
+    YY grammars, reporters, validators, transformers or even MTR tests creating or deleting
+    directories at common all time existing places like /tmp.
+  - rqg batch resource control is only limited aware how the resource consumption of concurrent
+    tests evolves. In addition the resource control has some limited speed of reaction.
+    In case the consumption of whatever grows too fast than resource control might act too late
+    and than some disaster could happen.
+  So having one heavy rqg_batch run and nothing using DB servers in parallel should be safe.
+  As soon as another rqg_batch or MTR runs in parallel you rely on the perfection of the setups in
+  order to avoid collisions which than harm the test results up till the OS.
+- Which settings to put into command line and which one via config file?
+  Testing box specific settings like
+      especially parallel, basedir*
+      maybe workdir, vardir
+  in the rqg_batch.pl command line which is generated by a shell script based on setting other
+  variables there.
+  Concept:
+  Be able to copy
+  - that shellscript and the a Combinator/Simplifier config file to another box
+  - adjust the shellscript only
+  - and perform there the rqg_batch.pl run.
+  So better do not set basedir*, parallel etc. in config files.
+  There are also parameters which you might prefer to adjust during several rqg_batch calls.
+  Example:
+  Combinator run        - grammar is somewhere between the combinations
+  Simplifier run        - grammar could be in command line (-> shell script) or in config file
+  Manual simplification - grammar in command line is the most convenient way
+- Some tricks which sometimes help to find more bugs without significant additional manual efforts
+  like extending grammars or modifying RQG test setups:
+  What follows
+  - applies mostly to concurrency bugs (thread vs. thread or just executed EVENT or Purge)
+  - has as base the model:
+    The server executes some SQL by running through a queue of work phases.
+    In case one of these phases is vulnerable by concurrent actions than try to make that
+    phase longer lasting (->overload some resource used) and let the concurrent action happen
+    (-> task of the grammar etc. anyway).
+  a) "overload" the CPU's by using
+     - high values for parallel if doable    and/or
+     - MariaDB builds with debug or ASAN
+     I guess that this often also overloads the I/O system even if working on tmpfs towards RAM.
+  b) "overload" the I/O system by using
+     - high values for parallel if doable    and
+     - a vardir in a filesystem residing on some exceptional slow device like an internal HDD or
+       even better some external backup disk (USB2?, 2.5''?)
+  Using ASAN builds was frequent surprising effective even if hunting bugs revelaled by ASAN was
+  not in focus.
+  The trick with the HDD helped roughly only once per year.
+
+
+rqg_batch.pl
+    manages parallel RQG runs (rqg.pl) according to its setup and hopefully clash free.
+    By that its roughly comparable to
+        mysql-test-run.pl --parallel=<value bigger than one> ...
+    and its also "dangerous" like some too "greedy" MTR.
+
+Combinator
+    One work mode (-> type) of rqgbatch.pl.
+    That its roughly comparable to
+        mysql-test-run.pl < --suite=... or --do-test=... or ...>
+    which tells to run some sub set of all tests available below <source>/mysql-test.
+
+Simplifier
+    The other work mode (-> type) of rqgbatch.pl.
+    That would be comparable to some mysql-test-run.pl deciding on the fly which MTR test to run
+    next depending on failures seen during the execution of other MTR tests.
+    Or rather its decides which new test to generate and execute.
+    But MTR does not have such a features.
+
+
+Important parameters in and around RQG batch
+--------------------------------------------
+Environment variable RQG_HOME
+   Do not set it at all.
+   I have tried to make rqg_batch.pl, rqg.pl safe against it pointing into some maybe alternative
+   and than most probably wrong "RQG universe".
+   rqg_batch.pl, rqg.pl and all the RQG ingredients they use must be from the same "universe".
+
+
+parallel
+   The maximum number of parallel RQG runs some box can keep depends on
+   - the hardware like no of CPU's seen by the OS and the memory available
+   - OS and user limits
+   - the properties of the RQG tests at runtime regarding CPU power, memory or storage space
+     consumption (especially if the vardir is on a tmpfs).
+   In case the builtin resource control of rqg_batch is supported and works roughly perfect
+   than some value of parallel which is oversized regarding CPU and memory should be no problem.
+   I use
+   - '--parallel=30'  on my   8 CPU(HT already included),  32 GB RAM notebook
+   - '--parallel=168' on a  112 CPU(HT already included), 196 GB RAM "batlecruiser"
+   without serious trouble (resource control is supported!).
+   The resource control starts to prevent the start of additional RQG runs up till stopping
+   already ongoing RQG run as soon as trouble with resources is either predicted or obvious
+   short ahead. So you might end up with 90 parallel RQG runs instead of 168 in theory.
+   rqg_batch in general and especially its resource control does not check if OS or user
+   limits are hit.
+
+   In case you have partially small user or OS limits (no of processes, no of open files, ...) like
+   certain Linuxes with setup for dektop use within the last 20 years than you might need to
+   - modify your OS or limits
+   or
+   - assign a smaller value to parallel.
+   I have an Ubuntu 17.10 on my notebook and no trouble with OS or user limits.
+
+   In case of
+     whatever fears or
+     rqg_batch resource control missing Perl modules
+   but often met states
+     >= 3 GB RAM per CPU(-> nproc) on testing box
+     >= 2 GB tmpfs (/dev/shm) per CPU(-> nproc) on testing box
+     use the average behaving RQG tests like most of the existing ones
+   I recommend to start with
+     --parallel=`nproc`
+   as minimum in case the relationships mentioned above are not fulfilled.
+
+rqg_batch resource control requirements regarding Perl libs
+   Ubuntu:
+   sudo apt-get install libfilesys-df-perl
+   sudo apt-get install libsys-statistics-linux-perl
+
+vardir
+   I recommend to use a tmpfs and to clean it
+      rm -rf /dev/shm/var*
+   before starting some rqg_batch run.
+   The run will mostly rely on CPU and I/O to RAM speed.
+   Significant paging should be avoided by using a swappiness of ~ 3.
+   Adjust swappiness
+   -----------------
+   With root rights
+         cat /proc/sys/vm/swappiness
+   delivers often the value 60 (seems to be the default in many Linuxes)
+   This value causes some fair preemptive paging and is maybe bad in case the swap device is a SSD.
+   Also rqg_batch ResourceControl is focused on low till no use of swap space.
+
+   Use a value >= 10 instead. I made good experiences with 3.
+   echo 3 > /proc/sys/vm/swappiness   # Change the actual value. It gets lost after restart.
+
+   Edit the system config file (Ubuntu: /etc/sysctl.conf) so that it does not get lost during
+   restart of system.
+   Add
+      # Make using the swap rare.
+      #
+      vm.swappiness = 3
+
+   Maybe make some already "angry" rqg_batch ResourceControl "happy" by
+      swapoff -a      # Switch swap off in order to make it empty.
+      swapon -a       # Switch swap on in order to have a swap.
+
+   Please be aware that
+   - heavy writing to a SSD like
+     - vardir pointing into a filesystem on an SSD or
+     - vardir on tmpfs but heavy paging with swap space on SSD
+     and corresponding tests might have a bad impact on the lifetime of your SSD.
+   - heavy use of an old fashioned hard disk like
+     - vardir pointing into a filesystem on a HDD or
+     - vardir on tmpfs but heavy paging with swap space on HDD
+     might lead to some system state where the system is roughly "unusable"/"out of control"
+     because login/mouse move/switch to console might last extreme long.
+
+   From experiences in history (2014-2016) I can confirm that
+   - prepending a "nice -19 " to the rqg_batch.pl start seems to have
+     - sometimes a nice impact on system responsitivity
+     - also sometimes no impact on responsitivity at all
+       In case the HDD was overloaded by paging and the test writing than it was roughly
+       out of control.
+   - prepending some "ionice -n0 ..." to some program determining the space consumption of
+     directories and their content on a overloaded HDD gives a great speedup.
+   So I might try to exploit that somewhere in future but it requires some research.
+   * Will the nice/ionice values assigned to rqg_batch get applied to any child process?
+     rqg_batch forks RQG worker which than becomes RQG runner and than starts DB servers ...
+   * How to get two classes of processes
+     - rqg_batch main process + resouce control mechanism with
+       as big CPU and IO priority as possible without using the root account
+     - RQG worker/RQG runner/DB Servers started by them ... with
+       as low CPU and IO priority as possible
+
+type and config file
+   Both parameters are mandatory.
+   type            config file type
+   RQG_Simplifier  cfg
+   Combinator      cc
+
+
+Make some serious bughunt run ==> Combinator running over several hours
+=======================================================================
+1. Copy a config file template and adjust it to your goals.
+   Perform the rqg_batch.pl run.
+   In case the summary at end shows counters > 0 for the verdicts
+   - replay
+   - interest
+   than you might have hit something important.
+2. In case you have the files last_batch_workdir/issue*.txt than inspect them.
+   - Depending on the reason for the end of the Combinator run they might be missing.
+     You can create them via
+         util/issue_grep.sh
+   - util/issue_grep.sh is focussed on asserts and the files last_batch_workdir/issue*.txt try
+     to provide a collection and aggregates of the asserts observed.
+   In case the issue*.txt files stay missing than you need to inspect the logs of the RQG runs
+   ending with the verdicts 'replay' and 'interest'.
+   The file last_batch_workdir/results.txt gives an overview.
+3. Lets assume you have found something bad of interest and a feature developer asks for
+   - further simplification of the test for getting a better overview and better speculations
+     Knowing which SQL seems to be required and which SQL is not required at all is of
+     significant value.
+   - modification of the test in order to replay as fast as possible
+     This will make checking if some fix helps serious faster.
+   because the problem is too complex and he fears to invest too much mostly human working time
+   for analysis, replay and fixing.
+
+Now its time for the simplifier
+===============================
+Copy the config file template (simplify_rqg_template.cfg) and adjust it to your goals.
+
+I mention here only a subset of the paramaters/options which could be assigned via rqg_batch
+command line or config file.
+1. black/white list setup
+   Use checker.pl for adjusting the white/black list matching based on the result files of
+   the Combinator run. Use    perl checker.pl --help
+   Do not hesitate to
+   - add patterns for several non reported bad effects to the whitelist patterns.
+     By that you define some unsharp target and you give up the control about for which
+     bad effect you get a simplification first.
+     But usually it does not matter in which order you get simplified tests.
+     Example assuming three bad effects A, B and C:
+        The final simplified grammar equals the last grammar c00243.yy which replayed B.
+        -> Report the simplified test after maybe simplifying the grammar further manual.
+        The last grammar replaying effect A was c00127.yy.
+        -> Put efect B into the blacklist, make c00127.yy to the new starting grammar and
+           restart the automatic simplification.
+        ...
+   - include really any unwanted result (poatterns of open already reported bugs) in the
+     blacklist patterns
+   because that makes the overall simplification process serious faster.
+2. Assign the right grammar file and never redefine files or masking
+   The grammar file to be assigned is within the archive of the failing run during the campaign
+   with the Combinator. And in that file all relevant YY grammars are already joined and
+   any masking is also already applied.
+   Example:
+   The Combinator called the RQG runner like
+       rqg.pl --grammar=A.yy --redefine=A1.yy,A2.yy,A3.yy --mask=3 --mask-level=2
+   Than the RQG runner rqg.pl joins the grammar file and the redefine files, applies masking
+   and stores the result within the file rqg.yy within his own work directory.
+
+   You can find that file within the archive of some finished RQG run.
+   tar tvzf /work/RQG_stable/storage/1543871920/000077.tgz
+       ...
+       -rw-rw-r-- mleich/mleich  1337 2018-12-03 22:31 rqg.job
+       -rw-rw-r-- mleich/mleich 43055 2018-12-03 22:36 rqg.log
+       -rw-rw-r-- mleich/mleich  3042 2018-12-03 22:31 rqg.sql
+       -rw-rw-r-- mleich/mleich  8162 2018-12-03 22:31 rqg.yy  <===== This is grammar and redefine
+       -rw-rw-r-- mleich/mleich  1095 2018-12-03 22:31 rqg.zz         joined to effective grammar.
+
+   Please do not try to assign redefines files or apply masking in addition.
+   The Simplifier should refuse that but I am not 100% sure if that works like intended.
+3. duration
+   Its recommended to stick to the duration used within the Combinator run.
+   Please be aware that the likelihood to replay some bad effect does not scale linear with
+   the duration used.
+   In case you have had within the Combinators run many replays of the desired outcome
+   and the runtime for YY grammar processing was all time serious lower than the assigned
+   duration than you could think about reducing the assigned runtime.
+   Default: 300
+
+I recommend to assign nothing to the parameters which follow ==
+   - No '--<parameter>=...' incommand line.
+   - No '<parameter>   => '...' in config file.
+and you just get the defaults.
+4. Maybe switch off the archiving in general because that makes the overall simplification
+   process serious faster.
+   Problems usually show up again. And collecting a core, content of data dir etc. could be
+   postponed to some run after simplification end.
+5. trials
+   This parameter is applied in the simplification phases
+   - first attempt to replay
+   - attempt to replay with thread = 1
+   - attempt to replay with the final result of simplification
+   only. And this is the maximum number of completed attempts to replay before giving up.
+   All other phases have a nearly unlimited maximum number (99999) of attempts.
+   I recommend a value between 30 and 50.
+   Default: 30.
+6. duration_adaption
+   Adjust the duration assigned to the RQG runs dynamic to the progress.
+   This gets applied only in the phase RQG_GRAMMAR_SIMP.
+   Purpose:
+      Example for effect often observed between mid till end of grammar simplification:
+      Shrinked grammar
+      - not capable to replay : Need ~ assigned duration YY processing runtime.
+      - capable to replay     : Need serious less YY processing runtime than assigned duration.
+      So assigning some some duration < initial duration would serve to "sort" out the
+      "hopeless" RQG runs earlier.
+   Default: 'duration_adaption_max'
+      Have a ten element fifo with the YY processing runtime of the last ten replaying runs.
+      Assign the minimum of
+      - initial duration
+      - biggest YY processing runtime found in that fifo
+      to the next RQG run to be started as duration.
+   In case you
+   - do not trust that feature than use 'duration_adaption_none'.
+   - want "more" than use 'duration_adaption_exp' which becomes maybe the default in future.
+7. simplify_chain
+   Comma separated list of simplification phases.
+   The simplifier will work in these phases and in the assigned order.
+   Default: 'first_replay' ==> 'thread1_replay' ==> 'rvt_simp' ==> 'grammar_simp' ==> 'final_replay'
+   Feel free to omit certain phases for saving runtime or to reorder them.
+
+
+Manual grammar simplification
+=============================
+- expand perl snips in the simplified grammar
+  Examples:
+  - WHERE col1 = { $var = 13 } .... AND col2 = $var ....
+    ==> WHERE col1 = 13 .... AND col2 = 13 ....
+  - { $var = 13 ; return undef } WHERE col1 = $var .... AND col2 = $var ....
+    ==> WHERE col1 = 13 .... AND col2 = 13 ....
+- rename schemas, tables, columns, ... in case that makes the grammar better readable/understandable
+- try to remove columns, indexes etc.
+- take care that the simplifier phase 'first_replay' is the first phase in simplify_chain
+Check if that replays via
+     perl rqg_batch.pl --type=simplifier --config=<file used by automatic simplification above> \
+     --grammar=<just edited grammar> --stop_on_replay
+
+Matthias Leich, 2019-02-14
+
+
