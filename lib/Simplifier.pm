@@ -1980,6 +1980,7 @@ sub report_replay {
             Batch::stop_worker_young;
             Batch::stop_worker_on_order_except_replayer($order_id);
             Batch::add_to_try_never($order_id);
+            $simp_success = 1;
         } else {
             # Its a replayer with outdated grammar.
             # Hence we can postpone decision+loading to the point of time when the main process
@@ -2000,6 +2001,7 @@ sub report_replay {
             Batch::stop_worker_young;
             Batch::stop_worker_on_order_except_replayer($order_id);
             Batch::add_to_try_never($order_id);
+            $simp_success = 1;
         } else {
             # Its a too late winner.
             # So we do nothing.
