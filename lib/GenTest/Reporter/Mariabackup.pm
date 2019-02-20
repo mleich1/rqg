@@ -103,24 +103,26 @@ my $last_call    = time() - 15;
 $|=1;
 
 my $reporter_prt = tmpdir() . "/reporter_tmp.prt";
-my $msg_snip = 'Reporter Mariabackup';
+my $msg_snip     = 'Reporter Mariabackup';
 
 sub monitor {
     my $reporter = shift;
 
     # In case of several servers, we get called or might be called for any of them.
     # We perform only
-    # - backup first server, make a clone based on that backup, check clone and destroy clone
-    # - not more often than all 15.
+    #   backup first server, make a clone based on that backup, check clone and destroy clone
+    #
 
     direct_to_file();
 
     $first_reporter = $reporter if not defined $first_reporter;
     return STATUS_OK if $reporter ne $first_reporter;
 
-    # Ensure some minimum distance between two runs of the Reporter Mariabackup should be 15.
-    return STATUS_OK if $last_call + 15 > time();
-    $last_call = time();
+    # The next lines are set to comment because in the current (2019-02) state I prefer an
+    # extreme frequent testing.
+    # Ensure some minimum distance between two runs of the Reporter Mariabackup should be 15s.
+    # return STATUS_OK if $last_call + 15 > time();
+    # $last_call = time();
 
     # Access data about the first server
     my $server0 = $reporter->properties->servers->[0];
