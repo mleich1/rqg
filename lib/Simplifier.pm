@@ -49,7 +49,7 @@ use Batch;
 use Auxiliary;
 use Verdict;
 use GenTest::Properties;
-use GenTest::Simplifier::Grammar_advanced; # We use the correct working simplifier only.
+use GenTest::Simplifier::Grammar_advanced;
 use Time::HiRes;
 
 # Simplification phases and the *_success variables
@@ -1686,6 +1686,11 @@ sub switch_phase {
         return;
     }
 
+#   if (PHASE_GRAMMAR_SIMP eq $phase or
+#       PHASE_GRAMMAR_DEST eq $phase   ) {
+#       GenTest::Simplifier::Grammar_advanced::print_rule_hash();
+#   }
+
     $phase = shift @simp_chain;
 
     if (PHASE_THREAD1_REPLAY eq $phase and 1 == $threads ) {
@@ -1695,7 +1700,7 @@ sub switch_phase {
 
 
     # Hint:
-    # At least some phases could occur more than one time within @simp_chain.
+    # At least some phases could occur more than one time within @simp_chain. (handling is above)
     # Therefore the    $var = 0 -->if -1 == $var<--   is required because otherwise we
     # might change the value from 1 to 0.
     if      (PHASE_FIRST_REPLAY eq $phase)     {
@@ -1980,6 +1985,7 @@ sub report_replay {
             Batch::stop_worker_young;
             Batch::stop_worker_on_order_except_replayer($order_id);
             Batch::add_to_try_never($order_id);
+            $grammar_simp_success = 1;
             $simp_success = 1;
         } else {
             # Its a replayer with outdated grammar.
@@ -2001,6 +2007,7 @@ sub report_replay {
             Batch::stop_worker_young;
             Batch::stop_worker_on_order_except_replayer($order_id);
             Batch::add_to_try_never($order_id);
+            $rvt_simp_success = 1;
             $simp_success = 1;
         } else {
             # Its a too late winner.
