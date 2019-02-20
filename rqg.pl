@@ -621,21 +621,49 @@ if (defined $sqltrace) {
     # Allowed values for --sqltrace:
     my %sqltrace_legal_values = (
         # MarkErrors
-        # - trace gets written after execution
-        # - invalid SQL gets marked
+        # ----------
+        # The SQL statement gets written when the server response arrives == post execution.
+        # Failing SQL statements get marked.
         'MarkErrors'    => 1,
-        # MTR
-        # Try to construct some MTR based test with some crowd of properties
-        # - one connection only (all time user=root)
-        # - write trace message after finished execution including info about error or not
-        # - transform every query (multi statement) spanning over several lines to one line only.
-        # - add a '--enable_reconnect' to !after! any (first) connect in order to handle loss
-        #   of the connection caused by
-        #   COMMIT/ROLLBACK ... RELEASE
-        #   KILL .... CONNECTION
-        # - experiment with DELIMITER § set at begin of trace and replacing with it any
-        #   last ";" of a query.
+        # MTR (FIXME: Implement)
+        # ---
+        # Try to write trace messages which could be filtered out and hopefully used as MTR test.
+        # For that we need crowd of properties like
+        # 1. One connection only (all time user=root)
+        #    Note:
+        #    It is possible to generate a multi session MTR test with correct mysqltest language
+        #    by using "--connect*", "--send", "--reap" etc. But per experience such tests fail
+        #    usually at runtime because of "endless" waiting for "--reap" or similar.
+        #    A significant fraction of MTR tests checking concurrency effects is forced to use
+        #    the DEBUG_SYNC facility. And the DEBUG_SYNC points passed are not known to RQG.
+        # 2. The SQL statement gets written when the server response arrives == post execution.
+        #    Failing SQL statements get marked.
+        # 3. Transform every query (multi statement) spanning over several lines to one line only.
+        #    This should be the default.
+        #    Reason: The mysqltest simplifier should never destroy the semantics.
+        #    Optional: Do not transform.
+        # 4. Add a '--enable_reconnect' to !after! any (first) connect in order to handle loss
+        #    of the connection caused by
+        #    COMMIT/ROLLBACK ... RELEASE
+        #    KILL .... CONNECTION
+        # 5. Experiment with DELIMITER § set at begin of trace and replacing with it any
+        #    last ";" of a query.
         'MTR'           => 1,
+        # Concurrency (FIXME: Implement)
+        # -----------
+        # 1. Write a trace message when a query gets send to the DB server == before execution.
+        # 2. Write a trace message including the server response when that response arrives
+        #    == post execution.
+        # This trace mode
+        # - should help to get a rough idea how the execution of statements of different sessions
+        #   overlap (neither the other sqltrace modes nor the server statement log show that).
+        #   Real life example:
+        #   Assert when session A (chaotic DDL) clashes with session B (mariabackup).
+        #   The question of interest was:
+        #   mariabackup sets BACKUP STAGE ... which should block concurrent DDL.
+        #   So was the some concurrent DDL which was not blocked?
+        # - is not dedicated for generating some MTR test from the trace messages
+        'Concurrency'   => 1,
     );
 
     if (length($sqltrace) > 0) {
@@ -929,7 +957,8 @@ Auxiliary::print_list("INFO: Final RQG vardirs ",  @vardirs);
 # Put into environment so that child processes will compute via GenTest.pm right.
 $ENV{'TMP'} = $vardirs[0];
 # Modify direct so that we get rid of crap values.
-settmpdir($vardirs[0]);
+say("tmpdir in GenTest ->" . GenTest::tmpdir() . "<-");
+say("tmpdir in DBServer ->" . DBServer::DBServer::tmpdir() . "<-");
 
 ## Make sure that "default" values ([0]) are also set, for compatibility,
 ## in case they are used somewhere
@@ -1625,8 +1654,8 @@ if (($gentest_result == STATUS_OK)                       and
 
     my $diff_result = STATUS_OK;
     if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)   or
-        ($rpl_mode ne Auxiliary::RQG_RPL_MIXED)       or
-        ($rpl_mode ne Auxiliary::RQG_RPL_ROW)           ) {
+        ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)       or
+        ($rpl_mode eq Auxiliary::RQG_RPL_ROW)           ) {
         $diff_result = $rplsrv->waitForSlaveSync;
         if ($diff_result != STATUS_OK) {
             # FIXME: Shouldn't that be rather STATUS_REPLICATION_FAILURE or similar?
@@ -1663,13 +1692,13 @@ if (($gentest_result == STATUS_OK)                       and
                 ### The IMHO better solution: 0 vs. 1 , 0 vs. 2 , 0 vs. 3
                 my $diff = system("diff -u $dump_files[0] $dump_files[$i]");
                 if ($diff == STATUS_OK) {
-                    say("No differences were found between servers 0 and $i.");
+                    say("No differences were found between server 0 and server $i.");
                     # Make free space as soon ass possible.
                     say("DEBUG: Deleting the dump file of server $i.");
                     unlink($dump_files[$i]);
                 } else {
-                    sayError("Found differences between servers 0 and $i. Setting final_result " .
-                             "to STATUS_CONTENT_MISMATCH");
+                    sayError("Found differences between server 0 and server $i. Setting " .
+                             "final_result to STATUS_CONTENT_MISMATCH");
                     $diff_result  = STATUS_CONTENT_MISMATCH;
                     $final_result = $diff_result;
                 }
