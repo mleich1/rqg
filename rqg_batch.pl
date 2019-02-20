@@ -733,6 +733,34 @@ while($Batch::give_up <= 1) {
                 # taken over and perform an emergency_exit.
                 # safe_exit(0);
 
+                # We need a directory where the RQG run could store temporary files and do that by
+                # setting the environment variable TMP to some directory which is specific for the
+                # RQG run before (REQUIRED) calling GenTest or DBServer::DBServer the first time.
+                # So we go with TMP=$rqg_vardir
+                # - This is already set. --> No extra command line parameter required.
+                # - It gets destroyed (if already existing) and than created at begin of the test.
+                #   --> No chance to accidently process files of some finished test missing cleanup.
+                # - In case $rqg_vardir is unique to the RQG run
+                #      Example:
+                #      Smart tools causing <n> concurrent RQG runs could go with generating a
+                #      timestamp first.
+                #      vardir of tool run = /dev/shm/vardir/<timestamp>
+                #         in case that directory already exists sleep 1 second and try again.
+                #      vardir of first RQG runner = /dev/shm/vardir/<timestamp>/1
+                #      vardir of n'th  RQG runner = /dev/shm/vardir/<timestamp>/<n>
+                #   than clashes with concurrent RQG runs are nearly impossible.
+                # - In case of a RQG failing we archive the vardir of the RQG runner and the maybe
+                #   valuable temporary files (dumps?) are already included.
+                # - In case we destroy the RQG run vardir at test end than all the temporary files
+                #   are gone.
+                #   --> free space in some maybe small filesystem like a tmpfs
+                #   --> no pollution of '/tmp' with garbage laying there around for months
+                # - No error prone addition of process pids to file names.
+                #   Pids will repeat sooner or later. And maybe a pice of code forgets to add the pid.
+                #
+
+                $ENV{'TMP'} = $rqg_vardir;
+
                 if ($dryrun) {
                     say("LIST: ==>$command<==");
                     # The parent waits for the take over of the RQG worker (rqg.pl) which is visible
