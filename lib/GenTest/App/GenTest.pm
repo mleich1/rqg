@@ -2,7 +2,7 @@
 
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2016, 2018 MariaDB Corporation Ab
+# Copyright (c) 2016, 2019 MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -1075,16 +1075,12 @@ sub initValidators {
     # - similarity to the handling of reporters/validators
     # - be prepared for some situation which might come or never come in future
     # is currently unimportant.
-    $transformer_hash{'None'} = 1;
-    say("Transformers (for Simplifier): ->" . join("<->", sort keys %transformer_hash) . "<-");
-    delete $transformer_hash{'None'};
-    @{$self->config->transformers} = sort keys %transformer_hash;
-    say("DEBUG: Transformers (after check_and_set): ->" . join("<->",
-        @{$self->config->transformers}) . "<-");
 
     ## Add the validator 'Transformer' if
     ##    extending the list of Validators is allowed
-    ##    --transformers is specified and
+    ## and
+    ##    --transformers is specified
+    ## and
     ##    the transformers specified are not just list with one element and
     ##    that has the value 'None' or '' and
     ##    the validator 'Transformer' is not already specified
@@ -1101,6 +1097,7 @@ sub initValidators {
         }
     }
 
+    $validator_hash{'None'} = 1;
     say("Validators (for Simplifier): ->" . join("<->", sort keys %validator_hash) . "<-");
     delete $validator_hash{'None'};
     @{$self->config->validators} = sort keys %validator_hash;
@@ -1109,6 +1106,18 @@ sub initValidators {
 
     # For testing/debugging
     # push @{$self->config->validators}, 'Huhu';
+
+    # FIXME:
+    # Using RQG's own replication + validator and transformer or not just 'None'
+    # --> The validators ResultsetComparator and Transformer get added.
+    #     And this is already visible here.
+    # But when the validator 'Transformer' gets loaded we get a crowd of transformers in addition.
+#   $transformer_hash{'None'} = 1;
+#   say("Transformers (for Simplifier): ->" . join("<->", sort keys %transformer_hash) . "<-");
+#   delete $transformer_hash{'None'};
+#   @{$self->config->transformers} = sort keys %transformer_hash;
+#   say("DEBUG: Transformers (after check_and_set): ->" . join("<->",
+#       @{$self->config->transformers}) . "<-");
 
     return STATUS_OK;
 }
