@@ -566,7 +566,8 @@ sub check_resources {
         }
         if ($active_workers < $too_many_workers) {
             $too_many_workers = $active_workers;
-            say("DEBUG: too_many_workers reduced to $too_many_workers");
+            say("DEBUG: too_many_workers reduced to $too_many_workers")
+                if Auxiliary::script_debug("T2");
         }
         # Stop the youngest RQG worker
         my $worker_start  = 0;
@@ -599,7 +600,8 @@ sub check_resources {
             }
             my $worker_pid = $worker_array[$worker_number][WORKER_PID];
             if (-1 == $worker_pid) {
-                say("DEBUG: RQG worker $worker_number has been stopped.");
+                say("DEBUG: RQG worker $worker_number had to be stopped. " .
+                    "Reason: " . STOP_REASON_RESOURCE ) if Auxiliary::script_debug("T1");
             } else {
                 my $status = STATUS_ENVIRONMENT_FAILURE;
                 emergency_exit($status, "ERROR: Batch::check_resources: Waited $max_wait s " .

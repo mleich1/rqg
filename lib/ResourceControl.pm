@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, MariaDB Corporation Ab.
+#  Copyright (c) 2018, 2019 MariaDB Corporation Ab.
 #  Use is subject to license terms.
 #
 #  This program is free software; you can redistribute it and/or modify
@@ -16,29 +16,6 @@
 #
 
 package ResourceControl;
-
-# TODO:
-# - Structure everything better.
-# - Add missing routines
-# - Decide about the relationship to the content of
-#   lib/GenTest.pm, lib/DBServer/DBServer.pm, maybe more.
-#   There are various duplicate routines like sayFile, tmpdir, ....
-# - search for string (pid or whatever) after pattern before line end in some file
-# - move too MariaDB/MySQL specific properties/settings out
-# It looks like Cwd::abs_path "cleans" ugly looking paths with superfluous
-# slashes etc.. Check closer and use more often.
-#
-# Hint:
-# All variables which get direct accessed by routines from other packages like
-#     push @Batch::try_queue, $order_id_now;
-# need to be defined with 'our'.
-# Otherwise we get a warning like
-#     Name "Batch::try_queue" used only once: possible typo at ./rqg_batch.pl line 1766.
-# , NO abort and no modification of the queue defined here.
-# Alternative solution:
-# Define with 'my' and the routines from other packages call some routine from here which
-# does the required manipulation.
-
 
 use strict;
 
@@ -80,10 +57,10 @@ use constant SPACE_CORE     => 3000;
 use constant SHARE_CORE     => 0.1;
 
 
-use constant VARDIR_FREE   => 0;
-use constant WORKDIR_FREE  => 1;
-use constant MEM_REAL_FREE => 2;
-use constant SWAP_USED_PER => 3;
+use constant VARDIR_FREE    => 0;
+use constant WORKDIR_FREE   => 1;
+use constant MEM_REAL_FREE  => 2;
+use constant SWAP_USED_PER  => 3;
 
 
 my $df_available;
@@ -221,10 +198,10 @@ sub init {
     }
 
     my @return = measure();
-    my $vardir_free        = $return[VARDIR_FREE];
-    my $workdir_free       = $return[WORKDIR_FREE];
-    my $mem_real_free      = $return[MEM_REAL_FREE];
-    my $swap_used_per      = $return[SWAP_USED_PER];
+    my $vardir_free     = $return[VARDIR_FREE];
+    my $workdir_free    = $return[WORKDIR_FREE];
+    my $mem_real_free   = $return[MEM_REAL_FREE];
+    my $swap_used_per   = $return[SWAP_USED_PER];
 
     $vardir_free_init   = $vardir_free;
     $workdir_free_init  = $workdir_free;
@@ -251,23 +228,24 @@ sub init {
         my $line = "$iso_ts vardir  '$vardir'  free : $vardir_free_init\n"                         .
                    "$iso_ts workdir '$workdir' free : $workdir_free_init\n"                        .
                    "$iso_ts memory real free        : $mem_real_free_init\n"                       .
-                   "$iso_ts swap space used percent : $swap_used_per\n"                                .
+                   "$iso_ts swap space used percent : $swap_used_per\n"                            .
                    "$iso_ts nproc                   : $nproc\n"                                    .
                    "$iso_ts parallel (assigned)     : $parallel_assigned\n"                        .
                    "$iso_ts parallel (estimated)    : $parallel_estimated\n"                       .
                    "$iso_ts parallel (used)         : $parallel\n"                                 .
                    "$iso_ts return (to rqg_batch)   : $load_status, $parallel\n"                   .
-                   "$iso_ts Title1 : worker - vardir_used - vardir_free - workdir_used - workdir_free - mem_used - mem_free\n" .
-                   "$iso_ts          *_used means consumed since initialization of our rqg_batch run\n"                        .
-                   "$iso_ts          Assumption: Consumed by RQG runs rqg_batch has started.\n"    .
+                   "$iso_ts Title1 : worker - vardir_used - vardir_free - workdir_used - "         .
+                   "workdir_free - mem_used - mem_free\n"                                          .
+                   "$iso_ts     *_used means consumed since initialization of our rqg_batch run\n" .
+                   "$iso_ts     Core assumption: Consumed by RQG runs rqg_batch has started.\n"    .
                    "$iso_ts Title2 : vsz - rsz - sz - size\n"                                      .
                    "---------------------------------------------------------------------------\n" .
                    "$iso_ts $worker_active, " .  # There is in the moment no active worker.
-                       int($vardir_used)  . " - " . int($vardir_free)  . " - " .
-                       int($workdir_used) . " - " . int($workdir_free) . " - " .
-                       int($mem_real_free). " - " . int($swap_used_per)    . " - " .
+                       $vardir_used   . " - " . $vardir_free   . " - " .
+                       $workdir_used  . " - " . $workdir_free  . " - " .
+                       $mem_real_free . " - " . $swap_used_per . " - " .
                        $load_status       . "\n"  .
-                  "$iso_ts  $val";
+                   "$iso_ts  $val";
         Batch::append_string_to_file($book_keeping_file, $line);
     }
     return $load_status, $parallel;
@@ -277,6 +255,7 @@ sub init {
     # - How many test in max in parallel
     # - if loadcontrol impossible
     #   missing Filesys::Df
+    # ??
 }
 
 sub report {
@@ -288,13 +267,13 @@ sub report {
     # So we go with the estimation that the diff between current free space and free space at init
     # time is caused by space consumption of our rgq_batch run.
     my @return = measure();
-    my $vardir_free        = $return[VARDIR_FREE];
-    my $workdir_free       = $return[WORKDIR_FREE];
-    my $mem_real_free      = $return[MEM_REAL_FREE];
-    my $swap_used_per      = $return[SWAP_USED_PER];
+    my $vardir_free   = $return[VARDIR_FREE];
+    my $workdir_free  = $return[WORKDIR_FREE];
+    my $mem_real_free = $return[MEM_REAL_FREE];
+    my $swap_used_per = $return[SWAP_USED_PER];
 
-    my $vardir_used  = $vardir_free_init  - $vardir_free;
-    my $workdir_used = $workdir_free_init - $workdir_free;
+    my $vardir_used   = $vardir_free_init  - $vardir_free;
+    my $workdir_used  = $workdir_free_init - $workdir_free;
 
     # Setting $load_status = LOAD_GIVE_UP serves basically three purposes
     # a) prevent that one possible bad event (one RQG test dies with core) leads to losing the
@@ -351,31 +330,36 @@ sub report {
              $vardir_free < (1 + $worker_active) * SHARE_CORE * SPACE_CORE
                             + $vardir_used / $worker_active ) {
         # An additional RQG worker raises the space consumption.
-        say("INFO: (1) The free space in '$vardir' ($vardir_free MB) is not better than sufficient.");
+        say("INFO: (1) The free space in '$vardir' ($vardir_free MB) is not better than " .
+            "sufficient.") if Auxiliary::script_debug("R2");
         $load_status = LOAD_KEEP;
     } elsif ($worker_active > 0   and
              defined $vardir_free and
              $vardir_free < SPACE_CORE + $vardir_used / $worker_active ) {
         # An additional RQG worker could consume the usual amount of space and than die with core.
-        say("INFO: (2) The free space in '$vardir' ($vardir_free MB) is not better than sufficient.");
+        say("INFO: (2) The free space in '$vardir' ($vardir_free MB) is not better than " .
+            "sufficient.") if Auxiliary::script_debug("R2");
         $load_status = LOAD_KEEP;
     } elsif (defined $workdir_free and
              $workdir_free < (1 + $worker_active) * SPACE_REMAIN + SPACE_FREE) {
         # All die with the usual amount of remainings.
-        say("INFO: (3) The free space in '$workdir' ($workdir_free MB) is not better than sufficient.");
+        say("INFO: (3) The free space in '$workdir' ($workdir_free MB) is not better than " .
+            "sufficient.") if Auxiliary::script_debug("R2");
         $load_status = LOAD_KEEP;
     } elsif ($worker_active > 0   and
              defined $mem_real_free and
              $mem_real_free < (1 + $worker_active) * SHARE_CORE * SPACE_CORE
                                + $vardir_used / $worker_active ) {
         # An additional RQG worker raises the memory consumption and we do not want to use swap.
-        say("INFO: (4) The real free memory ($mem_real_free MB) is not better than sufficient.");
+        say("INFO: (4) The real free memory ($mem_real_free MB) is not better than " .
+            "sufficient.") if Auxiliary::script_debug("R2");
         $load_status = LOAD_KEEP;
     } elsif ($worker_active > 0   and
              defined $mem_real_free and
              $mem_real_free < SPACE_CORE + $vardir_used / $worker_active ) {
         # An additional RQG worker raises the memory consumption and we do not want to use swap.
-        say("INFO: (5) The real free memory ($mem_real_free MB) is not better than sufficient.");
+        say("INFO: (5) The real free memory ($mem_real_free MB) is not better than " .
+            "sufficient.") if Auxiliary::script_debug("R2");
         $load_status = LOAD_KEEP;
 
     # Either we
@@ -390,9 +374,9 @@ sub report {
         my $iso_ts = isoTimestamp();
         my $val = mem_usage();
         my $line = "$iso_ts $worker_active, " .
-                       int($vardir_used)  . " - " . int($vardir_free)  . " - " .
-                       int($workdir_used) . " - " . int($workdir_free) . " - " .
-                       int($mem_real_free). " - " . int($swap_used_per)    . " - " .
+                       $vardir_used   . " - " . $vardir_free   . " - " .
+                       $workdir_used  . " - " . $workdir_free  . " - " .
+                       $mem_real_free . " - " . $swap_used_per . " - " .
                        $load_status       . "\n"  .
                    "$iso_ts  $val";
         Batch::append_string_to_file($book_keeping_file, $line);
@@ -408,7 +392,7 @@ sub measure {
         $ref = Filesys::Df::df($vardir, SPACE_UNIT);  # Default output is 1M blocks
         if(defined($ref)) {
             # bavail == Free space which the current user would be allowed to occupy.
-            $return[VARDIR_FREE] = $ref->{bavail};
+            $return[VARDIR_FREE] = int($ref->{bavail});
         } else {
             say("ERROR: df for '$vardir' failed.");
             my $status = STATUS_ENVIRONMENT_FAILURE;
@@ -416,24 +400,24 @@ sub measure {
         }
         $ref = Filesys::Df::df($workdir, SPACE_UNIT);
         if(defined($ref)) {
-            $return[WORKDIR_FREE] = $ref->{bavail};
+            $return[WORKDIR_FREE] = int($ref->{bavail});
         } else {
             say("ERROR: df for '$workdir' failed.");
             my $status = STATUS_ENVIRONMENT_FAILURE;
             Batch::emergency_exit($status);
         }
     } else {
-        $return[VARDIR_FREE]  = undef;
-        $return[WORKDIR_FREE] = undef;
+        $return[VARDIR_FREE]   = undef;
+        $return[WORKDIR_FREE]  = undef;
     }
     if ($sys_available) {
         my $stat = $lxs->get();
         my $memstats  = $stat->memstats;
-        $return[MEM_REAL_FREE]  = $stat->memstats->{realfree} / 1024;
-        $return[SWAP_USED_PER]  = $stat->memstats->{swapusedper};
+        $return[MEM_REAL_FREE] = int($stat->memstats->{realfree} / 1024);
+        $return[SWAP_USED_PER] = $stat->memstats->{swapusedper};
     } else {
-        $return[MEM_REAL_FREE]  = undef;
-        $return[SWAP_USED_PER]  = undef;
+        $return[MEM_REAL_FREE] = undef;
+        $return[SWAP_USED_PER] = undef;
     }
     return @return;
 
