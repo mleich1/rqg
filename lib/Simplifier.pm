@@ -1638,8 +1638,7 @@ sub switch_phase {
 
     # Treat phases consisting of maybe repeated campaigns first
     # == The cases where we maybe stay in the current phase and do not shift.
-    if ((PHASE_GRAMMAR_SIMP eq $phase or PHASE_GRAMMAR_DEST eq $phase) and
-        ($campaign_success or 2 > $campaign_number)) {
+    if ((PHASE_GRAMMAR_SIMP eq $phase or PHASE_GRAMMAR_DEST eq $phase) and $campaign_success) {
         # We had either
         # - less than two grammar simplification campaigns at all (only one is frequent not enough)
         #   Background:
@@ -1652,8 +1651,6 @@ sub switch_phase {
         $cl_snip_phase     = " $rvt_snip";
         Batch::write_result("$iso_ts ---------- $phase campaign $campaign_number ----------\n" .
                             $iso_ts . $title_line_part);
-        # Q1: How looks $grammar_string like? Last parent grammar?
-        # Q2:
 
         load_grammar($parent_grammar, 10);
         Batch::init_order_management();
