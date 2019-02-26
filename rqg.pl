@@ -1921,6 +1921,9 @@ sub exit_test {
         # testing box ~ 30 till 120 seconds.
         $return = Verdict::set_final_rqg_verdict($workdir, $verdict);
 
+        my $vardir_size = Auxiliary::measure_space_consumption($vardirs[0]);
+        say("INFO: vardir_size : $vardir_size");
+
         if ($verdict ne Verdict::RQG_VERDICT_IGNORE           and
             $verdict ne Verdict::RQG_VERDICT_IGNORE_STATUS_OK and
             $verdict ne Verdict::RQG_VERDICT_IGNORE_BLACKLIST and

@@ -527,8 +527,24 @@ sub emergency_exit {
     safe_exit ($status);
 }
 
-my $no_start_before;
+my $last_load_decrease;
+my $last_load_keep;
+my $no_raise_before;
+#
+# $too_many_workers
+# -----------------
+# Start with $workers(==$parallel) + 1.
+# Reduce to $active_workers when meeting ResourceControl::LOAD_DECREASE and
+# before stopping a worker (Which will than decreases $active_workers).
+# FIXME:
+# Rough model to imagine
+# $parallel (equal) dices, every dice has for every existing combination a surface with a number
+# representing the maximum resource consumption of that RQG test.
+# We throw the $parallel dices and add the numbers from the upper surfaces.
+# In case that exceeds the resource consumption the box can keep than we remove one dice from
+# the game.
 my $too_many_workers;
+#
 sub check_resources {
 # FIXME:
 # The routine should return a number which gets than used for computing a delay.
@@ -537,38 +553,56 @@ sub check_resources {
     my $active_workers = count_active_workers();
     my $load_status    = ResourceControl::report($active_workers);
     my $current_time   = Time::HiRes::time();
-    if (not defined $no_start_before) {
-        $no_start_before  = 0;
+    if (not defined $no_raise_before) {
+        $no_raise_before  = 0;
     }
     if (not defined $too_many_workers) {
         $too_many_workers = $workers + 1;
     }
     if      (ResourceControl::LOAD_INCREASE eq $load_status) {
         my $current_time = Time::HiRes::time();
-        if ($no_start_before <= $current_time) {
-            if ($active_workers + 1 < $too_many_workers) {
-                $no_start_before = $current_time + 0.5;
+        if ($no_raise_before <= $current_time or
+            $active_workers + 1 < $too_many_workers) {
+            if      ($active_workers + 1 < $too_many_workers) {
+                if ($no_raise_before > $current_time) {
+                    $no_raise_before = $no_raise_before + 0.5;
+                } else {
+                    $no_raise_before = $current_time + 0.5;
+                }
+                return STATUS_OK;
+            } elsif ($active_workers + 1 == $too_many_workers      and
+                     $workers >= $active_workers + 1               and
+                     $last_load_keep     + 120 / 2 < $current_time and
+                     $last_load_decrease + 120     < $current_time)   {
+                $too_many_workers++;
+                say("DEBUG: too_many_workers raised to $too_many_workers")
+                    if Auxiliary::script_debug("T2");
+                $no_raise_before = $current_time + 120;
                 return STATUS_OK;
             } else {
+                say("DEBUG: too_many_workers ($too_many_workers) limit prevents start")
+                    if Auxiliary::script_debug("T2");
                 return STATUS_FAILURE;
             }
         } else {
             return STATUS_FAILURE;
         }
     } elsif (ResourceControl::LOAD_KEEP eq $load_status) {
-        if ($no_start_before < $current_time + 5) {
-            $no_start_before = $current_time + 5;
+        if ($no_raise_before < $current_time + 30) {
+            $no_raise_before = $current_time + 30;
         }
+        $last_load_keep = $current_time;
         return STATUS_FAILURE;
     } elsif (ResourceControl::LOAD_DECREASE eq $load_status) {
-        if ($no_start_before < $current_time + 15) {
-            $no_start_before = $current_time + 15;
+        if ($no_raise_before < $current_time + 60) {
+            $no_raise_before = $current_time + 60;
         }
         if ($active_workers < $too_many_workers) {
             $too_many_workers = $active_workers;
             say("DEBUG: too_many_workers reduced to $too_many_workers")
                 if Auxiliary::script_debug("T2");
         }
+        $last_load_decrease = $current_time;
         # Stop the youngest RQG worker
         my $worker_start  = 0;
         my $worker_number = 0;
@@ -620,6 +654,15 @@ sub check_resources {
                        "'$load_status' which we do not handle here.");
     }
 }
+sub init_load_control {
+    my $current_time    = Time::HiRes::time();
+    if (not defined $too_many_workers) {
+        $too_many_workers = $workers + 1;
+    }
+    $last_load_decrease = $current_time;
+    $last_load_keep     = $current_time;
+    $no_raise_before    = 0;
+}
 
 
 sub reap_workers {
@@ -635,11 +678,11 @@ sub reap_workers {
     say("DEBUG: Entering reap_workers") if Auxiliary::script_debug("T5");
 
     my $active_workers = 0;
-    # TEMPORARY
-    if (Auxiliary::script_debug("T3")) {
-        say("worker_array_dump at entering reap_workers");
-        worker_array_dump();
-    }
+#   # TEMPORARY
+#   if (Auxiliary::script_debug("T3")) {
+#       say("worker_array_dump at entering reap_workers");
+#       worker_array_dump();
+#   }
     for my $worker_num (1..$workers) {
         # -1 == no main process of that RQG worker running.
         # Maybe there was never one running or the last running finished and was reaped.
@@ -841,10 +884,10 @@ sub reap_workers {
         }
     } # Now all RQG worker are checked.
 
-    if (Auxiliary::script_debug("T5")) {
-        say("worker_array_dump before leaving reap_workers");
-        worker_array_dump();
-    }
+#   if (Auxiliary::script_debug("T5")) {
+#       say("worker_array_dump before leaving reap_workers");
+#       worker_array_dump();
+#   }
     say("DEBUG: Leave 'reap_workers' and return (active workers found) : " .
         "$active_workers") if Auxiliary::script_debug("T4");
     return $active_workers;

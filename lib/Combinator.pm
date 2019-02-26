@@ -388,6 +388,7 @@ sub init {
     Batch::write_result($header);
 
     Batch::init_order_management();
+    Batch::init_load_control();
 
     say("DEBUG: Leaving 'Combinator::init") if Auxiliary::script_debug("C6");
 

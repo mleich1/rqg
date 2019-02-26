@@ -1654,6 +1654,7 @@ sub switch_phase {
 
         load_grammar($parent_grammar, 10);
         Batch::init_order_management();
+        Batch::init_load_control();
         say("DEBUG: Simplifier::switch_phase: Leaving routine. Current phase is '$phase'.")
                 if Auxiliary::script_debug("S4");
         $campaign_success  = 0;
@@ -1675,6 +1676,7 @@ sub switch_phase {
         Batch::write_result("$iso_ts ---------- $phase campaign $campaign_number ---------- ($child_grammar)\n" .
                             $iso_ts . $title_line_part);
         Batch::init_order_management();
+        Batch::init_load_control();
         say("DEBUG: Simplifier::switch_phase: Leaving routine. Current phase is '$phase'.")
                 if Auxiliary::script_debug("S4");
         $campaign_success   = 0;
@@ -1765,7 +1767,7 @@ sub switch_phase {
             say("");
             say("");
         } else {
-            say("SUMMARY: No RQG test simplification achieved");
+            say("SUMMARY: No RQG test simplification achieved.");
             if (0 == $first_replay_success) {
                 say("SUMMARY: Even the attempt to make a first replay with the full test failed.");
                 say("SUMMARY: Hence no other simplification steps were tried.");
@@ -1781,6 +1783,7 @@ sub switch_phase {
         Batch::emergency_exit($status);
     }
     Batch::init_order_management();
+    Batch::init_load_control();
     say("DEBUG: Simplifier::switch_phase: Leaving routine. Current phase is '$phase'.")
         if Auxiliary::script_debug("S4");
     $campaign_success = 0;

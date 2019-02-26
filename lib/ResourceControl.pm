@@ -53,7 +53,7 @@ use constant SPACE_FREE     => 10000;
 use constant SPACE_USED     => 300;
 # Storage space in MB required in vardir by a core (ASAN Build).
 use constant SPACE_CORE     => 3000;
-# Share of RQG actual runs which could start to end with core in parallel.
+# Maximum share of RQG runs where an end with core is assumed.
 use constant SHARE_CORE     => 0.1;
 
 
@@ -96,6 +96,7 @@ my $book_keeping = 0;
 my $book_keeping_file;
 my $print = 0;
 
+my $rqg_batch_debug = 0;
 
 sub init {
     ($workdir, $vardir, my $parallel_assigned, $book_keeping) = @_;
@@ -224,7 +225,6 @@ sub init {
     my $workdir_used  = 0;
     if ($book_keeping) {
         my $iso_ts = isoTimestamp();
-        my $val  = mem_usage();
         my $line = "$iso_ts vardir  '$vardir'  free : $vardir_free_init\n"                         .
                    "$iso_ts workdir '$workdir' free : $workdir_free_init\n"                        .
                    "$iso_ts memory real free        : $mem_real_free_init\n"                       .
@@ -234,18 +234,24 @@ sub init {
                    "$iso_ts parallel (estimated)    : $parallel_estimated\n"                       .
                    "$iso_ts parallel (used)         : $parallel\n"                                 .
                    "$iso_ts return (to rqg_batch)   : $load_status, $parallel\n"                   .
-                   "$iso_ts Title1 : worker - vardir_used - vardir_free - workdir_used - "         .
-                   "workdir_free - mem_used - mem_free\n"                                          .
-                   "$iso_ts     *_used means consumed since initialization of our rqg_batch run\n" .
-                   "$iso_ts     Core assumption: Consumed by RQG runs rqg_batch has started.\n"    .
-                   "$iso_ts Title2 : vsz - rsz - sz - size\n"                                      .
                    "---------------------------------------------------------------------------\n" .
+                   "$iso_ts     *_used means consumed since initialization of our rqg_batch run\n" .
+                   "$iso_ts     Core assumption: Consumed by the RQG runs rqg_batch has started.\n".
+                   "$iso_ts worker, vardir_used - vardir_free - workdir_used - workdir_free - "   .
+                   "mem_real_free - swap_used_perc #### All RQG worker/runner\n"                   ;
+        if ($rqg_batch_debug) {
+            $line .= "$iso_ts     vsz - rsz - sz - size #### rqg_batch process\n";
+        }
+        $line .=   "---------------------------------------------------------------------------\n" .
                    "$iso_ts $worker_active, " .  # There is in the moment no active worker.
                        $vardir_used   . " - " . $vardir_free   . " - " .
                        $workdir_used  . " - " . $workdir_free  . " - " .
                        $mem_real_free . " - " . $swap_used_per . " - " .
-                       $load_status       . "\n"  .
-                   "$iso_ts  $val";
+                       $load_status       . "\n";
+        if ($rqg_batch_debug) {
+            my $val  = mem_usage();
+            $line .= "$iso_ts  $val";
+        }
         Batch::append_string_to_file($book_keeping_file, $line);
     }
     return $load_status, $parallel;
@@ -320,9 +326,8 @@ sub report {
         $load_status = LOAD_DECREASE;
     } elsif (defined $swap_used_per and $swap_used_per > 15) {
             # We have started to use the swap and that should not happen.
+        say("INFO: (4) Swap space used ($swap_used_per %) > 15 % is critical.");
         $load_status = LOAD_DECREASE;
-        say("INFO: (4) Swap space used ($swap_used_per %) > 15 %.");
-
     # Setting $load_status = LOAD_KEEP serves to prevent that we start some additional RQG run
     # which than maybe leads to the state that we must set LOAD_DECREASE and stop one RQG run.
     } elsif ($worker_active > 0   and
@@ -372,13 +377,15 @@ sub report {
 
     if($print) {
         my $iso_ts = isoTimestamp();
-        my $val = mem_usage();
         my $line = "$iso_ts $worker_active, " .
                        $vardir_used   . " - " . $vardir_free   . " - " .
                        $workdir_used  . " - " . $workdir_free  . " - " .
                        $mem_real_free . " - " . $swap_used_per . " - " .
-                       $load_status       . "\n"  .
-                   "$iso_ts  $val";
+                       $load_status       . "\n";
+        if ($rqg_batch_debug) {
+            my $val  = mem_usage();
+            $line .= "$iso_ts  $val";
+        }
         Batch::append_string_to_file($book_keeping_file, $line);
     }
     return $load_status;
