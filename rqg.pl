@@ -977,7 +977,7 @@ say("tmpdir in DBServer ->" . DBServer::DBServer::tmpdir() . "<-");
 
 @{$mysqld_options[0]} = () if not defined $mysqld_options[0];
 push @{$mysqld_options[0]}, "--sql-mode=no_engine_substitution"
-                           if join(' ', @ARGV_saved) !~ m{sql-mode}io;
+                           if join(' ', @ARGV_saved) !~ m{(sql-mode|sql_mode)}io;
 
 # FIXME: Clean up/make more safe
 foreach my $i (1..3) {
