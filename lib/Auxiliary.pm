@@ -1154,6 +1154,41 @@ use constant RQG_RPL_ALLOWED_VALUE_LIST => [
        RQG_RPL_RQG2, RQG_RPL_RQG3
 ];
 
+####################################################################################################
+
+sub measure_space_consumption {
+# Return values:
+# -2 -- The assumption of rqg_batch about the state of the system at runtime is extreme violated.
+#       Recommended: Abort the rqg_batch run.
+# -1 -- "du -sk" failed because of whatever reason, most probably command not supported
+# int > 0 -- The space consumption.
+    my ($directory) = @_;
+    if (not defined $directory) {
+        Carp::confess("INTERNAL ERROR: Parameter (directory or file) is undef.");
+    }
+    if (not -e $directory) {
+        Carp::cluck("ERROR: Parameter (directory or file) does not exist.");
+        return -2;
+    }
+    my $cmd = "du -sk $directory | cut -f1";
+    my $return = `$cmd`;
+    if ($? == -1) {
+        say("WARNING: '$cmd' failed to execute: $!");
+        return -1;
+    } elsif ($? & 127) {
+        say("WARNING: '$cmd' died with signal " . ($? & 127));
+        return -1;
+    } elsif (($? >> 8) != 0) {
+        say("WARNING: '$cmd' exited with value " . ($? >> 8));
+        return -1;
+    } else {
+        say("DEBUG: '$cmd' exited with value " . ($? >> 8));
+        chomp $return; # Remove the '\n' at end.
+        return $return;
+    }
+}
+
+####################################################################################################
 
 sub archive_results {
 
