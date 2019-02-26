@@ -830,6 +830,38 @@ sub get_connection {
         "; default schema: " . $executor->defaultSchema() . "; connection ID: " .
         $executor->connectionId()) if rqg_debug();
 
+    #-------------------------------------
+    # sqltraces need to "publish" the sql_mode of the session.
+    # Reason:
+    # Serious problems to replay single user bugs in MTR later because the defaults for
+    # sql_mode within the server or set by MTR differ often dramatic.
+    # Solution:
+    # - pull the current sql_mode of the session
+    # - Set the sql_mode of the session to the mode pulled via $executor->execute.
+    #   This should have nearly (rather harmless additional SQL before we run the testing SQL)
+    #   zero impact on the state of the session. But it follows the important principle
+    #   "We print only what we have really done" and using "execute" gives a crowd of advantages
+    #   like its already prepared to write sqltraces and it has extra checks.
+    # - set/trace sql_mode gets done at end of executor::get_connection only == We trace only once.
+    #   Manipulations of the sql_mode by the YY grammar will be traced later anyway.
+    #   get_connection gets called by init and Executor::init gets called by the relevant modules
+    #   Mixer GendataAdvanced Gendata GendataSimple GendataSQL GenTest PopulateSchema ...
+    #
+    $row_arrayref = $dbh->selectrow_arrayref("SELECT \@\@sql_mode");
+    $error = $dbh->err();
+    $error_type = STATUS_OK;
+    if (defined $error) {
+        $error_type = $err2type{$error} || STATUS_OK;
+        my $message_part = "ERROR: " . $executor->role . " dbh->do failed: $error " .
+                           $dbh->errstr();
+        my $status = $error_type;
+        say("$message_part. Will exit with status : " . status2text($status) . "($status).");
+        exit $status;
+    }
+    my $sql_mode = $row_arrayref->[0];
+    $executor->execute("SET SESSION sql_mode = '$sql_mode'");
+
+    #-------------------------------------
     return STATUS_OK;
 
 }
@@ -946,8 +978,12 @@ sub execute {
    my $trace_me = 0;
 
    # Write query to log before execution so it's sure to get there
+   # mleich experimental changes
+   # 1. Trigger need delimiters too
+   # 2. Only a CREATE [OR REPLACE] PROCEDURE/TRIGGER/... [IF NOT EXISTS] ...
    if ($executor->sqltrace) {
-      if ($query =~ m{(procedure|function)}sgio) {
+      # if ($query =~ m{(procedure|function)}sgio) {
+      if ($query =~ m{(procedure|function|trigger)}sgio) {
          $trace_query = "DELIMITER |\n$query|\nDELIMITER ";
       } else {
          $trace_query = $query;
