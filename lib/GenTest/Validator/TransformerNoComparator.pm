@@ -1,6 +1,7 @@
 # Copyright (c) 2008,2011 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2014, SkySQL Ab
+# Copyright (c) 2019, MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -44,7 +45,9 @@ sub configure {
 	if (defined $list and $#{$list} >= 0) {
 		@transformer_names = @$list;
 	} else {
-		croak "ERROR: No transformers were defined to be run by TransformerNoComparator.";
+		say("ERROR: Validator 'TransformerNoComparator': No transformers were defined to be run.");
+		# FIXME: Introduce+use STATUS_CONFIG_FAILURE
+		exit STATUS_ENVIRONMENT_FAILURE;
 	}
 
 	say("TransformerNoComparator Validator will use the following Transformers: ".join(', ', @transformer_names));
