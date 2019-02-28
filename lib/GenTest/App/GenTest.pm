@@ -1062,28 +1062,12 @@ sub initValidators {
 
     say("DEBUG: Transformers (before check_and_set): ->" . join("<->",
         sort keys %transformer_hash) . "<-");
-    # If one of the transformers is 'None' than don't add any transformers automatically.
-    my $no_transformers;
     if (exists $transformer_hash{'None'}) {
-        $no_transformers = 1;
-    } else {
-        $no_transformers = 0;
+        say("ERROR: GenTest::initValidators: The Transformer 'None' is not supported in the " .
+            "current RQG core. Abort");
+        return STATUS_ENVIRONMENT_FAILURE;
     }
-    # say("DEBUG: initValidators : no_transformers : $no_transformers");
-    # Hint:
-    # The code determining if there exists a transformer 'None' is just for
-    # - similarity to the handling of reporters/validators
-    # - be prepared for some situation which might come or never come in future
-    # is currently unimportant.
 
-    ## Add the validator 'Transformer' if
-    ##    extending the list of Validators is allowed
-    ## and
-    ##    --transformers is specified
-    ## and
-    ##    the transformers specified are not just list with one element and
-    ##    that has the value 'None' or '' and
-    ##    the validator 'Transformer' is not already specified
     if (not $no_validators) {
         if (0 != scalar keys %validator_hash) {
             my $hasTransformer = 0;
