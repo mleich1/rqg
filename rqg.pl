@@ -1739,7 +1739,6 @@ if ($final_result != STATUS_OK and $store_binaries) {
         }
     }
 }
-exit_test($final_result);
 
 sub stopServers {
     # FIXME: What is the $status good for?
