@@ -544,6 +544,8 @@ my $no_raise_before;
 # In case that exceeds the resource consumption the box can keep than we remove one dice from
 # the game.
 my $too_many_workers;
+my $previous_workers;
+my $first_load_up;
 #
 sub check_resources {
 # FIXME:
@@ -553,115 +555,222 @@ sub check_resources {
     my $active_workers = count_active_workers();
     my $load_status    = ResourceControl::report($active_workers);
     my $current_time   = Time::HiRes::time();
+    # We might forget to set the right status. Just ensure by initialization to STATUS_FAILURE
+    # that we cannot return with a too optimistic status.
+    my $return_status  = STATUS_FAILURE;
     if (not defined $no_raise_before) {
         $no_raise_before  = 0;
     }
     if (not defined $too_many_workers) {
         $too_many_workers = $workers + 1;
     }
-    if      (ResourceControl::LOAD_INCREASE eq $load_status) {
+    if (not defined $previous_workers) {
+        $previous_workers = 0;
+    }
+
+    if  (ResourceControl::LOAD_INCREASE eq $load_status) {
         my $current_time = Time::HiRes::time();
-        if ($no_raise_before <= $current_time or
-            $active_workers + 1 < $too_many_workers) {
-            if      ($active_workers + 1 < $too_many_workers) {
-                if ($no_raise_before > $current_time) {
-                    $no_raise_before = $no_raise_before + 0.5;
-                } else {
-                    $no_raise_before = $current_time + 0.5;
-                }
-                return STATUS_OK;
-            } elsif ($active_workers + 1 == $too_many_workers      and
-                     $workers >= $active_workers + 1               and
-                     $last_load_keep     + 120 / 2 < $current_time and
-                     $last_load_decrease + 120     < $current_time)   {
-                $too_many_workers++;
-                say("DEBUG: too_many_workers raised to $too_many_workers")
-                    if Auxiliary::script_debug("T2");
-                $no_raise_before = $current_time + 120;
-                return STATUS_OK;
+        my $worker_share = $active_workers / ($too_many_workers - 1);
+        my $delay_unit;
+        if ($first_load_up) {
+            $delay_unit = 30;
+        } else {
+            $delay_unit = 10;
+        }
+        my $delay = $worker_share * $worker_share * $delay_unit;
+
+        if ($previous_workers + 2 <= $active_workers) {
+            # Obvious internal error because "in maximum" we have started one worker after
+            # actualization of $previous_workers which happens only in check_resources.
+            my $status = STATUS_INTERNAL_ERROR;
+            emergency_exit($status,
+               "ERROR: previous_workers($previous_workers) + 2 <= active_workers($active_workers)");
+        } elsif ($previous_workers + 1 == $active_workers) {
+            # One worker started and none have finished.
+            # So starting some additional worker would be a raise in resource consumption.
+            if ($no_raise_before > $current_time) {
+                # We would raise the amount of workers but had some bad state not long enough ago.
+                $return_status   = STATUS_FAILURE;
             } else {
-                say("DEBUG: too_many_workers ($too_many_workers) limit prevents start")
-                    if Auxiliary::script_debug("T2");
-                return STATUS_FAILURE;
+                if ($active_workers + 1 < $too_many_workers) {
+                    # This should be non critical.
+                    $no_raise_before = $current_time + $delay;
+                    $return_status   = STATUS_OK;
+                } else {
+                    # $active_workers + 1 == $too_many_workers
+                    # Should we raise $too_many_workers?
+                    if ($last_load_keep     + 120 / 2 < $current_time and
+                        $last_load_decrease + 120     < $current_time)   {
+                        $too_many_workers++;
+                        say("DEBUG: too_many_workers raised to $too_many_workers")
+                            if Auxiliary::script_debug("T2");
+                        $no_raise_before = $current_time + 120;
+                        $return_status = STATUS_OK;
+                    } else {
+                        say("DEBUG: too_many_workers ($too_many_workers) limit prevents start")
+                            if Auxiliary::script_debug("T2");
+                        $return_status = STATUS_FAILURE;
+                    }
+                }
+            }
+        } elsif ($previous_workers == $active_workers) {
+            # One worker started and one has finished   or
+            # no started and no has finished.
+            # So starting some additional worker would be a raise in resource consumption.
+            if ($no_raise_before > $current_time) {
+                # We would raise the amount of workers but had some bad state not long enough ago.
+                $return_status   = STATUS_FAILURE;
+            } else {
+                if ($active_workers + 1 < $too_many_workers) {
+                    # This should be non critical.
+                    $no_raise_before = $current_time + $delay / 2; # FIXME: Is that good?
+                    $return_status   = STATUS_OK;
+                } else {
+                    # $active_workers + 1 == $too_many_workers
+                    # Should we raise $too_many_workers?
+                    if ($last_load_keep     + 60 / 2 < $current_time and
+                        $last_load_decrease + 60     < $current_time)   {
+                        $too_many_workers++;
+                        say("DEBUG: too_many_workers raised to $too_many_workers")
+                            if Auxiliary::script_debug("T2");
+                        $no_raise_before = $current_time + 60;
+                        $return_status = STATUS_OK;
+                    } else {
+                        say("DEBUG: too_many_workers ($too_many_workers) limit prevents start")
+                            if Auxiliary::script_debug("T2");
+                        $return_status = STATUS_FAILURE;
+                    }
+                }
             }
         } else {
-            return STATUS_FAILURE;
+            # One worker started and more than one have finished    or
+            # no worker started and one or more have finished.
+            # This should be non critical.
+            $no_raise_before = $current_time + 0; # FIXME: Is that good?
+            $return_status   = STATUS_OK;
         }
-    } elsif (ResourceControl::LOAD_KEEP eq $load_status) {
+
+        $previous_workers = $active_workers;
+        # Ensure that we have left the current routine.
+        return $return_status;
+    }
+
+    if (ResourceControl::LOAD_KEEP eq $load_status) {
         if ($no_raise_before < $current_time + 30) {
             $no_raise_before = $current_time + 30;
         }
         $last_load_keep = $current_time;
-        return STATUS_FAILURE;
-    } elsif (ResourceControl::LOAD_DECREASE eq $load_status) {
+        # Ensure that we have left the current routine.
+        $previous_workers = $active_workers;
+        return $return_status;
+    }
+
+    if (ResourceControl::LOAD_DECREASE eq $load_status) {
+        my $problem_persists = 1;
         if ($no_raise_before < $current_time + 60) {
             $no_raise_before = $current_time + 60;
         }
-        if ($active_workers < $too_many_workers) {
-            $too_many_workers = $active_workers;
-            say("DEBUG: too_many_workers reduced to $too_many_workers")
-                if Auxiliary::script_debug("T2");
-        }
-        $last_load_decrease = $current_time;
-        # Stop the youngest RQG worker
-        my $worker_start  = 0;
-        my $worker_number = 0;
-        for my $worker_num (1..$workers) {
-            next if -1 == $worker_array[$worker_num][WORKER_PID];
-            if ($worker_array[$worker_num][WORKER_START] > $worker_start) {
-                $worker_start = $worker_array[$worker_num][WORKER_START];
-                $worker_number = $worker_num;
+        while ($problem_persists) {
+            #  LOOP till the problem is fixed
+            if ($active_workers < $too_many_workers) {
+                $too_many_workers = $active_workers;
+                say("DEBUG: too_many_workers reduced to $too_many_workers")
+                    if Auxiliary::script_debug("T2");
             }
-        }
-        if (0 == $worker_number) {
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            emergency_exit($status, "ERROR: ResourceControl::report delivered '$load_status' " .
-                           "but no active RQG worker detected.");
-        } else {
-            # Kill the processgroup of the RQG worker picked.
-            stop_worker($worker_number, STOP_REASON_RESOURCE);
-            # Even a kill SIGKILL requires some time especially on some heavy loaded box.
-            # So we need to run 'reap_workers' which will free the resources till the number of
-            # active workers has decreased.
-            # Special case: What if some other worker "passed" away?
-            my $max_wait = 30;
-            my $end_time = time() + $max_wait;
-            # FIXME:
-            # The activity of the other RQG workers could be also dangerous and 30s is long.
-            while (time() < $end_time and -1 != $worker_array[$worker_number][WORKER_PID]) {
-                reap_workers();
-                sleep 0.1;
+            $last_load_decrease = $current_time;
+            # Stop the youngest RQG worker
+            my $worker_start  = 0;
+            my $worker_number = 0;
+            for my $worker_num (1..$workers) {
+                next if -1 == $worker_array[$worker_num][WORKER_PID];
+                if ($worker_array[$worker_num][WORKER_START] > $worker_start) {
+                    $worker_start = $worker_array[$worker_num][WORKER_START];
+                    $worker_number = $worker_num;
+                }
             }
-            my $worker_pid = $worker_array[$worker_number][WORKER_PID];
-            if (-1 == $worker_pid) {
-                say("DEBUG: RQG worker $worker_number had to be stopped. " .
-                    "Reason: " . STOP_REASON_RESOURCE ) if Auxiliary::script_debug("T1");
-            } else {
+            if (0 == $worker_number) {
                 my $status = STATUS_ENVIRONMENT_FAILURE;
-                emergency_exit($status, "ERROR: Batch::check_resources: Waited $max_wait s " .
-                    "but the main process $worker_pid of the RQG worker $worker_number has " .
-                    "not disappeared like intended. Will ask for emergency_exit.");
+                emergency_exit($status, "ERROR: ResourceControl::report delivered '$load_status' " .
+                               "but no active RQG worker detected.");
+            } else {
+                # Kill the processgroup of the RQG worker picked.
+                stop_worker($worker_number, STOP_REASON_RESOURCE);
+                # Even a kill SIGKILL requires some time especially on some heavy loaded box.
+                # So we need to run 'reap_workers' which will free the resources till the number of
+                # active workers has decreased.
+                # Special case: What if some other worker "passed" away?
+                my $max_wait = 30;
+                my $end_time = time() + $max_wait;
+                # FIXME:
+                # The activity of the other RQG workers could be also dangerous and 30s is long.
+                while (time() < $end_time and -1 != $worker_array[$worker_number][WORKER_PID]) {
+                    reap_workers();
+                    sleep 0.1;
+                }
+                my $worker_pid = $worker_array[$worker_number][WORKER_PID];
+                if (-1 == $worker_pid) {
+                    say("DEBUG: RQG worker $worker_number had to be stopped. " .
+                        "Reason: " . STOP_REASON_RESOURCE ) if Auxiliary::script_debug("T1");
+                } else {
+                    my $status = STATUS_ENVIRONMENT_FAILURE;
+                    emergency_exit($status, "ERROR: Batch::check_resources: Waited $max_wait s " .
+                        "but the main process $worker_pid of the RQG worker $worker_number has " .
+                        "not disappeared like intended. Will ask for emergency_exit.");
+                }
             }
-            return STATUS_FAILURE;
+            # Actualize $active_workers because routines like ResourceControl::report might
+            # come to different 'conclusions'.
+            $active_workers = count_active_workers();
+            $load_status = ResourceControl::report($active_workers);
+            if (ResourceControl::LOAD_DECREASE ne $load_status) {
+                $problem_persists = 0;
+            } else {
+                # In case we would not use a sleep than we would stop all jobs because swap
+                # space usage drops that slow.
+                sleep 1;
+            }
         }
-    } elsif (ResourceControl::LOAD_GIVE_UP eq $load_status) {
+        # $problem_persists is now 0, but $load_status is now != LOAD_DECREASE.
+        # Case 1:
+        # The current $load_status is less evil than LOAD_DECREASE.
+        # The handling for that status is no more reachable (~ 50 lines above) and partially
+        # (Example: What if LOAD_INCREASE now?) too optimistic.
+        # We simply return later STATUS_FAILURE.
+        # Case 2:
+        # The current $load_status is more evil than LOAD_DECREASE.
+        # We handle that now.
+        # Even in case we do that slightly wrong we return at least STATUS_FAILURE later.
+        $previous_workers = $active_workers;
+        $return_status = STATUS_FAILURE;
+    }
+
+    if (ResourceControl::LOAD_GIVE_UP eq $load_status) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         emergency_exit($status, "ERROR: ResourceControl::report delivered '$load_status'. " .
                        "Will ask for emergency_exit.");
-    } else {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        emergency_exit($status, "INTERNAL ERROR: ResourceControl::report delivered " .
-                       "'$load_status' which we do not handle here.");
     }
+
+    return STATUS_FAILURE;
+
 }
 sub init_load_control {
     my $current_time    = Time::HiRes::time();
     if (not defined $too_many_workers) {
         $too_many_workers = $workers + 1;
     }
+    if (not defined $first_load_up) {
+        $first_load_up = 1;
+    } else {
+        $first_load_up = 0;
+    }
     $last_load_decrease = $current_time;
     $last_load_keep     = $current_time;
     $no_raise_before    = 0;
+}
+sub reduce_too_many_workers {
+    $too_many_workers = count_active_workers();
+    say("DEBUG: too_many_workers reduced to $too_many_workers")
+        if Auxiliary::script_debug("T2");
 }
 
 
@@ -727,7 +836,6 @@ sub reap_workers {
                 my $rqg_vardir    = "$vardir"  . $rqg_appendix;
                 my $rqg_log       = "$rqg_workdir" . "/rqg.log";
                 my $rqg_arc       = "$rqg_workdir" . "/archive.tgz";
-
 
                 my $verdict;
                 my $iso_ts = isoTimestamp();

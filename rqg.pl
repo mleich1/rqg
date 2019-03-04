@@ -38,8 +38,6 @@
 
 use Carp;
 
-my $script_debug = 0;
-
 my $rqg_start_time = time();
 
 # FIXME: I AM QUITE UNSURE IF THE RQG_HOME CHECKING AND SETTING WORKS LIKE INTENDED.
@@ -233,7 +231,7 @@ my (@basedirs, @mysqld_options, @vardirs, $rpl_mode,
     $restart_timeout, $gendata_advanced, $scenario, $upgrade_test, $store_binaries,
     $ps_protocol, @gendata_sql_files, $config_file,
     @whitelist_statuses, @whitelist_patterns, @blacklist_statuses, @blacklist_patterns,
-    $archiver_call, $noarchiving, $workdir, $queries,
+    $archiver_call, $noarchiving, $workdir, $queries, $script_debug,
     $options);
 
 my $gendata   = ''; ## default simple gendata
@@ -264,8 +262,8 @@ my @ARGV_saved = @ARGV;
 # must be prevented!!
 #
 
-say("DEBUG: Before reading commannd line options") if $script_debug ;
-say("\@ARGV_saved : " . join(' ',@ARGV_saved));
+# say("DEBUG: Before reading commannd line options");
+# say("\@ARGV_saved : " . join(' ',@ARGV_saved));
 
 # Take the options assigned in command line and
 # - fill them into the of variables allowed in command line
@@ -375,12 +373,15 @@ if (not GetOptions(
     'blacklist_patterns:s@'       => \@blacklist_patterns,
     'archiver_call:s'             => \$archiver_call,
     'noarchiving'                 => \$noarchiving,
-    'script_debug:s'              => \$script_debug,
+    'script_debug:s@'             => \$script_debug,
     )) {
     help();
     exit STATUS_CONFIG_ERROR;
 };
-say("\@ARGV after : " . join(' ',@ARGV));
+# say("\@ARGV after : " . join(' ',@ARGV));
+
+# Support script debugging as soon as possible.
+Auxiliary::script_debug_init($script_debug);
 
 if (not defined $queries) {
     $queries = $default_queries;
@@ -398,12 +399,6 @@ if ( defined $help ) {
     help();
     exit STATUS_OK;
 }
-
-# Support script debugging as soon as possible.
-if (not defined $script_debug) {
-    $script_debug = '';
-}
-Auxiliary::script_debug_init($script_debug);
 
 if (STATUS_OK != Verdict::check_normalize_set_black_white_lists (
       ' The RQG run ended with status ', # $status_prefix,

@@ -222,7 +222,7 @@ my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
     $workers, $servers, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
     $help, $help_simplifier, $help_combinator, $help_verdict, $runner,
-    $stop_on_replay, $script_debug, $runid, $threads, $type, $algorithm);
+    $stop_on_replay, $script_debug, $runid, $threads, $type, $algorithm, $no_resource_control);
 
 $max_rqg_runtime = 600;
 
@@ -231,6 +231,7 @@ my @basedirs;
 
 
 $discard_logs  = 0;
+my $no_resource_control;
 
 # FIXME:
 # Modify these options.
@@ -351,7 +352,8 @@ if (not GetOptions(
 #          'threads=i'                 => \$threads,                # Pass through (@ARGV).
            'discard_logs'              => \$discard_logs,           # Swallowed and handled by rqg_batch
            'discard-logs'              => \$discard_logs,
-           'script_debug=s'            => \$script_debug,           # Swallowed and handled by rqg_batch
+           'no_resource_control!'     => \$no_resource_control,   # Swallowed and handled by rqg_batch
+           'script_debug=s@'           => \$script_debug,           # Swallowed and handled by rqg_batch
            'runid:i'                   => \$runid,                  # Swallowed and handled by rqg_batch
                                                    )) {
     # Somehow wrong option.
@@ -360,12 +362,39 @@ if (not GetOptions(
 };
 
 # Support script debugging as soon as possible.
+my $scrip_debug_string = Auxiliary::script_debug_init($script_debug);
+# For testing if script_debug works:
+# 1. Enable the following two lines
+#    say("script_debug match of 'T4'") if Auxiliary::script_debug("T4");
+#    exit;
+# 2. Append to the rqg_batch call
+#    --script_debug=_all_
+#        INFO: script_debug : _all_
+#        script_debug match of 'T4'
+#    --script_debug=1,T4,1,2
+#        INFO: script_debug : T4,2,1
+#        script_debug match of 'T4'
+#    --script_debug=A,B,4,C
+#        INFO: script_debug : A,C,4,B
+#        script_debug match of 'T4'
+#    --script_debug=T,B,4,C
+#        INFO: script_debug : 4,T,C,B
+#        script_debug match of 'T4'
+#    --script_debug=T3,B,C
+#        INFO: script_debug : B,T3,C
+#    --script_debug=T3,,C
+#        WARN: script_debug element '' omitted. In case you want all debug messages assign '_all_'.
+#        INFO: script_debug : T3,C
+#    --script_debug=''
+#        INFO: script_debug :
+#    --script_debug=''
+#        INFO: script_debug :
+#    --script_debug=T4 --script_debug=B
+#        INFO: script_debug : B,T4
+#        script_debug match of 'T4'
+#    no --script_debug=...... assigned
+#        INFO: script_debug :
 #
-if (not defined $script_debug) {
-    $script_debug = '';
-}
-Auxiliary::script_debug_init($script_debug);
-
 # Do not fiddle with other stuff when only help is requested.
 if (defined $help) {
     help();
@@ -387,7 +416,6 @@ if (defined $help) {
 Batch::check_and_set_batch_type($type);
 
 check_and_set_config_file();
-
 
 # Variable for stuff to be glued at the end of the rqg.pl call.
 my $cl_end = ' ';
@@ -413,14 +441,18 @@ foreach my $i (1..3) {
 ($workdir, $vardir) = Batch::make_multi_runner_infrastructure ($workdir, $vardir, $runid,
                                                                BATCH_WORKDIR_SYMLINK);
 my $load_status;
-($load_status, $workers) = ResourceControl::init($workdir, $vardir, $workers, 1);
-Batch::check_and_set_workers($workers);
+if (not defined $no_resource_control) {
+    say("no_resource_control is not defined");
+}
+($load_status, $workers) = ResourceControl::init($workdir, $vardir, $workers, 1,
+                                                 $no_resource_control);
 if($load_status ne ResourceControl::LOAD_INCREASE) {
     my $status = STATUS_ENVIRONMENT_FAILURE;
     say("ERROR: ResourceControl reported the load status '$load_status' but around begin the " .
         "status '" . ResourceControl::LOAD_INCREASE . "' must be valid.");
     safe_exit($status);
 }
+Batch::check_and_set_workers($workers);
 $workers = undef;
 
 # $build_thread is valid for the rqg_batch.pl run.
@@ -450,7 +482,7 @@ $cl_end .= " --report-xml-tt-type=$report_xml_tt_type "
     if defined $report_xml_tt_type and $report_xml_tt_type ne '';
 $cl_end .= " --report-xml-tt-dest=$report_xml_tt_dest "
     if defined $report_xml_tt_dest and $report_xml_tt_dest ne '';
-$cl_end .= "--script_debug=$script_debug " if defined $script_debug and $script_debug ne '';
+$cl_end .= "--script_debug=$scrip_debug_string " if $scrip_debug_string ne '';
 
 if (defined $runner) {
     if (File::Basename::basename($runner) ne $runner) {
@@ -533,7 +565,7 @@ my $trial_num = 1; # This is the number of the next trial if started at all.
 while($Batch::give_up <= 1) {
     say("DEBUG: Begin of while(...) loop. Next trial_num is $trial_num.")
         if Auxiliary::script_debug("T6");
-    # First handle all cases for giving up.
+    # First handle all cases for giving up, stopping some worker etc.
     # 1. The user created $exit_file for signalling rqg_batch.pl that it should stop.
     # For experimenting:
     # system("touch $exit_file");
@@ -545,8 +577,7 @@ while($Batch::give_up <= 1) {
     # 3. Resource problem is ahead.
     my $delay_start = Batch::check_resources();
     last if $Batch::give_up > 1;
-
-    # MLML Kill the max_rqg_runtime exceeding RQG runner
+    # 4. Some worker misbehaved (bad setup or server no more responsive)
     Batch::check_rqg_runtime_exceeded($max_rqg_runtime);
 
     my $just_forked = 0;
@@ -685,7 +716,7 @@ while($Batch::give_up <= 1) {
             unless (osWindows())
             {
                 # $command = 'bash -c \'set -o pipefail; ' . $command . '\'';
-                $command = 'bash -c "set -o pipefail; ' . $command . '"';
+                $command = 'bash -c "set -o pipefail; nice -19 ' . $command . '"';
             }
             say("DEBUG: command ==>" . $command . "<==") if Auxiliary::script_debug("T5");
 
@@ -829,25 +860,47 @@ while($Batch::give_up <= 1) {
                 } else {
                     while(Time::HiRes::time() < $end_waittime and
                           $phase eq Auxiliary::RQG_PHASE_INIT)   {
+                        # 1. The user created $exit_file for signalling rqg_batch.pl it should stop.
+                        Batch::check_exit_file($exit_file);
+                        last if $Batch::give_up > 1;
+                        # 2. The assigned max_runtime is exceeded.
+                        Batch::check_runtime_exceeded($batch_end_time);
+                        last if $Batch::give_up > 1;
+                        # 3. Resource problem is ahead.
+                        my $delay_start = Batch::check_resources();
+                        last if $Batch::give_up > 1;
+                        # Note: We might have stopped the just started worker.
+
                         Time::HiRes::sleep($waittime_unit);
                         $phase = Auxiliary::get_rqg_phase($rqg_workdir);
                     }
+                    # last if $Batch::give_up > 1 above send us to here.
+                    last if $Batch::give_up > 1;
                     if (Time::HiRes::time() > $end_waittime) {
-                        $message = "ERROR: Waitet >= $max_waittime" . "s for the just started " .
+                        $message = "Waitet >= $max_waittime" . "s for the just started " .
                                    "$workerspec to start his work. But no success.";
                     }
                 }
                 if ('' ne $message) {
-                    Batch::emergency_exit(STATUS_CRITICAL_FAILURE,
+                    if (1 == $runs_started) {
+                        # Its the first start of some RQG Worker!
+                        Batch::emergency_exit(STATUS_CRITICAL_FAILURE, "ERROR: " .
                         $message . "\n       Assume some serious problem. Perform an EMERGENCY exit" .
                         "(try to stop all child processes) without any cleanup of vardir and workdir.");
+                    } else {
+                        # Assume more overload than acceptable.
+                        say("INFO: $message");
+                        Batch::stop_worker_young;
+                        Batch::reduce_too_many_workers;
+                    }
+                } else {
+                    # No fractions of seconds because its not needed and makes prints too long.
+                    $Batch::worker_array[$free_worker][Batch::WORKER_START] = time();
+                    say("$workerspec forked and worker has taken over.") if Auxiliary::script_debug("T6");
+                    $trial_num++;
+                    $just_forked = 1;
+                    # $free_worker = -1;
                 }
-                # No fractions of seconds because its not needed and makes prints too long.
-                $Batch::worker_array[$free_worker][Batch::WORKER_START] = time();
-                say("$workerspec forked and worker has taken over.") if Auxiliary::script_debug("T6");
-                $trial_num++;
-                $just_forked = 1;
-                # $free_worker = -1;
             }
 
 

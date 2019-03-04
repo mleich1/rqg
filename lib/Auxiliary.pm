@@ -63,16 +63,38 @@ use constant INTERNAL_TOOL_ERROR => 200;
 # - concept is rather experimental
 # - the digits used in the modules rather arbitrary.
 #
-my $script_debug;
+my %script_debug_hash;
+my $script_debug_init;
 sub script_debug_init {
-    ($script_debug) = @_;
-    if (defined $script_debug) {
-        say("DEBUG: script_debug initialized to '$script_debug'.");
+    my ($script_debug_array_ref) = @_;
+    if (@_ != 1) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: script_debug_init : 1 Parameter (script_debug_ref) is required.");
+        safe_exit($status);
     }
-    if ($script_debug eq '') {
-        undef $script_debug;
+    my @script_debug_array;
+    if (defined $script_debug_array_ref) {
+        @script_debug_array = @$script_debug_array_ref;
+        if (0 == $#script_debug_array and $script_debug_array[0] =~ m/,/) {
+            @script_debug_array = split(/,/,$script_debug_array[0]);
+        }
+    } else {
+        say("Not defined");
     }
+    foreach my $element (@script_debug_array) {
+        if ($element eq '') {
+            say("WARN: script_debug element '' omitted. In case you want all debug messages " .
+                "assign '_all_'.");
+            next;
+        }
+        $script_debug_hash{$element} = 1;
+    }
+    my $string = join(",", sort keys %script_debug_hash);
+    say("INFO: script_debug : $string");
+    $script_debug_init = 1;
+    return $string;
 }
+
 
 sub script_debug {
     my ($pattern) = @_;
@@ -81,17 +103,18 @@ sub script_debug {
         Carp::cluck("INTERNAL ERROR: The parameter pattern is undef.");
         exit INTERNAL_TOOL_ERROR;
     }
-#   if (not defined $script_debug) {
-#       Carp::cluck("INTERNAL ERROR: script debug was not initialized.");
-#       exit INTERNAL_TOOL_ERROR;
-#   }
-    return 0 if not defined $script_debug;
-    # For debugging:
-    # say("Auxiliary::script_debug : pattern is ->$pattern<-");
-    # $pattern = "_" . $pattern . "_";
-    if (($pattern =~ /$script_debug/) or ($script_debug eq '_all_')) {
+    if (not defined $script_debug_init) {
+        Carp::cluck("INTERNAL ERROR: script debug was not initialized.");
+        exit INTERNAL_TOOL_ERROR;
+    }
+    if (exists $script_debug_hash{'_all_'}) {
         return 1;
     } else {
+        foreach my $sdp_element (keys %script_debug_hash) {
+            if ($pattern =~ /$sdp_element/) { 
+                return 1;
+            }
+        }
         return 0;
     }
 }
@@ -291,7 +314,8 @@ sub check_rqg_infrastructure {
     # We check the early/premade infrastructure.
     # The names of the files will change later.
     my ($workdir) = @_;
-    say("DEBUG: Auxiliary::check_rqg_infrastructure workdir is '$workdir'") if $script_debug;
+    say("DEBUG: Auxiliary::check_rqg_infrastructure workdir is '$workdir'")
+        if script_debug("A3");
     if (not -d $workdir) {
         say("ERROR: RQG workdir '$workdir' is missing or not a directory.");
         return STATUS_FAILURE;
@@ -374,6 +398,7 @@ sub rename_file {
         return STATUS_OK;
     }
 }
+
 
 sub copy_file {
 # Typical use case
@@ -761,7 +786,8 @@ sub status_matching {
 #    Whitelist matching : MATCH_NO_LIST_EMPTY -> MATCH_YES
 #    Blacklist matching : MATCH_NO_LIST_EMPTY -> MATCH_NO
 #
-    say("DEBUG: pattern_prefix ->$pattern_prefix<-") if $script_debug;
+    say("DEBUG: pattern_prefix ->$pattern_prefix<-")
+        if script_debug("A5");
 
     if (not defined $pattern_prefix or $pattern_prefix eq '') {
         # Its an internal error or (rather) misuse of routine.
@@ -794,7 +820,7 @@ sub status_matching {
         return MATCH_UNKNOWN;
     } else {
         say("DEBUG: status_matching : The pattern_prefix '$pattern_prefix' was " .
-            "found once.") if $script_debug;
+            "found once.") if script_debug("A5");
     }
 
     my $no_pattern = 1;
@@ -804,7 +830,7 @@ sub status_matching {
         $no_pattern = 0;
         my $search_pattern;
         my $message;
-        say("DEBUG: Pattern to check ->$pattern<-") if $script_debug;
+        say("DEBUG: Pattern to check ->$pattern<-") if script_debug("A5");
         if ($pattern eq 'STATUS_ANY_ERROR') {
             say("INFO: Pattern is 'STATUS_ANY_ERROR' which means any status != 'STATUS_OK' " .
                 "matches.");
@@ -910,16 +936,16 @@ sub input_to_list {
     my (@input) = @_;
 
     my $quote_val;
-    print_list("DEBUG: input_to_list initial value ", @input) if $script_debug;
+    print_list("DEBUG: input_to_list initial value ", @input) if script_debug("A5");
 
     if ($#input != 0) {
         say("DEBUG: input_to_list : The input does not consist of one element. " .
-            "Will return that input.") if $script_debug;
+            "Will return that input.") if script_debug("A5");
         return \@input;
     }
     if (not defined $input[0]) {
         say("DEBUG: input_to_list : \$input[0] is not defined. " .
-            "Will return the input.") if $script_debug;
+            "Will return the input.") if script_debug("A5");
         return \@input;
     } else {
         my $result = surround_quote_check($input[0]);
@@ -944,12 +970,12 @@ sub input_to_list {
 
     my $separator = $quote_val . ',' . $quote_val;
     if ($input[0] =~ m/$separator/) {
-        say("DEBUG: -->" . $separator . "<-- in input found. Splitting required.") if $script_debug;
+        say("DEBUG: -->" . $separator . "<-- in input found. Splitting required.") if script_debug("A5");
         # Remove the begin and end quote first.
         $input[0] = substr($input[0], 1, length($input[0]) - 2) if 1 == length($quote_val);
         @input = split(/$separator/, $input[0]);
     } else {
-        say("DEBUG: -->$separator<-- not in input found.") if $script_debug;
+        say("DEBUG: -->$separator<-- not in input found.") if script_debug("A5");
         $input[0] = substr($input[0], 1, length($input[0]) - 2) if 1 == length($quote_val);
     }
     return \@input;
@@ -1217,7 +1243,7 @@ sub archive_results {
     # my $cmd = "cd $workdir ; tar csf $archive rqg* $vardir 2>$archive_err";
 
     my $cmd = "cd $workdir ; tar czf $archive rqg* $vardir 2>$archive_err";
-    say("DEBUG: cmd : ->$cmd<-") if $script_debug;
+    say("DEBUG: cmd : ->$cmd<-") if script_debug("A5");
     my $rc = system($cmd);
     if ($rc != 0) {
         say("ERROR: The command for archiving '$cmd' failed with exit status " . ($? >> 8));
@@ -1339,7 +1365,7 @@ sub make_multi_runner_infrastructure {
         # In case there is a plain file with the name '$general_workdir' than we just fail in mkdir.
         if (mkdir $general_workdir) {
             say("DEBUG: The general workdir $snip_all '$general_workdir' " .
-                "created.") if $script_debug;
+                "created.") if script_debug("A5");
         } else {
             say("ERROR: make_multi_runner_infrastructure : Creating the general workdir " .
                 "$snip_all '$general_workdir' failed: $!. Will return undef.");
@@ -1350,7 +1376,7 @@ sub make_multi_runner_infrastructure {
     my $workdir = $general_workdir . "/" . $run_id;
     # Note: In case there is already a directory '$workdir' than we just fail in mkdir.
     if (mkdir $workdir) {
-        say("DEBUG: The workdir $snip_current '$workdir' created.") if $script_debug;
+        say("DEBUG: The workdir $snip_current '$workdir' created.") if script_debug("A5");
     } else {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Creating the workdir $snip_current '$workdir' failed: $!.\n " .
@@ -1368,7 +1394,7 @@ sub make_multi_runner_infrastructure {
     if (not -d $general_vardir) {
         # In case there is a plain file with the name '$general_vardir' than we just fail in mkdir.
         if (mkdir $general_vardir) {
-            say("DEBUG: The general vardir $snip_all '$general_vardir' created.") if $script_debug;
+            say("DEBUG: The general vardir $snip_all '$general_vardir' created.") if script_debug("A5");
         } else {
             say("ERROR: make_multi_runner_infrastructure : Creating the general vardir " .
                 "$snip_all '$general_vardir' failed: $!. Will return undef.");
@@ -1378,7 +1404,7 @@ sub make_multi_runner_infrastructure {
     my $vardir = $general_vardir . "/" . $run_id;
     # Note: In case there is already a directory '$vardir' than we just fail in mkdir.
     if (mkdir $vardir) {
-        say("DEBUG: The vardir $snip_current '$vardir' created.") if $script_debug;
+        say("DEBUG: The vardir $snip_current '$vardir' created.") if script_debug("A5");
     } else {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Creating the vardir $snip_current '$vardir' failed: $!.\n " .
@@ -1402,7 +1428,7 @@ sub make_multi_runner_infrastructure {
             Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
-    say("DEBUG: The result (summary) file '$result_file' was created.") if $script_debug;
+    say("DEBUG: The result (summary) file '$result_file' was created.") if script_debug("A5");
 
     # In case we have a combinations vardir without absolute path than ugly things happen:
     # Real life example:
@@ -1485,20 +1511,20 @@ sub check_and_set_build_thread {
 
 sub surround_quote_check {
     my ($input) = @_;
-    say("surround_quote_check: Input is ->" . $input . "<-") if $script_debug;
+    say("surround_quote_check: Input is ->" . $input . "<-") if script_debug("A5");
     return 'empty' if not defined $input;
     if      (substr($input,  0, 1) eq "'" and substr($input, -1, 1) eq "'") {
         say("DEBUG: The input is surrounded by single quotes. Assume " .
-            "'single quote protection'.") if $script_debug;
+            "'single quote protection'.") if script_debug("A5");
         return 'single quote protection';
     } elsif (substr($input,  0, 1) eq '"' and substr($input, -1, 1) eq '"') {
         say("DEBUG: The input is surrounded by double quotes. Assume " .
-            "'double quote protection'.") if $script_debug;
+            "'double quote protection'.") if script_debug("A5");
         return 'double quote protection';
     } elsif (substr($input,  0, 1) ne "'" and substr($input, -1, 1) ne "'" and
              substr($input,  0, 1) ne '"' and substr($input, -1, 1) ne '"') {
         say("DEBUG: The input is not surrounded by single or double quotes. Assume " .
-            "'no quote protection'.") if $script_debug;
+            "'no quote protection'.") if script_debug("A5");
         return 'no quote protection';
     } else {
         say("ERROR: Either begin and end with single or double quote or both without quotes.");
