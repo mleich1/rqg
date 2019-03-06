@@ -222,7 +222,7 @@ my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
     $workers, $servers, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
     $help, $help_simplifier, $help_combinator, $help_verdict, $runner,
-    $stop_on_replay, $script_debug, $runid, $threads, $type, $algorithm, $no_resource_control);
+    $stop_on_replay, $script_debug, $runid, $threads, $type, $algorithm, $resource_control);
 
 $max_rqg_runtime = 600;
 
@@ -231,7 +231,7 @@ my @basedirs;
 
 
 $discard_logs  = 0;
-my $no_resource_control;
+my $resource_control;
 
 # FIXME:
 # Modify these options.
@@ -352,7 +352,7 @@ if (not GetOptions(
 #          'threads=i'                 => \$threads,                # Pass through (@ARGV).
            'discard_logs'              => \$discard_logs,           # Swallowed and handled by rqg_batch
            'discard-logs'              => \$discard_logs,
-           'no_resource_control!'     => \$no_resource_control,   # Swallowed and handled by rqg_batch
+           'resource_control=s'        => \$resource_control,   # Swallowed and handled by rqg_batch
            'script_debug=s@'           => \$script_debug,           # Swallowed and handled by rqg_batch
            'runid:i'                   => \$runid,                  # Swallowed and handled by rqg_batch
                                                    )) {
@@ -441,11 +441,10 @@ foreach my $i (1..3) {
 ($workdir, $vardir) = Batch::make_multi_runner_infrastructure ($workdir, $vardir, $runid,
                                                                BATCH_WORKDIR_SYMLINK);
 my $load_status;
-if (not defined $no_resource_control) {
-    say("no_resource_control is not defined");
+if (not defined $resource_control) {
+    say("DEBUG: resource_control is not defined") if Auxiliary::script_debug("T2");
 }
-($load_status, $workers) = ResourceControl::init($workdir, $vardir, $workers, 1,
-                                                 $no_resource_control);
+($load_status, $workers) = ResourceControl::init($resource_control, $workdir, $vardir, $workers);
 if($load_status ne ResourceControl::LOAD_INCREASE) {
     my $status = STATUS_ENVIRONMENT_FAILURE;
     say("ERROR: ResourceControl reported the load status '$load_status' but around begin the " .
@@ -1146,6 +1145,12 @@ sub help() {
    "      is an easy/fast way to check certains aspects of\n"                                      .
    "      - the order and job management in rqg_batch in general\n"                                .
    "      - optimizations (depend on progress) for grammar simplification\n"                       .
+   "--resource_control=...  Automatic RQG BATCH resource control (Linux only)\n"                   .
+   "      help_resource_control (FIXME: is missing)\n"                                             .
+   "      (Recommended) Empty string or '--resource_control=...' not assigned at all\n"            .
+   "         --> Get the Automatic resource control enabled\n"                                     .
+   "      (Quite risky if 'parallel' is high) '" . ResourceControl::RC_NONE . "'\n"                .
+   "         --> No automatic resource control\n"                                                  .
    "-------------------------------------------------------------------------------------------\n" .
    "Group of parameters which get either passed through to the Simplifier or appended to the\n"    .
    "final command line of the RQG runner. Both things cause that certain settings within the\n"    .

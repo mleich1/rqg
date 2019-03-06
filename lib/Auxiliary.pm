@@ -55,6 +55,7 @@ use constant INTERNAL_TOOL_ERROR => 200;
 # B -> Batch      (lib/Batch.pm)
 # C -> Combinator (lib/Combinator.pm)
 # S -> Simplifier (lib/Simplifier.pm)
+# L -> Resource Control (lib/ResourceControl.pm)
 # R -> RQG runner (rqg.pl)
 # The digit
 # 1     -- more important and/or less frequent
