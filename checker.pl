@@ -127,7 +127,7 @@ my ($gendata, @basedirs, @mysqld_options, @vardirs, $rpl_mode,
     $ps_protocol, @gendata_sql_files, $config_file,
     @whitelist_statuses, @whitelist_patterns, @blacklist_statuses, @blacklist_patterns,
     $archiver_call, $workdir,
-    $options);
+    $options, $script_debug);
 
 my $gendata   = ''; ## default simple gendata
 my $genconfig = ''; # if template is not set, the server will be run with --no-defaults
@@ -156,10 +156,14 @@ if (not GetOptions(
     'whitelist_patterns:s@'       => \@whitelist_patterns,
     'blacklist_statuses:s@'       => \@blacklist_statuses,
     'blacklist_patterns:s@'       => \@blacklist_patterns,
+    'script_debug:s@'             => \$script_debug,
     )) {
    help();
    exit STATUS_CONFIG_ERROR;
 };
+
+# Support script debugging as soon as possible.
+Auxiliary::script_debug_init($script_debug);
 
 if ( defined $help ) {
     help();
