@@ -350,37 +350,66 @@ sub get_shrinked_rvt_options;
 my $ever_success = 0;
 
 
-# Campaigns within the phase PHASE_GRAMMAR_SIMP and required variables
-# ====================================================================
-# $out_of_ideas
-# -------------
-# Some state within a grammar simplification campaign or during reporter/validator/transformer
-# simplification.
-# Starting at some point all thinkable orders for simplifying some grammar were generated and
-# this variable will be than set to 1.
-# my $out_of_ideas = 0;
-#
-# $campaign_success
-# -----------------
-# Set to
-# - 0 when starting some campaign
-# - incremented in case the problem was replayed within the current campaign.
-# Used for deciding if to run some next campaign or not.
-# Example:
-# Phase is PHASE_GRAMMAR_SIMP
-# In case we had during the last campaign (== Try to remove alternatives from grammar rules)
-# success at all and we have tried all possible simplifications at least once tjan it makes
-# sense to repeat such a campaign. This is especially important for concurrency bugs.
-my $campaign_success = 0;
+# Concept for reporter/validator/transformer (RVT_SIMP) and grammar (GRAMMAR_DEST/GRAMMAR_SIMP)
+# simplification phase including required variables
+# =============================================================================================
+# Within a simplification phase one or more campaigns are run.
 #
 # $campaign_number
 # ----------------
 # Incremented whenever such a campaign gets started.
 my $campaign_number  = 0;
 #
-# $campaign_number
-# ----------------
-# Incremented whenever such a campaign gets started.
+# $campaign_success
+# -----------------
+# Set to
+# - 0 when starting some campaign
+# - incremented in case the problem was replayed within the current campaign.
+# Used for deciding if to run some next campaign, requires 1 == $campaign_success, or not.
+# Example:
+# Phase is PHASE_GRAMMAR_SIMP
+# In case we had during the last campaign (== Try to remove alternatives from grammar rules)
+# success at all and we have tried all possible simplifications at least once tjan it makes
+# sense to repeat such a campaign. This is especially important for concurrency bugs.
+my $campaign_success = 0;
+# FIXME: Implement some upper limit for the number of campaigns as security measure.
+#
+# $out_of_ideas
+# -------------
+# Some state within a campaign. Rather "out of new ideas".
+# Starting at some point all thinkable orders for simplifying some grammar were generated,
+# already tried or currently in trial.
+# This variable will be than set to 1.
+# The variable is also used by lib/Combinator.pm and therefor it is placed in lib/Batch.pm.
+# my $Batch::out_of_ideas = 0;
+#
+# In case we have reached the state "out of ideas" than we could either
+# a) wait till all runs are finished and maybe start a new campaign
+#    This implies that all collected "knowlege" about currently valid orders like
+#    efforts invested etc. get lost because a campaign starts generating orders from scratch.
+#    We will get for any possible simplification a order.
+#    The possible simplifications will not differ from the current known.
+#    Only the order when which simplification should be tried is modified.
+#    Possible advantage: That order could be better than extending the current campaign.
+#    Disadvantage: At every end of a campaign we have some decreasing amount of active RQG
+#                  runs which is less than the box is capable to run = sub optimal use of resources
+#                  And there will be definitely more campaigns than in case b).
+# or
+# b) refill the @try_queue up to n times with the content of other queues/hashes containing
+#    orders.
+#    Possible advantage: That order is based on current available "knowledge" and could be better
+#                        than what we get with a).
+#    Possible disadvantage: The order of simplifications which we get by a) might be better.
+#    Advantage: We have the decreasing amount of active RQG runs towards campaign end too.
+#               But we will have less campaigns than in case a).
+#
+# Her we use a combination of both.
+#
+# $refill_number
+# --------------
+# Set to 0 when a campaign (RVT_SIMP, GRAMMAR_SIMP, GRAMMAR_DEST only.) starts.
+# During one campaign the @try_queue will get up to n times refilled by content of other queues.
+# Hence $refill_number will get incremented per refill.
 my $refill_number    = 0;
 
 
@@ -1010,6 +1039,9 @@ sub get_job {
     # Safety measure
     my ($active) = @_;
 
+    say("DEBUG: phase_switch($phase_switch), active($active), phase($phase)")
+         if Auxiliary::script_debug("S6");
+
     # For experimenting:
     # $active = 10;
     if ($phase_switch) {
@@ -1018,12 +1050,12 @@ sub get_job {
             Carp::cluck("INTERNAL ERROR: Wrong call of Simplifier::getjob : active is not 0.");
             Batch::emergency_exit($status);
         } else {
+            switch_phase();
+            # Setting $phase_switch = 0 is made in switch_phase().
             if ($phase eq PHASE_SIMP_END) {
                 $Batch::give_up = 2;
                 return undef;
             }
-            switch_phase();
-            # Setting $phase_switch = 0 is made in switch_phase().
         }
     }
 
@@ -1415,6 +1447,11 @@ sub register_result {
 #                                    # In history: $worker_array[$free_worker][WORKER_EXTRA3]
 # Return Batch::REGISTER_.... (== An order how to proceed) or abort via Batch::emergency_exit.
 #
+# Warning:
+# $left_over_trials > 0 must be checked before returning because otherwise we have no limitation.
+# This is fatal for FIRST_REPLAY, THREAD1_REPLAY
+#
+
     our $arrival_number;
     my ($order_id, $verdict, $saved_log_rel, $total_runtime,
         $grammar_used, $grammar_parent, $adapted_duration) = @_;
@@ -1505,7 +1542,7 @@ sub register_result {
     if      ($verdict eq Verdict::RQG_VERDICT_IGNORE_STOPPED) {
         # We need to make some additional run with this order as soon as possible.
         Batch::add_to_try_first($order_id);
-        return Batch::REGISTER_GO_ON;
+        $return = Batch::REGISTER_GO_ON;
     } elsif ($verdict eq Verdict::RQG_VERDICT_REPLAY) {
         $campaign_success++;
         if (PHASE_FIRST_REPLAY   eq $phase or
@@ -1531,7 +1568,7 @@ sub register_result {
                 $final_replay_success   = 1;
             }
             Batch::add_to_try_never($order_id);
-            return Batch::REGISTER_SOME_STOPPED;
+            $return = Batch::REGISTER_SOME_STOPPED;
         } elsif (PHASE_RVT_SIMP eq $phase) {
             my $rvt_now = get_shrinked_rvt_options(undef, undef, 0);
             if ($grammar_parent eq $rvt_now) {
@@ -1547,16 +1584,16 @@ sub register_result {
                     my $status = STATUS_INTERNAL_ERROR;
                     Batch::emergency_exit($status);
                 }
-                $simp_success           = 1;
-                $rvt_simp_success       = 1;
-                return Batch::REGISTER_GO_ON;
+                $simp_success     = 1;
+                $rvt_simp_success = 1;
+                $return           = Batch::REGISTER_GO_ON;
             } else {
                 # Its a too late replayer.
                 # But the order was quite good. So try it again.
                 $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER]++;
                 $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER]++;
                 Batch::add_to_try_intensive_again($order_id);
-                return Batch::REGISTER_GO_ON;
+                $return = Batch::REGISTER_GO_ON;
             }
         } elsif (PHASE_GRAMMAR_SIMP eq $phase or
                  PHASE_GRAMMAR_DEST eq $phase   ) {
@@ -1569,14 +1606,14 @@ sub register_result {
                 Batch::add_to_try_never($order_id);
                 $simp_success           = 1;
                 $grammar_simp_success   = 1;
-                return Batch::REGISTER_GO_ON;
+                $return = Batch::REGISTER_GO_ON;
             } else {
                 # Its a too late replayer.
                 # But the order was quite good. So try it again.
                 $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER]++;
                 $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER]++;
                 Batch::add_to_try_intensive_again($order_id);
-                return Batch::REGISTER_GO_ON;
+                $return = Batch::REGISTER_GO_ON;
             }
         } else {
             my $status = STATUS_INTERNAL_ERROR;
@@ -1599,14 +1636,14 @@ sub register_result {
             # add_to_try_exhausted stops all running RQG Worker using that order_id.
             Batch::add_to_try_exhausted($order_id);
             Batch::stop_worker_on_order($order_id);
-            return Batch::REGISTER_GO_ON;
+            $return = Batch::REGISTER_GO_ON;
         } else {
             if ($verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST) {
                 Batch::add_to_try_over_bl($order_id);
-                return Batch::REGISTER_GO_ON;
+                $return = Batch::REGISTER_GO_ON;
             } else {
                 Batch::add_to_try_over($order_id);
-                return Batch::REGISTER_GO_ON;
+                $return = Batch::REGISTER_GO_ON;
             }
         }
     } else {
@@ -1616,6 +1653,17 @@ sub register_result {
         Batch::emergency_exit($status);
     }
 
+    if ($left_over_trials > 0) {
+        return $return;
+    } else {
+        # The fate of the phase is decided.
+        $phase_switch = 1;
+        Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW);
+        say("DEBUG: Setting phase_switch to $phase_switch because left_over_trials" .
+            "($left_over_trials) no more > 0.") if Auxiliary::script_debug("S3"); 
+        return Batch::REGISTER_SOME_STOPPED;
+    }
+
 } # End sub register_result
 
 
@@ -1623,6 +1671,18 @@ sub switch_phase {
 
     say("DEBUG: Simplifier::switch_phase: Enter routine. Current phase is '$phase'.")
         if Auxiliary::script_debug("S4");
+
+    if (PHASE_FIRST_REPLAY eq $phase and 0 == $first_replay_success) {
+        say("SUMMARY: Even the attempt to make a first replay with the full test failed.");
+        say("SUMMARY: Hence no other simplification steps were tried.");
+        say("HINT: Maybe the\n" .
+            "HINT: - black/white lists (especially the pattern sections) are faulty or " .
+            "HINT: - RQG test setup (basedir, grammar etc.) is wrong or "                .
+            "HINT: - trials/duration/queries are too small.");
+        $phase        = PHASE_SIMP_END;
+        $phase_switch = 0;
+        return;
+    }
 
     my $iso_ts = isoTimestamp();
 
@@ -1768,14 +1828,6 @@ sub switch_phase {
             say("");
         } else {
             say("SUMMARY: No RQG test simplification achieved.");
-            if (0 == $first_replay_success) {
-                say("SUMMARY: Even the attempt to make a first replay with the full test failed.");
-                say("SUMMARY: Hence no other simplification steps were tried.");
-                say("HINT: Maybe the\n" .
-                    "HINT: - black/white lists (especially the pattern sections) are faulty or " .
-                    "HINT: - RQG test setup (basedir, grammar etc.) is wrong or "                .
-                    "HINT: - trials/duration/queries are too small.");
-            }
         }
     } else {
         Carp::cluck("INTERNAL ERROR: Handling for phase '$phase' is missing.");

@@ -52,13 +52,15 @@ use constant SPACE_REMAIN   => 100;
 use constant SPACE_FREE     => 10000;
 #
 # Maximum storage space in MB required in vardir by one ongoing RQG run without core.
-use constant SPACE_USED     => 300;
+use constant SPACE_USED     => 300;   # <-- FIXME: measure
 # Maximum storage space in MB required in vardir by a core (ASAN Build).
-use constant SPACE_CORE     => 3000;
+use constant SPACE_CORE     => 3000;  # <-- FIXME: measure
 # Maximum share of RQG runs where an end with core is assumed.
 use constant SHARE_CORE     => 0.1;
-# Maximum memory consumption of a RQG run (space in vardir ignored)
-use constant MEM_USED       => 300;
+# Maximum memory consumption of a RQG run (ASAN build) (space in vardir ignored)
+use constant MEM_USED       => 800;
+# Archive of ASAN BUILD run with core (up to) 500
+# vardir of ASAN BUILD run with core (up to) 1800 (core 1500)
 
 my $module_missing = 0;
 
@@ -135,11 +137,11 @@ my $rqg_batch_debug = 0;
 my $resource_control_debug = 0;
 
 sub init {
-    ($rc_type, $workdir, $vardir, my $parallel_assigned) = @_;
+    ($rc_type, $workdir, $vardir) = @_;
 
-    if (4 != scalar @_) {
+    if (3 != scalar @_) {
         Carp::cluck("INTERNAL ERROR: ResourceControl::init: 4 parameters " .
-                    "(rc_type, workdir, vardir, $parallel) are required");
+                    "(rc_type, workdir, vardir) are required");
         safe_exit(STATUS_INTERNAL_ERROR);
     }
     say("DEBUG: ResourceControl::init at begin") if Auxiliary::script_debug("L2");
@@ -158,7 +160,7 @@ sub init {
     if ($rc_type eq RC_NONE) {
         say("WARN: Automatic ResourceControl is disabled. This is risky because increasing the " .
             "load is all time allowed.");
-        return LOAD_INCREASE, $parallel;
+        return LOAD_INCREASE, undef, undef;
     } else {
         say("INFO: Automatic ResourceControl is enabled. Type '$rc_type'.");
     }
@@ -177,10 +179,6 @@ sub init {
     }
     if (not -d $workdir) {
         Carp::cluck("INTERNAL ERROR: workdir '$workdir' does not exist or is not a directory.");
-        safe_exit(STATUS_INTERNAL_ERROR);
-    }
-    if (not defined $parallel_assigned) {
-        Carp::cluck("INTERNAL ERROR: parallel is undef.");
         safe_exit(STATUS_INTERNAL_ERROR);
     }
 
@@ -245,16 +243,6 @@ sub init {
 #       return LOAD_GIVE_UP, undef;
 #   }
 #   chomp $nproc; # Remove the '\n'
-    my $parallel_estimated = int ( 1.5 * $tcpu_count );
-    if (0 == $parallel_assigned) {
-        $parallel = $parallel_estimated;
-        say("ResourceControl: Sorry, guessing of 'parallel' is not yet implemented.");
-        safe_exit(STATUS_INTERNAL_ERROR);
-        say("INFO: The maximum number of parallel RQG runs was not defined(0 assigned). " .
-            "Setting it to $parallel.");
-    } else {
-        $parallel = $parallel_assigned;
-    }
 
     $book_keeping_file = $workdir . "/" . "resource.txt";
     if ($rc_type) {
@@ -286,25 +274,25 @@ sub init {
     # Estimations regarding the safe and average number of workers.
     # ------------------------------------------------------------------------------
     my $val;
-    my $parallel_min;
-    my $parallel_mid;
+    my $workers_min;
+    my $workers_mid;
     # Worst case estimations
     # Lower the value if its too big.
     # RAM - 12000 = $workers * (2 * (MEM_USED + SPACE_USED) + SHARE_CORE * SPACE_CORE)
     #               - SHARE_CORE * SPACE_CORE + SPACE_CORE;
     $val = int(($mem_total - 12000 + SHARE_CORE * SPACE_CORE - SPACE_CORE) /
            (2 * (MEM_USED + SPACE_USED) + SHARE_CORE * SPACE_CORE));
-    say("DEBUG: parallel_min 1: $val");
-    $parallel_min = $val;
+    say("DEBUG: workers_min 1: $val");
+    $workers_min = $val;
     # vardir_free > $workers * (2 * SPACE_USED + SHARE_CORE * SPACE_CORE)
     #               - SHARE_CORE * SPACE_CORE + SPACE_CORE;
     $val = int(($vardir_free + SHARE_CORE * SPACE_CORE - SPACE_CORE ) /
            (2 * SPACE_USED + SHARE_CORE * SPACE_CORE));
-    say("DEBUG: parallel_min 2: $val");
-    if ($val < $parallel_min) {
-        $parallel_min = $val;
+    say("DEBUG: workers_min 2: $val");
+    if ($val < $workers_min) {
+        $workers_min = $val;
     }
-    say("DEBUG: parallel_min final: $parallel_min");
+    say("DEBUG: workers_min final: $workers_min");
 
     # --------------
     # Average case estimations
@@ -312,16 +300,16 @@ sub init {
     #               - SHARE_CORE * SPACE_CORE + SPACE_CORE;
     $val = int(($mem_total - 10000 + SHARE_CORE * SPACE_CORE - SPACE_CORE) /
            (MEM_USED + SPACE_USED + SHARE_CORE * SPACE_CORE));
-    say("DEBUG: parallel_mid 1: $val");
-    $parallel_mid = $val;
+    say("DEBUG: workers_mid 1: $val");
+    $workers_mid = $val;
     # vardir_free > $workers * (SHARE_CORE * SPACE_CORE + SPACE_USED);
     $val = int(($vardir_free + SHARE_CORE * SPACE_CORE - SPACE_CORE ) /
            (SPACE_USED + SHARE_CORE * SPACE_CORE));
-    say("DEBUG: parallel_mid 2: $val");
-    if ($val < $parallel_mid) {
-        $parallel_mid = $val;
+    say("DEBUG: workers_mid 2: $val");
+    if ($val < $workers_mid) {
+        $workers_mid = $val;
     }
-    say("DEBUG: parallel_mid final: $parallel_mid");
+    say("DEBUG: workers_mid final: $workers_mid");
 
     if ($rc_type) {
         my $iso_ts = isoTimestamp();
@@ -333,10 +321,9 @@ sub init {
                    "$iso_ts swap space total        : $swap_total\n"                               .
                    "$iso_ts swap space used         : $swap_used_init\n"                           .
                    "$iso_ts cpu cores (HT included) : $tcpu_count\n"                               .
-                   "$iso_ts parallel (assigned)     : $parallel_assigned\n"                        .
-                   "$iso_ts parallel (estimated)    : $parallel_estimated\n"                       .
-                   "$iso_ts parallel (used)         : $parallel\n"                                 .
-                   "$iso_ts return (to rqg_batch)   : $load_status, $parallel\n"                   .
+                   "$iso_ts parallel (est. min)     : $workers_min\n"                              .
+                   "$iso_ts parallel (est. mid)     : $workers_mid\n"                              .
+                   "$iso_ts return (to rqg_batch)   : $load_status, $workers_mid, $workers_min\n"  .
                    "---------------------------------------------------------------------------\n" .
                    "$iso_ts     *_consumed means amount lost since start of our rqg_batch run\n"   .
                    "$iso_ts worker , vardir_consumed - vardir_free , "                             .
@@ -358,7 +345,7 @@ sub init {
         }
         Batch::append_string_to_file($book_keeping_file, $line);
     }
-    return $load_status, $parallel;
+    return $load_status, $workers_mid, $workers_min;
 
     # Return an estimation
     # - when to start with delaying
@@ -409,7 +396,11 @@ sub report {
     # usage forces to put stuff (parts of running programs and/or parts of vardir occupied
     # by files) with a size like that core into the swap. And there is not enough free.
     $sr_U = $swap_free - SPACE_CORE;
+    $sr_U = 0 if 0 == $swap_free;
     $mr_U = $mem_real_free - 0; # Basically no idea
+    # 8000 MB is a guess based on
+    #     RQG on skylake01, swap space use started to grow and
+    #     192 GB - ($vardir_consumed + $mem_consumed) = 8000 MB.
     $rd_U = $vardir_consumed + $mem_consumed + 8000;
     $rr_U = $mem_total - $rd_U;
 
@@ -439,6 +430,7 @@ sub report {
     $vr_D = $vardir_free - $vd_D;
     $sd_D = $vd_D;
     $sr_D = $swap_free - $sd_D;
+    $sr_D = 0 if 0 == $swap_free;
     # All active workers finish with fail + archiving etc. and we would fall below the free space
     # threshold for the workdir. Some moderate decrease of activity till stop would be good.
     $wr_D = $workdir_free - $worker_active * SPACE_REMAIN + SPACE_FREE;
@@ -484,10 +476,13 @@ sub report {
     $mr_K = $mem_real_free - $md_K;
 
     $sr_K = $sr_D; # Have no good idea.
+    $sr_K = 0 if 0 == $swap_free;
 
-    # In case the estimated space consumed in memory ($md_K) and the estimated space
-    # in vardir ($vd_K) exceeds the total amount of RAM ($mem_total) than we will be
-    # forced to use more swap space that we do not want.
+    # In case the estimated space consumed in memory ($md_K) and the estimated space in vardir
+    # ($vd_K) exceeds the total amount of RAM ($mem_total) than we will maybe
+    # a) (there is swap space at all) forced to use more swap space what we do not want
+    # or
+    # b) (no swap space at all) the OS starts to kill processes what we must avoid with all means.
     # 8000 MB is a guess based on
     #     RQG on skylake01, swap space use started to grow and
     #     192 GB - ($vardir_consumed + $mem_consumed) = 8000 MB.

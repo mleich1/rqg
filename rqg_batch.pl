@@ -220,7 +220,7 @@ $SIG{CHLD} = "IGNORE" if osWindows();
 my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar, $gendata,
     $seed, $testname, $xml_output, $report_xml_tt, $report_xml_tt_type, $max_runtime,
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
-    $workers, $servers, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
+    $parallel, $servers, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
     $help, $help_simplifier, $help_combinator, $help_verdict, $runner,
     $stop_on_replay, $script_debug, $runid, $threads, $type, $algorithm, $resource_control);
 
@@ -337,7 +337,7 @@ if (not GetOptions(
            'max_runtime=i'             => \$max_runtime,            # Swallowed and handled by rqg_batch
            'dryrun=s'                  => \$dryrun,                 # Swallowed and handled by rqg_batch
            'no-log'                    => \$noLog,                  # Swallowed and handled by rqg_batch
-           'parallel=i'                => \$workers,                # Swallowed and handled by rqg_batch
+           'parallel=i'                => \$parallel,               # Swallowed and handled by rqg_batch
            # runner
            # If
            # - defined than
@@ -440,19 +440,19 @@ foreach my $i (1..3) {
 # to the RQG call.
 ($workdir, $vardir) = Batch::make_multi_runner_infrastructure ($workdir, $vardir, $runid,
                                                                BATCH_WORKDIR_SYMLINK);
-my $load_status;
 if (not defined $resource_control) {
     say("DEBUG: resource_control is not defined") if Auxiliary::script_debug("T2");
 }
-($load_status, $workers) = ResourceControl::init($resource_control, $workdir, $vardir, $workers);
+my ($load_status, $workers_mid, $workers_min) =
+    ResourceControl::init($resource_control, $workdir, $vardir);
 if($load_status ne ResourceControl::LOAD_INCREASE) {
     my $status = STATUS_ENVIRONMENT_FAILURE;
     say("ERROR: ResourceControl reported the load status '$load_status' but around begin the " .
         "status '" . ResourceControl::LOAD_INCREASE . "' must be valid.");
     safe_exit($status);
 }
-Batch::check_and_set_workers($workers);
-$workers = undef;
+Batch::set_workers_range($parallel, $workers_mid, $workers_min);
+
 
 # $build_thread is valid for the rqg_batch.pl run.
 # The corresponding build_thread of the single RQG runs get calculated on the fly and than glued
@@ -890,7 +890,7 @@ while($Batch::give_up <= 1) {
                         # Assume more overload than acceptable.
                         say("INFO: $message");
                         Batch::stop_worker_young;
-                        Batch::reduce_too_many_workers;
+                        Batch::adjust_workers_range;
                     }
                 } else {
                     # No fractions of seconds because its not needed and makes prints too long.
@@ -909,9 +909,9 @@ while($Batch::give_up <= 1) {
 #               # which might end with forking the next RQG runner.
 #               # FIXME: Refine
 #               my $active_workers = Batch::count_active_workers();
-#               if      (($workers / 4) >= $active_workers) {
+#               if      (($workers_max / 4) >= $active_workers) {
 #                   # Do not wait
-#               } elsif (($workers / 2) >= $active_workers) {
+#               } elsif (($workers_max / 2) >= $active_workers) {
 #                   sleep 1;
 #               } else {
 #                   sleep 3;
@@ -933,7 +933,6 @@ while($Batch::give_up <= 1) {
             if Auxiliary::script_debug("T5");
         my $poll_time = 0.1;
         while (Batch::reap_workers()) {
-            # MLML Kill the max_rqg_runtime exceeding RQG runner
             Batch::check_rqg_runtime_exceeded($max_rqg_runtime);
             Batch::process_finished_runs();
             last if $Batch::give_up > 1;

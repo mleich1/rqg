@@ -213,14 +213,17 @@ use constant WORKER_STOP_REASON => 9; # in case the run was stopped than the rea
 #   Simplifier has given REGISTER_STOP_YOUNG
 #       == Stopping some RQG worker (and start new ones) would give an optimization.
 use constant STOP_REASON_WORK_FLOW   => 'work flow';
+#
 # - STOP_REASON_RESOURCE
 #   The resource control reported LOAD_DECREASE.
 #       == Stopping a RQG worker is recommended.
 use constant STOP_REASON_RESOURCE    => 'resource';
+#
 # - STOP_REASON_BATCH_LIMIT
 #   rqg_batch runtime exceeded or similar
 #       == Stopping all RQG worker is recommended.
 use constant STOP_REASON_BATCH_LIMIT => 'batch_limit';
+#
 # - STOP_REASON_RQG_LIMIT
 #   max_rqg_runtime was exceeded
 #       == Stopping of that RQG worker is recommended.
@@ -307,12 +310,37 @@ use constant BATCH_TYPE_ALLOWED_VALUE_LIST => [
       BATCH_TYPE_COMBINATOR,                                          BATCH_TYPE_RQG_SIMPLIFIER];
 
 # my $workers;
-our $workers;
-sub check_and_set_workers {
-    ($workers) = @_;
-    for my $worker_num (1..$workers) {
+# our $workers;
+our $workers_max;
+our $workers_mid;
+our $workers_min;
+sub set_workers_range {
+    # Needed at begin of rqg_batch run
+    ($workers_max,$workers_mid,$workers_min) = @_;
+    for my $worker_num (1..$workers_max) {
         worker_reset($worker_num);
     }
+    say("DEBUG: Load range set : workers_max ($workers_max), workers_mid ($workers_mid), workers_min ($workers_min)")
+        if Auxiliary::script_debug("T6");
+}
+sub adjust_workers_range {
+    # Needed after getting LOAD_DECREASE, reducing the load till all is ok
+    $workers_mid = count_active_workers();
+    my $max_min = int(0.75 * $workers_mid);
+    if ($workers_min > $max_min) {
+        $workers_min = $max_min;
+    }
+    say("DEBUG: Load range reduction : workers_max ($workers_max), workers_mid ($workers_mid), workers_min ($workers_min)")
+        if Auxiliary::script_debug("T6");
+}
+sub raise_workers_range {
+    $workers_mid++;
+    my $max_min = int(0.75 * $workers_mid);
+    if ($workers_min < $max_min) {
+        $workers_min = $max_min;
+    }
+    say("DEBUG: Load range raise : workers_mid ($workers_mid), workers_min ($workers_min)")
+        if Auxiliary::script_debug("T6");
 }
 
 sub worker_reset {
@@ -331,7 +359,7 @@ sub worker_reset {
 }
 
 sub get_free_worker {
-    for my $worker_num (1..$workers) {
+    for my $worker_num (1..$workers_max) {
         # -1 == $worker_array[$worker_num][WORKER_PID]
         # --> No main process of the RQG worker
         #     Either never in use or already reaped
@@ -368,7 +396,7 @@ sub count_active_workers {
 # - needs more runtime
 #
     my $active_workers = 0;
-    for my $worker_num (1..$workers) {
+    for my $worker_num (1..$workers_max) {
         $active_workers++ if $worker_array[$worker_num][WORKER_PID] != -1;
     }
     return $active_workers;
@@ -382,7 +410,7 @@ use constant WORKER_ORDER_LENGTH =>  8;
     my $message = "worker_array_dump begin --------\n" .
                   "id  -- pid    -- job_start  -- job_end    -- order_id -- " .
                   "extra1  -- extra2  -- extra3  -- verdict -- log\n";
-    for my $worker_num (1..$workers) {
+    for my $worker_num (1..$workers_max) {
         # Omit inactive workers.
         next if -1 == $worker_array[$worker_num][WORKER_START];
         $message = $message . Auxiliary::lfill($worker_num, WORKER_ID_LENGTH) .
@@ -420,7 +448,7 @@ sub stop_worker {
 
 sub stop_workers {
     my ($stop_reason) = @_;
-    for my $worker_num (1..$workers) {
+    for my $worker_num (1..$workers_max) {
         stop_worker($worker_num, $stop_reason);
     }
 }
@@ -436,7 +464,7 @@ sub stop_worker_on_order {
     check_order_id($order_id);
     Carp::cluck("DEBUG: Try to stop RQG worker with orderid $order_id begin.")
         if Auxiliary::script_debug("T6");
-    for my $worker_num (1..$workers) {
+    for my $worker_num (1..$workers_max) {
         # Omit not running workers
         next if -1 == $worker_array[$worker_num][WORKER_PID];
         # Omit workers with other order_id
@@ -453,7 +481,7 @@ sub stop_worker_on_order_except_replayer {
     check_order_id($order_id);
     Carp::cluck("DEBUG: Try to stop nonreplaying RQG worker with orderid $order_id begin.")
         if Auxiliary::script_debug("T6");
-    for my $worker_num (1..$workers) {
+    for my $worker_num (1..$workers_max) {
         # Omit not running workers
         next if -1 == $worker_array[$worker_num][WORKER_PID];
         # Omit workers with other order_id
@@ -489,7 +517,7 @@ sub stop_worker_young {
 #
     Carp::cluck("DEBUG: Try to stop RQG worker with phase <= GENDATA begin.")
         if Auxiliary::script_debug("T6");
-    for my $worker_num (1..$workers) {
+    for my $worker_num (1..$workers_max) {
         my $pid = $worker_array[$worker_num][WORKER_PID];
         if (-1 != $pid) {
             # Per last update of bookkeeping the RQG Woorker was alive.
@@ -543,7 +571,7 @@ my $no_raise_before;
 # We throw the $parallel dices and add the numbers from the upper surfaces.
 # In case that exceeds the resource consumption the box can keep than we remove one dice from
 # the game.
-my $too_many_workers;
+# my $too_many_workers;
 my $previous_workers;
 my $first_load_up;
 #
@@ -561,23 +589,24 @@ sub check_resources {
     if (not defined $no_raise_before) {
         $no_raise_before  = 0;
     }
-    if (not defined $too_many_workers) {
-        $too_many_workers = $workers + 1;
-    }
     if (not defined $previous_workers) {
         $previous_workers = 0;
     }
 
     if  (ResourceControl::LOAD_INCREASE eq $load_status) {
+
+        # Never exceed $parallel_max because that could be a user or OS limit related border.
+        return STATUS_FAILURE if $active_workers + 1 > $workers_max;
+
         my $current_time = Time::HiRes::time();
-        my $worker_share = $active_workers / ($too_many_workers - 1);
-        my $delay_unit;
+        my $worker_share = ($active_workers + 1 - $workers_min) / ($workers_mid - $workers_min);
+        $worker_share = 0 if 0 > $worker_share;
+        my $delay;
         if ($first_load_up) {
-            $delay_unit = 30;
+            $delay = $worker_share * 30;
         } else {
-            $delay_unit = 10;
+            $delay = $worker_share * $worker_share * 10;
         }
-        my $delay = $worker_share * $worker_share * $delay_unit;
 
         if ($previous_workers + 2 <= $active_workers) {
             # Obvious internal error because "in maximum" we have started one worker after
@@ -592,22 +621,20 @@ sub check_resources {
                 # We would raise the amount of workers but had some bad state not long enough ago.
                 $return_status   = STATUS_FAILURE;
             } else {
-                if ($active_workers + 1 < $too_many_workers) {
+                if ($active_workers + 1 <= $workers_mid) {
                     # This should be non critical.
                     $no_raise_before = $current_time + $delay;
                     $return_status   = STATUS_OK;
                 } else {
-                    # $active_workers + 1 == $too_many_workers
-                    # Should we raise $too_many_workers?
+                    # $active_workers + 1 > $workers_mid
+                    # Should we raise $workers_mid by 1?
                     if ($last_load_keep     + 120 / 2 < $current_time and
                         $last_load_decrease + 120     < $current_time)   {
-                        $too_many_workers++;
-                        say("DEBUG: too_many_workers raised to $too_many_workers")
-                            if Auxiliary::script_debug("T2");
-                        $no_raise_before = $current_time + 120;
+                        raise_workers_range;
+                        $no_raise_before = $current_time + 60;
                         $return_status = STATUS_OK;
                     } else {
-                        say("DEBUG: too_many_workers ($too_many_workers) limit prevents start")
+                        say("DEBUG: workers_mid ($workers_mid) limit prevents start")
                             if Auxiliary::script_debug("T2");
                         $return_status = STATUS_FAILURE;
                     }
@@ -621,22 +648,19 @@ sub check_resources {
                 # We would raise the amount of workers but had some bad state not long enough ago.
                 $return_status   = STATUS_FAILURE;
             } else {
-                if ($active_workers + 1 < $too_many_workers) {
+                if ($active_workers + 1 <= $workers_mid) {
                     # This should be non critical.
                     $no_raise_before = $current_time + $delay / 2; # FIXME: Is that good?
                     $return_status   = STATUS_OK;
                 } else {
-                    # $active_workers + 1 == $too_many_workers
-                    # Should we raise $too_many_workers?
+                    # Should we raise $workers_mid by 1?
                     if ($last_load_keep     + 60 / 2 < $current_time and
                         $last_load_decrease + 60     < $current_time)   {
-                        $too_many_workers++;
-                        say("DEBUG: too_many_workers raised to $too_many_workers")
-                            if Auxiliary::script_debug("T2");
-                        $no_raise_before = $current_time + 60;
+                        raise_workers_range;
+                        $no_raise_before = $current_time + 30;
                         $return_status = STATUS_OK;
                     } else {
-                        say("DEBUG: too_many_workers ($too_many_workers) limit prevents start")
+                        say("DEBUG: workers_mid ($workers_mid) limit prevents start")
                             if Auxiliary::script_debug("T2");
                         $return_status = STATUS_FAILURE;
                     }
@@ -672,16 +696,15 @@ sub check_resources {
         }
         while ($problem_persists) {
             #  LOOP till the problem is fixed
-            if ($active_workers < $too_many_workers) {
-                $too_many_workers = $active_workers;
-                say("DEBUG: too_many_workers reduced to $too_many_workers")
-                    if Auxiliary::script_debug("T2");
+            # FIXME: Is that the right place for adjustment?
+            if ($active_workers < $workers_mid) {
+                adjust_workers_range;
             }
             $last_load_decrease = $current_time;
             # Stop the youngest RQG worker
             my $worker_start  = 0;
             my $worker_number = 0;
-            for my $worker_num (1..$workers) {
+            for my $worker_num (1..$workers_max) {
                 next if -1 == $worker_array[$worker_num][WORKER_PID];
                 if ($worker_array[$worker_num][WORKER_START] > $worker_start) {
                     $worker_start = $worker_array[$worker_num][WORKER_START];
@@ -755,9 +778,6 @@ sub check_resources {
 }
 sub init_load_control {
     my $current_time    = Time::HiRes::time();
-    if (not defined $too_many_workers) {
-        $too_many_workers = $workers + 1;
-    }
     if (not defined $first_load_up) {
         $first_load_up = 1;
     } else {
@@ -767,13 +787,9 @@ sub init_load_control {
     $last_load_keep     = $current_time;
     $no_raise_before    = 0;
 }
-sub reduce_too_many_workers {
-    $too_many_workers = count_active_workers();
-    say("DEBUG: too_many_workers reduced to $too_many_workers")
-        if Auxiliary::script_debug("T2");
-}
 
 
+my $archive_warning_emitted = 0;
 sub reap_workers {
 
 # 1. Reap finished workers so that processes in zombie state disappear.
@@ -792,7 +808,7 @@ sub reap_workers {
 #       say("worker_array_dump at entering reap_workers");
 #       worker_array_dump();
 #   }
-    for my $worker_num (1..$workers) {
+    for my $worker_num (1..$workers_max) {
         # -1 == no main process of that RQG worker running.
         # Maybe there was never one running or the last running finished and was reaped.
         next if -1 == $worker_array[$worker_num][WORKER_PID];
@@ -921,8 +937,12 @@ sub reap_workers {
                         if (-e $rqg_arc) {
                             rename_file($rqg_arc, $saved_arc);
                         } else {
-                        # FIXME: Do this better.
-                            say("WARN: The archive '$rqg_arc' does not exist. I hope thats intentional.");
+                            if (not $archive_warning_emitted) {
+                                say("WARN: The archive '$rqg_arc' does not exist. This might be " .
+                                    "intentional or a mistake. Further warnings of this kind "    .
+                                    "will be suppressed.");
+                                $archive_warning_emitted = 1;
+                            }
                         }
                     }
                     if ($verdict eq Verdict::RQG_VERDICT_INTEREST) {
@@ -1046,7 +1066,7 @@ sub check_rqg_runtime_exceeded {
         my $status = STATUS_INTERNAL_ERROR;
         emergency_exit($status);
     }
-    for my $worker_num (1..$workers) {
+    for my $worker_num (1..$workers_max) {
         # -1 == no main process of that RQG worker running.
         # Maybe there was never one running or the last running finished and was reaped.
         next if -1 == $worker_array[$worker_num][WORKER_PID];
@@ -1396,7 +1416,7 @@ my %try_exhausted_hash;
 our $out_of_ideas;
 sub dump_try_hashes {
     my @try_run_queue;
-    for my $worker_num (1..$workers) {
+    for my $worker_num (1..$workers_max) {
         my $order_id = $worker_array[$worker_num][WORKER_ORDER_ID];
         push @try_run_queue, $order_id if -1 != $order_id;
     }
@@ -1632,7 +1652,7 @@ sub reactivate_try_all {
 }
 sub reactivate_till_filled {
     if (0 < scalar (keys %try_all_hash)) {
-        while ($workers > scalar @try_queue) {
+        while ($workers_max > scalar @try_queue) {
             reactivate_try_all;
         }
     }
@@ -1650,7 +1670,7 @@ sub get_active_order_hash {
 #    --> $worker_array[$worker_num][WORKER_PID] != -1
 #
     my %active_orders;
-    for my $worker_num (1..$workers) {
+    for my $worker_num (1..$workers_max) {
         next if -1 == $worker_array[$worker_num][WORKER_PID];
         $active_orders{$worker_array[$worker_num][WORKER_ORDER_ID]} = 1;
     }
@@ -1777,7 +1797,7 @@ sub check_and_set_stop_on_replay {
 }
 
 sub process_finished_runs {
-    for my $worker_num (1..$workers) {
+    for my $worker_num (1..$workers_max) {
         next if -1 != $worker_array[$worker_num][WORKER_PID];
         my $verdict  = $worker_array[$worker_num][WORKER_VERDICT];
         my $order_id = $worker_array[$worker_num][WORKER_ORDER_ID];
