@@ -68,8 +68,9 @@ Some general recommendations
       Let's assume rqg_batch causes heavy paging or excessive writing into the vardir.
       Ugly: You move the mouse and have to wait some seconds till the impact becomes visible.
             The same applies for switching to the console or login etc.
-- Perform all rqg_batch.pl runs mentioned in the work flow on the same or at least some comparable
-  box with the same setup of the main rqg_batch variables (--parallel, --vardir).
+- Perform all types of rqg_batch.pl runs (Combinator and Simplifier) mentioned in the work flow
+  on the same or at least some comparable box with the same setup of the main rqg_batch variables
+  (--parallel, --vardir).
 - RATHER NEVER use
   - rqg_batch in parallel to rqg_batch or
   - rqg_batch in parallel to mysql-test-run.pl
@@ -78,12 +79,12 @@ Some general recommendations
   test runs using the same setup by concept and thorough picking directories for storage etc.
   But
   - having two parallel rqg_batch runs with same setup will clash on ports because using the same
-    MTR buildthread. Ok, this could be prevented by different buildthreads.
+    MTR buildthread. Ok, this could be prevented by different buildthreads assigned.
   - it cannot protect you or itself against mistakes in code which it does not have under control.
     Examples:
     YY grammars, reporters, validators, transformers or even MTR tests creating or deleting
     directories at common all time existing places like /tmp.
-  - rqg batch resource control is only limited aware how the resource consumption of concurrent
+  - rqg_batch resource control is only limited aware how the resource consumption of concurrent
     tests evolves. In addition the resource control has some limited speed of reaction.
     In case the consumption of whatever grows too fast than resource control might act too late
     and than some disaster could happen.
@@ -110,23 +111,23 @@ Some general recommendations
 - Some tricks which sometimes help to find more bugs without significant additional manual efforts
   like extending grammars or modifying RQG test setups:
   What follows
-  - applies mostly to concurrency bugs (thread vs. thread or just executed EVENT or Purge)
+  - applies mostly to concurrency bugs (thread vs. thread or just executed EVENT or Purge activity)
   - has as base the model:
-    The server executes some SQL by running through a queue of work phases.
+    The server executes some SQL statement by running through a queue of work phases.
     In case one of these phases is vulnerable by concurrent actions than try to make that
     phase longer lasting (->overload some resource used) and let the concurrent action happen
     (-> task of the grammar etc. anyway).
   a) "overload" the CPU's by using
      - high values for parallel if doable    and/or
-     - MariaDB builds with debug or ASAN
+     - MariaDB builds with debug or ASAN or whatever else making them slow
      I guess that this often also overloads the I/O system even if working on tmpfs towards RAM.
   b) "overload" the I/O system by using
      - high values for parallel if doable    and
      - a vardir in a filesystem residing on some exceptional slow device like an internal HDD or
        even better some external backup disk (USB2?, 2.5''?)
-  Using ASAN builds was frequent surprising effective even if hunting bugs revelaled by ASAN was
-  not in focus.
-  The trick with the HDD helped roughly only once per year.
+  Using ASAN builds was frequent surprising effective even if hunting bugs revelaled by ASAN
+  functionality was not in focus.
+  The trick with the HDD helped only roughly only once per year.
 
 
 rqg_batch.pl
@@ -136,7 +137,7 @@ rqg_batch.pl
     and its also "dangerous" like some too "greedy" MTR.
 
 Combinator
-    One work mode (-> type) of rqgbatch.pl.
+    One work mode (-> type) of rqg_batch.pl.
     That its roughly comparable to
         mysql-test-run.pl < --suite=... or --do-test=... or ...>
     which tells to run some sub set of all tests available below <source>/mysql-test.
@@ -146,7 +147,7 @@ Simplifier
     That would be comparable to some mysql-test-run.pl deciding on the fly which MTR test to run
     next depending on failures seen during the execution of other MTR tests.
     Or rather its decides which new test to generate and execute.
-    But MTR does not have such a features.
+    But MTR does not have such features.
 
 
 Important parameters in and around RQG batch
@@ -154,7 +155,7 @@ Important parameters in and around RQG batch
 Environment variable RQG_HOME
    Do not set it at all.
    I have tried to make rqg_batch.pl, rqg.pl safe against it pointing into some maybe alternative
-   and than most probably wrong "RQG universe".
+   and than most probably bad fitting "RQG universe".
    rqg_batch.pl, rqg.pl and all the RQG ingredients they use must be from the same "universe".
 
 
@@ -204,7 +205,10 @@ vardir
       rm -rf /dev/shm/var*
    before starting some rqg_batch run.
    The run will mostly rely on CPU and I/O to RAM speed.
-   Significant paging should be avoided by using a swappiness of ~ 3.
+
+   Significant paging should be avoided by rqg_batch.pl resource control AND
+   using a swappiness of ~ 3.
+
    Adjust swappiness
    -----------------
    With root rights
@@ -328,7 +332,7 @@ command line or config file.
        -rw-rw-r-- mleich/mleich  1337 2018-12-03 22:31 rqg.job
        -rw-rw-r-- mleich/mleich 43055 2018-12-03 22:36 rqg.log
        -rw-rw-r-- mleich/mleich  3042 2018-12-03 22:31 rqg.sql
-       -rw-rw-r-- mleich/mleich  8162 2018-12-03 22:31 rqg.yy  <===== This is grammar and redefine
+       -rw-rw-r-- mleich/mleich  8162 2018-12-03 22:31 rqg.yy  <===== This is grammar and redefines
        -rw-rw-r-- mleich/mleich  1095 2018-12-03 22:31 rqg.zz         joined to effective grammar.
 
    Please do not try to assign redefines files or apply masking in addition.
@@ -343,7 +347,7 @@ command line or config file.
    Default: 300
 
 I recommend to assign nothing to the parameters which follow ==
-   - No '--<parameter>=...' incommand line.
+   - No '--<parameter>=...' in command line.
    - No '<parameter>   => '...' in config file.
 and you just get the defaults.
 4. Maybe switch off the archiving in general because that makes the overall simplification
@@ -361,13 +365,21 @@ and you just get the defaults.
    Default: 30.
 6. duration_adaption
    Adjust the duration assigned to the RQG runs dynamic to the progress.
-   This gets applied only in the phase RQG_GRAMMAR_SIMP.
+   This gets applied only in the phase RQG_GRAMMAR_SIMP/RQG_GRAMMAR_DEST.
    Purpose:
       Example for effect often observed between mid till end of grammar simplification:
       Shrinked grammar
-      - not capable to replay : Need ~ assigned duration YY processing runtime.
-      - capable to replay     : Need serious less YY processing runtime than assigned duration.
-      So assigning some some duration < initial duration would serve to "sort" out the
+      - not capable to replay :
+            Just "consume" ~ assigned duration YY processing runtime.
+      - capable to replay :
+        Need some YY processing runtime which is a bit smaller than the duration assigned to RQG
+        And this YY processing runtime is usually serious smaller than the initial duration
+        which was assigned in the simplifier setup.
+        Variant 1 (usually during begin till mid of simplification):
+           The RQG runs replay if getting sufficient duration.
+        Variant 2 (non rare met towards end of simplification):
+           RQG runs with a grammar which is capable replay either early or never.
+      So assigning some duration < initial duration would serve to "sort" out the
       "hopeless" RQG runs earlier.
    Default: 'duration_adaption_max'
       Have a ten element fifo with the YY processing runtime of the last ten replaying runs.
@@ -383,7 +395,33 @@ and you just get the defaults.
    The simplifier will work in these phases and in the assigned order.
    Default: 'first_replay' ==> 'thread1_replay' ==> 'rvt_simp' ==> 'grammar_simp' ==> 'final_replay'
    Feel free to omit certain phases for saving runtime or to reorder them.
-
+   Please be aware of the following:
+      At the begin of grammar simplification its usually unknown if some bad effect is a concurrency
+      problem or not.
+      So running the RQG simplification phases 'first_replay' and 'thread1_replay' make sense
+      anyway.
+      In case 'thread1_replay' replays too than its quite likely a single actor/user problem but
+      that is not guaranteed.
+      Example:
+          Clash of the single user (we go with thread=1) with some just executed EVENT or some
+          asynchronous of the server or the storage engine.
+      Lets assume its really a not a concurrency problem than there are two alternatives
+      a) You interrupt the simplification process, enable the RQG sqltracing, replay
+         convert the sqltrace to some MTR based test (*), set up the mysqltest simplifier (*)
+         run that and have at end some nice MTR based replay test.
+         (*) Finding the right conversion and especially the right setup is often quite costly.
+             RQG setup and especially the server setup there and MTR defaults differ!
+             And this all is serious manual work.
+             On the other hand the mysqltest simplifier is quite fast thanks to his algorithm
+             even though not being parallelized.
+      b) You let the RQG simplification go on.
+         Its regarding required elapsed time less powerful than a) but it delays the attempt to
+         derive some MTR based replay test with the maybe existing manuell setup problems to a
+         point of time where
+         - the simplification achieved is maybe already sufficient for the bug fixer and he will
+           write the MTR based test
+         - the simplification achieved makes finding the right setup somehow easier and faster
+         - you have no other chance at all
 
 Manual grammar simplification
 =============================
@@ -399,6 +437,8 @@ Manual grammar simplification
 Check if that replays via
      perl rqg_batch.pl --type=simplifier --config=<file used by automatic simplification above> \
      --grammar=<just edited grammar> --stop_on_replay
+The "--stop_on_replay" will cause that rqg_batch.pl stops all ongoing RQG runs and exits as soon as
+the first replay has happened.
 
 
 How to observe what rqg_batch is doing/the progress?
@@ -446,6 +486,6 @@ How to observe what rqg_batch is doing/the progress?
   251   944  7718 last_batch_workdir/p00004.yy
 
 
-Matthias Leich, 2019-02-14
+Matthias Leich, 2019-03-13
 
 
