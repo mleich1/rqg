@@ -79,8 +79,6 @@ sub script_debug_init {
         if (0 == $#script_debug_array and $script_debug_array[0] =~ m/,/) {
             @script_debug_array = split(/,/,$script_debug_array[0]);
         }
-    } else {
-        say("Not defined");
     }
     foreach my $element (@script_debug_array) {
         if ($element eq '') {
@@ -1669,7 +1667,7 @@ sub unify_gendata {
         }
     }
 
-    if ($gendata eq '' or $gendata eq '1') {
+    if ($gendata eq '' or $gendata eq '1' or $gendata eq 'None') {
         # Do nothing.
     } else {
         # We run gendata with a ZZ grammar. So the value in $gendata is a file which must exist.

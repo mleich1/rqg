@@ -79,6 +79,8 @@ use constant GT_TEST_END            => 10;
 use constant GT_QUERY_FILTERS       => 11;
 use constant GT_LOG_FILES_TO_REPORT => 12;
 
+my $debug_here = 0;
+
 sub new {
     my $class = shift;
 
@@ -195,9 +197,10 @@ sub do_init {
         say("-------------------------------\nConfiguration");
         $self->config->printProps;
         $initialized = 1;
-        # say("DEBUG: GenTest::App::GenTest::do_init : Have initialized.");
+        say("DEBUG: GenTest::App::GenTest::do_init: Have initialized.") if $debug_here;
     } else {
-        # say("DEBUG: GenTest::App::GenTest::do_init : Additional initialization omitted.");
+        say("DEBUG: GenTest::App::GenTest::do_init: Additional initialization omitted.")
+            if $debug_here;
     }
 }
 
@@ -266,12 +269,12 @@ sub doGenTest {
    my $init_validators_result = $self->initValidators();
    return $init_validators_result if $init_validators_result != STATUS_OK;
 
-   if (0) {
-       say("DEBUG: Reporters (in doGenTest): ->"    .
-           join("<->", @{$self->config->reporters})    . "<-");
-       say("DEBUG: Validators (in doGenTest): ->"   .
-           join("<->", @{$self->config->validators})   . "<-");
-       say("DEBUG: Transformers (in doGenTest): ->" .
+   if ($debug_here) {
+       say("DEBUG: GenTest::App::GenTest::doGenTest: Reporters: ->"    .
+           join("<->", @{$self->config->reporters})    . "<-\n"        .
+           "DEBUG: GenTest::App::GenTest::doGenTest: Validators: ->"   .
+           join("<->", @{$self->config->validators})   . "<-\n"        .
+           "DEBUG: GenTest::App::GenTest::doGenTest: Transformers: ->" .
            join("<->", @{$self->config->transformers}) . "<-");
    }
 
@@ -549,7 +552,8 @@ sub reportResults {
     say("INFO: The reporters to be run at test end delivered status $report_status.");
 
     if ($report_status > $total_status) {
-       say("DEBUG: Raising the total status from $total_status to $report_status.");
+       say("DEBUG: GenTest::App::GenTest::reportResults: Raising the total status from " .
+           "$total_status to $report_status.") if $debug_here;
        $total_status = $report_status;
     }
 
@@ -721,7 +725,7 @@ sub doGenData {
         $i++;
         last if $self->config->property('upgrade-test') and $i>0;
         next unless $dsn;
-        my $gendata_result;
+        my $gendata_result = STATUS_OK;
         if (defined $self->config->property('gendata-advanced')) {
             $gendata_result = GenTest::App::GendataAdvanced->new(
                dsn => $dsn,
@@ -734,11 +738,15 @@ sub doGenData {
                rows => $self->config->rows,
                varchar_length => $self->config->property('varchar-length')
             )->run();
-         }
+        }
 
-         next if not defined $self->config->gendata();
+        # FIXME: Wouldn't be "last" better?
+        next if not defined $self->config->gendata();
 
-         if ($self->config->gendata eq '' or $self->config->gendata eq '1') {
+        say("DEBUG: GenTest::App::GenTest::doGenData: self->config->gendata : ->" .
+            $self->config->gendata . "<-") if $debug_here;
+
+        if ($self->config->gendata eq '' or $self->config->gendata eq '1') {
             $gendata_result = GenTest::App::GendataSimple->new(
                dsn => $dsn,
                vcols => (defined $self->config->property('vcols') ? ${$self->config->property('vcols')}[$i] : undef),
@@ -750,7 +758,9 @@ sub doGenData {
                rows => $self->config->rows,
                varchar_length => $self->config->property('varchar-length')
             )->run();
-         } elsif ($self->config->gendata()) {
+        } elsif ($self->config->gendata() eq 'None') {
+            # Do nothing
+        } elsif ($self->config->gendata()) {
             $gendata_result = GenTest::App::Gendata->new(
                spec_file => $self->config->gendata,
                dsn => $dsn,
@@ -766,44 +776,44 @@ sub doGenData {
                strict_fields => $self->config->strict_fields,
                notnull => $self->config->notnull
             )->run();
-         }
-         return $gendata_result if $gendata_result > STATUS_OK;
+        }
+        return $gendata_result if $gendata_result > STATUS_OK;
 
-         if ( $self->config->gendata_sql ) {
-           # $self->config->gendata_sql might be just a string containing a file name.
-           # Transform it to an array with one element.
-           if ( not ref $self->config->gendata_sql eq 'ARRAY' ) {
-              my $gendata_sql = [ split /,/, $self->config->gendata_sql ];
-              $self->config->gendata_sql($gendata_sql);
-           }
-           # In case of missing file rather abort before
-           # - running any script processing at all (Scenario: The previous files exist.)
-           # - creating an Executor etc. (Scenario: The current file does not exist.)
-           foreach my $file ( @{$self->config->gendata_sql} )
-           {
-              if ( not -e $file ) {
-                 say("ERROR: lib::GenTest::App::GenTest::doGenData : The SQL file '$file' " .
-                     "does not exist.");
-                 say("ERROR: Will return status STATUS_ENVIRONMENT_FAILURE");
-                 return STATUS_ENVIRONMENT_FAILURE;
-              }
-           }
-           foreach my $file ( @{$self->config->gendata_sql} )
-           {
-              say("INFO: Start processing the SQL file '$file'.");
-              $gendata_result = GenTest::App::GendataSQL->new(
+        if ( $self->config->gendata_sql ) {
+            # $self->config->gendata_sql might be just a string containing a file name.
+            # Transform it to an array with one element.
+            if ( not ref $self->config->gendata_sql eq 'ARRAY' ) {
+                my $gendata_sql = [ split /,/, $self->config->gendata_sql ];
+                $self->config->gendata_sql($gendata_sql);
+            }
+            # In case of missing file rather abort before
+            # - running any script processing at all (Scenario: The previous files exist.)
+            # - creating an Executor etc. (Scenario: The current file does not exist.)
+            foreach my $file ( @{$self->config->gendata_sql} )
+            {
+               if ( not -e $file ) {
+                   say("ERROR: lib::GenTest::App::GenTest::doGenData : The SQL file '$file' " .
+                       "does not exist.");
+                   say("ERROR: Will return status STATUS_ENVIRONMENT_FAILURE");
+                   return STATUS_ENVIRONMENT_FAILURE;
+               }
+            }
+            foreach my $file ( @{$self->config->gendata_sql} )
+            {
+               say("INFO: Start processing the SQL file '$file'.");
+               $gendata_result = GenTest::App::GendataSQL->new(
                     sql_file    => $file,
                     debug       => $self->config->debug,
                     dsn         => $dsn,
                     server_id   => $i, # 'server_id'   => GDS_SERVER_ID,
                     sqltrace    => $self->config->sqltrace,
-              )->run();
-              return $gendata_result if $gendata_result > STATUS_OK;
-           }
-         }
+               )->run();
+               return $gendata_result if $gendata_result > STATUS_OK;
+            }
+        }
 
-         # For multi-master setup, e.g. Galera, we only need to do generation once
-         return STATUS_OK if $self->config->property('multi-master');
+        # For multi-master setup, e.g. Galera, we only need to do generation once
+        return STATUS_OK if $self->config->property('multi-master');
     }
 
     return STATUS_OK;
@@ -918,8 +928,9 @@ sub initReporters {
     @reporter_array = @{$array_ref};
     %reporter_hash  = %{$hash_ref};
 
-    say("DEBUG: Reporters (before check_and_set): ->" . join("<->", sort keys %reporter_hash) .
-        "<-");
+    say("DEBUG: GenTest::App::GenTest::initReporters: Reporters (before check_and_set): ->" .
+        join("<->", sort keys %reporter_hash) . "<-") if $debug_here;
+
     # If one of the reporters is 'None' than don't add any reporters automatically.
     my $no_reporters;
     if (exists $reporter_hash{'None'}) {
@@ -927,7 +938,7 @@ sub initReporters {
     } else {
         $no_reporters = 0;
     }
-    # say("DEBUG: initReporters : no_reporters : $no_reporters");
+    say("DEBUG: GenTest::App::GenTest::initReporters: no_reporters : $no_reporters") if $debug_here;
 
     if (not $no_reporters) {
         if ($self->isMySQLCompatible()) {
@@ -975,8 +986,8 @@ sub initReporters {
     # So we delete this reporter now.
     delete $reporter_hash{'None'};
     @{$self->config->reporters} = sort keys %reporter_hash;
-    say("DEBUG: Reporters (after check_and_set): ->" . join("<->", @{$self->config->reporters}) .
-        "<-");
+    say("DEBUG: GenTest::App::GenTest::initReporters: Reporters (after check_and_set): ->" .
+        join("<->", @{$self->config->reporters}) . "<-") if $debug_here;
 
     my $reporter_manager = GenTest::ReporterManager->new();
 
@@ -1017,8 +1028,9 @@ sub initValidators {
     @validator_array = @{$array_ref};
     %validator_hash  = %{$hash_ref};
 
-    say("DEBUG: Validators (before check_and_set): ->" . join("<->", sort keys %validator_hash) .
-        "<-");
+    say("DEBUG: GenTest::App::GenTest::initValidators: Validators (before check_and_set): ->" .
+        join("<->", sort keys %validator_hash) . "<-") if $debug_here;
+
     # If one of the validators is 'None' than don't add any validators automatically.
     my $no_validators;
     if (exists $validator_hash{'None'}) {
@@ -1026,16 +1038,17 @@ sub initValidators {
     } else {
         $no_validators = 0;
     }
-    # say("DEBUG: initValidators : no_validators : $no_validators");
+    say("DEBUG: GenTest::App::GenTest::initValidators: no_validators : $no_validators")
+        if $debug_here;
 
     if (not $no_validators) {
 
         # In case of multi-master topology (e.g. Galera with multiple "masters"),
         # we don't want to compare results after each query.
         unless ($self->config->property('multi-master')) {
-            if ($self->config->dsn->[2] ne '') {
+            if (defined $self->config->dsn->[2] and $self->config->dsn->[2] ne '') {
                 $validator_hash{'ResultsetComparator3'} = 1;
-            } elsif ($self->config->dsn->[1] ne '') {
+            } elsif (defined $self->config->dsn->[1] and $self->config->dsn->[1] ne '') {
                 $validator_hash{'ResultsetComparator'} = 1;
             }
         }
@@ -1054,17 +1067,15 @@ sub initValidators {
     }
     my @transformer_array;
     my %transformer_hash;
-    my $array_ref;
-    my $hash_ref;
     ($array_ref, $hash_ref) = Auxiliary::unify_rvt_array($self->config->transformers);
     @transformer_array      = @{$array_ref};
     %transformer_hash       = %{$hash_ref};
 
-    say("DEBUG: Transformers (before check_and_set): ->" . join("<->",
-        sort keys %transformer_hash) . "<-");
+    say("DEBUG: GenTest::App::GenTest::initValidators: Transformers (before check_and_set): ->" .
+        join("<->", sort keys %transformer_hash) . "<-") if $debug_here;
+
     if (exists $transformer_hash{'None'}) {
-        say("ERROR: GenTest::initValidators: The Transformer 'None' is not supported in the " .
-            "current RQG core. Abort");
+        say("ERROR: The Transformer 'None' is not supported in the current RQG core. Abort");
         return STATUS_ENVIRONMENT_FAILURE;
     }
 
@@ -1085,8 +1096,8 @@ sub initValidators {
     say("Validators (for Simplifier): ->" . join("<->", sort keys %validator_hash) . "<-");
     delete $validator_hash{'None'};
     @{$self->config->validators} = sort keys %validator_hash;
-        say("DEBUG: Validators (after check_and_set): ->" . join("<->",
-            @{$self->config->validators}) . "<-");
+        say("DEBUG: GenTest::App::GenTest::initValidators: Validators (after check_and_set): ->" .
+            join("<->", @{$self->config->validators}) . "<-") if $debug_here;
 
     # For testing/debugging
     # push @{$self->config->validators}, 'Huhu';
