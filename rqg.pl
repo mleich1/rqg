@@ -330,6 +330,7 @@ if (not GetOptions(
     'report-xml-tt'               => \$report_xml_tt,
     'report-xml-tt-type=s'        => \$report_xml_tt_type,
     'report-xml-tt-dest=s'        => \$report_xml_tt_dest,
+    'restart-timeout=i'           => \$restart_timeout,
     'restart_timeout=i'           => \$restart_timeout,
     'testname=s'                  => \$testname,
     'valgrind!'                   => \$valgrind,
