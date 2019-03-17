@@ -40,11 +40,14 @@ use POSIX;
 
 use DBServer::MySQL::MySQLd;
 
+my $who_am_i = "Reporter 'RestartConsistency'";
 my $first_reporter;
 my $vardir;
 
 sub report {
     my $reporter = shift;
+
+    say("INFO: $who_am_i At begin of report.");
 
     # In case of two servers, we will be called twice.
     # Only kill the first server and ignore the second call.
@@ -53,6 +56,27 @@ sub report {
     return STATUS_OK if $reporter ne $first_reporter;
 
     my $dbh = DBI->connect($reporter->dsn());
+    # mleich: 2019-03
+    # A worker thread "killed" the server via its stream of SQL before the reporter
+    # RestartConsistency connected its first time.
+    # So the reporter gets
+    #     DBI connect('host=127.0.0.1:....) failed: Can't connect to MySQL server ...
+    #     at lib/GenTest/Reporter/RestartConsistency.pm line 55.
+    # and than
+    #     Can't call method "selectcol_arrayref" on an undefined value
+    #     at lib/GenTest/Reporter/RestartConsistency.pm line 169.
+    # which culminates in rqg,pl aborting without making an archive.
+    if (not defined $dbh) {
+        # I hesitate to pick a higher value because
+        # 1. Its the first connect attempt of RestartConsistency but it happens short
+        #    before test end == It is extreme likely that the server was at begin connectable.
+        # 2. In case of a real server crash than its quite likely that some other thread or
+        #    reporter has already reported STATUS_SERVER_CRASHED or will do that soon.
+        #    Throwing STATUS_ENVIRONMENT_FAILURE here would exceed STATUS_SERVER_CRASHED
+        #    and cause some misleading final exit status.
+        say("ERROR: $who_am_i report: Connect failed. Will return STATUS_CRITICAL_FAILURE");
+        return STATUS_CRITICAL_FAILURE;
+    }
 
     dump_database($reporter,$dbh,'before');
 
@@ -64,10 +88,10 @@ sub report {
         sleep 1;
     }
     if (kill(0, $pid)) {
-        say("ERROR: could not shut down server with pid $pid");
+        say("ERROR: $who_am_i report: Could not shut down server with pid $pid.");
         return STATUS_SERVER_DEADLOCKED;
     } else {
-        say("Server with pid $pid has been shut down");
+        say("INFO: $who_am_i report: Server with pid $pid has been shut down");
     }
 
     my $datadir = $reporter->serverVariable('datadir');
@@ -78,7 +102,7 @@ sub report {
     my $engine = $reporter->serverVariable('storage_engine');
 
     my $server = $reporter->properties->servers->[0];
-    say("Copying datadir... (interrupting the copy operation may cause investigation problems later)");
+    say("INFO: $who_am_i report: Copying datadir... (interrupting the copy operation may cause investigation problems later)");
     if (osWindows()) {
         system("xcopy \"$datadir\" \"$orig_datadir\" /E /I /Q");
     } else { 
@@ -87,7 +111,7 @@ sub report {
     move($server->errorlog, $server->errorlog.'_orig');
     unlink("$datadir/core*");    # Remove cores from any previous crash
 
-    say("Restarting server ...");
+    say("INFO: $who_am_i report: Restarting server ...");
 
     $server->setStartDirty(1);
     my $recovery_status = $server->startServer();
@@ -190,6 +214,15 @@ sub compare_dumps {
 }
 
 sub type {
+    # mleich 2019-03:
+    # IMHO in case the server has crashed before than it does not make that much sense
+    # to run this reporter now. So we could go with REPORTER_TYPE_SUCCESS too.
+    # But since we bail out with STATUS_CRITICAL_FAILURE when not getting a connection
+    # the overhead is light weight.
+    # On the other hand:
+    # REPORTER_TYPE_SUCCESS runs only if current status == STATUS_OK and that would mean
+    # we get in case of less evil statuses != STATUS_OK less information than we could.
+    # So REPORTER_TYPE_ALWAYS should be acceptable.
     return REPORTER_TYPE_ALWAYS;
 }
 
