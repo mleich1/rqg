@@ -105,9 +105,11 @@ sub next {
 	no warnings 'surrogate';
 
 	my $grammar = $generator->[GENERATOR_GRAMMAR];
-	my $grammar_rules = $grammar->rules();
+	# my $grammar_rules = $grammar->rules();
+	our $grammar_rules = $grammar->rules();
 
-	my $prng = $generator->[GENERATOR_PRNG];
+	# my $prng = $generator->[GENERATOR_PRNG];
+	our $prng = $generator->[GENERATOR_PRNG];
 	my %rule_invariants = ();
 
 	my %rule_counters;
@@ -140,8 +142,6 @@ sub next {
     # - users should be made aware of the defect in case its some non simplified grammar
     # I tend to let the RQG worker thread abort with STATUS_ENVIRONMENT_FAILURE.
     #
-    # Define some standard message because blacklist_patterns matching needs it.
-    my $abort_message_part = "WARN: Possible endless loop in grammar. Will abort the thread.";
 
 	sub expand {
 		my ($rule_counters, $rule_invariants, @sentence) = @_;
@@ -157,6 +157,9 @@ sub next {
 #           say("DEBUG: sentence_part ->$sentence_part<-");
 #       }
 #       say("DEBUG: sentence_end -------");
+
+        # Define some standard message because blacklist_patterns matching needs it.
+        my $abort_message_part = "WARN: Possible endless loop in grammar. Will abort the thread.";
 
 		if ($#sentence > GENERATOR_MAX_LENGTH) {
 			say("WARN: GenTest::Generator::FromGrammar : Sentence is now longer than " .
@@ -376,7 +379,7 @@ sub next {
 
 		}
 		return @sentence;
-	}
+	} # end of sub expand
 
 	#
 	# If a temporary file has been left from a previous statement, unlink it.
