@@ -1,4 +1,4 @@
-# Copyright (C) 2016 MariaDB Corporation Ab
+# Copyright (C) 2016, 2019 MariaDB Corporation Ab.
 # 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -43,6 +43,8 @@ use DBServer::MySQL::MySQLd;
 my $who_am_i = "Reporter 'RestartConsistency'";
 my $first_reporter;
 my $vardir;
+my $errorlog_before;
+my $errorlog_after;
 
 sub report {
     my $reporter = shift;
@@ -65,7 +67,7 @@ sub report {
     # and than
     #     Can't call method "selectcol_arrayref" on an undefined value
     #     at lib/GenTest/Reporter/RestartConsistency.pm line 169.
-    # which culminates in rqg,pl aborting without making an archive.
+    # which culminates in rqg.pl aborting without making an archive.
     if (not defined $dbh) {
         # I hesitate to pick a higher value because
         # 1. Its the first connect attempt of RestartConsistency but it happens short
@@ -78,7 +80,11 @@ sub report {
         return STATUS_CRITICAL_FAILURE;
     }
 
-    dump_database($reporter,$dbh,'before');
+    my $dump_return = dump_database($reporter,$dbh,'before');
+    if ($dump_return > STATUS_OK) {
+        say("ERROR: Dumping the database failed with status $dump_return.");
+        return $dump_return;
+    }
 
     my $pid = $reporter->serverInfo('pid');
     kill(15, $pid);
@@ -108,13 +114,16 @@ sub report {
     } else { 
         system("cp -r $datadir $orig_datadir");
     }
-    move($server->errorlog, $server->errorlog.'_orig');
+    $errorlog_before = $server->errorlog.'_orig';
+    # move($server->errorlog, $server->errorlog.'_orig');
+    move($server->errorlog, $errorlog_before);
     unlink("$datadir/core*");    # Remove cores from any previous crash
 
     say("INFO: $who_am_i report: Restarting server ...");
 
     $server->setStartDirty(1);
     my $recovery_status = $server->startServer();
+    $errorlog_after = $server->errorlog;
     open(RECOVERY, $server->errorlog);
 
     while (<RECOVERY>) {
@@ -179,7 +188,11 @@ sub report {
     # 
     # Phase 3 - dump the server again and compare dumps
     #
-    dump_database($reporter,$dbh,'after');
+    my $dump_return = dump_database($reporter,$dbh,'after');
+    if ($dump_return > STATUS_OK) {
+        say("ERROR: Dumping the database failed with status $dump_return.");
+        return $dump_return;
+    }
     return compare_dumps();
 }
     
@@ -201,14 +214,30 @@ sub dump_database {
 
 sub compare_dumps {
 	say("Comparing SQL dumps between servers before and after restart...");
-	my $diff_result = system("diff -u $vardir/server_before.dump $vardir/server_after.dump");
+    # mleich 2019-03:
+    # Diff in line  ) ENGINE= ... AUTO_INCREMENT=...
+    # but the CREATE TABLE .... <table_name> .... line is not included.
+    # - <table_name> would be important for search in server error log.
+    # - diff -u leads to 3 lines context only. ~ 50 lines would be better.
+    # Its not unlikely that the before restart server error log shows trouble around <table_name>
+    # but that server error log does not get printed at all.
+    # A print of the server error log after the restart is most probably less important
+    # because already checked above but
+    # - the checks might have become weak (outdated search patterns)
+    # - that error log shouldn't be that long.
+    # In general
+    # In case we have a failing test than printing up to a few thousand lines more into the
+    # RQG log makes the inspection easier.
+	my $diff_result = system("diff -U 50 $vardir/server_before.dump $vardir/server_after.dump");
 	$diff_result = $diff_result >> 8;
 
 	if ($diff_result == 0) {
 		say("No differences were found between server contents before and after restart.");
 		return STATUS_OK;
 	} else {
-		say("Server contents has changed");
+		say("ERROR: Server content has changed after shutdown+restart");
+        sayFile($errorlog_before);
+        sayFile($errorlog_after);
 		return STATUS_DATABASE_CORRUPTION;
 	}
 }
