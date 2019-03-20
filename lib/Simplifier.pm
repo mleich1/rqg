@@ -1580,8 +1580,9 @@ sub register_result {
             # current $child_grammar.
             my $source = $workdir . "/" . $child_grammar;
             Batch::copy_file($source, $target);
-            if (PHASE_THREAD1_REPLAY eq $phase) {
-                Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW);
+            if      (PHASE_FIRST_REPLAY eq $phase) {
+                $first_replay_success   = 1;
+            } elsif (PHASE_THREAD1_REPLAY eq $phase) {
                 say("INFO: We had a replay in phase '$phase'. " .
                     "Will adjust the parent grammar and the number of threads used to 1.");
                 $threads = 1;
