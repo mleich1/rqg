@@ -395,40 +395,44 @@ sub doGenTest {
       $errorfilter_p->start();
    }
 
-   # We are the parent process, wait for for all spawned processes to terminate
-   my $total_status  = STATUS_OK;
-   my $reporter_died = 0;
-
    ## Parent thread does not use channel
    $self->channel()->close;
 
-   # Worker & Reporter processes that were spawned.
-   my @spawned_pids = (keys %worker_pids, $reporter_pid);
-
+   # We are the parent process, wait for for all spawned processes to terminate
+   my $total_status  = STATUS_OK;
+   my $reporter_died = 0;
    OUTER: while (1) {
+      # Worker & Reporter processes that were spawned.
+      my @spawned_pids = (keys %worker_pids, $reporter_pid);
+
       # Wait for processes to complete, i.e only processes spawned by workers & reporters.
       foreach my $spawned_pid (@spawned_pids) {
-         my $child_pid = waitpid($spawned_pid, WNOHANG);
-         next if $child_pid == 0;
-         my $child_exit_status = $? > 0 ? ($? >> 8) : 0;
 
-         $total_status = $child_exit_status if $child_exit_status > $total_status;
+         my $message_begin = "Process with pid $spawned_pid ";
 
-         my $message_begin = "Process with pid $child_pid for ";
-         my $message_end   = " ended with status " . status2text($child_exit_status);
-         if ($child_pid == $reporter_pid ) {
-            say($message_begin . "Reporter"                 . $message_end);
-            # There was only one reporter process. So we leave the loop.
-            $reporter_died = 1;
-            last OUTER;
+         my ($reaped, $child_exit_status) = reapChild($spawned_pid, $worker_pids{$spawned_pid});
+         if (0 == $reaped) {
+            if ($child_exit_status > STATUS_OK) {
+                return STATUS_INTERNAL_ERROR;
+            } else {
+                next;
+            }
          } else {
-            say($message_begin . $worker_pids{$spawned_pid} . $message_end);
-            delete $worker_pids{$child_pid};
+            $total_status = $child_exit_status if $child_exit_status > $total_status;
+            my $message_end   = " ended with status " . status2text($child_exit_status);
+            if ($spawned_pid == $reporter_pid ) {
+               say($message_begin . " for periodic reporter" . $message_end);
+               # There was only one reporter process. So we leave the loop.
+               $reporter_died = 1;
+               say("DEBUG: GenTest: Therefore leaving the 'OUTER' loop.");
+               last OUTER;
+            } else {
+               say($message_begin . "for " . $worker_pids{$spawned_pid} . $message_end);
+               delete $worker_pids{$spawned_pid};
+            }
+            last OUTER if $child_exit_status >= STATUS_CRITICAL_FAILURE;
+            last OUTER if keys %worker_pids == 0;
          }
-
-         last OUTER if $child_exit_status >= STATUS_CRITICAL_FAILURE;
-         last OUTER if keys %worker_pids == 0;
-         last OUTER if $child_pid == -1;
       }
       sleep 5;
    }
@@ -463,7 +467,10 @@ sub doGenTest {
       if (osWindows()) {
          # We use sleep() + non-blocking waitpid() due to a bug in ActiveState Perl
          Time::HiRes::sleep(1);
-         waitpid($reporter_pid, &POSIX::WNOHANG() );
+         my $waitpid_return = waitpid($reporter_pid, &POSIX::WNOHANG() );
+         if (not defined $waitpid_return) {
+            waitpid($reporter_pid, &POSIX::WNOHANG() );
+         }
       } else {
          waitpid($reporter_pid, 0);
       }
@@ -613,12 +620,19 @@ sub reportingProcess {
     $self->channel()->close();
 
     Time::HiRes::sleep(($self->config->threads + 1) / 10);
-    say("Started periodic reporting process...");
+    say("INFO: Periodic reporting process at begin of activity");
 
     my $reporter_status= STATUS_OK;
     while (1) {
         $reporter_status = $self->reporterManager()->monitor(REPORTER_TYPE_PERIODIC);
-        last if $reporter_status > STATUS_CRITICAL_FAILURE or $reporter_killed == 1;
+        if ($reporter_status >= STATUS_CRITICAL_FAILURE) {
+            say("ERROR: Periodic reporting process: Status $reporter_status got. Leaving loop");
+            last;
+        }
+        if ($reporter_killed == 1) {
+            say("INFO: Periodic reporting process: reporter_killed == 1. Leaving loop");
+            last;
+        }
         sleep(10);
     }
 
@@ -1248,6 +1262,59 @@ sub reportXMLIncidents {
         }
     }
 }
+
+sub reapChild {
+# Usage
+# -----
+# Try to reap that child.
+#
+# Input
+# -----
+# $spawned_pid -- Pid of the process to check
+# $info        -- Some text to be used for whatever messages
+#
+# Return
+# ------
+# $reaped -- 0 (not reaped) or 1 (reaped)
+# $status -- exit status of the process if reaped, otherwise STATUS_OK
+#
+
+    my ($spawned_pid, $info) = @_;
+    my $reaped = 0;
+    my $status = STATUS_OK;
+
+    #---------------------------
+    my $waitpid_return = waitpid($spawned_pid, WNOHANG);
+    my $child_exit_status = $? > 0 ? ($? >> 8) : 0;
+    # Returns observed:
+    if      (not defined $waitpid_return) {
+        # 1. !!! undef !!!
+        #    During deep inspections with a lot debugging code rerunning waitpid delivered
+        #    all time $spawned_pid. Here we rerun on the next reapChild call.
+        say("WARN: waitpid for $spawned_pid ($info) returned undef.");
+        return 0, STATUS_OK;
+    } elsif (0 == $waitpid_return) {
+        # 2. 0 == Process is running
+        say("DEBUG: waitpid for $spawned_pid ($info) returned 0. Process is running.");
+        return 0, STATUS_OK;
+    } elsif ($spawned_pid == $waitpid_return) {
+        # 3. $spawned_pid == The process was a zombie and we have just reaped.
+        say("DEBUG: Process $spawned_pid ($info) was reaped. Status was $child_exit_status.");
+        return 1, $child_exit_status;
+    } else {
+        # 3. -1 == Defect in RQG mechanics because we should not try to reap
+        #          - an already reaped process
+        #          - a process which is not our child
+        #          Both would point to a heavy mistake in bookkeeping.
+        #    or
+        #    other value != $spawned_pid == Unexpected behaviour of waitpid on current box
+        say("ERROR: waitpid for $spawned_pid ($info) returned $waitpid_return which we cannot " .
+            "handle. Will return STATUS_INTERNAL_ERROR.");
+        return 0, STATUS_INTERNAL_ERROR;
+    }
+
+} # End sub reapChild
+
 
 1;
 
