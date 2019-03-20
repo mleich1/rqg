@@ -403,7 +403,7 @@ my $campaign_success = 0;
 #    Advantage: We have the decreasing amount of active RQG runs towards campaign end too.
 #               But we will have less campaigns than in case a).
 #
-# Her we use a combination of both.
+# Here we use a combination of both.
 #
 # $refill_number
 # --------------
@@ -512,6 +512,7 @@ sub init {
     #   'build_thread=i'            => \$build_thread,          # Swallowed and handled by rqg_batch
         'trials=i'                  ,                           # Handled here (max no of finished trials for certain phases only)
         'duration=i'                ,                           # Handled here
+        'max_rqg_runtime=i'         ,                           # Handled here
         'queries=i'                 ,                           # Handled here
 #       'seed=s'                    => \$seed,                  # Handled(Ignored!) here
     #   'force'                     => \$force,                 # Swallowed and handled by rqg_batch
@@ -581,6 +582,7 @@ sub init {
                     'queries',                                  # Handled
                     'duration',                                 # Handled
                     'duration_adaption',                        # Handled
+                    'max_rqg_runtime',
                     'trials',                                   # Handled
                     'algorithm',
                     'search_var_size',
@@ -764,6 +766,29 @@ sub init {
             Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
+
+    my $mrr = $config->max_rqg_runtime;
+    if (defined $mrr and $mrr >= 0) {
+        say("DEBUG: max_rqg_runtime '$mrr' was assigned via rqg_batch.pl call or " .
+            "within config file top level.\n" .
+            "DEBUG: Wiping all other occurrences of settings for max_rqg_runtime.")
+            if Auxiliary::script_debug("S2");
+        delete $config->rqg_options->{'max_rqg_runtime'};
+    } else {
+        $mrr = $config->rqg_options->{'max_rqg_runtime'};
+        if (defined $mrr and $mrr >= 0) {
+            say("DEBUG: max_rqg_runtime '$mrr' was assigned in config file rqg_option section. " .
+                "Wiping all other occurrences of settings for duration.")
+            if Auxiliary::script_debug("S2");
+            delete $config->rqg_options->{'max_rqg_runtime'};
+        } else {
+            say("DEBUG: max_rqg_runtime was not assigned. Setting it to the default.")
+                if Auxiliary::script_debug("S2");
+            $mrr = $duration + 1800;
+        }
+    }
+    say("INFO: max_rqg_runtime in s: $mrr");
+    Batch::set_max_rqg_runtime($mrr);
 
     # $queries can be in the the command line snip.
     $queries = $config->queries;

@@ -77,7 +77,11 @@ use constant JOB_MEMO1      => 2;  # undef or Child  grammar or Child  rvt_snip
 use constant JOB_MEMO2      => 3;  # undef or Parent grammar or Parent rvt_snip
 use constant JOB_MEMO3      => 4;  # undef or Adapted duration
 
-my $max_rqg_runtime = 600;
+my $max_rqg_runtime = 5400;
+sub set_max_rqg_runtime {
+    $max_rqg_runtime = @_;
+    # FIXME: Check that it is an int > 0.
+}
 
 # $give_up == Some general prospect for the future of the rqg_batch.pl run.
 # -------------------------------------------------------------------------

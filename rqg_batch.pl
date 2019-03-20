@@ -224,7 +224,7 @@ my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar
     $help, $help_simplifier, $help_combinator, $help_verdict, $runner,
     $stop_on_replay, $script_debug, $runid, $threads, $type, $algorithm, $resource_control);
 
-$max_rqg_runtime = 600;
+$max_rqg_runtime = 1800;
 
 # my @basedirs    = ('', '');
 my @basedirs;
