@@ -162,7 +162,7 @@ sub init {
             "load is all time allowed.");
         return LOAD_INCREASE, undef, undef;
     } else {
-        say("INFO: Automatic ResourceControl is enabled. Type '$rc_type'.");
+        say("INFO: Automatic ResourceControl is enabled. Report type '$rc_type'.");
     }
 
     if (not defined $vardir) {

@@ -109,7 +109,7 @@ sub extractFromFiles {
                         "Will return undef.");
             return undef;
         }
-        say "Reading grammar from file $grammar_file";
+        say "Reading grammar from file '$grammar_file'.";
         my $grammar_string;
         my $result = read (GF, $grammar_string, -s $grammar_file);
         if (not defined $result) {
@@ -246,10 +246,9 @@ sub parseFromString {
     # 2: query_init; query_init_add; thread2_init_add
     # 3: thread3_init
 
-
-    my @query_adds = ();
-    my %thread_adds = ();
-    my @query_init_adds = ();
+    my @query_adds       = ();
+    my %thread_adds      = ();
+    my @query_init_adds  = ();
     my %thread_init_adds = ();
 
     foreach my $rule_string (@rule_strings) {
