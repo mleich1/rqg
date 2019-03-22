@@ -952,7 +952,6 @@ sub init {
     # say("RVT options : " . get_shrinked_rvt_options('reporter','omo')); --> undef
     # say("RVT options : " . get_shrinked_rvt_options('reporter','Backtrace'));
     # say("RVT options : " . get_shrinked_rvt_options('reporter','ErrorLog'));
-    # say("RVT options : " . get_shrinked_rvt_options('transformer','None'));
 
     my $rqg_options_end = $config->genOpt('--', 'rqg_options');
     if (Auxiliary::script_debug("S5")) {
@@ -1326,7 +1325,7 @@ sub generate_orders {
         $success = 1;
     } elsif (PHASE_RVT_SIMP eq $phase) {
         # RVT_SIMP:
-        # - best     <whatever>              --> 'None' only
+        # - best     <whatever>              --> 'None' only (except transforme where '' is best)
         # - good     <whatever without None> --> <same whatever>, None
         # - good     <whatever>              --> <same whatever with some element != None removed>
         if (not $have_rvt_generated) {
@@ -1352,24 +1351,30 @@ sub generate_orders {
                 }
 
                 if      (0 == scalar keys %hash) {
-                    add_order($cl_snip_all . $cl_snip_phase, $category, '_add_None');
-                    $success++;
+                    if ('transformer' ne $category) {
+                       add_order($cl_snip_all . $cl_snip_phase, $category, '_add_None');
+                       $success++;
+                    }
                 } elsif (1 == scalar keys %hash) {
-                    if (not exists $hash{'None'}) {
-                        add_order($cl_snip_all . $cl_snip_phase, $category, '_all_to_None');
-                        $success++;
-                        add_order($cl_snip_all . $cl_snip_phase, $category, '_add_None');
-                        $success++;
-                    } else {
-                        # Nothing to do because the one and only value is already 'None'.
+                    if ('transformer' ne $category) {
+                        if (not exists $hash{'None'}) {
+                            add_order($cl_snip_all . $cl_snip_phase, $category, '_all_to_None');
+                            $success++;
+                            add_order($cl_snip_all . $cl_snip_phase, $category, '_add_None');
+                            $success++;
+                        } else {
+                            # Nothing to do because the one and only value is already 'None'.
+                        }
                     }
                 } else {
-                    # In minimum one of the elements must be != 'None'.
-                    add_order($cl_snip_all . $cl_snip_phase, $category, '_all_to_None');
-                    $success++;
-                    if (not exists $hash{'None'}) {
-                        add_order($cl_snip_all . $cl_snip_phase, $category, '_add_None');
+                    if ('transformer' ne $category) {
+                        # In minimum one of the elements must be != 'None'.
+                        add_order($cl_snip_all . $cl_snip_phase, $category, '_all_to_None');
                         $success++;
+                        if (not exists $hash{'None'}) {
+                            add_order($cl_snip_all . $cl_snip_phase, $category, '_add_None');
+                            $success++;
+                        }
                     }
                     foreach my $value_to_remove (keys %hash) {
                         next if $value_to_remove eq 'None';
