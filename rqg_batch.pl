@@ -231,7 +231,6 @@ my @basedirs;
 
 
 $discard_logs  = 0;
-my $resource_control;
 
 # FIXME:
 # Modify these options.
