@@ -29,8 +29,6 @@ package Simplifier;
 #
 # The amount of parameters (call line + config file) is in the moment
 # not that stable.
-# On the long run the script rql_batch.pl will be extended and replace
-# the current script.
 #
 
 use strict;
@@ -107,8 +105,8 @@ use constant PHASE_GRAMMAR_DEST     => 'grammar_dest';
 # - containing more than one alternative/component
 # - being used more than once
 # within the actual best replaying grammar.
-# In case this is not a no op than there must a PHASE_GRAMMAR_SIMP round follow.
-use constant PHASE_GRAMMAR_CLONE    => 'grammar_clone';    # Implementation later
+# In case this is not a no op than there should a PHASE_GRAMMAR_SIMP round follow.
+use constant PHASE_GRAMMAR_CLONE    => 'grammar_clone';
 #
 # Replace grammar language builtins like _digit and similar by rules doing the same.
 # In case this is not a no op than there must a PHASE_GRAMMAR_SIMP round follow.
@@ -137,6 +135,7 @@ my @simp_chain_default = ( # PHASE_SIMP_BEGIN,
                            PHASE_THREAD1_REPLAY,
                            PHASE_RVT_SIMP,
                            PHASE_GRAMMAR_SIMP,
+                           PHASE_GRAMMAR_CLONE,
                            PHASE_FINAL_REPLAY,
                            # PHASE_SIMP_END,
                          );
@@ -158,6 +157,25 @@ my $algorithm;
 use constant SIMP_ALGO_WEIGHT     => 'weight';
 use constant SIMP_ALGO_RANDOM     => 'random';  # not yet implemented
 use constant SIMP_ALGO_MASKING    => 'masking'; # not yet implemented
+# The algorithms SIMP_ALGO_RANDOM and SIMP_ALGO_MASKING are neither
+# - strict required
+#   SIMP_ALGO_WEIGHT seems to be matured enough for not having some
+#   alternative less complex algorithm.
+# nor
+# - expected to be at least sometimes more powerful than SIMP_ALGO_WEIGHT.
+#   Per experience with historic implementations:
+#   - SIMP_ALGO_RANDOM is all time serious slower than SIMP_ALGO_WEIGHT but
+#     serious less complex.
+#   - SIMP_ALGO_MASKING is
+#     - not serious less complex than SIMP_ALGO_WEIGHT
+#     - sometimes roughly as fast as SIMP_ALGO_WEIGHT up till a bit faster
+#     - most times serious faster than SIMP_ALGO_RANDOM
+#     - sometimes serious slower than SIMP_ALGO_WEIGHT
+#     In average over different simplification setups (especially different grammars)
+#     SIMP_ALGO_WEIGHT was faster than SIMP_ALGO_MASKING.
+# So if SIMP_ALGO_RANDOM and/or SIMP_ALGO_MASKING get ever implemented than for academic and/or
+# research purposes only.
+#
 
 
 # Structure for managing orders
@@ -1046,7 +1064,6 @@ sub init {
 
     say("DEBUG: Leaving 'Simplifier::init") if Auxiliary::script_debug("S6");
 
-
 } # End sub init
 
 
@@ -1691,7 +1708,7 @@ sub register_result {
         $phase_switch = 1;
         Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW);
         say("DEBUG: Setting phase_switch to $phase_switch because left_over_trials" .
-            "($left_over_trials) no more > 0.") if Auxiliary::script_debug("S3"); 
+            "($left_over_trials) no more > 0.") if Auxiliary::script_debug("S3");
         return Batch::REGISTER_SOME_STOPPED;
     }
 
@@ -1776,16 +1793,31 @@ sub switch_phase {
         return;
     }
 
-#   if (PHASE_GRAMMAR_SIMP eq $phase or
-#       PHASE_GRAMMAR_DEST eq $phase   ) {
-#       GenTest::Simplifier::Grammar_advanced::print_rule_hash();
-#   }
 
     $phase = shift @simp_chain;
 
     if (PHASE_THREAD1_REPLAY eq $phase and 1 == $threads ) {
-        say("INFO: threads is alreay 1. Omitting phase '" . PHASE_THREAD1_REPLAY . "'.");
+        say("INFO: threads is already 1. Omitting phase '" . PHASE_THREAD1_REPLAY . "'.");
         $phase = shift @simp_chain;
+    }
+    if (PHASE_GRAMMAR_CLONE eq $phase ) {
+        # FIXME: Find some solution which is more elegant than reloading from file.
+        load_grammar($parent_grammar, 10);
+        my $start_grammar_string = $grammar_string;
+        GenTest::Simplifier::Grammar_advanced::print_rule_hash();
+        $grammar_string = GenTest::Simplifier::Grammar_advanced::use_clones_in_grammar;
+        if ($start_grammar_string eq $grammar_string) {
+            say("INFO: Cloning did not change the grammar. Therefore a repetition of grammar " .
+                "simplification is not required.");
+            $phase = shift @simp_chain;
+        } else {
+            make_parent_from_string ($grammar_string);
+            my $iso_ts = isoTimestamp();
+            Batch::write_result("$iso_ts   Cloning of multiple used rules with multiple " .
+                                "components ==> new parent grammar '$parent_grammar'\n");
+            say("INFO: Cloning changed the grammar. Starting grammar simplification.");
+            $phase = PHASE_GRAMMAR_SIMP;
+        }
     }
 
 
@@ -1842,9 +1874,6 @@ sub switch_phase {
         Batch::write_result("$iso_ts ---------- $phase ---------- ($child_grammar)\n" .
                             $iso_ts . $title_line_part);
     } elsif (PHASE_SIMP_END eq $phase)   {
-        $grammar_string = GenTest::Simplifier::Grammar_advanced::init(
-                              $workdir . "/" . $parent_grammar, $threads, 200, $grammar_flags);
-        Batch::make_file($workdir . "/final.yy", $grammar_string . "\n");
         say("");
         say("");
         if (1 <= $simp_success) {
@@ -1852,6 +1881,9 @@ sub switch_phase {
             say("SUMMARY: simplified number of threads : $threads") if 1 <= $thread1_replay_success;
             say("SUMMARY: simplified RVT setting : '" . $rvt_snip . "'") if 1 <= $rvt_simp_success;
             if (1 <= $grammar_simp_success) {
+                $grammar_string = GenTest::Simplifier::Grammar_advanced::init(
+                                   $workdir . "/" . $parent_grammar, $threads, 200, $grammar_flags);
+                Batch::make_file($workdir . "/final.yy", $grammar_string . "\n");
                 say("SUMMARY: simplified(tested) RQG Grammar : '" . $workdir . "/$best_grammar'");
                 say("SUMMARY: simplified(non tested) RQG Grammar : '" . $workdir . "/final.yy'");
             }
@@ -2097,6 +2129,7 @@ sub report_replay {
             # So we do nothing.
         }
     } else {
+        # Its a phase where the end is near like FIRST_REPLAY.
         Batch::stop_worker_young;
         Batch::stop_worker_on_order_except_replayer($order_id);
         Batch::add_to_try_never($order_id);

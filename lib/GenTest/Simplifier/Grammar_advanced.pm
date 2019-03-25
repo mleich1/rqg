@@ -322,25 +322,31 @@ sub print_rule_info {
 
 sub print_rule_hash {
     say("DEBUG: Print of rule_hash content ========== begin");
-    foreach my $rule_name (keys %rule_hash ) {
+    foreach my $rule_name (sort keys %rule_hash ) {
         say("---------------------");
         print_rule_info ($rule_name);
     }
     say("DEBUG: Print of rule_hash content ========== end")
 }
 
+sub add_rule_to_hash {
+    my ($rule_name) = @_;
+    # Bail out if  $rule_name is undef or $rule_name exists
+    $rule_hash{$rule_name}->[RULE_WEIGHT]            =      0;
+    $rule_hash{$rule_name}->[RULE_RECURSIVE]         =      0;
+    $rule_hash{$rule_name}->[RULE_REFERENCING]       =      0;
+    $rule_hash{$rule_name}->[RULE_REFERENCED]        =      0;
+    $rule_hash{$rule_name}->[RULE_JOBS_GENERATED]    =      0;
+    $rule_hash{$rule_name}->[RULE_IS_PROCESSED]      =      0;
+    $rule_hash{$rule_name}->[RULE_UNIQUE_COMPONENTS] =      0;
+    $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL]      =      0;
+    say("DEBUG: add_rule_to_hash : rule '$rule_name' added.") if $script_debug;
+}
+
 sub fill_rule_hash {
     undef %rule_hash;
     foreach my $rule_name ( keys %{$grammar_obj->rules()} ) {
-        $rule_hash{$rule_name}->[RULE_WEIGHT]            =      0;
-        $rule_hash{$rule_name}->[RULE_RECURSIVE]         =      0;
-        $rule_hash{$rule_name}->[RULE_REFERENCING]       =      0;
-        $rule_hash{$rule_name}->[RULE_REFERENCED]        =      0;
-        $rule_hash{$rule_name}->[RULE_JOBS_GENERATED]    =      0;
-        $rule_hash{$rule_name}->[RULE_IS_PROCESSED]      =      0;
-        $rule_hash{$rule_name}->[RULE_UNIQUE_COMPONENTS] =      0;
-        $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL]      =      0;
-        say("DEBUG: fill_rule_hash : rule '$rule_name' added.") if $script_debug;
+        add_rule_to_hash($rule_name);
     }
 }
 
@@ -350,6 +356,8 @@ sub reset_rule_hash_values {
         $rule_hash{$rule_name}->[RULE_RECURSIVE]         =      0;
         $rule_hash{$rule_name}->[RULE_REFERENCING]       =      0;
         $rule_hash{$rule_name}->[RULE_REFERENCED]        =      0;
+        # Keeping the value for RULE_JOBS_GENERATED is essential
+        # during grammar simplification campaigns.
         # $rule_hash{$rule_name}->[RULE_JOBS_GENERATED]    =      0;
         $rule_hash{$rule_name}->[RULE_IS_PROCESSED]      =      0;
         $rule_hash{$rule_name}->[RULE_UNIQUE_COMPONENTS] =      0;
@@ -378,6 +386,14 @@ sub grammar_rule_hash_consistency {
 
 
 sub analyze_all_rules {
+
+# Purpose/Activity:
+# 1. Actualize rule_hash
+# 2. Delete unused rules
+# Note:
+# - RULE_WEIGHT will not get actualized!
+# - RULE_JOB_GENERATED does not get touched
+# - No inlining of rules
 
     foreach my $rule_name (keys %rule_hash) {
         $rule_hash{$rule_name}->[RULE_IS_PROCESSED] = 0;
@@ -431,9 +447,11 @@ sub analyze_all_rules {
 
                     for (my $part_id = $#{$components->[$component_id]}; $part_id >= 0; $part_id--) {
                         my $component_part = $components->[$component_id]->[$part_id];
-                        say("DEBUG: '$rule_name' part_id $part_id component_part ->$component_part<-") if $script_debug;
+                        say("DEBUG: '$rule_name' part_id $part_id component_part " .
+                            "->$component_part<-") if $script_debug;
                         if (exists $rule_hash{$component_part}) {
-                            say("DEBUG: '$rule_name' part_id $part_id component_part ->$component_part<- is a rule.") if $script_debug;
+                            say("DEBUG: '$rule_name' part_id $part_id component_part " .
+                                "->$component_part<- is a rule.") if $script_debug;
                             if ($component_part eq $rule_name) {
                                 say("DEBUG: The rule 'rule_name' is recursive because a component of it " .
                                     "contains '$rule_name'.") if $script_debug;
@@ -483,7 +501,8 @@ sub analyze_all_rules {
                 } else {
                     $grammar_obj->deleteRule($rule_name);
                     delete $rule_hash{$rule_name};
-                    say("DEBUG: The rule '$rule_name' will be never used and was therefore deleted.") if $script_debug;
+                    say("DEBUG: The rule '$rule_name' will be never used and was therefore " .
+                        "deleted.") if $script_debug;
                     $run_all_again = 1;
                 }
             }
@@ -513,7 +532,8 @@ sub analyze_all_rules {
                     } else {
                         $grammar_obj->deleteRule($del_rule_name);
                         delete $rule_hash{$del_rule_name};
-                        say("DEBUG: We have a 'thread<number>' for any thread. Rule '$del_rule_name' was therefore deleted.") if $script_debug;
+                        say("DEBUG: We have a 'thread<number>' for any thread. Rule " .
+                            "'$del_rule_name' was therefore deleted.") if $script_debug;
                         $run_all_again = 1;
                     }
                 }
@@ -538,20 +558,6 @@ sub analyze_all_rules {
 
         say("DEBUG: Expect to run all again.") if ($run_all_again and $script_debug);
     }
-
-}
-
-
-sub remove_unused_rules {
-
-# Note: Its currently in the routine analyze_all_rules
-
-# Difficult cases to handle right!
-# Rules call top level rules like
-# thread1:
-#    ddl   |
-#    query ;
-#
 
 }
 
@@ -610,7 +616,14 @@ sub extract_thread_from_rule_name {
 
 
 # sub remove_unused_rules {
-# FIXME: Implement!
+# Note: Its currently in the routine analyze_all_rules
+
+# Difficult cases to handle right!
+# Rules call top level rules like
+# thread1:
+#    ddl   |
+#    query ;
+#
 
 # Purpose
 # -------
@@ -792,7 +805,7 @@ sub calculate_weights {
 # The per my experience in sum best solution (highest simplification speed but also most complex
 # code) is the
 # Precharge the top level rules with static values:
-# - (simple): 'query' gets a 1, thread<n> 0.3 and the *_connect and *_init less.
+# - (simple): 'query' gets a 1, thread<n> a bit less and the *_connect and *_init less.
 # - (sophisticated): Maybe the values dependend on the number of threads finally used.
 # Having a value > 0 in some rule  means also that this rule is in use.
 # Decompose the top level rule into its component, determine per component the rules which occur
@@ -848,7 +861,8 @@ sub calculate_weights {
     # Precharge all existing rules which are
     # - used as top level rules ( 1 == $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL] )
     # - not thread specific (thread<number>* is thread_specific)
-    # Note: We "overcharge" in case some corresponding 'thread<number>' exists.
+    # Note:
+    # We "overcharge" temporary 'query*' in case some corresponding 'thread<number>' exists.
     my $rule_name = 'query';
     if(exists $rule_hash{$rule_name} and 1 == $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL]) {
         say("DEBUG: calculate_weights : Process now rule '$rule_name', weight : " .
@@ -859,6 +873,10 @@ sub calculate_weights {
     }
     $rule_name = 'query_init';
     # Only once per RQG run.
+    # The number of queries which will be finally executed does not need to be the value of
+    # queries assigned to the RQG run. An addition the latter value is not available here.
+    # Its also unknown if the query_init content is unexpected important or not.
+    # So the factor 1 / 100000 is just a guess.
     if(exists $rule_hash{$rule_name} and 1 == $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL]) {
         say("DEBUG: calculate_weights : Process now rule '$rule_name', weight : " .
             $rule_hash{$rule_name}->[RULE_WEIGHT]) if $script_debug;
@@ -868,6 +886,8 @@ sub calculate_weights {
     }
     $rule_name = 'query_connect';
     # There might be several connects/disconnect per RQG run and thread.
+    # But number of reconnects which will be finally executed is unknown.
+    # So the factor 1 / 1000 is just a guess.
     if(exists $rule_hash{$rule_name} and 1 == $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL]) {
         say("DEBUG: calculate_weights : Process now rule '$rule_name', weight : " .
             $rule_hash{$rule_name}->[RULE_WEIGHT]) if $script_debug;
@@ -876,7 +896,7 @@ sub calculate_weights {
             $rule_hash{$rule_name}->[RULE_WEIGHT]) if $script_debug;
     }
     $rule_name = 'thread_connect';
-    # There might be several connects/disconnect per RQG run and thread.
+    # 'thread_connect' is a synonym of 'query_connect'.
     if(exists $rule_hash{$rule_name} and 1 == $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL]) {
         say("DEBUG: calculate_weights : Process now rule '$rule_name', weight : " .
             $rule_hash{$rule_name}->[RULE_WEIGHT]) if $script_debug;
@@ -887,7 +907,8 @@ sub calculate_weights {
     # Precharge all existing rules which are
     # - used as top level rules ( 1 == $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL] )
     # - thread specific (thread<number>* is thread_specific)
-    # and revert the previous "overcharge".
+    # including applying a factor 1 / $threads.
+    # Revert after that the previous "overcharge" of 'query*' rules.
     my @top_rule_list = $grammar_obj->top_rule_list();
     foreach my $rule_name (@top_rule_list) {
         # Lets assume the rule is 'thread13'.
@@ -1054,7 +1075,8 @@ sub shrink_grammar {
         if      (0 >= scalar @unique_components) {
             Carp::confess("INTERNAL ERROR: Met 0 >= unique components in rule '$rule_name'.");
         } elsif (1 == scalar @unique_components) {
-            say("DEBUG: shrink_grammar: The rule '$rule_name' has already only one unique component.") if $script_debug;
+            say("DEBUG: shrink_grammar: The rule '$rule_name' has already only one unique " .
+                "component.") if $script_debug;
             return undef;
         } else {
             # Nothing to do.
@@ -1168,5 +1190,100 @@ sub shrink_grammar {
 
 } # End of sub shrink_grammar
 
+
+my $clone_number = 0;
+sub use_clones_in_rule {
+#
+# Return values
+# undef --> Failure (recommendation for Simplifier is abort)
+#
+    my ($rule_name) = @_;
+    say("Inspecting '$rule_name'");
+    my $rule_obj = $grammar_obj->rule($rule_name);
+    $rule_hash{$rule_name}->[RULE_UNIQUE_COMPONENTS] = scalar $rule_obj->unique_components;
+
+    # Decompose the rule.
+    my $components = $rule_obj->components();
+
+    for (my $component_id = $#$components; $component_id >= 0; $component_id--) {
+
+        my $component = $components->[$component_id];
+
+        for (my $part_id = $#{$components->[$component_id]}; $part_id >= 0; $part_id--) {
+            my $component_part = $components->[$component_id]->[$part_id];
+            say("DEBUG: '$rule_name' part_id $part_id component_part ->$component_part<-") if $script_debug;
+            if (exists $rule_hash{$component_part}) {
+                say("DEBUG: '$rule_name' part_id $part_id component_part ->$component_part<- " .
+                    "is a rule.") if $script_debug;
+                if ($component_part eq $rule_name) {
+                    say("DEBUG: The rule 'rule_name' is recursive because a component of it " .
+                        "contains '$rule_name'.") if $script_debug;
+                    next;
+                } else {
+                    if ($rule_hash{$component_part}->[RULE_REFERENCED] > 1 and
+                        $rule_hash{$component_part}->[RULE_UNIQUE_COMPONENTS] > 1) {
+                        my $clone_name = "__clone__" . ++$clone_number;
+                        $components->[$component_id]->[$part_id] = $clone_name;
+                        GenTest::Grammar::cloneRule($grammar_obj, $component_part, $clone_name);
+                        add_rule_to_hash($clone_name);
+                        say("DEBUG: use_clones_in_rule for '$rule_name': Rule '$component_part' " .
+                            "cloned to '$clone_name'") if $script_debug;
+                    } else {
+                        # Non sense would be to clone
+                        # - an only once used rule (technically just a rename)
+                        # - a rule with one component/alternative only.
+                    }
+                }
+            }
+        }
+    }
+}
+
+sub use_clones_in_grammar {
+
+# FIXME:
+# Add checks for mistakes and test
+# Concept:
+# We just make the cloning along the queue of rules ordered (dynamic during work) according
+# decreasing RULE_WEIGHT. In order to avoid multiple processing of rules we mark processed
+# rules by setting RULE_JOBS_GENERATED. This field will be not touched when resetting rule_hash.
+#
+    my $clone_limit = 100;
+    my $clone_start = $clone_number;
+
+    # Without all RULE_IS_PROCESSED values set to 0 the operation will omit touching certain rules.
+    foreach my $rule_name (keys %rule_hash) {
+        $rule_hash{$rule_name}->[RULE_IS_PROCESSED] = 0;
+    }
+    calculate_weights();
+    my $rule_name = next_rule_to_process(RULE_JOBS_GENERATED, RULE_WEIGHT);
+    # What if undef (== INTERNAL ERROR) ?
+    while (defined $rule_name) {
+    #   print_rule_hash();
+        use_clones_in_rule($rule_name);
+    #   print_rule_hash();
+        # Update RULE_REFERENCED and RULE_UNIQUE_COMPONENTS.
+        analyze_all_rules();
+        # Unclear if that (inlining+...) gives some advantage.
+        compact_grammar(10);
+    #   print_rule_hash();
+        # Update RULE_WEIGHT (required for next_rule_to_process ....)
+        calculate_weights();
+    #   print_rule_hash();
+        # Prevent that we inspect/process the current rule again.
+        $rule_hash{$rule_name}->[RULE_JOBS_GENERATED] = 1;
+        if ($clone_number - $clone_start >= $clone_limit) {
+            say("DEBUG: clone_limit reached");
+            last;
+        }
+        $rule_name = next_rule_to_process(RULE_JOBS_GENERATED, RULE_WEIGHT);
+    }
+    # Most probably not required but very useful if forgotten later.
+    foreach my $rule_name (keys %rule_hash) {
+        $rule_hash{$rule_name}->[RULE_IS_PROCESSED] = 0;
+    }
+    return $grammar_obj->toString();
+
+}
 
 1;
