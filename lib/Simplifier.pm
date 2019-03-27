@@ -1622,7 +1622,8 @@ sub register_result {
             if ($grammar_parent eq $rvt_now) {
                 # Its a first replayer based on the current parent rvt options.
                 # add_to_try_never stops all running RQG Worker using that order_id.
-                Batch::stop_worker_young;
+                my $stop_count = Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_GENDATA,
+                                                    Batch::STOP_REASON_WORK_FLOW);
                 Batch::stop_worker_on_order($order_id);
                 Batch::add_to_try_never($order_id);
                 my $rvt_options = get_shrinked_rvt_options($order_array[$order_id][ORDER_PROPERTY2],
@@ -1649,7 +1650,8 @@ sub register_result {
                 # Its a first replayer based on the current parent grammar.
                 reload_grammar($grammar_used);
                 # add_to_try_never stops all running RQG Worker using that order_id.
-                Batch::stop_worker_young;
+                my $stop_count = Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_GENDATA,
+                                                    Batch::STOP_REASON_WORK_FLOW);
                 Batch::stop_worker_on_order($order_id);
                 Batch::add_to_try_never($order_id);
                 $simp_success           = 1;
@@ -1721,12 +1723,14 @@ sub switch_phase {
         if Auxiliary::script_debug("S4");
 
     if (PHASE_FIRST_REPLAY eq $phase and 0 == $first_replay_success) {
-        say("SUMMARY: Even the attempt to make a first replay with the full test failed.");
-        say("SUMMARY: Hence no other simplification steps were tried.");
-        say("HINT: Maybe the\n" .
-            "HINT: - black/white lists (especially the pattern sections) are faulty or " .
-            "HINT: - RQG test setup (basedir, grammar etc.) is wrong or "                .
+        say("\n\nSUMMARY: Even the attempt to make a first replay with the full test failed.\n"    .
+            "SUMMARY: Hence no other simplification steps were tried.\n"                           .
+            "HINT: Maybe the\n"                                                                    .
+            "HINT: - black/white lists (especially the pattern sections) are faulty or\n"          .
+            "HINT: - RQG test setup (basedir, grammar etc.) is wrong or\n"                         .
             "HINT: - trials/duration/queries are too small.");
+        say("");
+        say("");
         $phase        = PHASE_SIMP_END;
         $phase_switch = 0;
         return;
@@ -1795,6 +1799,21 @@ sub switch_phase {
 
 
     $phase = shift @simp_chain;
+
+    if (PHASE_FINAL_REPLAY eq $phase and 0 == $simp_success) {
+        say("\n\nSUMMARY: None of the attempts to simplify the test achieved success.\n"           .
+            "SUMMARY: Hence some simplified test does not exist. Omitting the phase '"             .
+            PHASE_FINAL_REPLAY . "'.\n"                                                            .
+            "HINT: Maybe the\n"                                                                    .
+            "HINT: - black/white lists (especially the pattern sections) are faulty or\n"          .
+            "HINT: - RQG test setup (basedir, grammar etc.) is wrong or\n"                         .
+            "HINT: - trials/duration/queries are too small.");
+        say("");
+        say("");
+        $phase        = PHASE_SIMP_END;
+        $phase_switch = 0;
+        return;
+    }
 
     if (PHASE_THREAD1_REPLAY eq $phase and 1 == $threads ) {
         say("INFO: threads is already 1. Omitting phase '" . PHASE_THREAD1_REPLAY . "'.");
@@ -1884,14 +1903,14 @@ sub switch_phase {
                 $grammar_string = GenTest::Simplifier::Grammar_advanced::init(
                                    $workdir . "/" . $parent_grammar, $threads, 200, $grammar_flags);
                 Batch::make_file($workdir . "/final.yy", $grammar_string . "\n");
-                say("SUMMARY: simplified(tested) RQG Grammar : '" . $workdir . "/$best_grammar'");
-                say("SUMMARY: simplified(non tested) RQG Grammar : '" . $workdir . "/final.yy'");
+                say("SUMMARY: simplified(tested) RQG Grammar : '" . $workdir . "/$best_grammar'\n" .
+                    "SUMMARY: simplified(non tested) RQG Grammar : '" . $workdir . "/final.yy'");
             }
-            say("");
-            say("");
         } else {
             say("SUMMARY: No RQG test simplification achieved.");
         }
+        say("");
+        say("");
     } else {
         Carp::cluck("INTERNAL ERROR: Handling for phase '$phase' is missing.");
         my $status = STATUS_INTERNAL_ERROR;
@@ -2097,7 +2116,8 @@ sub report_replay {
             Batch::copy_file($source, $target);
             # This means the child grammar used should become the base of the next parent grammar.
             reload_grammar($replay_grammar);
-            Batch::stop_worker_young;
+            my $stop_count = Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_GENDATA,
+                                                Batch::STOP_REASON_WORK_FLOW);
             Batch::stop_worker_on_order_except_replayer($order_id);
             Batch::add_to_try_never($order_id);
             $grammar_simp_success = 1;
@@ -2119,7 +2139,8 @@ sub report_replay {
                 my $status = STATUS_INTERNAL_ERROR;
                 Batch::emergency_exit($status);
             }
-            Batch::stop_worker_young;
+            my $stop_count = Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_GENDATA,
+                                                Batch::STOP_REASON_WORK_FLOW);
             Batch::stop_worker_on_order_except_replayer($order_id);
             Batch::add_to_try_never($order_id);
             $rvt_simp_success = 1;
@@ -2130,7 +2151,8 @@ sub report_replay {
         }
     } else {
         # Its a phase where the end is near like FIRST_REPLAY.
-        Batch::stop_worker_young;
+        my $stop_count = Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_GENDATA,
+                                            Batch::STOP_REASON_WORK_FLOW);
         Batch::stop_worker_on_order_except_replayer($order_id);
         Batch::add_to_try_never($order_id);
     }

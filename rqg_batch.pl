@@ -886,9 +886,10 @@ while($Batch::give_up <= 1) {
                         $message . "\n       Assume some serious problem. Perform an EMERGENCY exit" .
                         "(try to stop all child processes) without any cleanup of vardir and workdir.");
                     } else {
-                        # Assume more overload than acceptable.
+                        # There seems to be more load than we are willing to handle.
                         say("INFO: $message");
-                        Batch::stop_worker_young;
+                        Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_PREPARE,
+                                                            Batch::STOP_REASON_RESOURCE);
                         Batch::adjust_workers_range;
                     }
                 } else {

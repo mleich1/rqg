@@ -330,7 +330,8 @@ sub set_workers_range {
 sub adjust_workers_range {
     # Needed after getting LOAD_DECREASE, reducing the load till all is ok
     $workers_mid = count_active_workers();
-    my $max_min = int(0.75 * $workers_mid);
+    # Experimental: Old value was 0.75
+    my $max_min = int(0.85 * $workers_mid);
     if ($workers_min > $max_min) {
         $workers_min = $max_min;
     }
@@ -501,7 +502,7 @@ sub stop_worker_on_order_except_replayer {
 
 # # Stop all jobs with that order_id and same or more older grammar
 
-sub stop_worker_young {
+sub stop_worker_young_till_phase {
 # Purpose
 # -------
 # This gets used by the Simplifier only!
@@ -519,8 +520,10 @@ sub stop_worker_young {
 #   and restart it with some new grammar which is based on the original order and the latest
 #   parent grammar.
 #
-    Carp::cluck("DEBUG: Try to stop RQG worker with phase <= GENDATA begin.")
+    my ($phase, $reason) = @_;
+    Carp::cluck("DEBUG: Try to stop young RQG workers with phase <= $phase begin.")
         if Auxiliary::script_debug("T6");
+    my $stop_count = 0;
     for my $worker_num (1..$workers_max) {
         my $pid = $worker_array[$worker_num][WORKER_PID];
         if (-1 != $pid) {
@@ -531,18 +534,25 @@ sub stop_worker_young {
                 my $status = STATUS_ENVIRONMENT_FAILURE;
                 emergency_exit($status, "ERROR: Batch::stop_worker_young : No phase for " .
                                "RQG worker $worker_num got. Will ask for emergency_exit.");
-            } elsif (Auxiliary::RQG_PHASE_INIT    eq $rqg_phase or
-                     Auxiliary::RQG_PHASE_START   eq $rqg_phase or
-                     Auxiliary::RQG_PHASE_PREPARE eq $rqg_phase or
-                     Auxiliary::RQG_PHASE_GENDATA eq $rqg_phase   ) {
-                     stop_worker($worker_num, STOP_REASON_WORK_FLOW);
-                     say("DEBUG: Stopped young RQG worker $worker_num")
-                         if Auxiliary::script_debug("T6");
+            } else {
+                my $allowed_list_ptr = Auxiliary::RQG_PHASE_ALLOWED_VALUE_LIST;
+                my @phase_list = @{$allowed_list_ptr};
+                my $phase_from_list = pop @phase_list;
+                while (defined $phase_from_list) {
+                    if ($phase_from_list eq $phase and $rqg_phase eq $phase) {
+                        stop_worker($worker_num, $reason);
+                        $stop_count++;
+                        say("DEBUG: Stopped young RQG worker $worker_num")
+                             if Auxiliary::script_debug("T6");
+                    }
+                    $phase_from_list = pop @phase_list;
+                }
             }
         }
     }
-    Carp::cluck("DEBUG: Try to stop RQG worker with phase <= GENDATA end.")
-        if Auxiliary::script_debug("T6");
+    say("DEBUG: Batch::stop_worker_young: Number of RQG workers with phase <= '$phase' stopped: " .
+        "$stop_count") if Auxiliary::script_debug("T6");
+    return $stop_count;
 }
 
 sub emergency_exit {
@@ -563,11 +573,6 @@ my $last_load_decrease;
 my $last_load_keep;
 my $no_raise_before;
 #
-# $too_many_workers
-# -----------------
-# Start with $workers(==$parallel) + 1.
-# Reduce to $active_workers when meeting ResourceControl::LOAD_DECREASE and
-# before stopping a worker (Which will than decreases $active_workers).
 # FIXME:
 # Rough model to imagine
 # $parallel (equal) dices, every dice has for every existing combination a surface with a number
@@ -596,6 +601,13 @@ sub check_resources {
     if (not defined $previous_workers) {
         $previous_workers = 0;
     }
+    my $finished_runs = $verdict_replay + $verdict_interest + ($verdict_ignore - $stopped);
+    if ($first_load_up) {
+        if ($finished_runs > $workers_mid) {
+            $first_load_up = 0;
+            say("INFO: Declaring the first_load_up+balance_out phase to be over.");
+        }
+    }
 
     if  (ResourceControl::LOAD_INCREASE eq $load_status) {
 
@@ -603,13 +615,19 @@ sub check_resources {
         return STATUS_FAILURE if $active_workers + 1 > $workers_max;
 
         my $current_time = Time::HiRes::time();
-        my $worker_share = ($active_workers + 1 - $workers_min) / ($workers_mid - $workers_min);
-        $worker_share = 0 if 0 > $worker_share;
+        my $worker_share1 = ($active_workers + 1 - $workers_min) / ($workers_mid - $workers_min);
+        $worker_share1 = 0 if 0 > $worker_share1;
+        my $worker_share2 = ($active_workers + 1) / $workers_min;
         my $delay;
         if ($first_load_up) {
-            $delay = $worker_share * 30;
+            $delay = $worker_share1 * 60;
+            if ($finished_runs > $workers_min) {
+                $delay += $worker_share2 * 3;
+            } else {
+                $delay += 3;
+            }
         } else {
-            $delay = $worker_share * $worker_share * 10;
+            $delay = $worker_share1 * $worker_share1 * 10;
         }
 
         if ($previous_workers + 2 <= $active_workers) {
@@ -695,59 +713,62 @@ sub check_resources {
 
     if (ResourceControl::LOAD_DECREASE eq $load_status) {
         my $problem_persists = 1;
-        if ($no_raise_before < $current_time + 60) {
-            $no_raise_before = $current_time + 60;
-        }
+        #  LOOP till the problem is fixed
         while ($problem_persists) {
-            #  LOOP till the problem is fixed
-            # FIXME: Is that the right place for adjustment?
+            $last_load_decrease = $current_time;
+            if ($no_raise_before < $current_time + 60) {
+                $no_raise_before = $current_time + 60;
+            }
             if ($active_workers < $workers_mid) {
                 adjust_workers_range;
             }
-            $last_load_decrease = $current_time;
-            # Stop the youngest RQG worker
-            my $worker_start  = 0;
-            my $worker_number = 0;
-            for my $worker_num (1..$workers_max) {
-                next if -1 == $worker_array[$worker_num][WORKER_PID];
-                if ($worker_array[$worker_num][WORKER_START] > $worker_start) {
-                    $worker_start = $worker_array[$worker_num][WORKER_START];
-                    $worker_number = $worker_num;
+            my $current_active_workers = $active_workers;
+            if (0 == stop_worker_young_till_phase(Auxiliary::RQG_PHASE_PREPARE,
+                                                             STOP_REASON_RESOURCE) ) {
+                # stop_worker_young_till_phase brought nothing.
+                # So stop the youngest of the remaining RQG workers.
+                my $worker_start  = 0;
+                my $worker_number = 0;
+                for my $worker_num (1..$workers_max) {
+                    next if -1 == $worker_array[$worker_num][WORKER_PID];
+                    if ($worker_array[$worker_num][WORKER_START] > $worker_start) {
+                        $worker_start = $worker_array[$worker_num][WORKER_START];
+                        $worker_number = $worker_num;
+                    }
                 }
-            }
-            if (0 == $worker_number) {
-                my $status = STATUS_ENVIRONMENT_FAILURE;
-                emergency_exit($status, "ERROR: ResourceControl::report delivered '$load_status' " .
-                               "but no active RQG worker detected.");
-            } else {
-                # Kill the processgroup of the RQG worker picked.
-                stop_worker($worker_number, STOP_REASON_RESOURCE);
-                # Even a kill SIGKILL requires some time especially on some heavy loaded box.
-                # So we need to run 'reap_workers' which will free the resources till the number of
-                # active workers has decreased.
-                # Special case: What if some other worker "passed" away?
-                my $max_wait = 30;
-                my $end_time = time() + $max_wait;
-                # FIXME:
-                # The activity of the other RQG workers could be also dangerous and 30s is long.
-                while (time() < $end_time and -1 != $worker_array[$worker_number][WORKER_PID]) {
-                    reap_workers();
-                    sleep 0.1;
-                }
-                my $worker_pid = $worker_array[$worker_number][WORKER_PID];
-                if (-1 == $worker_pid) {
-                    say("DEBUG: RQG worker $worker_number had to be stopped. " .
-                        "Reason: " . STOP_REASON_RESOURCE ) if Auxiliary::script_debug("T1");
-                } else {
+                if (0 == $worker_number) {
                     my $status = STATUS_ENVIRONMENT_FAILURE;
-                    emergency_exit($status, "ERROR: Batch::check_resources: Waited $max_wait s " .
-                        "but the main process $worker_pid of the RQG worker $worker_number has " .
-                        "not disappeared like intended. Will ask for emergency_exit.");
+                    emergency_exit($status, "ERROR: ResourceControl::report delivered '$load_status' " .
+                                   "but no active RQG worker detected.");
+                } else {
+                    # Kill the processgroup of the RQG worker picked.
+                    stop_worker($worker_number, STOP_REASON_RESOURCE);
                 }
             }
-            # Actualize $active_workers because routines like ResourceControl::report might
-            # come to different 'conclusions'.
-            $active_workers = count_active_workers();
+            # The system is in a critical state because of resource consumption.
+            # The freeing of resources is done by reap_workers() only.
+            # But reap_workers() requires that the exit status of the process of the RQG worker
+            # could be reaped. And that depends on if the kill SIGKILL is finished.
+            # But even a kill SIGKILL requires some time especially on some heavy loaded box.
+            # So we need to run 'reap_workers' till the number of active workers has decreased.
+            # It is intentional to not wait till all stopped workers are reaped.
+            my $max_wait = 30;
+            my $end_time = time() + $max_wait;
+            # FIXME:
+            # The activity of the other RQG workers could be also dangerous and 3s or 30s is long.
+            while (time() < $end_time and $active_workers >= $current_active_workers) {
+                sleep 0.1;
+                reap_workers();
+                $active_workers = count_active_workers();
+            }
+            if ($active_workers < $current_active_workers) {
+                # Great.
+            } else {
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                emergency_exit($status, "ERROR: Batch::check_resources: Waited $max_wait s " .
+                          "but none of the RQG worker processes could be reaped. " .
+                          "Will ask for emergency_exit.");
+            }
             $load_status = ResourceControl::report($active_workers);
             if (ResourceControl::LOAD_DECREASE ne $load_status) {
                 $problem_persists = 0;
@@ -757,7 +778,7 @@ sub check_resources {
                 sleep 1;
             }
         }
-        # $problem_persists is now 0, but $load_status is now != LOAD_DECREASE.
+        # $problem_persists is now 0, but $load_status is now also != LOAD_DECREASE.
         # Case 1:
         # The current $load_status is less evil than LOAD_DECREASE.
         # The handling for that status is no more reachable (~ 50 lines above) and partially
