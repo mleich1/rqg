@@ -1174,6 +1174,7 @@ say(Verdict::MATCHING_START);
 #
 # Start servers.
 #
+Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_PREPARE);
 
 my @server;
 my $rplsrv;
