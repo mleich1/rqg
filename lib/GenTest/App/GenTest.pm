@@ -1094,7 +1094,7 @@ sub initValidators {
     }
 
     if (not $no_validators) {
-        if (0 != scalar keys %validator_hash) {
+        if (0 != scalar keys %transformer_hash) {
             my $hasTransformer = 0;
             foreach my $t (keys %validator_hash) {
                 if ($t =~ /^Transformer/) {
