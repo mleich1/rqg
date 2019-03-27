@@ -495,7 +495,6 @@ sub report {
 
     my $estimation =
     "DEBUG: Estimation for vardir           : ".int($vr_U)." , ".int($vr_D)." , ".int($vr_K)."\n".
-    "DEBUG: Estimation for vardir           : ".int($vr_U)." , ".int($vr_D)." , ".int($vr_K)."\n".
     "DEBUG: Estimation for RAM/avoid paging : ".int($rr_U)." , ".int($rr_D)." , ".int($rr_K)."\n".
     "DEBUG: Estimation for memory           : ".int($mr_U)." , ".int($mr_D)." , ".int($mr_K)."\n".
     "DEBUG: Estimation for swapspace        : ".int($sr_U)." , ".int($sr_D)." , ".int($sr_K)."\n".
