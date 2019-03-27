@@ -430,10 +430,11 @@ use constant RQG_PHASE_START              => 'start';
    # - Up till now nothing important or valuable done. == Roughly no loss if stopped.
    # - Ressouce use of the runner is negligible. == Roughly no win if stopped.
 use constant RQG_PHASE_PREPARE            => 'prepare';
-   # Set by RQG runner when checking the parameters etc.
+   # Set by RQG runner.
    # RQG tool point of view:
+   # - Important: DB servers are most probably running.
    # - Up till now nothing important or valuable done. == Roughly no loss if stopped.
-   # - Ressouce use of the runner is negligible. == Roughly no win if stopped.
+   # - Ressouce use of the runner is significant. == Significant win if stopped.
 use constant RQG_PHASE_GENDATA            => 'gendata';
    # Set by RQG runner.
    # RQG tool point of view:
@@ -504,8 +505,9 @@ use constant RQG_PHASE_COMPLETE           => 'complete';
 # the smart tool might decide to stop certain RQG runs and to rerun them later.
 #
 
+# Warning: The order between the elements of the list is important.
 use constant RQG_PHASE_ALLOWED_VALUE_LIST => [
-      RQG_PHASE_INIT, RQG_PHASE_START, RQG_PHASE_START, RQG_PHASE_GENDATA, RQG_PHASE_GENTEST,
+      RQG_PHASE_INIT, RQG_PHASE_START, RQG_PHASE_PREPARE, RQG_PHASE_GENDATA, RQG_PHASE_GENTEST,
       RQG_PHASE_SERVER_CHECK, RQG_PHASE_SERVER_COMPARE, RQG_PHASE_FINISHED, RQG_PHASE_ANALYZE,
       RQG_PHASE_ARCHIVING, RQG_PHASE_COMPLETE
    ];
