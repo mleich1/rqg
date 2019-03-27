@@ -1295,11 +1295,12 @@ sub reapChild {
         return 0, STATUS_OK;
     } elsif (0 == $waitpid_return) {
         # 2. 0 == Process is running
-        say("DEBUG: waitpid for $spawned_pid ($info) returned 0. Process is running.");
+        say("DEBUG: waitpid for $spawned_pid ($info) returned 0. Process is running.") if $debug_here;
         return 0, STATUS_OK;
     } elsif ($spawned_pid == $waitpid_return) {
         # 3. $spawned_pid == The process was a zombie and we have just reaped.
-        say("DEBUG: Process $spawned_pid ($info) was reaped. Status was $child_exit_status.");
+        say("DEBUG: Process $spawned_pid ($info) was reaped. Status was $child_exit_status.")
+            if $debug_here;
         return 1, $child_exit_status;
     } else {
         # 3. -1 == Defect in RQG mechanics because we should not try to reap
