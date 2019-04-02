@@ -1054,7 +1054,8 @@ say("HINT:       As long as this was the last run of rqg_batch.pl the symlink\n"
     "            will point to this workdir.\n")                                                   ;
 say("RESULT:     The highest (process) exit status of some RQG run was : $total_status")           ;
 my $best_verdict;
-$best_verdict = Verdict::RQG_VERDICT_INIT;
+$best_verdict = '--';
+$best_verdict = Verdict::RQG_VERDICT_INIT     if 0 < $Batch::verdict_init;
 $best_verdict = Verdict::RQG_VERDICT_IGNORE   if 0 < $Batch::verdict_ignore;
 $best_verdict = Verdict::RQG_VERDICT_INTEREST if 0 < $Batch::verdict_interest;
 $best_verdict = Verdict::RQG_VERDICT_REPLAY   if 0 < $Batch::verdict_replay;
