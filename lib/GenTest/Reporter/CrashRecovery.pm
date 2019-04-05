@@ -1,4 +1,5 @@
 # Copyright (C) 2013 Monty Program Ab
+# Copyright (C) 2019 MariaDB Corporation Ab.
 # 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -185,7 +186,7 @@ sub report {
 						$main_predicate = $main_predicate." OR `$column_name` IS NULL OR `$column_name` IS NOT NULL";
 					}
 			
-					push @walk_queries, "SELECT $select_type FROM `$database`.`$table` FORCE INDEX ($key_name) ".$main_predicate;
+					push @walk_queries, "SELECT $select_type FROM `$database`.`$table` FORCE INDEX (`$key_name`) ".$main_predicate;
 				}
 			};
 
