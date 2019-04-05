@@ -622,9 +622,11 @@ sub check_resources {
         if ($first_load_up) {
             $delay = $worker_share1 * 60;
             if ($finished_runs > $workers_min) {
-                $delay += $worker_share2 * 3;
-            } else {
+                # FIXME
+                # Find some better criterion for the point of some first load stabilization.
                 $delay += 3;
+            } else {
+                $delay += $worker_share2 * 3;
             }
         } else {
             $delay = $worker_share1 * $worker_share1 * 10;
