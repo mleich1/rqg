@@ -399,6 +399,7 @@ sub monitor {
             if (defined $clone_dbh->err() and $clone_dbh->err() > 0) {
                 direct_to_std();
                 say("ERROR: $msg_snip : '$sql' failed with : " . $clone_dbh->err());
+                sayFile($clone_err);
                 sayFile($reporter_prt);
                 my $status = STATUS_DATABASE_CORRUPTION;
                 say("ERROR: $msg_snip : Will exit with status " . status2text($status) . "($status)");
