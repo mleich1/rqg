@@ -1,4 +1,4 @@
-# Copyright (c) 2018 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -74,12 +74,13 @@ ASSERT_EGALIZE="sed -e '1,\$s/#.* | mysqld: /mysqld: /g'"
   ASAN_EGALIZE="sed -e '1,\$s/#.* | SUMMARY: AddressSanitizer: /SUMMARY: AddressSanitizer: /g'";
  INNO_EGALIZE1="sed -e '1,\$s/#.* | .* InnoDB: Assertion failure /InnoDB: Assertion failure /g'";
  INNO_EGALIZE2="sed -e '1,\$s/#.* | InnoDB: Failing assertion: /InnoDB: Failing assertion: /g'";
+       EXCLUDE="egrep -iv 'whitelist|blacklist'"
 
 # 2>/dev/null because maybe
 # - the subdirectories (result of grammar simplifier runs)    or
 # - the RQG logs do not exist
 MyCmd="egrep -H -e '$ASSERT_PATTERN|$ASAN_PATTERN|$INNO_PATTERN1|$INNO_PATTERN2' *.log */*.log 2>/dev/null | \
-$ASSERT_EGALIZE | $ASAN_EGALIZE | $INNO_EGALIZE1 | $INNO_EGALIZE2 | sort -n > issue_and_file.txt"
+$ASSERT_EGALIZE | $ASAN_EGALIZE | $INNO_EGALIZE1 | $INNO_EGALIZE2 | $EXCLUDE | sort -n > issue_and_file.txt"
 eval "$MyCmd"
 
 MyCmd="sed -e '1,\$s/^.*[0-9][0-9]*.log://g' issue_and_file.txt | sort > issue_frequency.txt"
