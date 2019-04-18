@@ -187,8 +187,8 @@ sub do_init {
         # FIXME:
         # We only initialize here.
         # - Some hypothetic RQG runner might omit processing the YY grammar.
-        # - Even if with the current runner its questionable why to report this
-        #   now (probably before gendata) and not when the YY grammar processing happens.
+        # - Even with the current runners its questionable why to report this
+        #   now (usually before gendata) and not when the YY grammar processing happens.
         my $queries = $self->config->queries;
         $queries =~ s{K}{000}so;
         $queries =~ s{M}{000000}so;

@@ -39,7 +39,7 @@
 #          and a hint how to fix that
 #    c) mysqldump called by the reporter 'RestartConsistency' before server shutdown fails with
 #          Got error: 1146: "Table 'test.<final table_name>' doesn't exist" when using LOCK TABLES
-#    d) frequent diffs between dumnp before and after server shutdown/restart like
+#    d) frequent diffs between dump before and after server shutdown/restart like
 #       autoincrement value or encryption key value or ....
 #       There was at least never a diff of table content.
 #    e) The server error log after shutdown/restart was all time free of suspicious messages.
@@ -52,7 +52,7 @@
 #    or
 #    - the server denies to execute certain DDL because he feels unsure if he is allowed to
 #      a file "<looks like a final table_name>.ibd".
-# 7. (maybe permnent) Play around with different values for
+# 7. (maybe permanent) Play around with different values for
 #    innodb_buffer_pool_instances , innodb_doublewrite , innodb-encryption-threads , threads
 #
 $combinations = [

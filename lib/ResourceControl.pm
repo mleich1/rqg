@@ -129,11 +129,13 @@ my $print = 0;
 
 # Print the memory consumption of the process running rqg_batch
 # -------------------------------------------------------------
-# Failures within the code for the order management and especially the simplifier could tend
-# to cause some dramatic growth of memory consumption.
+# Failures within the code for the order management and especially the simplifier could tend to
+# cause some dramatic or "endless" growth of memory consumption of the perl process running
+# rqg_batch.pl.
+# $rqg_batch_debug set to 1 causes printing `ps -p $$ --no-headers -o vsz,rsz,sz,size`
 my $rqg_batch_debug = 0;
 
-# Print the estimated values
+# If set to 1 than print the estimated values
 my $resource_control_debug = 0;
 
 sub init {
