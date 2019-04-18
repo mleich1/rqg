@@ -712,7 +712,7 @@ sub compact_grammar {
     my $debug_snip = "DEBUG: compact_grammar:";
 
     # Begin of inlining
-    foreach my $rule_name ( keys %{$grammar_obj->rules()} ) {
+    foreach my $rule_name ( sort keys %{$grammar_obj->rules()} ) {
 
         if ($rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL]) {
             # Top level rules cannot be inlined.
@@ -746,7 +746,7 @@ sub compact_grammar {
             next;
         }
 
-        foreach my $inspect_rule_name ( keys %{$grammar_obj->rules()} ) {
+        foreach my $inspect_rule_name ( sort keys %{$grammar_obj->rules()} ) {
 
             # Recursive rules can be inlined into other rules which reference them.
             # But never inlined into themselve.
@@ -788,7 +788,7 @@ sub compact_grammar {
         } # End of inlining
         $grammar_obj->deleteRule($rule_name);
         delete $rule_hash{$rule_name};
-        say("$snip The Rule was inlined and therefore deleted.") if $script_debug;
+        say("$snip The content of the rule was inlined and therefore the rule deleted.") if $script_debug;
     } # End of search for inline candidates and inlining
     grammar_rule_hash_consistency;
 } # End of sub compact_grammar
@@ -1264,10 +1264,12 @@ sub use_clones_in_grammar {
     #   print_rule_hash();
         # Update RULE_REFERENCED and RULE_UNIQUE_COMPONENTS.
         analyze_all_rules();
-        # Unclear if that (inlining+...) gives some advantage.
-        compact_grammar(10);
+        # Never call compact_grammar(...) here because it will bring the grammar (grammar_obj)
+        # and rule_hash out of sync. And than the consistency check will abort simplification.
     #   print_rule_hash();
-        # Update RULE_WEIGHT (required for next_rule_to_process ....)
+        # "calculate_weight" will update RULE_WEIGHT of all rules.
+        # This is not strict required but it will cause that "next_rule_to_process" provides on
+        # the next call the most important (RULE_WEIGHT) non processed rule.
         calculate_weights();
     #   print_rule_hash();
         # Prevent that we inspect/process the current rule again.
