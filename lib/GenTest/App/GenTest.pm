@@ -503,11 +503,17 @@ sub doGenTest {
    # This is some vague value because
    # - it is not 100% ensured that all threads are gone
    # - even if all threads are gone than we had the overhead for stopping threads + reporters.
+   # - it is the diff between current time and planned start time of the threads
+   #   Given the fact that a reporter could run + detect a problem before the planned start time
+   #   the diff could be negative. Than we need to assign the value 1 instead.
    # Nevertheless the values got
    # - seem to be surprising accurate
    # - do not include the time required by gdb for analysing cores.
    # So this time can be used for the duration adaption mechanism of the Simplifier.
-   say("INFO: GenTest: Effective duration in s : " . (time() - $self->[GT_TEST_START]));
+   my $duration_to_report = time() - $self->[GT_TEST_START];
+   $duration_to_report = 1 if $duration_to_report < 0;
+
+   say("INFO: GenTest: Effective duration in s : $duration_to_report");
 
    return $self->reportResults($total_status);
 
