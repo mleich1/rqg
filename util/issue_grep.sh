@@ -56,7 +56,8 @@ cd "$WORKDIR"
 set +e
 
 # 19/65.log:# 2018-08-29T16:02:22 [227268] | mysqld: /work_m/bb-10.2-marko/storage/innobase/handler/ha_innodb.cc:5248: void innobase_kill_query(handlerton*, THD*, thd_kill_levels): Assertion `trx->mysql_thd == thd' failed.
-ASSERT_PATTERN='\\[.*\\] \\| mysqld: .* Assertion .* failed'
+  ASSERT_PATTERN='\\[.*\\] \\| mysqld: .* Assertion .* failed'
+  ASSERT_PATTERN1='\\[.*\\] \\| mariabackup: .* Assertion .* failed'
 # 19/65.log:# 2018-08-29T16:02:22 [227268] | SUMMARY: AddressSanitizer: use-after-poison /work_m/bb-10.2-marko/storage/innobase/handler/ha_innodb.cc:5248 in innobase_kill_query
   ASAN_PATTERN='\\[.*\\] \\| SUMMARY: AddressSanitizer: '
 
@@ -71,6 +72,7 @@ ASSERT_PATTERN='\\[.*\\] \\| mysqld: .* Assertion .* failed'
 # my $egalize        = "sed -e '1,\$s/.* \| mysqld: /mysqld: /g'";
 
 ASSERT_EGALIZE="sed -e '1,\$s/#.* | mysqld: /mysqld: /g'"
+ASSERT_EGALIZE1="sed -e '1,\$s/#.* | mariabackup: /mariabackup: /g'"
   ASAN_EGALIZE="sed -e '1,\$s/#.* | SUMMARY: AddressSanitizer: /SUMMARY: AddressSanitizer: /g'";
  INNO_EGALIZE1="sed -e '1,\$s/#.* | .* InnoDB: Assertion failure /InnoDB: Assertion failure /g'";
  INNO_EGALIZE2="sed -e '1,\$s/#.* | InnoDB: Failing assertion: /InnoDB: Failing assertion: /g'";
@@ -79,8 +81,8 @@ ASSERT_EGALIZE="sed -e '1,\$s/#.* | mysqld: /mysqld: /g'"
 # 2>/dev/null because maybe
 # - the subdirectories (result of grammar simplifier runs)    or
 # - the RQG logs do not exist
-MyCmd="egrep -H -e '$ASSERT_PATTERN|$ASAN_PATTERN|$INNO_PATTERN1|$INNO_PATTERN2' *.log */*.log 2>/dev/null | \
-$ASSERT_EGALIZE | $ASAN_EGALIZE | $INNO_EGALIZE1 | $INNO_EGALIZE2 | $EXCLUDE | sort -n > issue_and_file.txt"
+MyCmd="egrep -H -e '$ASSERT_PATTERN|$ASSERT_PATTERN1|$ASAN_PATTERN|$INNO_PATTERN1|$INNO_PATTERN2' *.log */*.log 2>/dev/null | \
+$ASSERT_EGALIZE | $ASSERT_EGALIZE1 | $ASAN_EGALIZE | $INNO_EGALIZE1 | $INNO_EGALIZE2 | $EXCLUDE | sort -n > issue_and_file.txt"
 eval "$MyCmd"
 
 MyCmd="sed -e '1,\$s/^.*[0-9][0-9]*.log://g' issue_and_file.txt | sort > issue_frequency.txt"
