@@ -178,7 +178,7 @@ sub monitor {
     my $binary          = $reporter->serverInfo('binary');
     my $language        = $reporter->serverVariable('language');
     my $lc_messages_dir = $reporter->serverVariable('lc_messages_dir');
-    my $datadir = $reporter->serverVariable('datadir');
+    my $datadir         = $reporter->serverVariable('datadir');
     $datadir =~ s{[\\/]$}{}sgio;
 
     # We make a backup of $clone_datadir within $rqg_backup_dir because in case of failure we
@@ -302,9 +302,16 @@ sub monitor {
     # See also https://mariadb.com/kb/en/library/mariadb-backup-overview/.
     unlink($ib_logfile0);
 
-    my $clone_err = $clone_datadir . '/clone.err';
 
-    # This does somehow prevent the startup '--no-defaults',
+    # Warning:
+    # Older and/or similar code was trying to set the server general log and error log files to non
+    # standard names.
+    #     my $clone_err = $clone_datadir . '/clone.err';
+    #     Inside of the @mysqld_options
+    #         '--log_error="'.$clone_err.'"',
+    #         '--general_log_file="'.$clone_datadir.'/clone.log"',
+    # This cannot work well when using DBServer::MySQL::MySQLd because that assumes that the
+    # standard names are used.
     my @mysqld_options = (
         '--server-id=3',
         '--core-file',
@@ -314,8 +321,6 @@ sub monitor {
         '--datadir="'.$clone_datadir.'"',
         '--log-output=file',
         '--general-log',
-        '--general_log_file="'.$clone_datadir.'/clone.log"',
-        '--log_error="'.$clone_err.'"',
         '--datadir='.$clone_datadir,
         '--port='.$clone_port,
         '--loose-plugin-dir="'.$plugin_dir.'"',
@@ -345,6 +350,8 @@ sub monitor {
                             general_log        => 1,
                             config             => undef,
                             user               => $clone_user);
+
+    my $clone_err = $clone_server->errorlog();
 
     say("INFO: Attempt to start a DB server on the cloned data.");
     my $status = $clone_server->startServer();
@@ -422,6 +429,7 @@ sub monitor {
     # but is otherwise somehow damaged. And these damages become maybe visible when having
     # - heavy DML+DDL including some runtime of more than 60s which we do not have here
     # - a "friendly" shutdown
+#   direct_to_std();
     $status = $clone_server->stopServer();
     if (STATUS_OK != $status) {
         direct_to_std();
