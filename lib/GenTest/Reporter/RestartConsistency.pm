@@ -232,7 +232,7 @@ sub compare_dumps {
 	$diff_result = $diff_result >> 8;
 
 	if ($diff_result == 0) {
-		say("No differences were found between server contents before and after restart.");
+		say("INFO: No differences were found between server contents before and after restart.");
 		return STATUS_OK;
 	} else {
 		say("ERROR: Server content has changed after shutdown+restart");

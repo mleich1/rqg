@@ -476,7 +476,7 @@ sub stop_worker_on_order {
         next if $order_id != $worker_array[$worker_num][WORKER_ORDER_ID];
         stop_worker($worker_num, STOP_REASON_WORK_FLOW);
     }
-    Carp::cluck("DEBUG: Try to stop RQG worker with orderid $order_id end.")
+    say("DEBUG: Try to stop RQG worker with orderid $order_id end.")
         if Auxiliary::script_debug("T6");
 }
 
@@ -496,7 +496,7 @@ sub stop_worker_on_order_except_replayer {
                 Verdict::RQG_VERDICT_REPLAY eq $worker_array[$worker_num][WORKER_VERDICT];
         stop_worker($worker_num, STOP_REASON_WORK_FLOW);
     }
-    Carp::cluck("DEBUG: Try to stop nonreplaying RQG worker with orderid $order_id end.")
+    say("DEBUG: Try to stop nonreplaying RQG worker with orderid $order_id end.")
         if Auxiliary::script_debug("T6");
 }
 

@@ -1,5 +1,5 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2018 MariaDB Coporation Ab.
+# Copyright (c) 2018, 2019 MariaDB Coporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -16,6 +16,20 @@
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301
 # USA
 
+# Attention:
+# The term 'Deadlock' is partially incorrect.
+# The current reporter
+# - catches
+#   - unfair scheduling within the server affecting certain sessions
+#   - server too slow up till maybe never responding
+#   - Deadlocks at whatever place (SQL, storage engine, ??)
+# - is vulnerable too
+#   - statements being slow because the data set is extreme huge
+#     combined with heavy load on the testing box and too small timeouts
+#   - the concept using an ACTUAL_TEST_DURATION_MULTIPLIER for limiting
+#     the total runtime
+#     Example: Loading the initial data might need more time than duration.
+#
 package GenTest::Reporter::Deadlock;
 
 require Exporter;

@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Copyright (C) 2018, 2019 MariaDB Corporatin Ab.
+# Copyright (C) 2018, 2019 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
