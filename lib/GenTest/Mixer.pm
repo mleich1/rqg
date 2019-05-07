@@ -1,5 +1,5 @@
 # Copyright (c) 2008,2011 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2018, MariaDB Corporation Ab.
+# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -341,7 +341,7 @@ sub next {
          # FIXME: This is not 100% accurate.
          # We
          # - do not send even if
-         #   - $execution_result->status() > STATUS_CRITICAL_FAILURE like for data corruption
+         #   - $execution_result->status() >= STATUS_CRITICAL_FAILURE like for data corruption
          #   - might have STATUS_SERVER_CRASHED got but its in reality false alarm
          # - omit all remaining queries of the current group too
          # Nevertheless this should not be a that big problem because
@@ -355,7 +355,7 @@ sub next {
          #   is extreme low.
          # - It is unlikely that some rare "omit the execution of a small and rather arbitrary group
          #   of remaing queries" has some significant impact on funtional coverage.
-         if ($execution_result->status() > STATUS_CRITICAL_FAILURE) {
+         if ($execution_result->status() >= STATUS_CRITICAL_FAILURE) {
             say("$mixer_role in Mixer : Critical failure " .
                 status2text($execution_result->status()) . " (" . $execution_result->status() .
                 "), Error " . $execution_result->err() . " reported at dsn " . $executor->dsn());
