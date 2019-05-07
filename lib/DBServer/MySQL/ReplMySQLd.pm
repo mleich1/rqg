@@ -277,11 +277,18 @@ sub stopServer {
     if ($self->slave->dbh) {
         $self->slave->dbh->do("STOP SLAVE");
     }
-    
-    $self->slave->stopServer;
-    $self->master->stopServer;
-
-    return DBSTATUS_OK;
+    my $total_ret;
+    my $ret_slave  = $self->slave->stopServer;
+    if ($ret_slave != DBSTATUS_OK) {
+        say("WARN: Stopping the slave made trouble.");
+        $total_ret = $ret_slave;
+    }
+    my $ret_master = $self->master->stopServer;
+    if ($ret_master != DBSTATUS_OK) {
+        say("WARN: Stopping the master made trouble.");
+        $total_ret = $ret_slave;
+    }
+    return $total_ret;
 }
 
 1;

@@ -951,6 +951,7 @@ Auxiliary::print_list("INFO: Final RQG vardirs ",  @vardirs);
 # }
 
 # Put into environment so that child processes will compute via GenTest.pm right.
+# Unfortunately its too late because GenTest.pm was already initialized.
 $ENV{'TMP'} = $vardirs[0];
 # Modify direct so that we get rid of crap values.
 say("tmpdir in GenTest ->" . GenTest::tmpdir() . "<-");
@@ -1704,6 +1705,7 @@ if (($gentest_result == STATUS_OK)                       and
         if ($final_result == STATUS_OK) {
             # In case we have no diffs than even the dump of the first server is no more needed.
             unlink($dump_files[0]);
+            say("INFO: No differences between the SQL dumps of the servers detected.");
         } else {
             # FIXME:
             # ok we have a diff. But maybe the dumps of the second and third server are equal
@@ -1712,9 +1714,20 @@ if (($gentest_result == STATUS_OK)                       and
     }
 }
 
-say("RESULT: The RQG run ended with status " . status2text($final_result) . " ($final_result)");
-stopServers($final_result);
+say("RESULT: The core of the RQG run ended with status " . status2text($final_result) .
+    " ($final_result)");
+my $ret = stopServers($final_result);
+if (STATUS_OK != $ret) {
+    say("ERROR: Stopping the server(s) failed.");
+    if ($final_result > STATUS_CRITICAL_FAILURE) {
+        say("DEBUG: The current status is already high enough. So it will be not modified.");
+    } else {
+        say("DEBUG: Raising status from " . $final_result . " to " . STATUS_ALARM);
+        $final_result = STATUS_ALARM;
+    }
+}
 $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
+say("RESULT: The RQG run ended with status " . status2text($final_result) . " ($final_result)");
 
 
 exit_test($final_result);
@@ -1725,7 +1738,7 @@ exit;
 if ($final_result != STATUS_OK and $store_binaries) {
     foreach my $i ($#server) {
         my $file = $server[$i]->binary;
-        my $to =   $vardirs[$i];
+        my $to   = $vardirs[$i];
         say("HERE: trying to copy $file to $to");
         if (osWindows()) {
             system("xcopy \"$file\" \"".$to."\"") if -e $file and $to;
@@ -1738,12 +1751,20 @@ if ($final_result != STATUS_OK and $store_binaries) {
 }
 
 sub stopServers {
-    # FIXME: What is the $status good for?
+    # $status is relevant for replication only.
+    # status value    | reaction
+    # ----------------+-------------------------------------------------------------------
+    # DBSTATUS_OK     | DBServer::MySQL::ReplMySQLd::stopServer will call waitForSlaveSync
+    # != DBSTATUS_OK  | no call of waitForSlaveSync
     my $status = shift;
+
     if ($skip_shutdown) {
         say("Server shutdown is skipped upon request");
         return;
     }
+    # For experimenting
+    # system("killall -11 mysqld");
+    my $ret;
     say("Stopping server(s)...");
     if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
         ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
@@ -1751,16 +1772,20 @@ sub stopServers {
         ($rpl_mode eq Auxiliary::RQG_RPL_MIXED_NOSYNC)     or
         ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
         ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         ) {
-        $rplsrv->stopServer($status);
+        $ret = $rplsrv->stopServer($status);
     } elsif (defined $upgrade_test) {
-        $server[1]->stopServer;
+        $ret = $server[1]->stopServer;
     } else {
         foreach my $srv (@server) {
             if ($srv) {
-                $srv->stopServer;
+                $ret = $srv->stopServer;
             }
         }
     }
+    if ($ret != STATUS_OK) {
+        say("DEBUG: stopServers(rqg.pl) failed with : ret : $ret");
+    }
+
 }
 
 sub help {

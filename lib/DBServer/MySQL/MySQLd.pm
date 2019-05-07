@@ -748,6 +748,17 @@ sub term {
    my ($self) = @_;
 
    my $res;
+
+    if (not $self->running) {
+        say("DEBUG: DBServer::MySQL::MySQLd::term: The server with process [" .
+            $self->serverpid . "] is already no more running.");
+        say("DEBUG: Omitting SIGTERM attempt, clean up and return DBSTATUS_OK.");
+        # clean up when server is not alive.
+        unlink $self->socketfile if -e $self->socketfile;
+        unlink $self->pidfile    if -e $self->pidfile;
+        return DBSTATUS_OK;
+    }
+
    if (osWindows()) {
       ### Not for windows
       say("Don't know how to do SIGTERM on Windows");
@@ -967,10 +978,32 @@ sub binary {
 sub stopServer {
     my ($self, $shutdown_timeout) = @_;
     $shutdown_timeout = 60 unless defined $shutdown_timeout;
+    my $errorlog = $self->errorlog;
+    my $check_shutdown = 0;
     my $res;
 
+    if (not $self->running) {
+        say("DEBUG: DBServer::MySQL::MySQLd::stopServer: The server with process [" .
+            $self->serverpid . "] is already no more running.");
+        say("DEBUG: Omitting shutdown attempt, but will clean up and return DBSTATUS_OK.");
+        # clean up when server is not alive.
+        unlink $self->socketfile if -e $self->socketfile;
+        unlink $self->pidfile    if -e $self->pidfile;
+        return DBSTATUS_OK;
+    }
+
+    # Get the actual size of the server error log.
+    my $file_to_read     = $errorlog;
+    my @filestats        = stat($file_to_read);
+    my $file_size_before = $filestats[7];
+    # say("DEBUG: Server error log '$errorlog' size before shutdown attempt : $file_size_before");
+    # system("ps -elf | grep mysqld");
+
+    # For experimenting: Simulate a server crash during shutdown
+    # system("killall -9 mysqld");
+
     if ($shutdown_timeout and defined $self->[MYSQLD_DBH]) {
-        say("Stopping server on port ".$self->port);
+        say("Stopping server on port " . $self->port);
         ## Use dbh routine to ensure reconnect in case connection is
         ## stale (happens i.e. with mdl_stability/valgrind runs)
         my $dbh = $self->dbh();
@@ -979,18 +1012,37 @@ sub stopServer {
             $res = $dbh->func('shutdown','127.0.0.1','root','admin');
             if (!$res) {
                 ## If shutdown fails, we want to know why:
-                say("Shutdown failed due to " . $dbh->err . ":" . $dbh->errstr);
+                say("Shutdown failed due to " . $dbh->err . ": " . $dbh->errstr);
                 $res= DBSTATUS_FAILURE;
             }
         } else {
             # Lets stick to a warning because the state met might be intentional.
             say("WARN: In stopServer : dbh is not defined.");
+            $res= $self->term;
+            # If SIGTERM does not work properly then SIGKILL is used.
+            if ($res == DBSTATUS_OK) {
+                $check_shutdown = 1;
+            }
         }
+
+        # Possible states:   The server was running when we checked for that last time!
+        # 1. dbh was defined
+        # 1a: Shutdown is on its way
+        # 1b: Shutdown via corresponding command already failed
+        # 2. dbh is not defined
+        #    We have initiated a shutdown via SIGTERM.
+
         if ($self->waitForServerToStop($shutdown_timeout) != DBSTATUS_OK) {
             # Terminate process
-            say("Server would not shut down properly. Terminate it");
+            say("ERROR: Server did not shut down properly. Terminate it");
+            sayFile($errorlog);
             $res= $self->term;
+            # If SIGTERM does not work properly then SIGKILL is used.
+            if ($res == DBSTATUS_OK) {
+                $check_shutdown = 1;
+            }
         } else {
+            $check_shutdown = 1;
             # clean up when server is not alive.
             unlink $self->socketfile if -e $self->socketfile;
             unlink $self->pidfile    if -e $self->pidfile;
@@ -1000,6 +1052,58 @@ sub stopServer {
     } else {
         say("Shutdown timeout or dbh is not defined, killing the server");
         $res= $self->kill;
+    }
+    if ($check_shutdown) {
+        my @filestats = stat($file_to_read);
+        my $file_size_after = $filestats[7];
+        # say("DEBUG: Server error log '$errorlog' size after shutdown attempt : $file_size_after");
+        if ($file_size_after == $file_size_before) {
+            my $offset = 500;
+            say("INFO: The shutdown attempt has not changed the size of '$file_to_read'. " .
+                "Therefore looking into the last $offset Bytes.");
+            $file_size_before = $file_size_before - $offset;
+        }
+        # Some server having trouble around shutdown will not have within his error log a last line
+        # <Timestamp> 0 [Note] /home/mleich/Server/10.4/bld_debug//sql/mysqld: Shutdown complete
+        my $file_handle;
+        if (not open ($file_handle, '<', $file_to_read)) {
+            $res= DBSTATUS_FAILURE;
+            say("ERROR: Open '$file_to_read' failed : $!. Will return $res.");
+            return $res;
+        }
+        my $content_slice;
+        seek($file_handle, $file_size_before, 1);
+        read($file_handle, $content_slice, 100000);
+        # say("DEBUG: Written by shutdown attempt ->" . $content_slice . "<-");
+        close ($file_handle);
+        my $match   = 0;
+        my $pattern = 'mysqld: Shutdown complete';
+        $match = $content_slice =~ m{$pattern}s;
+        if (not $match) {
+            $res= DBSTATUS_FAILURE;
+            # Typical text in server error log in case   shutdown/term  fails with crash
+            # --------------------------------------------------------------------------
+            # <TimeStamp> [ERROR] mysqld got signal <SignalNumber> ;
+            # This could be because you hit a bug. It is also possible that this binary
+            # ...
+            # Thread pointer: ...
+            # Attempting backtrace. You can use the following information to find out
+            # ...
+            # Segmentation fault (core dumped)          if SIGSEGV hit
+            #                                           or
+            # Aborted (core dumped)                     if Assert hit
+            #
+            # In case of SIGKILL (might be issued by rqg_batch.pl ingredients or the user)
+            # we get only a line
+            # Killed
+            say("WARN: No regular shutdown achieved. Will return $res later.");
+            $pattern = '\[ERROR\] mysqld got signal ';
+            $match = $content_slice =~ m{$pattern}s;
+            if ($match) {
+                say("The shutdown finished with server crash.");
+            }
+            sayFile($file_to_read);
+        }
     }
     return $res;
 }
