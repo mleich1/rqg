@@ -1,6 +1,7 @@
 # Copyright (c) 2010, 2011, Oracle and/or its affiliates. All rights
 # reserved.
 # Copyright (c) 2013, Monty Program Ab.
+# Copyright (c) 2019, MariaDB Corporation Ab.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -150,6 +151,15 @@ sub sayFile {
 
 sub tmpdir {
 	return $tmpdir;
+}
+
+# Certain RQG tools or runner start, get than via sub BEGIN some tmpdir picked which
+# cannot fit to their use cases, calculate than some perfect tmpdir and need to
+# cause that this is used instead.
+sub settmpdir {
+    my($new_tmpdir) = @_;
+    $tmpdir = $new_tmpdir;
+    say("DEBUG: tmpdir set to '$tmpdir'");
 }
 
 sub safe_exit {
