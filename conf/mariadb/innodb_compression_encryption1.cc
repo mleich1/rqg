@@ -75,8 +75,8 @@ $combinations = [
           --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt
         '
     ],[
-        '--mysqld=--loose-innodb_buffer_pool_instances=1 ',
-        '--mysqld=--loose-innodb_buffer_pool_instances=3 ',
+        '--mysqld=--loose-innodb_buffer_pool_instances=1  ',
+        '--mysqld=--loose-innodb_buffer_pool_instances=3  ',
         '--mysqld=--loose-innodb_buffer_pool_instances=11 ',
     ],[
         '--mysqld=--loose-innodb_doublewrite=0 ',
@@ -86,9 +86,15 @@ $combinations = [
         '--mysqld=--loose-innodb-encryption-threads=1 ',
         '--mysqld=--loose-innodb-encryption-threads=7 ',
     ],[
-        '--threads=1 ',
+        '--threads=1  ',
         '--threads=13 ',
-    ]
+    ],[
+        ' ',
+        '--mysqld=--innodb-encrypt-log ',
+    ],[
+        ' ',
+        '--mysqld=--innodb-encrypt-tables '
+    ],
 
 ];
-  
+
