@@ -344,6 +344,13 @@ sub getCollationMetaData {
 ########### Metadata routines
 
 sub cacheMetaData {
+# (mleich) Experimental:
+# In case "getSchemaMetaData" or "getCollationMetaData" hit some problem than they return undef
+# and we return STATUS_ENVIRONMENT_FAILURE from here instead of aborting with croak.
+# The latter, abort with 'croak', 'exit' up till Perl error at various places, causes quite often
+# that DB servers are not shut down. And that could make serious trouble when running a crowd
+# of RQG tests one after the other.
+#
     my ($self, $redo) = @_;
 
     my $meta = {};
@@ -352,7 +359,11 @@ sub cacheMetaData {
         say ("Caching schema metadata for ".$self->dsn());
 
         my $metadata= $self->getSchemaMetaData();
-        croak("FATAL ERROR: failed to cache schema metadata") unless $metadata;
+        if (not defined $metadata) {
+            Carp::cluck("FATAL ERROR: failed to cache schema metadata" .
+                        "Will return status STATUS_ENVIRONMENT_FAILURE.");
+            return STATUS_ENVIRONMENT_FAILURE;
+        }
 
         foreach my $row (@$metadata) {
             my ($schema, $table, $type, $col, $key, $metatype, $realtype, $maxlength, $table_rows) = @$row;
@@ -387,7 +398,11 @@ sub cacheMetaData {
     my $coll = {};
 
     my $metadata= $self->getCollationMetaData();
-    croak("FATAL ERROR: failed to cache collation metadata") unless $metadata;
+    if (not defined $metadata) {
+        Carp::cluck("FATAL ERROR: failed to cache collation metadata" .
+                    "Will return status STATUS_ENVIRONMENT_FAILURE.");
+        return STATUS_ENVIRONMENT_FAILURE;
+    }
     foreach my $row (@$metadata) {
         my ($collation, $charset) = @$row;
         $coll->{$collation} = $charset;
@@ -395,6 +410,8 @@ sub cacheMetaData {
     $self->[EXECUTOR_COLLATION_METADATA] = $coll;
 
     $self->[EXECUTOR_META_CACHE] = {};
+
+    return STATUS_OK;
 }
 
 sub metaSchemas {

@@ -484,10 +484,10 @@ my %err2type = (
     ER_FILE_NOT_FOUND()                                 => STATUS_SEMANTIC_ERROR,
     ER_FILSORT_ABORT()                                  => STATUS_SKIP,
     ER_FT_MATCHING_KEY_NOT_FOUND()                      => STATUS_SEMANTIC_ERROR,
-    ER_GET_ERRNO()                                      => STATUS_SEMANTIC_ERROR, # TODO: switch back to corruption after MDEV-14641 is fixed
+    ER_GET_ERRNO()                                      => STATUS_DATABASE_CORRUPTION, # Was STATUS_SEMANTIC_ERROR as long as MDEV-14641 was not fixed
     ER_ILLEGAL_HA()                                     => STATUS_SEMANTIC_ERROR,
     ER_ILLEGAL_REFERENCE()                              => STATUS_SEMANTIC_ERROR,
-    ER_INCOMPATIBLE_FRM()                               => STATUS_SEMANTIC_ERROR, # TODO: switch to corruption after MDEV-14641 is fixed
+    ER_INCOMPATIBLE_FRM()                               => STATUS_DATABASE_CORRUPTION, # Was STATUS_SEMANTIC_ERROR as long as MDEV-14641 was not fixed
     ER_INDEX_COLUMN_TOO_LONG()                          => STATUS_SEMANTIC_ERROR,
     ER_INSIDE_TRANSACTION_PREVENTS_SWITCH_BINLOG_FORMAT() => STATUS_SEMANTIC_ERROR,
     ER_INVALID_CAST_TO_JSON()                           => STATUS_SEMANTIC_ERROR,
@@ -645,7 +645,7 @@ my %err2type = (
     ER_VERS_ALTER_NOT_ALLOWED()                         => STATUS_SEMANTIC_ERROR,
     ER_VERS_ALTER_SYSTEM_FIELD()                        => STATUS_SEMANTIC_ERROR,
     ER_VERS_DUPLICATE_ROW_START_END()                   => STATUS_SEMANTIC_ERROR,
-    ER_VERS_ENGINE_UNSUPPORTED()                        => STATUS_SEMANTIC_ERROR, # See MDEV-14677
+    ER_VERS_ENGINE_UNSUPPORTED()                        => STATUS_SEMANTIC_ERROR, # See MDEV-14677 (closed)
     ER_VERS_FIELD_WRONG_TYPE()                          => STATUS_SEMANTIC_ERROR,
     ER_VERS_GENERATED_ALWAYS_NOT_EMPTY()                => STATUS_SEMANTIC_ERROR,
     ER_VERS_NO_COLS_DEFINED()                           => STATUS_SEMANTIC_ERROR,
@@ -708,7 +708,7 @@ sub get_connection {
         RaiseError             => 0,
         AutoCommit             => 1,
         mysql_multi_statements => 1,
-        mysql_auto_reconnect   => 0
+        mysql_auto_reconnect   => 1
     } );
 
     if (not defined $dbh) {
@@ -872,14 +872,14 @@ sub init {
     my $status = get_connection($executor);
 
     if ($status) {
-        say("ERROR: GenTest::Executor::MySQL::init : Getting a connection for " . $executor->role() .
-            " failed with $status. Will return that status : " . status2text($status) . "($status).");
+        say("ERROR: GenTest::Executor::MySQL::init : Getting a connection for " .
+             $executor->role() . " failed with $status. Will return that status : " .
+             status2text($status) . "($status).");
         return $status;
+    } else {
+        # say("DEBUG: connection id is : " . $executor->connectionId());
+        return STATUS_OK;
     }
-
-#   say("DEBUG: connection id is : " . $executor->connectionId());
-
-    return STATUS_OK;
 }
 
 sub reportError {
@@ -1056,7 +1056,7 @@ sub execute {
    if (defined $performance) {
       say("DEBUG: $trace_addition Before performance 'record'");
       # FIXME:
-      # This can be victim
+      # This can be a victim of a crash.
       $performance->record();
       $performance->setExecutionTime($execution_time);
    }
@@ -1119,8 +1119,10 @@ sub execute {
          #    The server is extreme busy with freeing whatever temporary used resources belonging
          #    to connection gone.
          #    2018-07-02 Up till today I have never seen a false alarm from here again.
-         sleep 1;
-         my $check_dbh = DBI->connect($executor->dsn(), undef, undef, {
+         my $check_dbh;
+         my $try_end_time = time() + CONNECT_TIMEOUT;
+         while (time() < $try_end_time and not defined $check_dbh) {
+             $check_dbh = DBI->connect($executor->dsn(), undef, undef, {
              mysql_connect_timeout  => CONNECT_TIMEOUT,
              PrintError             => 0,
              RaiseError             => 0,
@@ -1128,6 +1130,8 @@ sub execute {
              mysql_multi_statements => 0,
              mysql_auto_reconnect   => 0
          } );
+             sleep 1;
+         }
          if (defined $check_dbh) {
             say("DEBUG: $trace_addition : The server is connectable.");
             $check_dbh->disconnect();
@@ -1142,20 +1146,12 @@ sub execute {
                end_time     => Time::HiRes::time()
             );
          } else {
-            say("DEBUG: $trace_addition : The server is not connectable.");
-            # FIXME:
-            # Reconnecting might fail because of
-            # - overloaded box -> timeout for getting a connection hit -> ??
-            # - the server crashed because of crash injection (==intentional) or product failure
-            # So do we need to handle that here or not?
+            say("ERROR: $trace_addition : The server is not connectable even though trying over " .
+                "a timespan of " . CONNECT_TIMEOUT . " seconds.");
+            say("ERROR: $trace_addition. Will exit with STATUS_ALARM.");
             return GenTest::Result->new(
-               query        => $query,
-               status       => $err2type{$dbh->err()} || STATUS_UNKNOWN_ERROR,
-               err          => $dbh->err(),
-               errstr       => $dbh->errstr(),
-               sqlstate     => $dbh->state(),
-               start_time   => $start_time,
-               end_time     => Time::HiRes::time()
+                query       => '/* During connect attempt */',
+                status      => STATUS_ALARM,
             );
          }
       } elsif (not ($execution_flags & EXECUTOR_FLAG_SILENT)) {
@@ -1473,6 +1469,7 @@ sub getSchemaMetaData {
    ## 5. PRIMARY for primary key, INDEXED for indexed column and "ORDINARY" for all other columns
    ## 6. generalized data type (INT, FLOAT, BLOB, etc.)
    ## 7. real data type
+   ## or undef if hitting an error.
    my ($self) = @_;
 
    my $query =
@@ -1512,16 +1509,36 @@ sub getSchemaMetaData {
 
         "WHERE table_name <> 'DUMMY'";
 
+   # system("killall -9 mysqld");
+   # sleep 3;
    my $res = $self->dbh()->selectall_arrayref($query);
-   # FIXME:
-   # This will probably not shut down servers and than make trouble for successing tests.
-   croak("FATAL ERROR: Failed to retrieve schema metadata") unless $res;
+   if (not defined $res) {
+       # SQL syntax error, DB server dead but not empty result set
+       my $error = $self->dbh()->err();
+       Carp::cluck("FATAL ERROR: getSchemaMetaData: selectall_arrayref failed with error $error.");
+       say("FATAL ERROR: getSchemaMetaData: The query was ->$query<-.");
+       say("FATAL ERROR: getSchemaMetaData: Will return undef.");
+       ########## my $error_type = $err2type{$error} || STATUS_OK;
+       return undef;
+   }
 
+   # system("killall -9 mysqld");
+   # sleep 3;
    my %table_rows = ();
    foreach my $i (0..$#$res) {
       my $tbl = $res->[$i]->[0] . '.' . $res->[$i]->[1];
       if ((not defined $table_rows{$tbl}) or ($table_rows{$tbl} eq 'NULL') or ($table_rows{$tbl} eq '')) {
-         my $count_row = $self->dbh()->selectrow_arrayref("SELECT COUNT(*) FROM $tbl");
+         $query = "SELECT COUNT(*) FROM $tbl";
+         my $count_row = $self->dbh()->selectrow_arrayref($query);
+         if (not defined $count_row) {
+             # SQL syntax error, DB server dead but not empty result set
+             my $error = $self->dbh()->err();
+             Carp::cluck("FATAL ERROR: getSchemaMetaData: selectrow_arrayref failed with error $error.");
+             say("FATAL ERROR: getSchemaMetaData: The query was ->$query<-.");
+             say("FATAL ERROR: getSchemaMetaData: Will return undef.");
+             ########## my $error_type = $err2type{$error} || STATUS_OK;
+             return undef;
+         }
          $table_rows{$tbl} = $count_row->[0];
       }
       $res->[$i]->[8] = $table_rows{$tbl};
@@ -1534,15 +1551,29 @@ sub getCollationMetaData {
    ## Return the result from a query with the following columns:
    ## 1. Collation name
    ## 2. Character set
+   ## or undef if hitting an error.
    my ($self) = @_;
    my $query = "SELECT collation_name,character_set_name FROM information_schema.collations";
 
+   # system("killall -9 mysqld");
+   # sleep 3;
+   my $res = $self->dbh()->selectall_arrayref($query);
+   if (not defined $res) {
+      # SQL syntax error, DB server dead but not empty result set
+      my $error = $self->dbh()->err();
+      Carp::cluck("FATAL ERROR: getCollationMetaData: selectall_arrayref failed with error $error.");
+      say("FATAL ERROR: getCollationMetaData: The query was ->$query<-.");
+      say("FATAL ERROR: getCollationMetaData: Will return undef.");
+      ########## my $error_type = $err2type{$error} || STATUS_OK;
+      return undef;
+   }
    return $self->dbh()->selectall_arrayref($query);
 }
 
 sub read_only {
    my $executor = shift;
    my $dbh = $executor->dbh();
+   # FIXME: This can fail too.
    my ($grant_command) = $dbh->selectrow_array("SHOW GRANTS FOR CURRENT_USER()");
    my ($grants) = $grant_command =~ m{^grant (.*?) on}sio;
    if (uc($grants) eq 'SELECT') {

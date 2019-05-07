@@ -228,9 +228,9 @@ sub doGenTest {
 
    # Give 1.0 seconds delay per worker/thread configured.
    # Impact:
-   # 1. The reporting process has connected and finished a first round.
-   #    All workers have connected + got their Mixer.
-   #    Except: The setup or server is "ill" and than STATUS_ENVIRONMENT_FAILURE would be right.
+   # 1. The reporting process has connected and all workers have connected + got their Mixer.
+   #    Exception:
+   #    The setup or server is "ill" and than STATUS_ENVIRONMENT_FAILURE would be right.
    # 2. Hereby we hopefully mostly avoid the often seen wrong status code
    #    STATUS_ENVIRONMENT_FAILURE. Some threads connect, get their mixer, start to run DDL/DML
    #    and crash hereby the server. They all report STATUS_SERVER_CRASHED which is right.
@@ -315,7 +315,17 @@ sub doGenTest {
       return $init_executor_result if $init_executor_result != STATUS_OK;
 
       # FIXME: Are there really cases where this dbh does not exist?
-      $metadata_executor->cacheMetaData() if defined $metadata_executor->dbh();
+      if (defined $metadata_executor->dbh()) {
+          my $status = $metadata_executor->cacheMetaData();
+          if (STATUS_OK != $status) {
+              # The corresponding routines met trouble and we cannot live with that at all.
+              Carp::cluck("ERROR: metadata caching failed with status " .
+                          status2text($status) . ". Will return that status.");
+              return $status;
+          }
+      } else {
+          Carp::cluck("WARNING: metadata_executor->dbh is not defined. Please show mleich the RQG log");
+      }
 
       # Some crash after here end with fine backtrace
         # For experimenting:
@@ -328,9 +338,12 @@ sub doGenTest {
       #push(@log_files_to_report, $logfile_result->data()->[0]->[1]);
 
       # Guessing the error log file name relative to datadir (lacking safer methods).
-      my $datadir_result = $metadata_executor->execute("SHOW VARIABLES LIKE 'datadir'");
-      # FIXME: Replace that damned croak
-      croak("FATAL ERROR: Failed to retrieve datadir") unless $datadir_result;
+      my $query = "SHOW VARIABLES LIKE 'datadir'";
+      my $datadir_result = $metadata_executor->execute($query);
+      if (not defined $datadir_result) {
+          Carp::cluck("FATAL ERROR: Failed to retrieve datadir. Will return STATUS_ENVIRONMENT_FAILURE");
+          return STATUS_ENVIRONMENT_FAILURE;
+      }
 
       my $errorlog;
       foreach my $errorlog_path (
@@ -383,7 +396,9 @@ sub doGenTest {
       foreach my $worker_id (1..$self->config->threads) {
          my $worker_pid = $self->workerProcess($worker_id);
          $worker_pids{$worker_pid} = "Thread" . $worker_id;
-         Time::HiRes::sleep(0.1); # fork slowly for more predictability
+         # Experimental (mleich):
+         # What do we need to predict at all? Try removal of sleep.
+         # Time::HiRes::sleep(0.1); # fork slowly for more predictability
       }
    }
 
@@ -399,7 +414,9 @@ sub doGenTest {
    $self->channel()->close;
 
    # We are the parent process, wait for for all spawned processes to terminate
-   my $total_status  = STATUS_OK;
+   my $total_status   = STATUS_OK;
+   my $total_status_t = STATUS_OK;
+   my $total_status_r = STATUS_OK;
    my $reporter_died = 0;
    OUTER: while (1) {
       # Worker & Reporter processes that were spawned.
@@ -413,6 +430,8 @@ sub doGenTest {
          my ($reaped, $child_exit_status) = reapChild($spawned_pid, $worker_pids{$spawned_pid});
          if (0 == $reaped) {
             if ($child_exit_status > STATUS_OK) {
+                say("INTERNAL ERROR: Inconsistency that child_exit_status $child_exit_status was " .
+                    "got though process [$spawned_pid] was not reaped.");
                 return STATUS_INTERNAL_ERROR;
             } else {
                 next;
@@ -421,12 +440,14 @@ sub doGenTest {
             $total_status = $child_exit_status if $child_exit_status > $total_status;
             my $message_end   = " ended with status " . status2text($child_exit_status);
             if ($spawned_pid == $reporter_pid ) {
+               $total_status_r = $child_exit_status if $child_exit_status > $total_status_r;
                say($message_begin . " for periodic reporter" . $message_end);
                # There was only one reporter process. So we leave the loop.
                $reporter_died = 1;
-               say("DEBUG: GenTest: Therefore leaving the 'OUTER' loop.");
+               say("DEBUG: GenTest: Therefore leaving the 'OUTER' loop.") if $debug_here;
                last OUTER;
             } else {
+               $total_status_t = $child_exit_status if $child_exit_status > $total_status_t;
                say($message_begin . "for " . $worker_pids{$spawned_pid} . $message_end);
                delete $worker_pids{$spawned_pid};
             }
@@ -478,13 +499,14 @@ sub doGenTest {
       if ($? > -1 ) {
          my $reporter_status = $? > 0 ? $? >> 8 : 0;
          say("For pid $reporter_pid reporter status " . status2text($reporter_status));
+         # FIXME: See also/join with reportResults
             # Some of the periodic reporters have capabilities to detect more precise than the
             # threads running YY grammar what the state of the test is.
          # But its too complicated and to distill here something valuable.
          # Q1: Which reporter reported what?
          # Q2: What are the reliable capabilities of reporter X?
          # Q3: Had the reporter a chance to detect a maybe bad state or was his last run too
-         #     long ago? STATUS_OK does not all time mply that the system state if good.
+         #     long ago? STATUS_OK does not all time imply that the system state if good.
          #     Per observation 2018-09-28 it is not guaranteed that some periodic reporter must
          #     have detected that a server really (there was a core) crashed.
          # So we cannot refine anything here even if
@@ -543,8 +565,9 @@ sub reportResults {
         @report_results = $reporter_manager->report(REPORTER_TYPE_DEADLOCK | REPORTER_TYPE_ALWAYS | REPORTER_TYPE_END);
     } elsif ($total_status == STATUS_SERVER_KILLED) {
         @report_results = $reporter_manager->report(REPORTER_TYPE_SERVER_KILLED | REPORTER_TYPE_ALWAYS | REPORTER_TYPE_END);
-    } elsif ($total_status == STATUS_ENVIRONMENT_FAILURE or $total_status == STATUS_ALARM) {
-        # FIXME:
+    } elsif ($total_status == STATUS_ENVIRONMENT_FAILURE or
+             $total_status == STATUS_CRITICAL_FAILURE    or
+             $total_status == STATUS_ALARM                 ) {
         # A real server crash could come so early that the first connect attempt of some RQG worker
         # (Thread<n>) or some reporter fails. And than we would harvest STATUS_ENVIRONMENT_FAILURE
         # which is unfortunate because that value is higher than the better STATUS_SERVER_CRASHED
@@ -552,10 +575,11 @@ sub reportResults {
         # I call the crash reporters too in order to have at least the information if there was a crash
         # or not. This will not fix the problem that the RQG run will maybe? end finally with exit
         # status STATUS_ENVIRONMENT_FAILURE even if we had a real crash.
-        # Another candidate is STATUS_ALARM which means rougly "Its very bad but I do not know why" which
-        # is often a real crash too.
-         say("Status environment failure or alarm reported, but often the reason is a crash. So trying post-crash analysis...");
-         @report_results = $reporter_manager->report(REPORTER_TYPE_CRASH | REPORTER_TYPE_ALWAYS | REPORTER_TYPE_END);
+        # Another candidates are STATUS_ALARM and STATUS_CRITICAL_FAILURE which means rougly
+        # "Its very bad but I do not know why" which is often a real crash too.
+        say("total_status " . status2text($total_status) . " was reported, but often the reason " .
+            "is a crash. So trying post-crash analysis...");
+        @report_results = $reporter_manager->report(REPORTER_TYPE_CRASH | REPORTER_TYPE_ALWAYS | REPORTER_TYPE_END);
     } else {
         @report_results = $reporter_manager->report(REPORTER_TYPE_ALWAYS | REPORTER_TYPE_END);
     }
@@ -574,9 +598,16 @@ sub reportResults {
        say("INFO: The total status $total_status means that there was an intentional server kill.");
        say("INFO: Therefore reducing the total status from $total_status to STATUS_OK.");
        $total_status = STATUS_OK;
+    } elsif (STATUS_SERVER_CRASHED == $report_status and STATUS_SERVER_DEADLOCKED == $total_status) {
+       # Scenario is:
+       # Reporter detects server freeze --> crash server intentionally -->
+       # exit with STATUS_SERVER_DEADLOCKED --> Backtrace or ServerDead run and report
+       # STATUS_SERVER_CRASHED.
+       # Hence we do nothing.
     } elsif (STATUS_SERVER_CRASHED == $report_status and STATUS_SERVER_CRASHED != $total_status) {
        say("INFO: The reporter status $report_status is more reliable.");
        say("INFO: Therefore setting the total status from $total_status to $report_status.");
+       $total_status = STATUS_SERVER_CRASHED;
     } elsif (STATUS_OK == $report_status and STATUS_SERVER_CRASHED == $total_status) {
        say("INFO: The reporter status $report_status is more reliable and does not claim a crash.");
        say("INFO: Therefore reducing the total status to STATUS_CRITICAL_FAILURE.");
@@ -599,8 +630,12 @@ sub reportResults {
 sub stopChild {
     my ($self, $status) = @_;
 
+    if (not defined $status) {
+        Carp::cluck("INTERNAL ERROR: stopChild was called with undefined status.");
+        say("INTERNAL ERROR: Will set status to STATUS_INTERNAL_ERROR.");
+        $status = STATUS_INTERNAL_ERROR;
+    }
     say("GenTest: child $$ is being stopped with status " . status2text($status));
-    croak "calling stopChild() for $$ without a \$status" if not defined $status;
 
     if (osWindows()) {
         exit $status;
@@ -868,9 +903,15 @@ sub initGenerator {
     my $self = shift;
 
     my $generator_name = "GenTest::Generator::".$self->config->generator;
-    say("Loading Generator $generator_name.") if rqg_debug();
+    say("Loading Generator '$generator_name'.") if rqg_debug();
+    # For testing:
+    # $generator_name = "Monkey";
     eval("use $generator_name");
-    croak($@) if $@;
+    if ('' ne $@) {
+        say("ERROR: initGenerator : Loading Generator '$generator_name' failed : $@. Status will " .
+            "be set to ENVIRONMENT_FAILURE");
+        return STATUS_ENVIRONMENT_FAILURE;
+    }
 
     if ($self->config->redefine and not ref $self->config->redefine eq 'ARRAY') {
         my $redefines= [ split /,/, $self->config->redefine ];
@@ -1301,7 +1342,8 @@ sub reapChild {
         return 0, STATUS_OK;
     } elsif (0 == $waitpid_return) {
         # 2. 0 == Process is running
-        say("DEBUG: waitpid for $spawned_pid ($info) returned 0. Process is running.") if $debug_here;
+        say("DEBUG: waitpid for $spawned_pid ($info) returned 0. Process is running.")
+            if $debug_here;
         return 0, STATUS_OK;
     } elsif ($spawned_pid == $waitpid_return) {
         # 3. $spawned_pid == The process was a zombie and we have just reaped.
