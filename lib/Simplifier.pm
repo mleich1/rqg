@@ -66,7 +66,9 @@ my @simp_chain;
 # -1 -- Running that phase is not planned
 #  0 -- We are or were running that phase but had no success so far.
 #  1 -- We are or were running that phase and had success.
-my $simp_success = 0;
+#
+# Any simplification achieved at all if tried at all.
+my $simp_success           = -1;
 #
 # (Most probably) needed because of technical reasons.
 use constant PHASE_SIMP_BEGIN       => 'simp_begin';
@@ -1091,8 +1093,13 @@ sub get_job {
             Carp::cluck("INTERNAL ERROR: Wrong call of Simplifier::getjob : active is not 0.");
             Batch::emergency_exit($status);
         } else {
-            switch_phase();
-            # Setting $phase_switch = 0 is made in switch_phase().
+            # switch_phase();
+            my $rounds = 10;
+            while ($phase_switch and $rounds) {
+                switch_phase();
+                # Setting $phase_switch = 0 if at all is made in switch_phase().
+                $rounds--;
+            }
             if ($phase eq PHASE_SIMP_END) {
                 $Batch::give_up = 2;
                 return undef;
@@ -1604,6 +1611,9 @@ sub register_result {
             Batch::copy_file($source, $target);
             if      (PHASE_FIRST_REPLAY eq $phase) {
                 $first_replay_success   = 1;
+                # Attention:
+                # There was a replay but this is not a success in simplification.
+                # Hence $simp_success must not be touched.
             } elsif (PHASE_THREAD1_REPLAY eq $phase) {
                 say("INFO: We had a replay in phase '$phase'. " .
                     "Will adjust the parent grammar and the number of threads used to 1.");
@@ -1800,19 +1810,32 @@ sub switch_phase {
 
     $phase = shift @simp_chain;
 
-    if (PHASE_FINAL_REPLAY eq $phase and 0 == $simp_success) {
-        say("\n\nSUMMARY: None of the attempts to simplify the test achieved success.\n"           .
-            "SUMMARY: Hence some simplified test does not exist. Omitting the phase '"             .
-            PHASE_FINAL_REPLAY . "'.\n"                                                            .
-            "HINT: Maybe the\n"                                                                    .
-            "HINT: - black/white lists (especially the pattern sections) are faulty or\n"          .
-            "HINT: - RQG test setup (basedir, grammar etc.) is wrong or\n"                         .
-            "HINT: - trials/duration/queries are too small.");
-        say("");
-        say("");
-        $phase        = PHASE_SIMP_END;
-        $phase_switch = 0;
-        return;
+    if (PHASE_FINAL_REPLAY eq $phase) {
+        if (-1 == $simp_success) {
+            say("\n\nSUMMARY: No simplification step was tried.\n"                                     .
+                "SUMMARY: Hence some simplified test does not exist. Omitting the phase '"             .
+                PHASE_FINAL_REPLAY . "'.");
+            say("");
+            say("");
+            $phase        = PHASE_SIMP_END;
+            $phase_switch = 0;
+            return;
+        } elsif (0 == $simp_success) {
+            say("\n\nSUMMARY: None of the attempts to simplify the test achieved success.\n"           .
+                "SUMMARY: Hence some simplified test does not exist. Omitting the phase '"             .
+                PHASE_FINAL_REPLAY . "'.\n"                                                            .
+                "HINT: Maybe the\n"                                                                    .
+                "HINT: - black/white lists (especially the pattern sections) are faulty or\n"          .
+                "HINT: - RQG test setup (basedir, grammar etc.) is wrong or\n"                         .
+                "HINT: - trials/duration/queries are too small.");
+            say("");
+            say("");
+            $phase        = PHASE_SIMP_END;
+            $phase_switch = 0;
+            return;
+        } else {
+            # Do nothing here.
+        }
     }
 
     if (PHASE_THREAD1_REPLAY eq $phase and 1 == $threads ) {
@@ -1829,6 +1852,9 @@ sub switch_phase {
             say("INFO: Cloning did not change the grammar. Therefore a repetition of grammar " .
                 "simplification is not required.");
             $phase = shift @simp_chain;
+            # Carp::cluck("DEBUG phase : $phase, simp_success : $simp_success");
+            $phase_switch = 1;
+            return;
         } else {
             make_parent_from_string ($grammar_string);
             my $iso_ts = isoTimestamp();
@@ -2305,6 +2331,7 @@ sub get_shrinked_rvt_options {
                     # - one element and that is not 'None'
                     %validator_hash_copy = ();
                     $validator_hash_copy{'None'} = 1;
+                    %transformer_hash_copy = ();
                     $shrinked = 1;
                 } else {
                     $shrinked = 0;
