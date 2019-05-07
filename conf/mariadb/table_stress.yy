@@ -106,6 +106,16 @@ kill_query_or_session_or_release:
 #    COMMIT [WORK] [AND [NO] CHAIN] [[NO] RELEASE]
 #    ROLLBACK ... RELEASE
 #
+# Observation:
+#    KILL <get default which is HARD> QUERY <ALTER TABLE ... ADD FTS INDEX>
+#    lets the thread harvest "1034 Create index by sort failed" which
+#    RQG valuates as STATUS_DATABASE_CORRUPTION.
+# Up till today (2019-05) I am unsure how to fix that problem
+# - use SOFT all time (current and maybe permanent solution)
+#   Crash recovery testing should cover what is not checked when using SOFT
+# - do not valuate "1034 Create index by sort failed" as STATUS_DATABASE_CORRUPTION.
+#
+#
 # The following aspects are not in scope at all
 # - coverage of the full SQL syntax "KILL ...", "COMMIT/ROLLBACK ..."
 # - will the right connections and queries get hit etc.
@@ -125,12 +135,12 @@ kill_query_or_session_or_release:
 # (2) No COMMIT before and after selecting in test . rqg_sessions in order to have no freed locks
 #     before the KILL affecting the own session is issued. This is only valid iff AUTOCOMMIT=0.
 #
-   COMMIT ; correct_rqg_sessions_table      ; COMMIT                            | # (1)
-            own_id_part   AND kill_age_cond          ; KILL CONNECTION @kill_id | # (2)
-            own_id_part                              ; KILL QUERY      @kill_id | # (2)
-   COMMIT ; other_id_part AND kill_age_cond ; COMMIT ; KILL CONNECTION @kill_id | # (1)
-   COMMIT ; other_id_part                   ; COMMIT ; KILL QUERY      @kill_id | # (1)
-            ROLLBACK RELEASE                                                    ;
+   COMMIT ; correct_rqg_sessions_table      ; COMMIT                                 | # (1)
+            own_id_part   AND kill_age_cond          ; KILL SOFT CONNECTION @kill_id | # (2)
+            own_id_part                              ; KILL SOFT QUERY      @kill_id | # (2)
+   COMMIT ; other_id_part AND kill_age_cond ; COMMIT ; KILL SOFT CONNECTION @kill_id | # (1)
+   COMMIT ; other_id_part                   ; COMMIT ; KILL SOFT QUERY      @kill_id | # (1)
+            ROLLBACK RELEASE                                                         ;
 
 own_id_part:
    SELECT     processlist_id  INTO @kill_id FROM test . rqg_sessions WHERE rqg_id  = _thread_id ;
