@@ -61,14 +61,18 @@ use constant STALLED_QUERY_COUNT_THRESHOLD	=> 5;
 # Number of times the actual test duration is allowed to exceed the desired one
 use constant ACTUAL_TEST_DURATION_MULTIPLIER	=> 2;
 
+my $who_am_i = "Reporter 'Deadlock':";
+
 sub monitor {
 	my $reporter = shift;
 
 	my $actual_test_duration = time() - $reporter->testStart();
 
 	if ($actual_test_duration > ACTUAL_TEST_DURATION_MULTIPLIER * $reporter->testDuration()) {
-		say("Actual test duration ($actual_test_duration seconds) is more than ".(ACTUAL_TEST_DURATION_MULTIPLIER)." times the desired duration (".$reporter->testDuration()." seconds)");
-		return STATUS_SERVER_DEADLOCKED;
+        say("ERROR: $who_am_i Actual test duration ($actual_test_duration" . "s) is more than " .
+            (ACTUAL_TEST_DURATION_MULTIPLIER)." times the desired duration (" .
+            $reporter->testDuration() . "s). Will return STATUS_SERVER_DEADLOCKED");
+        return STATUS_SERVER_DEADLOCKED;
 	}
 
 	if (osWindows()) {
@@ -91,7 +95,7 @@ sub monitor_nonthreaded {
 
 	sigaction SIGALRM, new POSIX::SigAction sub {
                 exit (STATUS_SERVER_DEADLOCKED);
-	} or die "Error setting SIGALRM handler: $!\n";
+	} or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
 
 	my $prev_alarm1 = alarm (CONNECT_TIMEOUT_THRESHOLD);
 	$dbh = DBI->connect($dsn, undef, undef, { mysql_connect_timeout => CONNECT_TIMEOUT_THRESHOLD * 2} );
@@ -120,7 +124,7 @@ sub monitor_nonthreaded {
 	}
 
 	if ($stalled_queries >= STALLED_QUERY_COUNT_THRESHOLD) {
-		say("$stalled_queries stalled queries detected, declaring deadlock at DSN $dsn.");
+		say("ERROR: $who_am_i $stalled_queries stalled queries detected, declaring deadlock at DSN $dsn.");
 
 		foreach my $status_query (
 			"SHOW PROCESSLIST",
@@ -189,7 +193,7 @@ sub alarm_thread {
 		sleep(1);
 	};
 
-	say("Entire-server deadlock detected.");
+	say("ERROR: $who_am_i Entire-server deadlock detected.");
 	return(STATUS_SERVER_DEADLOCKED);
 }
 
@@ -223,7 +227,7 @@ sub dbh_thread {
 	}
 
 	if ($stalled_queries >= STALLED_QUERY_COUNT_THRESHOLD) {
-		say("$stalled_queries stalled queries detected, declaring deadlock at DSN $dsn.");
+		say("ERROR: $who_am_i $stalled_queries stalled queries detected, declaring deadlock at DSN $dsn.");
 		print Dumper $processlist;
 		return STATUS_SERVER_DEADLOCKED;
 	} else {
@@ -256,14 +260,14 @@ sub nativeReport {
 		($^O eq 'MSWin64')
         ) {
 		my $cdb_command = "cdb -p $server_pid -c \".dump /m $datadir\mysqld.dmp;q\"";
-		say("Executing $cdb_command");
+		say("INFO: $who_am_i Executing $cdb_command");
 		system($cdb_command);
 	} else {
-		say("Killing mysqld with pid $server_pid with SIGHUP in order to force debug output.");
+		say("INFO: $who_am_i Killing mysqld with pid $server_pid with SIGHUP in order to force debug output.");
 		kill(1, $server_pid);
 		sleep(2);
 
-		say("Killing mysqld with pid $server_pid with SIGSEGV in order to capture core.");
+		say("INFO: $who_am_i Killing mysqld with pid $server_pid with SIGSEGV in order to capture core.");
 		kill(11, $server_pid);
 		sleep(20);
 	}
