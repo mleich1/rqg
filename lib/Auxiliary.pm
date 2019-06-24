@@ -59,7 +59,7 @@ use constant INTERNAL_TOOL_ERROR => 200;
 # R -> RQG runner (rqg.pl)
 # The digit
 # 1     -- more important and/or less frequent
-# n > 1 -- les important and/or more frequent
+# n > 1 -- less important and/or more frequent
 # If admit that this
 # - concept is rather experimental
 # - the digits used in the modules rather arbitrary.

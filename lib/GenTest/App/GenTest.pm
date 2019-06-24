@@ -270,9 +270,9 @@ sub doGenTest {
    return $init_validators_result if $init_validators_result != STATUS_OK;
 
    if ($debug_here) {
-       say("DEBUG: GenTest::App::GenTest::doGenTest: Reporters: ->"    .
+       say("DEBUG: GenTest::App::GenTest::doGenTest: Reporters:    ->" .
            join("<->", @{$self->config->reporters})    . "<-\n"        .
-           "DEBUG: GenTest::App::GenTest::doGenTest: Validators: ->"   .
+           "DEBUG: GenTest::App::GenTest::doGenTest: Validators:   ->" .
            join("<->", @{$self->config->validators})   . "<-\n"        .
            "DEBUG: GenTest::App::GenTest::doGenTest: Transformers: ->" .
            join("<->", @{$self->config->transformers}) . "<-");
@@ -300,7 +300,7 @@ sub doGenTest {
       #    if the Metadata between these servers differ?
       # 2. When using MySQL/MariaDB builtin replication than omitting to cache Metadata on
       #    slave servers makes sense. But should that get triggered by some undef dsn?
-      # Wouldn't be Metadata chaching only on the first server better.
+      # Wouldn't be Metadata caching only on the first server better.
       # But we have also the view[0] ... view[3] etc
       last if $self->config->property('upgrade-test') and $i > 0;
       next unless $self->config->dsn->[$i];
@@ -650,7 +650,7 @@ sub reportingProcess {
     my $reporter_pid = fork();
 
     if ($reporter_pid != 0) {
-       # We are the parent.
+        # We are the parent.
         return $reporter_pid;
     }
 
@@ -667,11 +667,13 @@ sub reportingProcess {
     while (1) {
         $reporter_status = $self->reporterManager()->monitor(REPORTER_TYPE_PERIODIC);
         if ($reporter_status >= STATUS_CRITICAL_FAILURE) {
-            say("ERROR: Periodic reporting process: Status $reporter_status got. Leaving loop");
+            say("ERROR: Periodic reporting process: Critical status " .
+                status2text($reporter_status) . " got. Will exit with that.");
             last;
         }
         if ($reporter_killed == 1) {
-            say("INFO: Periodic reporting process: reporter_killed == 1. Leaving loop");
+            say("INFO: Periodic reporting process: Signal TERM received. " .
+                "Will exit with status " . status2text($reporter_status));
             last;
         }
         sleep(10);
@@ -722,6 +724,7 @@ sub workerProcess {
 
    if (not defined $mixer) {
       sayError("GenTest failed to create a Mixer for $worker_role. Status will be set to ENVIRONMENT_FAILURE");
+      # Hint: stopChild exits
       $self->stopChild(STATUS_ENVIRONMENT_FAILURE);
    }
 

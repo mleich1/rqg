@@ -115,7 +115,7 @@ sub new {
          $prerequisite = "GenTest::Validator::" . $prerequisite;
          eval "use $prerequisite";
          if ('' ne $@) {
-            say("ERROR: " . $mixer->role() . "in Mixer : Loading the prerequisite '$prerequisite'" .
+            say("ERROR: " . $mixer->role() . " in Mixer : Loading the prerequisite '$prerequisite'" .
                 " for the validator '$validator' failed : $@. Will return undef.");
             return undef;
          }
