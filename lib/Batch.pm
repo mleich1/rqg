@@ -320,7 +320,7 @@ our $workers_mid;
 our $workers_min;
 sub set_workers_range {
     # Needed at begin of rqg_batch run
-    ($workers_max,$workers_mid,$workers_min) = @_;
+    ($workers_max, $workers_mid, $workers_min) = @_;
     for my $worker_num (1..$workers_max) {
         worker_reset($worker_num);
     }
@@ -615,9 +615,26 @@ sub check_resources {
         return STATUS_FAILURE if $active_workers + 1 > $workers_max;
 
         my $current_time = Time::HiRes::time();
-        my $worker_share1 = ($active_workers + 1 - $workers_min) / ($workers_mid - $workers_min);
+        my $divisor;
+        if (0 == $workers_mid - $workers_min) {
+            $divisor = 1;
+            say("WARNING: workers_mid - workers_min is 0");
+        } else {
+            $divisor = $workers_mid - $workers_min;
+        }
+        my $worker_share1 = ($active_workers + 1 - $workers_min) / $divisor;
         $worker_share1 = 0 if 0 > $worker_share1;
-        my $worker_share2 = ($active_workers + 1) / $workers_min;
+        # 2019-07-02 Observation:
+        #    my $worker_share2 = ($active_workers + 1) / $workers_min;
+        # generated a division by 0.
+        # Reason is currently unknown.
+        if (0 == $workers_min) {
+            $divisor = 1;
+            say("WARNING: workers_min is 0");
+        } else {
+            $divisor = $workers_min;
+        }
+        my $worker_share2 = ($active_workers + 1) / $divisor;
         my $delay;
         if ($first_load_up) {
             $delay = $worker_share1 * 60;
