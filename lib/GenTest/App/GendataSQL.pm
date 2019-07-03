@@ -145,6 +145,12 @@ sub run {
         if ($status) {
             return $bad_status;
         }
+        # Some "general" max_statement_time setting should only apply to YY grammar processing.
+        my $sql_cmd = 'SET @@max_statement_time = 0';
+        my $status = run_sql_cmd($executor, $sql_cmd);
+        if ($status) {
+            return $bad_status;
+        }
     }
 
     if ((defined $self->engine() and $self->engine() ne '') and
