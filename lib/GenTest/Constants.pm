@@ -1,6 +1,6 @@
 # Copyright (c) 2008,2011 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013 Monty Program Ab.
-# Copyright (c) 2018 MariaDB Corporation Ab.
+# Copyright (c) 2018,2019 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -41,6 +41,7 @@ require Exporter;
    STATUS_SKIP
    STATUS_SKIP_RELOOP
 
+   STATUS_UNSUPPORTED
    STATUS_SYNTAX_ERROR
    STATUS_SEMANTIC_ERROR
    STATUS_TRANSACTION_ERROR
@@ -106,6 +107,7 @@ use constant STATUS_SKIP                       => 6;    # A Filter specifies tha
 use constant STATUS_SKIP_RELOOP                => 7;    # The Executor detected that the connection was lost but connect is possible.
                                                         # Assume: Loss of connection from natural reason.
 
+use constant STATUS_UNSUPPORTED         => 20; # Error codes caused by certain functionality recognized as unsupported (NOT syntax errors)
 use constant STATUS_SYNTAX_ERROR               => 21;
 use constant STATUS_SEMANTIC_ERROR             => 22;   # Errors caused by the randomness of the test, e.g. dropping a non-existing table
 use constant STATUS_TRANSACTION_ERROR          => 23;   # Lock wait timeouts, deadlocks, duplicate keys, etc.

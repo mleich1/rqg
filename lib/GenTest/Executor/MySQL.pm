@@ -1,6 +1,6 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018, MariaDB Corporation Ab.
+# Copyright (c) 2018,2019 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -33,6 +33,8 @@ use utf8;
 # the warning "Wide character in print at ..." when meeting a wide character (>255).
 binmode STDOUT, ':utf8';
 
+
+my $debug_here = 0;
 
 use strict;
 use Carp;
@@ -135,6 +137,7 @@ use constant  ER_CRASHED2                                       => 145;
 use constant  ER_AUTOINCREMENT                                  => 167;
 use constant  ER_INCOMPATIBLE_FRM                               => 190;
 
+use constant  ER_CANT_CREATE_TABLE                              => 1005;
 use constant  ER_DB_CREATE_EXISTS                               => 1007;
 use constant  ER_DB_DROP_EXISTS                                 => 1008;
 use constant  ER_CANT_LOCK                                      => 1015;
@@ -142,6 +145,7 @@ use constant  ER_FILE_NOT_FOUND                                 => 1017;
 use constant  ER_CHECKREAD                                      => 1020;
 use constant  ER_DISK_FULL                                      => 1021;
 use constant  ER_DUP_KEY                                        => 1022;
+use constant  ER_ERROR_ON_RENAME                                => 1025;
 use constant  ER_FILSORT_ABORT                                  => 1028;
 use constant  ER_GET_ERRNO                                      => 1030;
 use constant  ER_ILLEGAL_HA                                     => 1031;
@@ -171,9 +175,10 @@ use constant  ER_PARSE_ERROR                                    => 1064;
 use constant  ER_NONUNIQ_TABLE                                  => 1066;
 use constant  ER_INVALID_DEFAULT                                => 1067;
 use constant  ER_MULTIPLE_PRI_KEY                               => 1068;
+use constant  ER_TOO_MANY_KEYS                                  => 1069;
 use constant  ER_TOO_LONG_KEY                                   => 1071;
 use constant  ER_KEY_COLUMN_DOES_NOT_EXIST                      => 1072;
-use constant  ER_COLUMN_LENGTH_TOO_BIG                          => 1074;
+use constant  ER_TOO_BIG_FIELDLENGTH                            => 1074;
 use constant  ER_WRONG_AUTO_KEY                                 => 1075;
 use constant  ER_FILE_EXISTS_ERROR                              => 1086;
 use constant  ER_WRONG_SUB_KEY                                  => 1089;
@@ -187,6 +192,7 @@ use constant  ER_TOO_BIG_SELECT                                 => 1104;
 use constant  ER_UNKNOWN_TABLE                                  => 1109;
 use constant  ER_FIELD_SPECIFIED_TWICE                          => 1110;
 use constant  ER_INVALID_GROUP_FUNC_USE                         => 1111;
+use constant  ER_TABLE_MUST_HAVE_COLUMNS                        => 1113;
 use constant  ER_RECORD_FILE_FULL                               => 1114;
 use constant  ER_TOO_BIG_ROWSIZE                                => 1118;
 use constant  ER_STACK_OVERRUN                                  => 1119;
@@ -201,9 +207,11 @@ use constant  ER_NONEXISTING_TABLE_GRANT                        => 1147;
 use constant  ER_SYNTAX_ERROR                                   => 1149;
 use constant  ER_TABLE_CANT_HANDLE_BLOB                         => 1163;
 use constant  ER_WRONG_MRG_TABLE                                => 1168;
+use constant  ER_BLOB_KEY_WITHOUT_LENGTH                        => 1170;
 use constant  ER_TOO_MANY_ROWS                                  => 1172;
 use constant  ER_KEY_DOES_NOT_EXITS                             => 1176;
 use constant  ER_CHECK_NOT_IMPLEMENTED                          => 1178;
+use constant  ER_FLUSH_MASTER_BINLOG_CLOSED                     => 1186;
 use constant  ER_FT_MATCHING_KEY_NOT_FOUND                      => 1191;
 use constant  ER_LOCK_OR_ACTIVE_TRANSACTION                     => 1192;
 use constant  ER_UNKNOWN_SYSTEM_VARIABLE                        => 1193;
@@ -211,8 +219,10 @@ use constant  ER_CRASHED_ON_USAGE                               => 1194;
 use constant  ER_CRASHED_ON_REPAIR                              => 1195; # In minimum Aria
 use constant  ER_TRANS_CACHE_FULL                               => 1197;
 use constant  ER_LOCK_WAIT_TIMEOUT                              => 1205;
+use constant  ER_WRONG_ARGUMENTS                                => 1210;
 use constant  ER_LOCK_DEADLOCK                                  => 1213;
 use constant  ER_TABLE_CANT_HANDLE_FT                           => 1214;
+use constant  ER_ROW_IS_REFERENCED                              => 1217;
 use constant  ER_WRONG_USAGE                                    => 1221;
 use constant  ER_CANT_UPDATE_WITH_READLOCK                      => 1223;
 use constant  ER_DUP_ARGUMENT                                   => 1225;
@@ -220,10 +230,13 @@ use constant  ER_WRONG_VALUE_FOR_VAR                            => 1231;
 use constant  ER_VAR_CANT_BE_READ                               => 1233;
 use constant  ER_CANT_USE_OPTION_HERE                           => 1234;
 use constant  ER_NOT_SUPPORTED_YET                              => 1235;
+use constant  ER_WRONG_FK_DEF                                   => 1239;
 use constant  ER_OPERAND_COLUMNS                                => 1241;
 use constant  ER_UNKNOWN_STMT_HANDLER                           => 1243;
 use constant  ER_ILLEGAL_REFERENCE                              => 1247;
 use constant  ER_SPATIAL_CANT_HAVE_NULL                         => 1252;
+use constant  ER_WARN_TOO_FEW_RECORDS                           => 1261;
+use constant  ER_WARN_TOO_MANY_RECORDS                          => 1262;
 use constant  ER_WARN_DATA_OUT_OF_RANGE                         => 1264;
 use constant  WARN_DATA_TRUNCATED                               => 1265;
 use constant  ER_CANT_AGGREGATE_2COLLATIONS                     => 1267;
@@ -238,8 +251,10 @@ use constant  ER_OPTION_PREVENTS_STATEMENT                      => 1290;
 use constant  ER_TRUNCATED_WRONG_VALUE                          => 1292;
 use constant  ER_UNSUPPORTED_PS                                 => 1295;
 use constant  ER_INVALID_CHARACTER_STRING                       => 1300;
+use constant  ER_SP_NO_RECURSIVE_CREATE                         => 1303;
 use constant  ER_SP_ALREADY_EXISTS                              => 1304;
 use constant  ER_SP_DOES_NOT_EXIST                              => 1305;
+use constant  ER_SP_BADSTATEMENT                                => 1314;
 use constant  ER_QUERY_INTERRUPTED                              => 1317;
 use constant  ER_SP_COND_MISMATCH                               => 1319;
 use constant  ER_SP_NORETURNEND                                 => 1321;
@@ -251,24 +266,31 @@ use constant  ER_NONUPDATEABLE_COLUMN                           => 1348;
 use constant  ER_VIEW_SELECT_DERIVED                            => 1349;
 use constant  ER_VIEW_SELECT_TMPTABLE                           => 1352;
 use constant  ER_VIEW_INVALID                                   => 1356;
+use constant  ER_SP_NO_DROP_SP                                  => 1357;
 use constant  ER_TRG_ALREADY_EXISTS                             => 1359;
 use constant  ER_TRG_DOES_NOT_EXIST                             => 1360;
 use constant  ER_TRG_ON_VIEW_OR_TEMP_TABLE                      => 1361;
 use constant  ER_NO_DEFAULT_FOR_FIELD                           => 1364;
 use constant  ER_TRUNCATED_WRONG_VALUE_FOR_FIELD                => 1366;
+use constant  ER_NO_BINARY_LOGGING                              => 1381;
 use constant  ER_CANNOT_USER                                    => 1396;
 use constant  ER_XAER_NOTA                                      => 1397;
 use constant  ER_XAER_RMFAIL                                    => 1399;
+use constant  ER_NONEXISTING_PROC_GRANT                         => 1403;
 use constant  ER_DATA_TOO_LONG                                  => 1406;
 use constant  ER_SP_DUP_HANDLER                                 => 1413;
 use constant  ER_SP_NO_RETSET                                   => 1415;
 use constant  ER_CANT_CREATE_GEOMETRY_OBJECT                    => 1416;
 use constant  ER_BINLOG_UNSAFE_ROUTINE                          => 1418;
 use constant  ER_COMMIT_NOT_ALLOWED_IN_SF_OR_TRG                => 1422;
+use constant  ER_NO_DEFAULT_FOR_VIEW_FIELD                      => 1423;
 use constant  ER_SP_NO_RECURSION                                => 1424;
 use constant  ER_TOO_BIG_SCALE                                  => 1425;
 use constant  ER_XAER_DUPID                                     => 1440;
 use constant  ER_CANT_UPDATE_USED_TABLE_IN_SF_OR_TRG            => 1442;
+use constant  ER_MALFORMED_DEFINER                              => 1446;
+use constant  ER_ROW_IS_REFERENCED_2                            => 1451;
+use constant  ER_NO_REFERENCED_ROW_2                            => 1452;
 use constant  ER_SP_RECURSION_LIMIT                             => 1456;
 use constant  ER_SP_PROC_TABLE_CORRUPT                          => 1457;
 use constant  ER_NON_GROUPING_FIELD_USED                        => 1463;
@@ -276,6 +298,7 @@ use constant  ER_TABLE_CANT_HANDLE_SPKEYS                       => 1464;
 use constant  ER_NO_TRIGGERS_ON_SYSTEM_SCHEMA                   => 1465;
 use constant  ER_WRONG_STRING_LENGTH                            => 1470;
 use constant  ER_NON_INSERTABLE_TABLE                           => 1471;
+use constant  ER_ILLEGAL_HA_CREATE_OPTION                       => 1478;
 use constant  ER_PARTITION_WRONG_VALUES_ERROR                   => 1480;
 use constant  ER_PARTITION_MAXVALUE_ERROR                       => 1481;
 use constant  ER_FIELD_NOT_FOUND_PART_ERROR                     => 1488;
@@ -284,6 +307,7 @@ use constant  ER_BLOB_FIELD_IN_PART_FUNC_ERROR                  => 1502;
 use constant  ER_UNIQUE_KEY_NEED_ALL_FIELDS_IN_PF               => 1503;
 use constant  ER_NO_PARTS_ERROR                                 => 1504;
 use constant  ER_PARTITION_MGMT_ON_NONPARTITIONED               => 1505;
+use constant  ER_FOREIGN_KEY_ON_PARTITIONED                     => 1506;
 use constant  ER_DROP_PARTITION_NON_EXISTENT                    => 1507;
 use constant  ER_DROP_LAST_PARTITION                            => 1508;
 use constant  ER_COALESCE_ONLY_ON_HASH_PARTITION                => 1509;
@@ -291,6 +315,7 @@ use constant  ER_REORG_HASH_ONLY_ON_SAME_NO                     => 1510;
 use constant  ER_REORG_NO_PARAM_ERROR                           => 1511;
 use constant  ER_ONLY_ON_RANGE_LIST_PARTITION                   => 1512;
 use constant  ER_SAME_NAME_PARTITION                            => 1517;
+use constant  ER_CONSECUTIVE_REORG_PARTITIONS                   => 1519;
 use constant  ER_PLUGIN_IS_NOT_LOADED                           => 1524;
 use constant  ER_WRONG_VALUE                                    => 1525;
 use constant  ER_NO_PARTITION_FOR_GIVEN_VALUE                   => 1526;
@@ -301,6 +326,7 @@ use constant  ER_STORED_FUNCTION_PREVENTS_SWITCH_BINLOG_FORMAT  => 1560;
 use constant  ER_PARTITION_NO_TEMPORARY                         => 1562;
 use constant  ER_WRONG_PARTITION_NAME                           => 1567;
 use constant  ER_CANT_CHANGE_TX_ISOLATION                       => 1568;
+use constant  ER_EVENTS_DB_ERROR                                => 1577;
 use constant  ER_XA_RBDEADLOCK                                  => 1614;
 use constant  ER_NEED_REPREPARE                                 => 1615;
 use constant  ER_DUP_SIGNAL_SET                                 => 1641;
@@ -317,6 +343,7 @@ use constant  ER_NO_SUCH_TABLESPACE                             => 1684;
 use constant  ER_BACKUP_SEND_DATA2                              => 1687;
 use constant  ER_DATA_OUT_OF_RANGE                              => 1690;
 use constant  ER_BACKUP_PROGRESS_TABLES                         => 1691;
+use constant  ER_SET_PASSWORD_AUTH_PLUGIN                       => 1699;
 use constant  ER_MULTI_UPDATE_KEY_CONFLICT                      => 1706;
 use constant  ER_INDEX_COLUMN_TOO_LONG                          => 1709;
 use constant  ER_TABLESPACE_NOT_EMPTY                           => 1721;
@@ -326,15 +353,25 @@ use constant  ER_PARTITION_INSTEAD_OF_SUBPARTITION              => 1734;
 use constant  ER_UNKNOWN_PARTITION                              => 1735;
 use constant  ER_PARTITION_CLAUSE_ON_NONPARTITIONED             => 1747;
 use constant  ER_ROW_DOES_NOT_MATCH_GIVEN_PARTITION_SET         => 1748;
+use constant  ER_FOREIGN_DUPLICATE_KEY_WITH_CHILD_INFO          => 1761;
+use constant  ER_FOREIGN_DUPLICATE_KEY_WITHOUT_CHILD_INFO       => 1762;
 use constant  ER_BACKUP_NOT_ENABLED                             => 1789;
+use constant  ER_INNODB_NO_FT_TEMP_TABLE                        => 1796;
+use constant  ER_DUP_CONSTRAINT_NAME                            => 1826;
 use constant  ER_ALTER_OPERATION_NOT_SUPPORTED                  => 1845;
 use constant  ER_ALTER_OPERATION_NOT_SUPPORTED_REASON           => 1846;
 use constant  ER_VIRTUAL_COLUMN_FUNCTION_IS_NOT_ALLOWED         => 1901;
+use constant  ER_KEY_BASED_ON_GENERATED_VIRTUAL_COLUMN          => 1904;
+use constant  ER_WARNING_NON_DEFAULT_VALUE_FOR_GENERATED_COLUMN => 1906;
 use constant  ER_CONST_EXPR_IN_VCOL                             => 1908;
+use constant  ER_UNKNOWN_OPTION                                 => 1911;
+use constant  ER_BAD_OPTION_VALUE                               => 1912;
 use constant  ER_CANT_DO_ONLINE                                 => 1915;
 use constant  ER_CONNECTION_KILLED                              => 1927;
 use constant  ER_NO_SUCH_TABLE_IN_ENGINE                        => 1932;
 use constant  ER_TARGET_NOT_EXPLAINABLE                         => 1933;
+use constant  ER_INVALID_ROLE                                   => 1959;
+use constant  ER_INVALID_CURRENT_USER                           => 1960;
 use constant  ER_IT_IS_A_VIEW                                   => 1965;
 use constant  ER_STATEMENT_TIMEOUT                              => 1969;
 
@@ -353,6 +390,10 @@ use constant  CR_SERVER_LOST                                    => 2013;
 
 use constant  CR_COMMANDS_OUT_OF_SYNC                           => 2014;  # Caused by old DBD::mysql
 use constant  ER_SERVER_LOST_EXTENDED                           => 2055;
+
+#--- MySQL 5.7 ---
+
+use constant  ER_FIELD_IN_ORDER_NOT_SELECT                      => 3065;
 
 #--- MySQL 5.7 JSON-related errors ---
 
@@ -378,63 +419,89 @@ use constant  ER_JSON_DOCUMENT_NULL_KEY                         => 3158;
 
 #--- end of MySQL 5.7 JSON errors ---
 
+use constant  ER_CONSTRAINT_FAILED                              => 4025;
 use constant  ER_EXPRESSION_REFERS_TO_UNINIT_FIELD              => 4026;
 use constant  ER_REFERENCED_TRG_DOES_NOT_EXIST                  => 4031;
+use constant  ER_UNSUPPORT_COMPRESSED_TEMPORARY_TABLE           => 4047;
 use constant  ER_ISOLATION_MODE_NOT_SUPPORTED                   => 4057;
 use constant  ER_MYROCKS_CANT_NOPAD_COLLATION                   => 4077;
 
 #--- end of 10.2 errors ---
 
-#--- the codes below can still change---
-
+use constant  ER_ILLEGAL_PARAMETER_DATA_TYPES2_FOR_OPERATION    => 4078;
 use constant  ER_SEQUENCE_RUN_OUT                               => 4084;
 use constant  ER_SEQUENCE_INVALID_DATA                          => 4085;
+use constant  ER_SEQUENCE_INVALID_TABLE_STRUCTURE               => 4086;
+use constant  ER_NOT_SEQUENCE                                   => 4089;
 use constant  ER_UNKNOWN_SEQUENCES                              => 4091;
 use constant  ER_UNKNOWN_VIEW                                   => 4092;
+use constant  ER_COMPRESSED_COLUMN_USED_AS_KEY                  => 4097;
 use constant  ER_VERSIONING_REQUIRED                            => 4106;
-use constant  ER_VERS_FIELD_WRONG_TYPE                          => 4108;
-use constant  ER_VERS_ENGINE_UNSUPPORTED                        => 4109;
-use constant  ER_VERS_ALTER_NOT_ALLOWED                         => 4118;
-use constant  ER_VERS_ALTER_ENGINE_PROHIBITED                   => 4119;
-use constant  ER_VERS_NO_COLS_DEFINED                           => 4128;
-use constant  ER_VERS_NOT_VERSIONED                             => 4129;
-use constant  ER_MISSING                                        => 4130; # Missing "with system versioning"
-use constant  ER_VERS_PERIOD_COLUMNS                            => 4131;
-use constant  ER_VERS_ALTER_SYSTEM_FIELD                        => 4137;
-use constant  ER_VERS_GENERATED_ALWAYS_NOT_EMPTY                => 4140;
-use constant  ER_VERS_DUPLICATE_ROW_START_END                   => 4142;
-use constant  ER_VERS_ALREADY_VERSIONED                         => 4143;
-use constant  ER_VERS_TRUNCATE_VIEW                             => 4145;
-use constant  ER_VERS_TEMPORARY                                 => 4146;
+use constant  ER_INVISIBLE_NOT_NULL_WITHOUT_DEFAULT             => 4108;
+use constant  ER_UPDATE_INFO_WITH_SYSTEM_VERSIONING             => 4109;
+use constant  ER_VERS_FIELD_WRONG_TYPE                          => 4110;
+use constant  ER_VERS_ENGINE_UNSUPPORTED                        => 4111;
+# use constant  ER_VERS_ALTER_NOT_ALLOWED                         => 4118;
+use constant  ER_VERS_ALTER_NOT_ALLOWED                         => 4119;
+use constant  ER_VERS_ALTER_ENGINE_PROHIBITED                   => 4120;
+use constant  ER_VERS_NOT_VERSIONED                             => 4124;
+use constant  ER_MISSING                                        => 4125; # Missing "with system versioning"
+use constant  ER_VERS_PERIOD_COLUMNS                            => 4126;
+use constant  ER_VERS_WRONG_PARTS                               => 4128;
+use constant  ER_VERS_NO_TRX_ID                                 => 4129;
+use constant  ER_VERS_ALTER_SYSTEM_FIELD                        => 4130;
+use constant  ER_VERS_DUPLICATE_ROW_START_END                   => 4134;
+use constant  ER_VERS_ALREADY_VERSIONED                         => 4135;
+use constant  ER_VERS_TEMPORARY                                 => 4137;
+use constant  ER_BACKUP_LOCK_IS_ACTIVE                          => 4145;
+use constant  ER_BACKUP_NOT_RUNNING                             => 4146;
+use constant  ER_BACKUP_WRONG_STAGE                             => 4147;
 
 #--- end of 10.3 errors ---
 
+#--- the codes below can still change---
+
+use constant  ER_PERIOD_TEMPORARY_NOT_ALLOWED                   => 4152;
+use constant  ER_PERIOD_TYPES_MISMATCH                          => 4153;
+use constant  ER_MORE_THAN_ONE_PERIOD                           => 4154;
+use constant  ER_PERIOD_FIELD_WRONG_ATTRIBUTES                  => 4155;
+use constant  ER_PERIOD_NOT_FOUND                               => 4156;
+use constant  ER_PERIOD_COLUMNS_UPDATED                         => 4157;
+use constant  ER_PERIOD_CONSTRAINT_DROP                         => 4158;
+
 my %err2type = (
 
-    CR_COMMANDS_OUT_OF_SYNC() => STATUS_ENVIRONMENT_FAILURE,
+    CR_COMMANDS_OUT_OF_SYNC()                           => STATUS_ENVIRONMENT_FAILURE,
 
-    ER_ALTER_OPERATION_NOT_SUPPORTED()                  => STATUS_SEMANTIC_ERROR,
-    ER_ALTER_OPERATION_NOT_SUPPORTED_REASON()           => STATUS_SEMANTIC_ERROR,
+    ER_ALTER_OPERATION_NOT_SUPPORTED()                  => STATUS_UNSUPPORTED,
+    ER_ALTER_OPERATION_NOT_SUPPORTED_REASON()           => STATUS_UNSUPPORTED,
     ER_AUTOINCREMENT()                                  => STATUS_SEMANTIC_ERROR,
+    ER_BACKUP_LOCK_IS_ACTIVE()                          => STATUS_SEMANTIC_ERROR,
     ER_BACKUP_NOT_ENABLED()                             => STATUS_ENVIRONMENT_FAILURE,
+    ER_BACKUP_NOT_RUNNING()                             => STATUS_SEMANTIC_ERROR,
     ER_BACKUP_PROGRESS_TABLES()                         => STATUS_BACKUP_FAILURE,
     ER_BACKUP_RUNNING()                                 => STATUS_SEMANTIC_ERROR,
     ER_BACKUP_SEND_DATA1()                              => STATUS_BACKUP_FAILURE,
     ER_BACKUP_SEND_DATA2()                              => STATUS_BACKUP_FAILURE,
+    ER_BACKUP_WRONG_STAGE()                             => STATUS_SEMANTIC_ERROR,
     ER_BAD_DB_ERROR()                                   => STATUS_SEMANTIC_ERROR,
     ER_BAD_FIELD_ERROR()                                => STATUS_SEMANTIC_ERROR,
     ER_BAD_FT_COLUMN()                                  => STATUS_SEMANTIC_ERROR,
     ER_BAD_NULL_ERROR()                                 => STATUS_SEMANTIC_ERROR,
+    # Don't want to suppress it
+    # ER_BAD_OPTION_VALUE()                               => STATUS_SEMANTIC_ERROR,
     ER_BAD_TABLE_ERROR()                                => STATUS_SEMANTIC_ERROR,
     ER_BINLOG_STMT_MODE_AND_ROW_ENGINE()                => STATUS_SEMANTIC_ERROR,
     ER_BINLOG_UNSAFE_ROUTINE()                          => STATUS_SEMANTIC_ERROR,
     ER_BLOB_FIELD_IN_PART_FUNC_ERROR()                  => STATUS_SEMANTIC_ERROR,
+    ER_BLOB_KEY_WITHOUT_LENGTH()                        => STATUS_SEMANTIC_ERROR,
     ER_CANNOT_USER()                                    => STATUS_SEMANTIC_ERROR,
     ER_CANT_AGGREGATE_2COLLATIONS()                     => STATUS_SEMANTIC_ERROR,
     ER_CANT_AGGREGATE_3COLLATIONS()                     => STATUS_SEMANTIC_ERROR,
     ER_CANT_AGGREGATE_NCOLLATIONS()                     => STATUS_SEMANTIC_ERROR,
     ER_CANT_CHANGE_TX_ISOLATION()                       => STATUS_SEMANTIC_ERROR,
     ER_CANT_CREATE_GEOMETRY_OBJECT()                    => STATUS_SEMANTIC_ERROR,
+    ER_CANT_CREATE_TABLE()                              => STATUS_SEMANTIC_ERROR,
     ER_CANT_CREATE_THREAD()                             => STATUS_ENVIRONMENT_FAILURE,
     ER_CANT_DO_ONLINE()                                 => STATUS_SEMANTIC_ERROR,
     ER_CANT_DROP_FIELD_OR_KEY()                         => STATUS_SEMANTIC_ERROR,
@@ -447,11 +514,13 @@ my %err2type = (
     ER_CHECKREAD()                                      => STATUS_TRANSACTION_ERROR,
     ER_CHECK_NOT_IMPLEMENTED()                          => STATUS_SEMANTIC_ERROR,
     ER_COALESCE_ONLY_ON_HASH_PARTITION()                => STATUS_SEMANTIC_ERROR,
-    ER_COLUMN_LENGTH_TOO_BIG                            => STATUS_SEMANTIC_ERROR,
+    ER_TOO_BIG_FIELDLENGTH()                            => STATUS_SEMANTIC_ERROR,
     ER_COMMIT_NOT_ALLOWED_IN_SF_OR_TRG()                => STATUS_SEMANTIC_ERROR,
+    ER_COMPRESSED_COLUMN_USED_AS_KEY()                  => STATUS_SEMANTIC_ERROR,
     ER_CONNECTION_ERROR()                               => STATUS_SERVER_CRASHED,
     ER_CONNECTION_KILLED()                              => STATUS_SEMANTIC_ERROR,
     ER_CONN_HOST_ERROR()                                => STATUS_SERVER_CRASHED,
+    ER_CONSTRAINT_FAILED()                              => STATUS_SEMANTIC_ERROR,
     ER_CONST_EXPR_IN_VCOL()                             => STATUS_SEMANTIC_ERROR,
     ER_CON_COUNT_ERROR()                                => STATUS_ENVIRONMENT_FAILURE,
     ER_CRASHED1()                                       => STATUS_DATABASE_CORRUPTION,
@@ -467,31 +536,43 @@ my %err2type = (
     ER_DROP_LAST_PARTITION()                            => STATUS_SEMANTIC_ERROR,
     ER_DROP_PARTITION_NON_EXISTENT()                    => STATUS_SEMANTIC_ERROR,
     ER_DUP_ARGUMENT()                                   => STATUS_SEMANTIC_ERROR,
+    ER_DUP_CONSTRAINT_NAME()                            => STATUS_SEMANTIC_ERROR,
     ER_DUP_ENTRY()                                      => STATUS_TRANSACTION_ERROR,
     ER_DUP_FIELDNAME()                                  => STATUS_SEMANTIC_ERROR,
     ER_DUP_KEY()                                        => STATUS_TRANSACTION_ERROR,
     ER_DUP_KEYNAME()                                    => STATUS_SEMANTIC_ERROR,
     ER_DUP_SIGNAL_SET()                                 => STATUS_SEMANTIC_ERROR,
+    ER_ERROR_ON_RENAME()                                => STATUS_SEMANTIC_ERROR,
     ER_EVENT_ALREADY_EXISTS()                           => STATUS_SEMANTIC_ERROR,
     ER_EVENT_DOES_NOT_EXIST()                           => STATUS_SEMANTIC_ERROR,
     ER_EVENT_INTERVAL_NOT_POSITIVE_OR_TOO_BIG()         => STATUS_SEMANTIC_ERROR,
+    ER_EVENTS_DB_ERROR()                                => STATUS_DATABASE_CORRUPTION,
     ER_EXPRESSION_REFERS_TO_UNINIT_FIELD()              => STATUS_SEMANTIC_ERROR,
     ER_FEATURE_DISABLED()                               => STATUS_SEMANTIC_ERROR,
+    ER_FIELD_IN_ORDER_NOT_SELECT()                      => STATUS_SEMANTIC_ERROR,
     ER_FIELD_NOT_FOUND_PART_ERROR()                     => STATUS_SEMANTIC_ERROR,
     ER_FIELD_TYPE_NOT_ALLOWED_AS_PARTITION_FIELD()      => STATUS_SEMANTIC_ERROR,
     ER_FIELD_SPECIFIED_TWICE()                          => STATUS_SEMANTIC_ERROR,
     ER_FILE_EXISTS_ERROR()                              => STATUS_SEMANTIC_ERROR,
     ER_FILE_NOT_FOUND()                                 => STATUS_SEMANTIC_ERROR,
     ER_FILSORT_ABORT()                                  => STATUS_SKIP,
+    ER_FLUSH_MASTER_BINLOG_CLOSED()                     => STATUS_SEMANTIC_ERROR,
+    ER_FOREIGN_KEY_ON_PARTITIONED()                     => STATUS_SEMANTIC_ERROR,
+    ER_FOREIGN_DUPLICATE_KEY_WITH_CHILD_INFO()          => STATUS_SEMANTIC_ERROR,
+    ER_FOREIGN_DUPLICATE_KEY_WITHOUT_CHILD_INFO()       => STATUS_SEMANTIC_ERROR,
     ER_FT_MATCHING_KEY_NOT_FOUND()                      => STATUS_SEMANTIC_ERROR,
-    ER_GET_ERRNO()                                      => STATUS_DATABASE_CORRUPTION, # Was STATUS_SEMANTIC_ERROR as long as MDEV-14641 was not fixed
+    ER_GET_ERRNO()                                      => STATUS_SEMANTIC_ERROR,
     ER_ILLEGAL_HA()                                     => STATUS_SEMANTIC_ERROR,
+    ER_ILLEGAL_HA_CREATE_OPTION()                       => STATUS_UNSUPPORTED,
+    ER_ILLEGAL_PARAMETER_DATA_TYPES2_FOR_OPERATION()    => STATUS_SEMANTIC_ERROR,
     ER_ILLEGAL_REFERENCE()                              => STATUS_SEMANTIC_ERROR,
-    ER_INCOMPATIBLE_FRM()                               => STATUS_DATABASE_CORRUPTION, # Was STATUS_SEMANTIC_ERROR as long as MDEV-14641 was not fixed
+    ER_INCOMPATIBLE_FRM()                               => STATUS_DATABASE_CORRUPTION,
     ER_INDEX_COLUMN_TOO_LONG()                          => STATUS_SEMANTIC_ERROR,
+    ER_INNODB_NO_FT_TEMP_TABLE()                        => STATUS_SEMANTIC_ERROR,
     ER_INSIDE_TRANSACTION_PREVENTS_SWITCH_BINLOG_FORMAT() => STATUS_SEMANTIC_ERROR,
     ER_INVALID_CAST_TO_JSON()                           => STATUS_SEMANTIC_ERROR,
     ER_INVALID_CHARACTER_STRING()                       => STATUS_SEMANTIC_ERROR,
+    ER_INVALID_CURRENT_USER()                           => STATUS_SEMANTIC_ERROR, # switch to something critical after MDEV-17943 is fixed
     ER_INVALID_DEFAULT()                                => STATUS_SEMANTIC_ERROR,
     ER_INVALID_GROUP_FUNC_USE()                         => STATUS_SEMANTIC_ERROR,
     ER_INVALID_JSON_BINARY_DATA()                       => STATUS_SEMANTIC_ERROR,
@@ -503,8 +584,10 @@ my %err2type = (
     ER_INVALID_JSON_TEXT()                              => STATUS_SEMANTIC_ERROR,
     ER_INVALID_JSON_TEXT_IN_PARAM()                     => STATUS_SEMANTIC_ERROR,
     ER_INVALID_JSON_VALUE_FOR_CAST()                    => STATUS_SEMANTIC_ERROR,
+    ER_INVALID_ROLE()                                   => STATUS_SEMANTIC_ERROR,
     ER_INVALID_TYPE_FOR_JSON()                          => STATUS_SEMANTIC_ERROR,
-    ER_ISOLATION_MODE_NOT_SUPPORTED()                   => STATUS_SEMANTIC_ERROR,
+    ER_INVISIBLE_NOT_NULL_WITHOUT_DEFAULT()             => STATUS_SEMANTIC_ERROR,
+    ER_ISOLATION_MODE_NOT_SUPPORTED()                   => STATUS_UNSUPPORTED,
     ER_JSON_BAD_ONE_OR_ALL_ARG()                        => STATUS_SEMANTIC_ERROR,
     ER_JSON_DOCUMENT_NULL_KEY()                         => STATUS_SEMANTIC_ERROR,
     ER_JSON_DOCUMENT_TOO_DEEP()                         => STATUS_SEMANTIC_ERROR,
@@ -513,20 +596,24 @@ my %err2type = (
     ER_JSON_USED_AS_KEY()                               => STATUS_SEMANTIC_ERROR,
     ER_JSON_VACUOUS_PATH()                              => STATUS_SEMANTIC_ERROR,
     ER_IT_IS_A_VIEW()                                   => STATUS_SEMANTIC_ERROR,
+    ER_KEY_BASED_ON_GENERATED_VIRTUAL_COLUMN()          => STATUS_SEMANTIC_ERROR,
     ER_KEY_COLUMN_DOES_NOT_EXIST()                      => STATUS_SEMANTIC_ERROR,
     ER_KEY_DOES_NOT_EXITS()                             => STATUS_SEMANTIC_ERROR,
     ER_KEY_NOT_FOUND()                                  => STATUS_DATABASE_CORRUPTION,
     ER_LOCK_DEADLOCK()                                  => STATUS_TRANSACTION_ERROR,
     ER_LOCK_OR_ACTIVE_TRANSACTION()                     => STATUS_SEMANTIC_ERROR,
     ER_LOCK_WAIT_TIMEOUT()                              => STATUS_TRANSACTION_ERROR,
+    ER_MALFORMED_DEFINER()                              => STATUS_SEMANTIC_ERROR,
     ER_MISSING()                                        => STATUS_SYNTAX_ERROR,
     ER_MIX_HANDLER_ERROR()                              => STATUS_SEMANTIC_ERROR,
     ER_MIX_OF_GROUP_FUNC_AND_FIELDS()                   => STATUS_SEMANTIC_ERROR,
+    ER_MORE_THAN_ONE_PERIOD()                           => STATUS_SEMANTIC_ERROR,
     ER_MULTIPLE_PRI_KEY()                               => STATUS_SEMANTIC_ERROR,
     ER_MULTI_UPDATE_KEY_CONFLICT()                      => STATUS_SEMANTIC_ERROR,
     ER_MYROCKS_CANT_NOPAD_COLLATION()                   => STATUS_SEMANTIC_ERROR,
     ER_NEED_REPREPARE()                                 => STATUS_SEMANTIC_ERROR,
     ER_NONEXISTING_GRANT()                              => STATUS_SEMANTIC_ERROR,
+    ER_NONEXISTING_PROC_GRANT()                         => STATUS_SEMANTIC_ERROR,
     ER_NONEXISTING_TABLE_GRANT()                        => STATUS_SEMANTIC_ERROR,
     ER_NONUNIQ_TABLE()                                  => STATUS_SEMANTIC_ERROR,
     ER_NONUPDATEABLE_COLUMN()                           => STATUS_SEMANTIC_ERROR,
@@ -535,11 +622,15 @@ my %err2type = (
     ER_NON_UNIQ_ERROR()                                 => STATUS_SEMANTIC_ERROR,
     ER_NON_UPDATABLE_TABLE()                            => STATUS_SEMANTIC_ERROR,
     ER_NOT_KEYFILE()                                    => STATUS_DATABASE_CORRUPTION,
-    ER_NOT_SUPPORTED_YET()                              => STATUS_SEMANTIC_ERROR,
+    ER_NOT_SEQUENCE()                                   => STATUS_SEMANTIC_ERROR,
+    ER_NOT_SUPPORTED_YET()                              => STATUS_UNSUPPORTED,
+    ER_NO_BINARY_LOGGING()                              => STATUS_SEMANTIC_ERROR,
     ER_NO_DB_ERROR()                                    => STATUS_SEMANTIC_ERROR,
     ER_NO_DEFAULT_FOR_FIELD()                           => STATUS_SEMANTIC_ERROR,
+    ER_NO_DEFAULT_FOR_VIEW_FIELD()                      => STATUS_SEMANTIC_ERROR,
     ER_NO_PARTITION_FOR_GIVEN_VALUE()                   => STATUS_SEMANTIC_ERROR,
     ER_NO_PARTS_ERROR()                                 => STATUS_SEMANTIC_ERROR,
+    ER_NO_REFERENCED_ROW_2()                            => STATUS_SEMANTIC_ERROR,
     ER_NO_SUCH_TABLE()                                  => STATUS_SEMANTIC_ERROR,
     ER_NO_SUCH_TABLE_IN_ENGINE()                        => STATUS_DATABASE_CORRUPTION,
     ER_NO_SUCH_TABLESPACE()                             => STATUS_SEMANTIC_ERROR,
@@ -562,6 +653,11 @@ my %err2type = (
     ER_PARTITION_NO_TEMPORARY()                         => STATUS_SEMANTIC_ERROR,
     ER_PARTITION_WRONG_VALUES_ERROR()                   => STATUS_SEMANTIC_ERROR,
     ER_PASSWORD_NO_MATCH()                              => STATUS_SEMANTIC_ERROR,
+    ER_PERIOD_COLUMNS_UPDATED()                         => STATUS_SEMANTIC_ERROR,
+    ER_PERIOD_FIELD_WRONG_ATTRIBUTES()                  => STATUS_SEMANTIC_ERROR,
+    ER_PERIOD_NOT_FOUND()                               => STATUS_SEMANTIC_ERROR,
+    ER_PERIOD_TEMPORARY_NOT_ALLOWED()                   => STATUS_SEMANTIC_ERROR,
+    ER_PERIOD_TYPES_MISMATCH()                          => STATUS_SEMANTIC_ERROR,
     ER_PLUGIN_IS_NOT_LOADED()                           => STATUS_SEMANTIC_ERROR,
     ER_QUERY_INTERRUPTED()                              => STATUS_SKIP,
     ER_RECORD_FILE_FULL()                               => STATUS_ENVIRONMENT_FAILURE,
@@ -570,7 +666,10 @@ my %err2type = (
     ER_REORG_NO_PARAM_ERROR()                           => STATUS_SEMANTIC_ERROR,
     ER_RESIGNAL_WITHOUT_ACTIVE_HANDLER()                => STATUS_SEMANTIC_ERROR,
     ER_ROW_DOES_NOT_MATCH_GIVEN_PARTITION_SET()         => STATUS_SEMANTIC_ERROR,
+    ER_ROW_IS_REFERENCED()                              => STATUS_SEMANTIC_ERROR,
+    ER_ROW_IS_REFERENCED_2()                            => STATUS_SEMANTIC_ERROR,
     ER_SAME_NAME_PARTITION()                            => STATUS_SEMANTIC_ERROR,
+    ER_CONSECUTIVE_REORG_PARTITIONS()                   => STATUS_SEMANTIC_ERROR,
 
     # This was flipped from STATUS_SERVER_CRASHED to STATUS_SEMANTIC_ERROR in order to
     # minimize trouble with prepared statements.
@@ -586,17 +685,22 @@ my %err2type = (
     ER_SERVER_LOST_EXTENDED()                           => STATUS_SERVER_CRASHED,
     ER_SERVER_SHUTDOWN()                                => STATUS_SERVER_KILLED,
     ER_SEQUENCE_INVALID_DATA()                          => STATUS_SEMANTIC_ERROR,
+    ER_SEQUENCE_INVALID_TABLE_STRUCTURE()               => STATUS_SEMANTIC_ERROR,
     ER_SEQUENCE_RUN_OUT()                               => STATUS_SEMANTIC_ERROR,
+    ER_SET_PASSWORD_AUTH_PLUGIN()                       => STATUS_SEMANTIC_ERROR,
     ER_SIGNAL_BAD_CONDITION_TYPE()                      => STATUS_SEMANTIC_ERROR,
     ER_SIGNAL_EXCEPTION()                               => STATUS_SEMANTIC_ERROR,
     ER_SP_ALREADY_EXISTS()                              => STATUS_SEMANTIC_ERROR,
+    ER_SP_BADSTATEMENT()                                => STATUS_SEMANTIC_ERROR,
     ER_SP_COND_MISMATCH()                               => STATUS_SEMANTIC_ERROR,
     ER_SP_DOES_NOT_EXIST()                              => STATUS_SEMANTIC_ERROR,
     ER_SP_DUP_COND()                                    => STATUS_SEMANTIC_ERROR,
     ER_SP_DUP_HANDLER()                                 => STATUS_SEMANTIC_ERROR,
     ER_SP_DUP_PARAM()                                   => STATUS_SEMANTIC_ERROR,
     ER_SP_NORETURNEND()                                 => STATUS_SEMANTIC_ERROR,
+    ER_SP_NO_DROP_SP()                                  => STATUS_SEMANTIC_ERROR,
     ER_SP_NO_RECURSION()                                => STATUS_SEMANTIC_ERROR,
+    ER_SP_NO_RECURSIVE_CREATE()                         => STATUS_SEMANTIC_ERROR,
     ER_SP_NO_RETSET()                                   => STATUS_SEMANTIC_ERROR,
 #    ER_SP_PROC_TABLE_CORRUPT()                          => STATUS_DATABASE_CORRUPTION,  # this error is bogus due to bug # 47870
     ER_SP_RECURSION_LIMIT()                             => STATUS_SEMANTIC_ERROR,
@@ -613,6 +717,7 @@ my %err2type = (
     ER_TABLE_CANT_HANDLE_FT()                           => STATUS_SEMANTIC_ERROR,
     ER_TABLE_CANT_HANDLE_SPKEYS()                       => STATUS_SEMANTIC_ERROR,
     ER_TABLE_EXISTS_ERROR()                             => STATUS_SEMANTIC_ERROR,
+    ER_TABLE_MUST_HAVE_COLUMNS()                        => STATUS_SEMANTIC_ERROR,
     ER_TABLE_NOT_LOCKED()                               => STATUS_SEMANTIC_ERROR,
     ER_TABLE_NOT_LOCKED_FOR_WRITE()                     => STATUS_SEMANTIC_ERROR,
     ER_TARGET_NOT_EXPLAINABLE()                         => STATUS_SEMANTIC_ERROR,
@@ -620,6 +725,7 @@ my %err2type = (
     ER_TOO_BIG_SCALE()                                  => STATUS_SEMANTIC_ERROR,
     ER_TOO_BIG_SELECT()                                 => STATUS_SEMANTIC_ERROR,
     ER_TOO_LONG_KEY()                                   => STATUS_SEMANTIC_ERROR,
+    ER_TOO_MANY_KEYS()                                  => STATUS_SEMANTIC_ERROR,
     ER_TOO_MANY_ROWS()                                  => STATUS_SEMANTIC_ERROR,
     ER_TRANS_CACHE_FULL()                               => STATUS_SEMANTIC_ERROR, # or STATUS_TRANSACTION_ERROR
     ER_TRG_ALREADY_EXISTS()                             => STATUS_SEMANTIC_ERROR,
@@ -630,6 +736,7 @@ my %err2type = (
     ER_UNEXPECTED_EOF()                                 => STATUS_DATABASE_CORRUPTION,
     ER_UNIQUE_KEY_NEED_ALL_FIELDS_IN_PF()               => STATUS_SEMANTIC_ERROR,
     ER_UNKNOWN_KEY_CACHE()                              => STATUS_SEMANTIC_ERROR,
+    ER_UNKNOWN_OPTION()                                 => STATUS_SEMANTIC_ERROR,
     ER_UNKNOWN_PARTITION()                              => STATUS_SEMANTIC_ERROR,
     ER_UNKNOWN_SEQUENCES()                              => STATUS_SEMANTIC_ERROR,
     ER_UNKNOWN_STMT_HANDLER()                           => STATUS_SEMANTIC_ERROR,
@@ -637,7 +744,8 @@ my %err2type = (
     ER_UNKNOWN_SYSTEM_VARIABLE()                        => STATUS_SEMANTIC_ERROR,
     ER_UNKNOWN_TABLE()                                  => STATUS_SEMANTIC_ERROR,
     ER_UNKNOWN_VIEW()                                   => STATUS_SEMANTIC_ERROR,
-    ER_UNSUPPORTED_PS()                                 => STATUS_SEMANTIC_ERROR,
+    ER_UNSUPPORT_COMPRESSED_TEMPORARY_TABLE()           => STATUS_UNSUPPORTED,
+    ER_UNSUPPORTED_PS()                                 => STATUS_UNSUPPORTED,
     ER_UPDATE_TABLE_USED()                              => STATUS_SEMANTIC_ERROR,
     ER_VAR_CANT_BE_READ()                               => STATUS_SEMANTIC_ERROR,
     ER_VERS_ALREADY_VERSIONED()                         => STATUS_SEMANTIC_ERROR,
@@ -645,23 +753,27 @@ my %err2type = (
     ER_VERS_ALTER_NOT_ALLOWED()                         => STATUS_SEMANTIC_ERROR,
     ER_VERS_ALTER_SYSTEM_FIELD()                        => STATUS_SEMANTIC_ERROR,
     ER_VERS_DUPLICATE_ROW_START_END()                   => STATUS_SEMANTIC_ERROR,
-    ER_VERS_ENGINE_UNSUPPORTED()                        => STATUS_SEMANTIC_ERROR, # See MDEV-14677 (closed)
+    ER_VERS_ENGINE_UNSUPPORTED()                        => STATUS_UNSUPPORTED,
     ER_VERS_FIELD_WRONG_TYPE()                          => STATUS_SEMANTIC_ERROR,
-    ER_VERS_GENERATED_ALWAYS_NOT_EMPTY()                => STATUS_SEMANTIC_ERROR,
-    ER_VERS_NO_COLS_DEFINED()                           => STATUS_SEMANTIC_ERROR,
+    ER_VERS_NO_TRX_ID()                                 => STATUS_SEMANTIC_ERROR,
     ER_VERS_NOT_VERSIONED()                             => STATUS_SEMANTIC_ERROR,
     ER_VERS_PERIOD_COLUMNS()                            => STATUS_SEMANTIC_ERROR,
     ER_VERS_TEMPORARY()                                 => STATUS_SEMANTIC_ERROR,
-    ER_VERS_TRUNCATE_VIEW()                             => STATUS_SEMANTIC_ERROR,
+    ER_VERS_WRONG_PARTS()                               => STATUS_SEMANTIC_ERROR,
     ER_VERSIONING_REQUIRED()                            => STATUS_SEMANTIC_ERROR,
     ER_VIEW_INVALID()                                   => STATUS_SEMANTIC_ERROR,
     ER_VIEW_SELECT_DERIVED()                            => STATUS_SEMANTIC_ERROR,
     ER_VIEW_SELECT_TMPTABLE()                           => STATUS_SEMANTIC_ERROR,
     ER_VIRTUAL_COLUMN_FUNCTION_IS_NOT_ALLOWED()         => STATUS_SEMANTIC_ERROR,
     ER_WARN_DATA_OUT_OF_RANGE()                         => STATUS_SEMANTIC_ERROR,
+    ER_WARN_TOO_FEW_RECORDS()                           => STATUS_SEMANTIC_ERROR,
+    ER_WARN_TOO_MANY_RECORDS()                          => STATUS_SEMANTIC_ERROR,
+    ER_WARNING_NON_DEFAULT_VALUE_FOR_GENERATED_COLUMN() => STATUS_SEMANTIC_ERROR,
+    ER_WRONG_ARGUMENTS()                                => STATUS_SEMANTIC_ERROR,
     ER_WRONG_AUTO_KEY()                                 => STATUS_SEMANTIC_ERROR,
     ER_WRONG_FIELD_SPEC()                               => STATUS_SEMANTIC_ERROR,
     ER_WRONG_FIELD_WITH_GROUP()                         => STATUS_SEMANTIC_ERROR,
+    ER_WRONG_FK_DEF()                                   => STATUS_SEMANTIC_ERROR,
     ER_WRONG_GROUP_FIELD()                              => STATUS_SEMANTIC_ERROR,
     ER_WRONG_MRG_TABLE()                                => STATUS_SEMANTIC_ERROR,
     ER_WRONG_OBJECT()                                   => STATUS_SEMANTIC_ERROR,
@@ -1078,6 +1190,7 @@ sub execute {
 
       if (($err_type == STATUS_SKIP)             ||
           ($err_type == STATUS_SYNTAX_ERROR)     ||
+          ($err_type == STATUS_UNSUPPORTED)      ||
           ($err_type == STATUS_SEMANTIC_ERROR)   ||
           ($err_type == STATUS_TRANSACTION_ERROR)  ) {
          $executor->[EXECUTOR_ERROR_COUNTS]->{$errstr}++ if not ($execution_flags & EXECUTOR_FLAG_SILENT);
@@ -1133,7 +1246,7 @@ sub execute {
              sleep 1;
          }
          if (defined $check_dbh) {
-            say("DEBUG: $trace_addition : The server is connectable.");
+            say("DEBUG: $trace_addition : The server is connectable.") if $debug_here;
             $check_dbh->disconnect();
             return GenTest::Result->new(
                query        => $query,
@@ -1157,6 +1270,14 @@ sub execute {
       } elsif (not ($execution_flags & EXECUTOR_FLAG_SILENT)) {
          $executor->[EXECUTOR_ERROR_COUNTS]->{$sth->errstr()}++;
          my $query_for_print= shorten_message($query);
+         # Note:
+         # In case the following message gets printed than the corresponding mapping of the error
+         # to some error type (see top of this file) is missing.
+         # Example:
+         # use constant  ER_DO_NOT_WANT   => 7777;
+         # ...
+         # ER_DO_NOT_WANT()               => STATUS_UNSUPPORTED,
+         #
          say("Executor::MySQL::execute: Query: $query_for_print failed: $err ".$sth->errstr());
       }
 
@@ -1472,6 +1593,9 @@ sub getSchemaMetaData {
    ## or undef if hitting an error.
    my ($self) = @_;
 
+   # Unset max_statement_time in case it was set in test configuration.
+   $self->dbh()->do('/*!100108 SET @@max_statement_time = 0 */');
+
    my $query =
         "SELECT DISTINCT " .
                 "CASE WHEN table_schema = 'information_schema' ".
@@ -1483,6 +1607,8 @@ sub getSchemaMetaData {
                      "ELSE table_schema END AS table_schema, ".
                "table_name, ".
                "CASE WHEN table_type = 'BASE TABLE' THEN 'table' ".
+                    "WHEN table_type = 'SYSTEM VERSIONED' THEN 'table' ".
+                    "WHEN table_type = 'SEQUENCE' THEN 'table' ".
                     "WHEN table_type = 'VIEW' THEN 'view' ".
                     "WHEN table_type = 'SYSTEM VIEW' then 'view' ".
                     "ELSE 'misc' END AS table_type, ".
@@ -1512,8 +1638,12 @@ sub getSchemaMetaData {
    # system("killall -9 mysqld");
    # sleep 3;
    my $res = $self->dbh()->selectall_arrayref($query);
+   # 2019-05 (mleich)
+   # This can also become victim of
+   # ER_STATEMENT_TIMEOUT", 1969, "Query execution was interrupted (max_statement_time exceeded)"
    if (not defined $res) {
-       # SQL syntax error, DB server dead but not empty result set
+       # SQL syntax error or DB server dead.
+       # In case of empty result sets we will not end up here.
        my $error = $self->dbh()->err();
        Carp::cluck("FATAL ERROR: getSchemaMetaData: selectall_arrayref failed with error $error.");
        say("FATAL ERROR: getSchemaMetaData: The query was ->$query<-.");
@@ -1531,7 +1661,8 @@ sub getSchemaMetaData {
          $query = "SELECT COUNT(*) FROM $tbl";
          my $count_row = $self->dbh()->selectrow_arrayref($query);
          if (not defined $count_row) {
-             # SQL syntax error, DB server dead but not empty result set
+             # SQL syntax error or DB server dead.
+             # In case of empty result sets we will not end up here.
              my $error = $self->dbh()->err();
              Carp::cluck("FATAL ERROR: getSchemaMetaData: selectrow_arrayref failed with error $error.");
              say("FATAL ERROR: getSchemaMetaData: The query was ->$query<-.");
@@ -1543,6 +1674,10 @@ sub getSchemaMetaData {
       }
       $res->[$i]->[8] = $table_rows{$tbl};
    }
+
+   #
+   # Restore original max_statement_time value.
+   $self->dbh()->do('/*!100108 SET @@max_statement_time= @@global.max_statement_time */');
    return $res;
 
 } # End of sub getSchemaMetaData

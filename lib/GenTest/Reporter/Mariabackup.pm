@@ -102,7 +102,8 @@ my $script_debug = 1;
 my $last_call    = time() - 15;
 $|=1;
 
-my $reporter_prt = tmpdir() . "/reporter_tmp.prt";
+# tmpdir() has a '/' at end.
+my $reporter_prt = tmpdir() . "reporter_tmp.prt";
 my $msg_snip     = 'Reporter Mariabackup';
 
 sub monitor {
@@ -188,10 +189,10 @@ sub monitor {
     my $source_port = $reporter->serverVariable('port');
     # FIXME:
     # This port computation is unsafe. There might be some already running server there.
-    my $clone_port  = $source_port + 4;
-    my $plugin_dir  = $reporter->serverVariable('plugin_dir');
-    my $plugins     = $reporter->serverPlugins();
-    my ($version)   = ( $reporter->serverVariable('version') =~ /^(\d+\.\d+)\./ ) ;
+    my $clone_port    = $source_port + 4;
+    my $plugin_dir    = $reporter->serverVariable('plugin_dir');
+    my $plugins       = $reporter->serverPlugins();
+    my ($version)     = ( $reporter->serverVariable('version') =~ /^(\d+\.\d+)\./ ) ;
     my $backup_binary = "$basedir" . "/extra/mariabackup/mariabackup";
     if (not -e $backup_binary) {
         direct_to_std();

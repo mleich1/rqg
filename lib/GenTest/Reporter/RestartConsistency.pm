@@ -20,9 +20,19 @@
 # It is supposed to be used with the native server startup,
 # i.e. with runall-new.pl rather than runall.pl which is MTR-based.
 
-
-
 package GenTest::Reporter::RestartConsistency;
+
+# 1. Become active only after YY grammar processing and if current status == STATUS_OK.
+#    This ensures that concurrent data modifying load will not happen.
+# 2. Dump
+# 3. Stop server via signal TERM (15)
+# 4. Start server based on existing data
+# 5. Inspect tables
+# 6. Dump
+# 7. Compare the dumps which were made before and after restart
+# RestartConsistency and CrashRecovery* contain partially quite similar code.
+# FIXME: Share the code
+
 
 require Exporter;
 @ISA = qw(GenTest::Reporter);
@@ -40,7 +50,7 @@ use POSIX;
 
 use DBServer::MySQL::MySQLd;
 
-my $who_am_i = "Reporter 'RestartConsistency'";
+my $who_am_i = "Reporter 'RestartConsistency':";
 my $first_reporter;
 my $vardir;
 my $errorlog_before;
@@ -76,13 +86,13 @@ sub report {
         #    reporter has already reported STATUS_SERVER_CRASHED or will do that soon.
         #    Throwing STATUS_ENVIRONMENT_FAILURE here would exceed STATUS_SERVER_CRASHED
         #    and cause some misleading final exit status.
-        say("ERROR: $who_am_i report: Connect failed. Will return STATUS_CRITICAL_FAILURE");
+        say("ERROR: $who_am_i First connect failed. Will return STATUS_CRITICAL_FAILURE");
         return STATUS_CRITICAL_FAILURE;
     }
 
     my $dump_return = dump_database($reporter,$dbh,'before');
     if ($dump_return > STATUS_OK) {
-        say("ERROR: Dumping the database failed with status $dump_return.");
+        say("ERROR: $who_am_i Dumping the database failed with status $dump_return.");
         return $dump_return;
     }
 
@@ -94,10 +104,10 @@ sub report {
         sleep 1;
     }
     if (kill(0, $pid)) {
-        say("ERROR: $who_am_i report: Could not shut down server with pid $pid.");
+        say("ERROR: $who_am_i Could not shut down server with pid $pid.");
         return STATUS_SERVER_DEADLOCKED;
     } else {
-        say("INFO: $who_am_i report: Server with pid $pid has been shut down");
+        say("INFO: $who_am_i Server with pid $pid has been shut down");
     }
 
     my $datadir = $reporter->serverVariable('datadir');
@@ -108,7 +118,7 @@ sub report {
     my $engine = $reporter->serverVariable('storage_engine');
 
     my $server = $reporter->properties->servers->[0];
-    say("INFO: $who_am_i report: Copying datadir... (interrupting the copy operation may cause investigation problems later)");
+    say("INFO: $who_am_i Copying datadir... (interrupting the copy operation may cause investigation problems later)");
     if (osWindows()) {
         system("xcopy \"$datadir\" \"$orig_datadir\" /E /I /Q");
     } else { 
@@ -119,7 +129,7 @@ sub report {
     move($server->errorlog, $errorlog_before);
     unlink("$datadir/core*");    # Remove cores from any previous crash
 
-    say("INFO: $who_am_i report: Restarting server ...");
+    say("INFO: $who_am_i Restarting server ...");
 
     $server->setStartDirty(1);
     my $recovery_status = $server->startServer();
@@ -130,16 +140,20 @@ sub report {
         $_ =~ s{[\r\n]}{}siog;
         say($_);
         if ($_ =~ m{registration as a STORAGE ENGINE failed.}sio) {
-            say("Storage engine registration failed");
+            say("ERROR: $who_am_i Storage engine registration failed");
             $recovery_status = STATUS_DATABASE_CORRUPTION;
         } elsif ($_ =~ m{corrupt|crashed}) {
-            say("Log message '$_' might indicate database corruption");
+            say("WARN: $who_am_i Log message '$_' might indicate database corruption");
         } elsif ($_ =~ m{exception}sio) {
             $recovery_status = STATUS_DATABASE_CORRUPTION;
         } elsif ($_ =~ m{ready for connections}sio) {
-            say("Server Recovery was apparently successfull.") if $recovery_status == STATUS_OK ;
+            say("INFO: $who_am_i Server Recovery was apparently successfull.") if $recovery_status == STATUS_OK ;
             last;
         } elsif ($_ =~ m{device full error|no space left on device}sio) {
+            # Give a clear comment explaining on which facts the status STATUS_ENVIRONMENT_FAILURE
+            # is based on.
+            say("ERROR: $who_am_i device full error or no space left on device found in server " .
+                "error log. Will return STATUS_ENVIRONMENT_FAILURE.");
             $recovery_status = STATUS_ENVIRONMENT_FAILURE;
             last;
         } elsif (
@@ -147,7 +161,7 @@ sub report {
             ($_ =~ m{segfault}sio) ||
             ($_ =~ m{segmentation fault}sio)
         ) {
-            say("Recovery has apparently crashed.");
+            say("ERROR: $who_am_i Recovery has apparently crashed.");
             $recovery_status = STATUS_DATABASE_CORRUPTION;
         }
     }
@@ -158,7 +172,7 @@ sub report {
     $recovery_status = STATUS_DATABASE_CORRUPTION if not defined $dbh && $recovery_status == STATUS_OK;
 
     if ($recovery_status > STATUS_OK) {
-        say("Restart has failed.");
+        say("ERROR: $who_am_i Restart has failed.");
         return $recovery_status;
     }
     
@@ -166,7 +180,7 @@ sub report {
     # Phase 2 - server is now running, so we execute various statements in order to verify table consistency
     #
 
-    say("Testing database consistency");
+    say("INFO: $who_am_i Testing database consistency");
 
     my $databases = $dbh->selectcol_arrayref("SHOW DATABASES");
     foreach my $database (@$databases) {
@@ -177,20 +191,21 @@ sub report {
         foreach my $table (keys %tables) {
             # Should not do CHECK etc., and especially ALTER, on a view
             next if $tables{$table} eq 'VIEW';
-            say("Verifying table: $table; database: $database");
-            $dbh->do("CHECK TABLE `$database`.`$table` EXTENDED");
+            my $db_table = "`$database`.`$table`";
+            say("INFO: $who_am_i Verifying table: $db_table");
+            $dbh->do("CHECK TABLE $db_table EXTENDED");
             # 1178 is ER_CHECK_NOT_IMPLEMENTED
             return STATUS_DATABASE_CORRUPTION if $dbh->err() > 0 && $dbh->err() != 1178;
         }
     }
-    say("Schema does not look corrupt");
+    say("INFO: $who_am_i Schema does not look corrupt");
 
     # 
     # Phase 3 - dump the server again and compare dumps
     #
     my $dump_return = dump_database($reporter,$dbh,'after');
     if ($dump_return > STATUS_OK) {
-        say("ERROR: Dumping the database failed with status $dump_return.");
+        say("ERROR: $who_am_i Dumping the database failed with status $dump_return.");
         return $dump_return;
     }
     return compare_dumps();
@@ -206,14 +221,25 @@ sub dump_database {
 	my @all_databases = @{$dbh->selectcol_arrayref("SHOW DATABASES")};
 	my $databases_string = join(' ', grep { $_ !~ m{^(mysql|information_schema|performance_schema)$}sgio } @all_databases );
 	
-    say("Dumping the server $suffix restart");
+    say("INFO: $who_am_i Dumping the server $suffix restart");
+    # From the manual https://mariadb.com/kb/en/library/mysqldump
+    # -f, --force
+    #     Continue even if an SQL error occurs during a table dump like damaged views.
+    #     With --force, mysqldump prints the error message, but it also writes an SQL comment
+    #     containing the view definition to the dump output and continues executing.
+    # --log-error=name
+    #     Log warnings and errors by appending them to the named file. The default is to do no logging.
     my $dump_file = "$vardir/server_$suffix.dump";
-    my $dump_result = system('"'.$reporter->serverInfo('client_bindir')."/mysqldump\" --hex-blob --no-tablespaces --compact --order-by-primary --skip-extended-insert --host=127.0.0.1 --port=$port --user=root --password='' --databases $databases_string > $dump_file");
+    my $dump_err_file = "$vardir/server_$suffix.dump_err";
+    # mleich1: Experiment begin
+    # my $dump_result = system('"'.$reporter->serverInfo('client_bindir')."/mysqldump\" --hex-blob --no-tablespaces --compact --order-by-primary --skip-extended-insert --host=127.0.0.1 --port=$port --user=root --password='' --databases $databases_string > $dump_file");
+    my $dump_result = system('"'.$reporter->serverInfo('client_bindir')."/mysqldump\" --force --hex-blob --no-tablespaces --compact --order-by-primary --skip-extended-insert --host=127.0.0.1 --port=$port --user=root --password='' --databases $databases_string > $dump_file 2>$dump_err_file ");
+    # mleich1: Experiment end
     return ($dump_result ? STATUS_ENVIRONMENT_FAILURE : STATUS_OK);
 }
 
 sub compare_dumps {
-	say("Comparing SQL dumps between servers before and after restart...");
+	say("INFO: $who_am_i Comparing SQL dumps between servers before and after restart...");
     # mleich 2019-03:
     # Diff in line  ) ENGINE= ... AUTO_INCREMENT=...
     # but the CREATE TABLE .... <table_name> .... line is not included.
@@ -232,10 +258,10 @@ sub compare_dumps {
 	$diff_result = $diff_result >> 8;
 
 	if ($diff_result == 0) {
-		say("INFO: No differences were found between server contents before and after restart.");
+		say("INFO: $who_am_i No differences were found between server contents before and after restart.");
 		return STATUS_OK;
 	} else {
-		say("ERROR: Server content has changed after shutdown+restart");
+		say("ERROR: $who_am_i Server content has changed after shutdown+restart");
         sayFile($errorlog_before);
         sayFile($errorlog_after);
 		return STATUS_DATABASE_CORRUPTION;
@@ -243,16 +269,9 @@ sub compare_dumps {
 }
 
 sub type {
-    # mleich 2019-03:
-    # IMHO in case the server has crashed before than it does not make that much sense
-    # to run this reporter now. So we could go with REPORTER_TYPE_SUCCESS too.
-    # But since we bail out with STATUS_CRITICAL_FAILURE when not getting a connection
-    # the overhead is light weight.
-    # On the other hand:
-    # REPORTER_TYPE_SUCCESS runs only if current status == STATUS_OK and that would mean
-    # we get in case of less evil statuses != STATUS_OK less information than we could.
-    # So REPORTER_TYPE_ALWAYS should be acceptable.
-    return REPORTER_TYPE_ALWAYS;
+    # REPORTER_TYPE_SUCCESS runs only
+    # after YY grammar processing and if current status == STATUS_OK.
+    return REPORTER_TYPE_SUCCESS ;
 }
 
 1;
