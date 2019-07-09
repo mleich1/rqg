@@ -546,8 +546,10 @@ sub startServer {
 
       my $errlog_fh;
       my $errlog_last_update_time= (stat($errorlog))[9] || 0;
+      # say("DEBUG: errlog_last_update_time ->$errlog_last_update_time<-");
       if ($errlog_last_update_time) {
             open($errlog_fh,$errorlog) || ( sayError("Could not open the error log " . $errorlog . " for initial read: $!") && return DBSTATUS_FAILURE );
+            # FIXME: (mleich) Why that? Reveal that the file can be read?
             while (!eof($errlog_fh)) { readline $errlog_fh };
             seek $errlog_fh, 0, 1;
       }
@@ -574,17 +576,19 @@ sub startServer {
 
          # After we've launched server startup, we'll wait for max $start_wait_timeout seconds
          # for the server to start updating the error log
+         #
+         # say("DEBUG: Start the waiting for pidfile and errlog_update");
          while (not -f $self->pidfile and time() < $wait_end) {
             Time::HiRes::sleep($wait_time);
             $errlog_update = ((stat($errorlog))[9] > $errlog_last_update_time);
             last if $errlog_update;
          }
          # What could have been?
-         # 1. An errlog_update has happened. Q: All time before pidfile creation?
-         # 2. The pidfile was created.
-         # 3. timeout exceeded in state no pidfile exists and no error log update.
-         #    Heaviest case: There is no error log at all.
-         #    Warning: The state might already have changed.
+         # 1. The pidfile exists.
+         # 2. There was an errlog_update
+         # 3. no pidfile exists and no error log update and timeout exceeded
+         # 4. 1.2 and is fulfilled.
+         # Warning: The states might already have changed.
 
          if (-f $self->pidfile) {
             $pid = get_pid_from_file($self->pidfile);
@@ -595,6 +599,7 @@ sub startServer {
             sayError('Will return DBSTATUS_FAILURE');
             return DBSTATUS_FAILURE;
          }
+         # say("DEBUG: Error log size : " . (stat($errorlog))[7]);
 
          if (!$pid)
          {
@@ -623,19 +628,43 @@ sub startServer {
             # And of course it won't work on Windows, but the new-style server start is generally
             # not reliable there and needs to be fixed.
 
+            # mleich 2019-07 Ugly effect observed
+            # -----------------------------------
+            # 2019-07-08T12:05:23 [1407] Bootstrap command: ....
+            # 2019-07-08T12:06:23 [1407] INFO: Starting MySQL 10.4.6-1: <=== Print short before fork
+            # 2019-07-08T12:06:23 [1407] WARNING: could not find the pid in the error log, ...
+            # ... RQG "overreacts" and aborts
+            # The server error log contains the pid_line but with timestamp 2019-07-08T12:06:24.
+            # Physical reason:
+            # The server error log exists but is empty.
+            # The line read is empty too. And that gets processed.
+
             TAIL:
                 for (;;) {
+                    my $cur_pos;
+                    my $old_pos;
                     do {
-                        $_= readline $errlog_fh;
+                        $old_pos = tell $errlog_fh;
+                        $_       = readline $errlog_fh;
+                        $cur_pos = tell $errlog_fh;
+                        # say("DEBUG: old_pos : $old_pos , cur_pos : $cur_pos");
                         # [Note] /work/Server/10.3//sql/mysqld (mysqld 10.3.7-MariaDB-debug-log) starting as process 14533 ...
-                        if (/\[Note\]\s+\S+?\/mysqld\s+\(mysqld.*?\)\s+starting as process (\d+)\s+\.\./) {
+                        # [Note] /home/mleich/Server/mariadb-enterprise/bld_debug/sql/mysqld (mysqld 10.4.6-1-MariaDB-debug-log) starting as process 7719 ...
+                        if      (/\[Note\]\s+\S+?\/mysqld\s+\(mysqld.*?\)\s+starting as process (\d+)\s+\.\./) {
                             $pid= $1;
                             last TAIL;
-                        }
-                        elsif (! /^== /) {
+                        } elsif (/^$/) {
+                            # say("DEBUG: Empty error log line read");
+                            # The line is empty == We came somehow a bit too early.
+                            # So seek back to the old position and wait a bit.
+                            seek ERRLOG, $old_pos, 0;
+                            sleep 1;
+                        } elsif (! /^== /) {
                             last TAIL;
                         }
                     } until (eof($errlog_fh));
+
+                    # say("DEBUG: Error log reading EOF reached: ->$_<-");
                     sleep 1;
                     seek ERRLOG, 0, 1;    # this clears the EOF flag
                 }
