@@ -1,5 +1,5 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
-# Copyright (C) 2016, 2018 MariaDB Corporation Ab.
+# Copyright (C) 2016-2019 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -90,6 +90,8 @@ sub addReporter {
             sayError("Reporter '$module' could not be added. Status will be set to " .
                      "ENVIRONMENT_FAILURE");
             return STATUS_ENVIRONMENT_FAILURE;
+        } else {
+            say("INFO: Reporter '$reporter_name' added.");
         }
    }
 
