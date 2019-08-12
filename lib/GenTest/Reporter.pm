@@ -84,6 +84,8 @@ sub new {
 
 	my $dbh = DBI->connect($reporter->dsn(), undef, undef, { mysql_multi_statements => 1, RaiseError => 0 , PrintError => 1 } );
 	return undef if not defined $dbh;
+    # say("DEBUG: Reporter '" . $reporter->name() . "' after first connect before collecting " .
+    #     "server variables.");
 	my $sth = $dbh->prepare("SHOW VARIABLES");
 
 	$sth->execute();

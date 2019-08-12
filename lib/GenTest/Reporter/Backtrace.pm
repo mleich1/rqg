@@ -1,5 +1,5 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2018 MariaDB Corporation Ab.
+# Copyright (c) 2018-2019 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -162,7 +162,7 @@ sub nativeReport {
     while ($server_running and not $core_dumped_found and (Time::HiRes::time() < $max_end_time)) {
         sleep 1;
         $server_running = kill (0, $pid);
-        say("DEBUG: server pid : $pid , server_running : $server_running");
+        # say("DEBUG: server pid : $pid , server_running : $server_running");
 
         if (not osWindows()) {
             system ("sync $datadir/* $error_log $pid_file");
@@ -172,7 +172,7 @@ sub nativeReport {
             while(<LOGFILE>) {
                 if( /\(core dumped\)/ ) {
                     $core_dumped_found = 1;
-                    say("DEBUG: '(core dumped)' found in server error log.");
+                    # say("DEBUG: '(core dumped)' found in server error log.");
                 }
                 # Segmentation fault (core dumped)
                 # Aborted (core dumped)

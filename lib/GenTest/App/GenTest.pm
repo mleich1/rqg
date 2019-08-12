@@ -2,7 +2,7 @@
 
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2016, 2019 MariaDB Corporation Ab
+# Copyright (c) 2016,2019 MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -417,7 +417,7 @@ sub doGenTest {
    my $total_status   = STATUS_OK;
    my $total_status_t = STATUS_OK;
    my $total_status_r = STATUS_OK;
-   my $reporter_died = 0;
+   my $reporter_died  = 0;
    OUTER: while (1) {
       # Worker & Reporter processes that were spawned.
       my @spawned_pids = (keys %worker_pids, $reporter_pid);
@@ -660,6 +660,17 @@ sub reportingProcess {
     ## Reporter process does not use channel
     $self->channel()->close();
 
+    # FIXME:
+    # Earlier $self->[GT_TEST_START] = time() + number of threads.
+    # The worker threads get forked after the parent process returned from the current sub.
+    # These worker than connect (abort if getting no connection), run some 'harmless' SQL and wait
+    # till $self->[GT_TEST_START] before running their more or less 'dangerous' YY grammar SQL.
+    # So the wait till $self->[GT_TEST_START] should ensure that all worker threads have made
+    # their required preparations + never throw STATUS_ENVIRONMENT_FAILURE if losing that
+    # connection later.
+    # The sleep which follows here ensures roughly that the threads have started YY grammar SQL
+    # before the periodic reporters become active first time.
+    # But is that of any importance?
     Time::HiRes::sleep(($self->config->threads + 1) / 10);
     say("INFO: Periodic reporting process at begin of activity");
 
