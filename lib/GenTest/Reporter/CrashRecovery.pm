@@ -43,6 +43,8 @@ use DBServer::MySQL::MySQLd;
 
 my $first_reporter;
 
+my $who_am_i = "Reporter 'CrashRecovery':";
+
 sub monitor {
 	my $reporter = shift;
 
@@ -55,7 +57,7 @@ sub monitor {
 	my $pid = $reporter->serverInfo('pid');
 
 	if (time() > $reporter->testEnd() - 19) {
-		say("Sending SIGKILL to server with pid $pid in order to force a recovery.");
+		say("INFO: $who_am_i Sending SIGKILL to server with pid $pid in order to force a recovery.");
 		kill(9, $pid);
 		return STATUS_SERVER_KILLED;
 	} else {
@@ -84,13 +86,13 @@ sub report {
 		# Server is still running, kill it. Again.
 		$dbh_prev->disconnect();
 
-		say("Sending SIGKILL to server with pid $pid in order to force a recovery.");
+		say("INFO: $who_am_i Sending SIGKILL to server with pid $pid in order to force a recovery.");
 		kill(9, $pid);
 		sleep(5);
 	}
 
 	my $server = $reporter->properties->servers->[0];
-	say("Copying datadir... (interrupting the copy operation may cause investigation problems later)");
+	say("INFO: $who_am_i Copying datadir... (interrupting the copy operation may cause investigation problems later)");
 	if (osWindows()) {
 		system("xcopy \"$datadir\" \"$orig_datadir\" /E /I /Q");
 	} else { 
@@ -99,7 +101,7 @@ sub report {
 	move($server->errorlog, $server->errorlog.'_orig');
 	unlink("$datadir/core*");	# Remove cores from any previous crash
 
-	say("Attempting database recovery using the server ...");
+	say("INFO: $who_am_i Attempting database recovery using the server ...");
 
 	$server->setStartDirty(1);
 	my $recovery_status = $server->startServer();
@@ -109,16 +111,17 @@ sub report {
 		$_ =~ s{[\r\n]}{}siog;
 		say($_);
 		if ($_ =~ m{registration as a STORAGE ENGINE failed.}sio) {
-			say("Storage engine registration failed");
+			say("ERROR: $who_am_i Storage engine registration failed");
 			$recovery_status = STATUS_DATABASE_CORRUPTION;
 		} elsif ($_ =~ m{corrupt|crashed}) {
-			say("Log message '$_' might indicate database corruption");
+			say("WARN: $who_am_i Log message '$_' might indicate database corruption");
 		} elsif ($_ =~ m{exception}sio) {
 			$recovery_status = STATUS_DATABASE_CORRUPTION;
 		} elsif ($_ =~ m{ready for connections}sio) {
-			say("Server Recovery was apparently successfull.") if $recovery_status == STATUS_OK ;
+			say("INFO: $who_am_i Server Recovery was apparently successfull.") if $recovery_status == STATUS_OK ;
 			last;
 		} elsif ($_ =~ m{device full error|no space left on device}sio) {
+			say("ERROR: $who_am_i Filesystem full");
 			$recovery_status = STATUS_ENVIRONMENT_FAILURE;
 			last;
 		} elsif (
@@ -126,7 +129,7 @@ sub report {
 			($_ =~ m{segfault}sio) ||
 			($_ =~ m{segmentation fault}sio)
 		) {
-			say("Recovery has apparently crashed.");
+			say("ERROR: $who_am_i Recovery has apparently crashed.");
 			$recovery_status = STATUS_DATABASE_CORRUPTION;
 		}
 	}
@@ -137,7 +140,7 @@ sub report {
 	$recovery_status = STATUS_DATABASE_CORRUPTION if not defined $dbh && $recovery_status == STATUS_OK;
 
 	if ($recovery_status > STATUS_OK) {
-		say("Recovery has failed.");
+		say("ERROR: $who_am_i Recovery has failed.");
 		return $recovery_status;
 	}
 	
@@ -145,7 +148,7 @@ sub report {
 	# Phase 2 - server is now running, so we execute various statements in order to verify table consistency
 	#
 
-	say("Testing database consistency");
+	say("INFO: $who_am_i Testing database consistency");
 
 	my $databases = $dbh->selectcol_arrayref("SHOW DATABASES");
 	foreach my $database (@$databases) {
@@ -156,11 +159,21 @@ sub report {
 		foreach my $table (keys %tables) {
 			say("Verifying table: $table; database: $database");
 
-			my $sth_keys = $dbh->prepare("
-				SHOW KEYS FROM `$database`.`$table`
-			");
+            my $stmt = "SHOW KEYS FROM `$database`.`$table`";
+			my $sth_keys = $dbh->prepare($stmt);
 
 			$sth_keys->execute();
+
+            # mleich 2019-05-15 Observation
+            # DBD::mysql::st execute failed: Table 'test.r' doesn't exist in engine at lib/GenTest/Reporter/CrashRecovery.pm line 163.
+            # DBD::mysql::st fetchrow_hashref failed: fetch() without execute() at lib/GenTest/Reporter/CrashRecovery.pm line 167.
+            my $err = $sth_keys->err();
+            my $errstr = '';
+            $errstr = $sth_keys->errstr() if defined $sth_keys->errstr();
+            if (defined $err) {
+                say("ERROR: $stmt harvested $err: $errstr. Omitting the walk_queries");
+                next;
+            }
 
 			my @walk_queries;
 
@@ -198,7 +211,7 @@ sub report {
 				$sth_rows->execute();
 
 				if (defined $sth_rows->err()) {
-					say("Failing query is $walk_query.");
+					say("ERROR: $who_am_i Failing query is $walk_query.");
 					return STATUS_RECOVERY_FAILURE;
 				}
 
@@ -209,7 +222,7 @@ sub report {
 			}
 
 			if (keys %rows > 1) {
-				say("Table `$database`.`$table` is inconsistent.");
+				say("ERROR: $who_am_i Table `$database`.`$table` is inconsistent.");
 				print Dumper \%rows;
 
 				my @rows_sorted = grep { $_ > 0 } sort keys %rows;
@@ -243,7 +256,7 @@ sub report {
 				"REPAIR TABLE `$database`.`$table` EXTENDED",
 				"ALTER TABLE `$database`.`$table` ENGINE = $engine"
 			) {
-				say("Executing $sql.");
+				say("INFO: $who_am_i Executing $sql.");
 				my $sth = $dbh->prepare($sql);
 				if (defined $sth) {
 					$sth->execute();
@@ -260,7 +273,7 @@ sub report {
 
 					$sth->finish();
 				} else {
-					say("Prepare failed: ".$dbh->errrstr());
+					say("ERROR: $who_am_i Prepare failed: ".$dbh->errrstr());
 					return STATUS_DATABASE_CORRUPTION;
 				}
 			}
