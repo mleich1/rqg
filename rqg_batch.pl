@@ -414,6 +414,14 @@ if (defined $help) {
 # $type='omo';
 Batch::check_and_set_batch_type($type);
 
+# FIXME:
+# Make this parameter configurable.
+# Hard (apply no matter what duration is) or soft (adjust how?) border?
+# Set in call line --> apply to all RQG runs started. What if duration in config file and bigger?
+# Set in config file                 --> apply in general ?
+# Set in config file for one variant --> apply how ?
+say("INFO: Maximum runtime of a single RQG run $max_rqg_runtime" . "s.");
+
 check_and_set_config_file();
 
 # Variable for stuff to be glued at the end of the rqg.pl call.
@@ -727,6 +735,7 @@ while($Batch::give_up <= 1) {
             }
             $runs_started++;
             if ($pid == 0) {
+                ########## Child ##############################
                 undef @worker_array;
                 if      ($Batch::batch_type eq Batch::BATCH_TYPE_COMBINATOR) {
                     undef @Combinator::order_array;
@@ -736,7 +745,6 @@ while($Batch::give_up <= 1) {
                     say("INTERNAL ERROR: The batch type '$Batch::batch_type' is unknown. Abort");
                     safe_exit(4);
                 }
-                ########## Child ##############################
                 $worker_id = $free_worker;
                 # make_path($workdir); All already done by the parent
                 my $result = 0;
@@ -846,7 +854,7 @@ while($Batch::give_up <= 1) {
                 # Caused by the possible presence of WIN we cannot poll for a change of the
                 # processgroup of the RQG worker. We just focus on 2. instead.
                 # Observation: 2018-08 10s were not sufficient on some box.
-                my $max_waittime  = 20;
+                my $max_waittime  = 30;
                 my $waittime_unit = 0.2;
                 my $end_waittime  = Time::HiRes::time() + $max_waittime;
                 my $phase         = Auxiliary::get_rqg_phase($rqg_workdir);
