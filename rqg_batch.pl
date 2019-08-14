@@ -34,11 +34,6 @@
 #
 # The amount of parameters (call line + config file) is in the moment
 # not that stable.
-# On the long run the current script should replace
-# - util/bughunt.pl
-# - combinations.pl
-# - util/simplify-grammar.pl
-#   and even util/new-simplify-grammar.pl
 #
 
 use strict;
@@ -697,12 +692,14 @@ while($Batch::give_up <= 1) {
 
             # defined $value ? $value : "NULL";
             my $content =
-                "OrderID: "  . $job[Batch::JOB_ORDER_ID] . "\n" .
-                "Memo1:   "  . (defined $job[Batch::JOB_MEMO1] ? $job[Batch::JOB_MEMO1] : '<undef>') . "\n" .
-                "Memo2:   "  . (defined $job[Batch::JOB_MEMO2] ? $job[Batch::JOB_MEMO2] : '<undef>') . "\n" .
-                "Memo3:   "  . (defined $job[Batch::JOB_MEMO3] ? $job[Batch::JOB_MEMO3] : '<undef>') . "\n" .
-                "Cl_Snip: "  . $job[Batch::JOB_CL_SNIP]  . "\n" ;
+                "OrderID: " . $job[Batch::JOB_ORDER_ID] . "\n" .
+                "Memo1:   " . (defined $job[Batch::JOB_MEMO1] ? $job[Batch::JOB_MEMO1] : '<undef>') . "\n" .
+                "Memo2:   " . (defined $job[Batch::JOB_MEMO2] ? $job[Batch::JOB_MEMO2] : '<undef>') . "\n" .
+                "Memo3:   " . (defined $job[Batch::JOB_MEMO3] ? $job[Batch::JOB_MEMO3] : '<undef>') . "\n" .
+                "Cl_Snip: " . $job[Batch::JOB_CL_SNIP]  . "\n" ;
             Batch::append_string_to_file($rqg_job, $content);
+            $content = "# " . isoTimestamp() . " INFO: Logfile for RQG Worker [$free_worker]\n";
+            Batch::append_string_to_file($rqg_log, $content);
 
             #  if ($logToStd) {
             #     $command .= " 2>&1 | tee " . $rqg_log;
