@@ -59,7 +59,7 @@ sub status {
 	return STATUS_OK if $reporter ne $first_reporter;
 
     if (not defined $reporter->properties->servers->[1]) {
-       Carp::cluck("ERROR $reporter->properties->servers->[1] is not defined.");
+       Carp::cluck("ERROR: reporter->properties->servers->[1] is not defined.");
     }
     my $server = $reporter->properties->servers->[1];
     my $dbh = DBI->connect($server->dsn());

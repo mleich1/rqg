@@ -41,6 +41,10 @@ use constant MIXER_ROLE            => 7;
 
 my %rule_status;
 
+my $debug_here    = 0;
+$Carp::MaxArgLen  = 200;
+$Carp::MaxArgNums = 20;
+
 1;
 
 sub new {
@@ -56,6 +60,8 @@ sub new {
          'restart_timeout' => MIXER_RESTART_TIMEOUT,
          'role'            => MIXER_ROLE
    }, @_);
+
+   Carp::cluck("DEBUG: Mixer::new:") if $debug_here;
 
    foreach my $executor (@{$mixer->executors()}) {
       if ($mixer->end_time()) {
@@ -163,6 +169,8 @@ sub next {
       }
    }
 
+   say("DEBUG: Mixer::next: Before generating the next queries for $mixer_role") if $debug_here;
+
    my $queries = $mixer->generator()->next($executors);
    # For experimenting
    # $queries = undef;
@@ -188,6 +196,8 @@ sub next {
          last;
       }
 
+      say("DEBUG: Mixer::next: $mixer_role before processing '" . $query .
+          "' of the query sequence") if $debug_here;
       if (defined $filters) {
          foreach my $filter (@$filters) {
             # FIXME:
