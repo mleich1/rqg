@@ -22,6 +22,10 @@
 
 # TODO:
 # Make here some very strict version
+# 0. Check the use of
+#    - sub exit_test  stop servers, maybe archiving, cleanup etc. and call run_end
+#    - sub run_end  status is decided, give summary, flip to RQG_PHASE_COMPLETE, run safe_exit
+#    - safe_exit from GenTest.pm making POSIX::_exit($exit_status)... but not setting RQG_PHASE
 # 1. Conflicts option1 vs option2 are not allowed and lead to abort of test
 # 2. Computing the number of servers based on number of basedirs or vardirs must not happen
 # 3. vardir must be assigned but it is only a directory where the RQG runner itself will
@@ -41,8 +45,12 @@ use Carp;
 my $rqg_start_time = time();
 
 # FIXME: I AM QUITE UNSURE IF THE RQG_HOME CHECKING AND SETTING WORKS LIKE INTENDED.
-# Note: /work/RQG_mleich1 is the one and only RQG source directory
-#       RQG_HOME is not set
+#
+# Results of experiments performed mid 2018
+# - /work/RQG_mleich1 is the one and only RQG source directory
+# - RQG_HOME is not set
+# - Symlink /home/mleich/bin/rqg.pl points to /work/RQG_mleich1/rqg.pl
+#
 # cwd               | Command line call              | $0                       | abs_path(dirname($0))
 # -----------------------------------------------------------------------------------------------------
 # /work/RQG_mleich1 | perl /work/RQG_mleich1/rqg.pl  | /work/RQG_mleich1/rqg.pl | /work/RQG_mleich1
@@ -133,7 +141,7 @@ $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
 $Carp::MaxArgNums= 8;
 
-use constant RQG_RUNNER_VERSION  => 'Version 3.0.0 (2018-11)';
+use constant RQG_RUNNER_VERSION  => 'Version 3.1.1 (2019-08)';
 use constant STATUS_CONFIG_ERROR => 199;
 
 use strict;
@@ -148,7 +156,7 @@ use GenTest::App::GenConfig;
 use DBServer::DBServer;
 use DBServer::MySQL::MySQLd;
 use DBServer::MySQL::ReplMySQLd;
-use DBServer::MySQL::GaleraMySQLd;
+use DBServer::MySQL::GaleraMySQLd1; # My version
 
 
 #--------------------
@@ -381,7 +389,7 @@ if (not GetOptions(
 };
 # say("\@ARGV after : " . join(' ',@ARGV));
 
-# Support script debugging as soon as possible.
+# Support script debugging as soon as possible and print its value.
 Auxiliary::script_debug_init($script_debug);
 
 if (not defined $queries) {
@@ -460,7 +468,7 @@ say("INFO: RQG workdir : '$workdir' and infrastructure is prepared.");
 # In case of failure use
 #    run_end($status);
 # and never
-#   exit_test($status);  # includes blacklist/whitelist matching
+#   exit_test($status);  # includes blacklist/whitelist matching, archiving etc.
 # as long as
 # - it is not decided if our current script or a different script runs the final test
 #   Reason: The other scripts do not write the entries required for blacklist/whitelist matching.
@@ -624,14 +632,15 @@ if (defined $sqltrace) {
         # MTR (FIXME: Implement)
         # ---
         # Try to write trace messages which could be filtered out and hopefully used as MTR test.
-        # For that we need crowd of properties like
+        # For that we need a crowd of properties like
         # 1. One connection only (all time user=root)
         #    Note:
         #    It is possible to generate a multi session MTR test with correct mysqltest language
         #    by using "--connect*", "--send", "--reap" etc. But per experience such tests fail
         #    usually at runtime because of "endless" waiting for "--reap" or similar.
         #    A significant fraction of MTR tests checking concurrency effects is forced to use
-        #    the DEBUG_SYNC facility. And the DEBUG_SYNC points passed are not known to RQG.
+        #    the DEBUG_SYNC facility. And the DEBUG_SYNC points which will be passed during test
+        #    execution are not known to RQG.
         # 2. The SQL statement gets written when the server response arrives == post execution.
         #    Failing SQL statements get marked.
         # 3. Transform every query (multi statement) spanning over several lines to one line only.
@@ -657,7 +666,7 @@ if (defined $sqltrace) {
         #   Assert when session A (chaotic DDL) clashes with session B (mariabackup).
         #   The question of interest was:
         #   mariabackup sets BACKUP STAGE ... which should block concurrent DDL.
-        #   So was the some concurrent DDL which was not blocked?
+        #   So was there some concurrent DDL which was not blocked?
         # - is not dedicated for generating some MTR test from the trace messages
         'Concurrency'   => 1,
     );
@@ -710,11 +719,16 @@ $build_thread = Auxiliary::check_and_set_build_thread($build_thread);
 if (not defined $build_thread) {
     my $status = STATUS_ENVIRONMENT_FAILURE;
     say("$0 will exit with exit status " . status2text($status) . "($status)");
-    safe_exit($status);
+    run_end($status);
 }
 
-
-my @ports = (10000 + 10 * $build_thread, 10000 + 10 * $build_thread + 2, 10000 + 10 * $build_thread + 4);
+# Experiment (adjust to actual MTR, 2019-08) begin
+# Reasons:
+# 1. Galera Clusters at least up till 3 DB servers should be supported.
+# 2. var/my.cnf generated by certain MTR tests could be used as template for setup in RQG.
+# Original: my @ports = (10000 + 10 * $build_thread, 10000 + 10 * $build_thread + 2, 10000 + 10 * $build_thread + 4);
+my @ports = (10000 + 20 * $build_thread, 10000 + 20 * $build_thread + 1, 10000 + 20 * $build_thread + 2);
+# Experiment end
 
 say("INFO: master_port : $ports[0] slave_port : $ports[1] ports : @ports MTR_BUILD_THREAD : $build_thread ");
 
@@ -729,7 +743,7 @@ if ($result != STATUS_OK) {
                           Auxiliary::RQG_RPL_ALLOWED_VALUE_LIST);
     my $status = STATUS_ENVIRONMENT_FAILURE;
     say("$0 will exit with exit status " . status2text($status) . "($status)");
-    safe_exit($status);
+    run_end($status);
 }
 my $number_of_servers = 0;
 if ($rpl_mode eq Auxiliary::RQG_RPL_NONE) {
@@ -1129,6 +1143,53 @@ if ($all_binaries_exist != 1) {
     run_end($status);
 }
 
+# Galera requires some additional options. Check them.
+if ($rpl_mode eq Auxiliary::RQG_RPL_GALERA) {
+    if (osWindows()) {
+        sayError("Galera is not supported on Windows (yet).");
+        my $status = STATUS_CONFIG_ERROR;
+        run_end($status);
+    }
+
+    if (not defined $galera or $galera eq '') {
+        say("ERROR: --galera option was not set or is ''.");
+        my $status = STATUS_CONFIG_ERROR;
+        run_end($status);
+    }
+
+    # FIXME: Refine this
+    # 1. If wsrep_provider set in ENV than take from there.
+    #    If yes + its also between the mysqld options than warn + tell that from ENV picked.
+    # 2. If not 1. but wsrep_provider between the mysqld options than take from there.
+    # 3. If not 1. and not 2. but there is a /usr/lib/libgalera_smm.so than don't take that.
+    #    I have read too much about dependencies between MariaDB and Galera versions.
+    my $wsrep_provider = $ENV{'WSREP_PROVIDER'};
+    if (not defined $wsrep_provider) {
+        # Do not abort because
+        # - maybe we have one node only --> no wsrep_provider needed
+        # - maybe wsrep_provider is set between the server options
+        #   FIXME(later): Check this here.
+        # my $status = STATUS_ENVIRONMENT_FAILURE;
+        # say("ERROR: WSREP_PROVIDER is not set in environment");
+        # run_end($status);
+    } else {
+        if (not -f $wsrep_provider) {
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            sayError("The wsrep_provider found in environment '$wsrep_provider' does not exist.");
+            run_end($status);
+        # } else {
+            # say("INFO: wsrep_provider is '$wsrep_provider'");
+        }
+    }
+
+    unless ($galera =~ /^[ms]+$/i) {
+        say("ERROR: --galera option should contain a combination of M and S, indicating masters " .
+                 "and slaves\nValue got : '$galera'");
+        my $status = STATUS_CONFIG_ERROR;
+        run_end($status);
+    }
+}
+
 
 # Auxiliary::calculate_seed writes a message about
 # - writes a message about assigned and computed setting of seed
@@ -1168,7 +1229,7 @@ if ($genconfig) {
 
 say(Verdict::MATCHING_START);
 
-# FIXME:
+# FIXME (check code again):
 # Starting from here there should be NEARLY NO cases where the test aborts because some file is
 # missing or a parameter set to non supported value.
 #
@@ -1210,6 +1271,8 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                  config              => $cnf_array_ref,
                  user                => $user
     );
+    # FIXME:
+    # Could already making the setup above fail?
 
     my $status = $rplsrv->startServer();
 
@@ -1231,23 +1294,18 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
     $server[0] = $rplsrv->master;
     $server[1] = $rplsrv->slave;
 
-} elsif (defined $galera and $galera ne '') {
+} elsif ($rpl_mode eq Auxiliary::RQG_RPL_GALERA) {
 
-    if (osWindows()) {
-        sayError("Galera is not supported on Windows (yet).");
-        my $status = STATUS_CONFIG_ERROR;
-        run_end($status);
-    }
+    # FIXME:
+    # If WSREP_PROVIDER is set in environment than
+    # - it must rule over any setting coming from config file
+    #   --> append it to the $mysqld_options[1]
+    # - it must exist
+    my $wsrep_provider = $ENV{'WSREP_PROVIDER'};
 
-    unless ($galera =~ /^[ms]+$/i) {
-        sayError("--galera option should contain a combination of M and S, indicating masters " .
-                 "and slaves\n" .
-                 "Value got : '$galera'");
-        my $status = STATUS_CONFIG_ERROR;
-        run_end($status);
-    }
+    say("DEBUG: We run with Galera replication: $galera");
 
-    $rplsrv = DBServer::MySQL::GaleraMySQLd->new(
+    $rplsrv = DBServer::MySQL::GaleraMySQLd1->new(
         basedir            => $basedirs[0],
         parent_vardir      => $vardirs[0],
         debug_server       => $debug_server[1],
@@ -1259,6 +1317,11 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         start_dirty        => $start_dirty,
         node_count         => length($galera)
     );
+    if (not defined $rplsrv) {
+        say("ERROR: Setting up the Galera Cluster failed.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        exit_test($status);
+    }
 
     my $status = $rplsrv->startServer();
 
@@ -1278,6 +1341,16 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         }
         $server[$i] = $rplsrv->nodes->[$i];
         $i++;
+    }
+
+    # Experimental/might get removed later: Check if the nodes are in sync.
+    $status = $rplsrv->waitForNodeSync();
+    if ($status > DBSTATUS_OK) {
+        stopServers($status);
+        sayError("Some Galera cluster nodes were not in sync.");
+        # FIXME: What about bw_list matching and archiving?
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        exit_test($status);
     }
 
 } elsif (defined $upgrade_test) {
@@ -1634,39 +1707,55 @@ say("INFO: " . $message);
 # If
 # - none of the GenTest work phases produced a failure
 # and
-# - the test is replication/with two servers
+# - the test goes with whatever kind of replication which could be synchronized
 # than compare the server dumps for any differences.
 
 if (($gentest_result == STATUS_OK)                       and
     ($number_of_servers > 1 or $number_of_servers == 0)  and # 0 is Galera
     (not defined $upgrade_test or $upgrade_test eq '')   and
-    # FIXME: Couldn't $rplsrv->waitForSlaveSync solve that?
+    # FIXME: Couldn't some slightly modified $rplsrv->waitForSlaveSync solve that?
     ($rpl_mode ne Auxiliary::RQG_RPL_STATEMENT_NOSYNC)   and
     ($rpl_mode ne Auxiliary::RQG_RPL_MIXED_NOSYNC)       and
     ($rpl_mode ne Auxiliary::RQG_RPL_ROW_NOSYNC)            ) {
 
-    #
-    # Compare master and slave, or all masters
-    #
+    # Compare the content of all servers
     $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_SERVER_COMPARE);
 
-    my $diff_result = STATUS_OK;
+    my $status = STATUS_OK;
     if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)   or
         ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)       or
         ($rpl_mode eq Auxiliary::RQG_RPL_ROW)           ) {
-        $diff_result = $rplsrv->waitForSlaveSync;
-        if ($diff_result != STATUS_OK) {
-            # FIXME: Shouldn't that be rather STATUS_REPLICATION_FAILURE or similar?
-            # But we get only DBSTATUS_FAILURE or DBSTATUS_OK returned!
-            say("ERROR: waitForSlaveSync failed with $diff_result. ".
+        $status = $rplsrv->waitForSlaveSync;
+        if ($status != STATUS_OK) {
+            # FIXME: We get only DBSTATUS_FAILURE or DBSTATUS_OK returned!
+            # STATUS_REPLICATION_FAILURE is a guess.
+            say("ERROR: waitForSlaveSync failed with $status. ".
                 "Setting final_result to STATUS_REPLICATION_FAILURE.");
             $final_result = STATUS_REPLICATION_FAILURE ;
         }
-        # FIXME:
-        # waitForSlaveSync with success does not reveal that the data content of master and
-        # slave is in sync like wanted. Just the processing chain behaved like wished.
+    } elsif ($rpl_mode eq Auxiliary::RQG_RPL_GALERA) {
+        $status = $rplsrv->waitForNodeSync();
+        if ($status != DBSTATUS_OK) {
+            # FIXME: We get only DBSTATUS_FAILURE or DBSTATUS_OK returned!
+            # STATUS_REPLICATION_FAILURE is a guess.
+            say("ERROR: waitForNodeSync Some Galera cluster nodes were not in sync. " .
+                "Setting final_result to STATUS_REPLICATION_FAILURE.");
+            $final_result = STATUS_REPLICATION_FAILURE ;
+        }
     } else {
-        # We run with RQG builtin statement based replication or Galera?
+        # There is nothing to do for RQG builtin statement based replication.
+    }
+
+
+    # The facts that
+    # - the servers are running (detection of trouble in gentest)
+    # - reporters and validators did not detect trouble during gentest runtime
+    #   But not all setups   (can have) or (can have and than also use) sensitive reporters ...
+    # - waitForSlaveSync for synchronous MariaDB replication passed
+    # - waitForNodeSync  for Galera replication passed
+    # do not reveal/imply that the data content of masters and slaves is in sync.
+    my $diff_result = DBSTATUS_OK;
+    if ($status == DBSTATUS_OK) {
         my @dump_files;
         foreach my $i (0..$#server) {
             # FIXME: Why the appended pid '$$'?
@@ -1806,8 +1895,8 @@ $0 - Run a complete random query generation test, including server start with re
 
     --basedir   : Specifies the base directory of the stand-alone MySQL installation;
     --mysqld    : Options passed to the MySQL server
-    --vardir    : vardir of the RQG run. The vardirs of the servers willl get created in it.
-                  It is recommended to it depending on certain requirements to
+    --vardir    : vardir of the RQG run. The vardirs of the servers will get created within it.
+                  Depending on certain requirements it is recommended to use
                   - a RAM based filesystem like tmpfs (/dev/shm/vardir) -- high IO speed but small filesystem
                   - a non RAM based filesystem -- not that fast IO but usual big filesystem
                   The default \$workdir/vardir is frequent not that optimal.
@@ -1882,7 +1971,7 @@ $0 - Run a complete random query generation test, including server start with re
                   Some directory assigned: We use the assigned directory and expect that certain files already exist.
     --help      : This help message
 
-    If you specify --basedir1 and --basedir2 or --vardir1 and --vardir2, two servers will be started and the results from the queries
+    If you specify --basedir1 and --basedir2, two servers will be started and the results from the queries
     will be compared between them.
 EOF
     ;
@@ -1892,9 +1981,7 @@ EOF
 sub exit_test {
     my $status = shift;
 
-
-    # FIXME:
-    # Ensure to report problems in case stopServers met trouble.
+    # Note: stopServers reports any trouble met during shutdown.
     stopServers($status);
 
     say(Verdict::MATCHING_END);
@@ -1990,22 +2077,24 @@ sub help_vardir {
        "      The parent directory of 'vardir' must exist in advance.\n" .
        "      The recommendation is to assign some directory placed on some filesystem which satisfies your needs.\n" .
        "      Example 1:\n" .
-       "         Higher throughput and/or heavy loaded CPU cores gives better results.\n" .
+       "         Higher throughput and/or all CPU cores heavy loaded gives better results. (very often)\n" .
        "         AND\n" .
-       "         The RQG test does not consume much storage space during runtime.\n" .
+       "         The RQG test does not consume much storage space during runtime. (often)\n" .
        "         Use some vardir placed on a RAM based filesystem(tmpfs) like '/dev/shm/vardir'" .
        "      Example 2:\n" .
-       "         Slow responding IO system gives better results.\n" .
+       "         Slow responding IO system gives better results. (rare)\n" .
        "         OR\n" .
-       "         The RQG test does consume much storage space during runtime.\n" .
-       "         Use some vardir placed on a hard disk based filesystem like <RQG workdir>/vardir\n".
+       "         The RQG test does consume much storage space during runtime. (sometimes)\n" .
+       "         Use some vardir placed on a disk based filesystem like <RQG workdir>/vardir\n".
+       "         Having the vardir on some SSD is not recommended because RQG runs would write there a huge \n" .
+       "         of data and IO is there maybe not slow enough.\n" .
        "      Default(sometimes sub optimal because test properties and your needs are not known to RQG)\n" .
-       "         <RQG workdir>/vardir\n".
-       "      Why is it no more supported to set the vardir<n> in the RQG call?\n".
-       "      - Maximum safety against concurrent activity of other RQG and MTR tests could be only ".
-       "        ensured if the RQG run uses vardirs for servers which are specific to the RQG run." .
+       "         <RQG workdir>/vardir\n" .
+       "      Why is it no more supported to set the vardir<n> for the DB servers within the RQG call?\n" .
+       "      - Maximum safety against concurrent activity of other RQG and MTR tests could be only " .
+       "        ensured if the RQG run uses vardirs for servers which are specific to the RQG run."   .
        "        Just assume the ugly case that concurrent tests create/destroy/modify in <release>/mysql-test/var.\n" .
-       "      - Creating/Archiving/Removing only one directory 'vardirs' only is easier.");
+       "      - Creating/Archiving/Removing only one directory 'vardir' only is easier.");
 }
 
 1;
