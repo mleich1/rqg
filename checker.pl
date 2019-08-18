@@ -202,9 +202,9 @@ say("VERDICT: $verdict");
 
 print("\nAssuming that you are satisfied with the matching result and verdict than the "           .
       "following applies\n\n"                                                                      .
-      "Formatting style for config files used in new-simplify-grammar.pl (extension '.cfg')\n"     .
+      "Formatting style for config files used for RQG test simplification (extension '.cfg')\n"    .
       "   '<pattern1>','<pattern2>',\nwhich is in case of the current setting\n\n"                 .
-      "$cfg_snip\n\n"                                                                              .
+      "$cfg_snip,\n\n"                                                                              .
       "Formatting style for config files used in rqg_batch.pl (extension '.cc')\n"                 .
       "   \"\\'<pattern1>\\',\\'<pattern2>\\'\"\nwhich is in case of the current setting\n\n"      .
       "$cc_snip\n"

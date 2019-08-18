@@ -121,7 +121,7 @@ delete:
 where:
 # I assume that affecting between 0 to 2 rows gives sufficient coverage.
     WHERE a = my_int               |
-    WHERE a = my_int or a = my_int ;
+    WHERE a = my_int OR a = my_int ;
 
 rand_values:
     ( my_int) |
