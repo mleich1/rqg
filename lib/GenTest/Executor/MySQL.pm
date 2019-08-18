@@ -1186,7 +1186,7 @@ sub execute {
 
    my $result;
    if (defined $err) {            # Error on EXECUTE
-#     say("DEBUG: $trace_addition At begin of Error processing");
+      # say("DEBUG: $trace_addition At begin of Error '$err' processing");
 
       if (($err_type == STATUS_SKIP)             ||
           ($err_type == STATUS_SYNTAX_ERROR)     ||

@@ -898,6 +898,15 @@ sub reap_workers {
                 my $rqg_arc       = "$rqg_workdir" . "/archive.tgz";
 
                 my $verdict;
+                $worker_array[$worker_num][WORKER_END] = time();
+                if (not defined $worker_array[$worker_num][WORKER_START]) {
+                    # The parent (rqg_batch.pl) has never detected that the child (rqg.pl) started
+                    # to work. Hence WORKER_START is undef. And than in minimum the current RQG
+                    # worker had to be stopped because of maximum rqg_batch.pl runtime exceeded.
+                    # So we set here WORKER_START = WORKER_END in order to avoid strange total
+                    # runtime values like current unix timestamp in "result.txt".
+                    $worker_array[$worker_num][WORKER_START] = $worker_array[$worker_num][WORKER_END];
+                }
                 my $iso_ts = isoTimestamp();
                 if (defined $worker_array[$worker_num][WORKER_STOP_REASON]) {
                     # The RQG worker was 'victim' of a stop with SIGKILL.
@@ -909,7 +918,7 @@ sub reap_workers {
                     # - sometimes an archive harmed by the SIGKILL
                     # - extreme unlikely a complete archive
                     # ==> The stuff gets thrown away in general.
-                    $worker_array[$worker_num][WORKER_END] = time();
+                    ####### $worker_array[$worker_num][WORKER_END] = time();
                     if ($worker_array[$worker_num][WORKER_STOP_REASON] eq STOP_REASON_RQG_LIMIT) {
                         $verdict = Verdict::RQG_VERDICT_INTEREST;
                     } else {
@@ -919,7 +928,7 @@ sub reap_workers {
                         "because of '" . $worker_array[$worker_num][WORKER_STOP_REASON] . "'.\n" .
                                                            "# $iso_ts Verdict: $verdict\n");
                 } else {
-                    $worker_array[$worker_num][WORKER_END] = time();
+                    ####### $worker_array[$worker_num][WORKER_END] = time();
                     $verdict       = Verdict::get_rqg_verdict($rqg_workdir);
                 }
 
@@ -1654,9 +1663,27 @@ sub add_to_try_never {
     delete $try_replayer_hash{$order_id};
     delete $try_exhausted_hash{$order_id};
     delete $try_all_hash{$order_id};
-    # The add_to_try_never could happen in report_replay
-    # == The process of the RQG worker is running and just archives data etc.
-    # stop_worker_on_order($order_id);
+    # The add_to_try_never could happen in the following Simplifier routines
+    # - get_job
+    #   Have an order picked according ... from one of the queues but detect
+    #   that this order is no more valid.
+    #   Example: Removing ... from rule X is impossible because rule X does no more exist.
+    # - report_replay
+    #   Some RQG runner has replayed but maybe not finished his work.
+    #   In case its grammar B is based one the current parent grammar Y than its a "Winner" and
+    #   all other RQG runner working on the same order (--> using grammar B too or some older
+    #   grammar A based on older parent grammar X) get stopped.
+    #   Its likely that the replaying runner is just during archiving or similar.
+    #   So we must not stop it too.
+    # - register_result
+    #   Some RQG runner has replayed and finished his work.
+    #   In case its grammar B is based one the current parent grammar Y than its a "Winner" and
+    #   there was no detection via "report_replay".
+    #   Reason: Signal replay + finish was after the last call of "report_replay".
+    #   All RQG runner working on the same order could be stopped.
+    #   In case its grammar B is not based on the current parent grammar Y than it could have
+    #   been a "Winner" already processed by "report_replay" or its a replayer without luck.
+    # So it we cannot run a     stop_worker_on_order($order_id);    here.
     say("DEBUG: Batch::add_to_try_never: $order_id added to \%try_never_hash.")
         if Auxiliary::script_debug("B5");
     # @try_queue does not get touched.

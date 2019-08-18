@@ -711,8 +711,6 @@ sub register_result {
 # order_id
 # verdict
 # runtime or current routine could extract runtime from log
-# log
-# Current could extract runtime
 #
 # Return
 # - STATUS_OK, Batch::REGISTER_*(== What rqg_batch.pl should do next)
