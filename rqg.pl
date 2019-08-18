@@ -1144,6 +1144,8 @@ if ($all_binaries_exist != 1) {
 }
 
 # Galera requires some additional options. Check them.
+# ---------------------------------------------------
+# https://mariadb.com/kb/en/library/rqg-extensions-for-mariadb/#galera-mode
 if ($rpl_mode eq Auxiliary::RQG_RPL_GALERA) {
     if (osWindows()) {
         sayError("Galera is not supported on Windows (yet).");

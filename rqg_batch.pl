@@ -677,7 +677,7 @@ while($Batch::give_up <= 1) {
             say("DEBUG: [$free_worker] setting RQG vardir  to '$rqg_vardir'.")
                 if Auxiliary::script_debug("T6");
             $command .= " --vardir=$rqg_vardir";
-            my $rqg_build_thread = $build_thread + ($free_worker - 1) * 2;
+            my $rqg_build_thread = $build_thread + ($free_worker - 1);
             say("DEBUG: [$free_worker] setting RQG build thread to $rqg_build_thread.")
                 if Auxiliary::script_debug("T6");
             $command .= " --mtr-build-thread=$rqg_build_thread";
