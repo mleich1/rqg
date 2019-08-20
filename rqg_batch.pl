@@ -1029,8 +1029,15 @@ if ($Batch::give_up < 2) {
     system($summary_cmd);
 }
 
+my $best_verdict;
+$best_verdict = '--';
+$best_verdict = Verdict::RQG_VERDICT_INIT     if 0 < $Batch::verdict_init;
+$best_verdict = Verdict::RQG_VERDICT_IGNORE   if 0 < $Batch::verdict_ignore;
+$best_verdict = Verdict::RQG_VERDICT_INTEREST if 0 < $Batch::verdict_interest;
+$best_verdict = Verdict::RQG_VERDICT_REPLAY   if 0 < $Batch::verdict_replay;
+
 my $pl = Verdict::RQG_VERDICT_LENGTH + 2;
-say("\n\n"                                                                                         .
+my $message = "\n\n"                                                                               .
 "STATISTICS: RQG runs -- Verdict\n"                                                                .
 "STATISTICS: " . Auxiliary::lfill($Batch::verdict_replay, 8)    . " -- "                           .
                  Auxiliary::rfill("'" . Verdict::RQG_VERDICT_REPLAY   . "'",$pl)                   .
@@ -1047,24 +1054,22 @@ say("\n\n"                                                                      
 "STATISTICS: " . Auxiliary::lfill($Batch::verdict_init, 8)      . " -- "                           .
                  Auxiliary::rfill("'" . Verdict::RQG_VERDICT_INIT     . "'",$pl)                   .
              " -- RQG run too incomplete (maybe wrong RQG call)\n"                                 .
-"STATISTICS: " . Auxiliary::lfill($Batch::verdict_collected, 8) . " -- Some verdict made.\n")      ;
-say("STATISTICS: Total runtime in seconds : " . (time() - $batch_start_time))                      ;
-say("STATISTICS: RQG runs started         : $runs_started")                                        ;
-
-say("RESULT:     The logs and archives of the RQG runs performed including files with summaries\n" .
-    "            are in the workdir of the rqg_batch.pl run\n"                                     .
-    "                 $workdir\n")                                                                 ;
-say("HINT:       As long as this was the last run of rqg_batch.pl the symlink\n"                   .
-    "                 " . BATCH_WORKDIR_SYMLINK . "\n"                                             .
-    "            will point to this workdir.\n")                                                   ;
-say("RESULT:     The highest (process) exit status of some RQG run was : $total_status")           ;
-my $best_verdict;
-$best_verdict = '--';
-$best_verdict = Verdict::RQG_VERDICT_INIT     if 0 < $Batch::verdict_init;
-$best_verdict = Verdict::RQG_VERDICT_IGNORE   if 0 < $Batch::verdict_ignore;
-$best_verdict = Verdict::RQG_VERDICT_INTEREST if 0 < $Batch::verdict_interest;
-$best_verdict = Verdict::RQG_VERDICT_REPLAY   if 0 < $Batch::verdict_replay;
-say("RESULT:     The best verdict reached was : '$best_verdict'");
+"STATISTICS: " . Auxiliary::lfill($Batch::verdict_collected, 8) . " -- Some verdict made.\n\n"     .
+"STATISTICS: Total runtime in seconds : " . (time() - $batch_start_time) . "\n"                    .
+"STATISTICS: RQG runs started         : $runs_started\n"                                           .
+"RESULT:     The logs and archives of the RQG runs performed including files with summaries\n"     .
+"            are in the workdir of the rqg_batch.pl run\n"                                         .
+"                 $workdir\n"                                                                      .
+"HINT:       As long as this was the last run of rqg_batch.pl the symlink\n"                       .
+"                 " . BATCH_WORKDIR_SYMLINK . "\n"                                                 .
+"            will point to this workdir.\n"                                                        .
+"RESULT:     The highest (process) exit status of some RQG run was : $total_status\n"              .
+"RESULT:     The best verdict reached was : '$best_verdict'"                                       ;
+say($message);
+# Append that message to $workdir/result.txt too because
+# - the rqg_batch.pl log gets often overwritten by the next run or lost
+# - the aggregated information in $message is too valuable
+Batch::append_string_to_file($result_file, $message . "\n");
 safe_exit(STATUS_OK);
 
 
