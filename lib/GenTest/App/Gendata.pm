@@ -1,6 +1,6 @@
 # Copyright (C) 2009, 2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018, MariaDB Corporation Ab
+# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -208,6 +208,7 @@ sub run {
                                                                     # substituted
 
     if ($spec_file ne '') {
+        # A <whatever>.zz is assigned.
         open(CONF , $spec_file) or croak "unable to open specification file '$spec_file': $!";
         read(CONF, my $spec_text, -s $spec_file);
         eval ($spec_text);
@@ -221,8 +222,9 @@ sub run {
     }
 
     if (defined $schemas) {
+        # The zz/spec_file contains stuff like   $schemas = [ 'test1' , 'test2' ];
         push(@schema_perms, @$schemas);
-        $executor->defaultSchema(@schema_perms[0]);
+        $executor->defaultSchema($schema_perms[0]);
     } else {
         push(@schema_perms, $executor->defaultSchema());
     }
@@ -248,7 +250,6 @@ sub run {
     if (not ($executor->type == DB_MYSQL or $executor->type == DB_DRIZZLE or $executor->type==DB_DUMMY)) {
         my @datetimestuff = grep(/date|time/,@{$fields->{types}});
         if ($#datetimestuff > -1) {
-           # FIXME: Replace that damned croak
             croak "Dates and times are severly broken. Cannot be used for other than MySQL/Drizzle";
         }
     }
@@ -691,7 +692,7 @@ sub run {
         }
     }
 
-    $executor->currentSchema(@schema_perms[0]);
+    $executor->currentSchema($schema_perms[0]);
     return STATUS_OK;
 }
 

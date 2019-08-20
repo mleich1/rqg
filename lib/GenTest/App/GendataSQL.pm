@@ -146,8 +146,8 @@ sub run {
             return $bad_status;
         }
         # Some "general" max_statement_time setting should only apply to YY grammar processing.
-        my $sql_cmd = 'SET @@max_statement_time = 0';
-        my $status = run_sql_cmd($executor, $sql_cmd);
+        $sql_cmd = 'SET @@max_statement_time = 0';
+        $status = run_sql_cmd($executor, $sql_cmd);
         if ($status) {
             return $bad_status;
         }
