@@ -221,20 +221,17 @@ my @order_array = ();
 use constant ORDER_EFFORTS_INVESTED  => 0;
 
 # ORDER_PROPERTY1
-# Snip of the command line for the RQG runner.
+# Snip of the command line for the RQG runner which consists of
+# - some leading part    used for all simplification phases
+# - some trailing part   used for the current simplification phase
 use constant ORDER_PROPERTY1         => 1;
 #
 # ORDER_PROPERTY2 , comb_counter
-# Example: start_combination = 2 , trials = 3
-# comb_counter | order_id
-#            1 | not stored because < start_combination
-#            2 |        1
-#            3 |        2
-#            4 |        3
-#
+# For example: Name of the grammar rule to shrink
 use constant ORDER_PROPERTY2         => 2;
 #
-# ORDER_PROPERTY3 , unused
+# ORDER_PROPERTY3
+# For example: Component (string) to remove from the rule definition.
 use constant ORDER_PROPERTY3         => 3;
 #
 # ORDER_EFFORTS_LEFT_OVER
@@ -1011,6 +1008,8 @@ sub init {
     # ...  load_grammar($grammar_file);
     # ...  fill_rule_hash();
     # ...  print_rule_hash();
+    # ...  set_default_rules_for_threads()
+    # ...  fill_rule_hash();
     # ...  analyze_all_rules(); -- Maintains counter except weight and removes unused rules
     # ...  compact_grammar();   -- collapseComponents (unique) and moderate inlining
     $grammar_string = GenTest::Simplifier::Grammar_advanced::init($grammar_file, $threads,
@@ -1178,6 +1177,10 @@ sub get_job {
                             "'$component_string' is invalid.") if Auxiliary::script_debug("S4");
                         $order_is_valid = 0;
                         Batch::add_to_try_never($order_id);
+                        # FIXME:
+                        # Stop all RQG runner which do something based on that $order_id?
+                        # But could such runner exist at all?
+                        # Could we pick a "Winner" during archiving?
                         $order_id = undef;
                     }
                 } elsif (PHASE_SIMP_END eq $phase) {
@@ -1288,7 +1291,7 @@ print("\n" .
 "' is supported.\n"                                                                                .
 "   Default: '" . SIMP_ALGO_WEIGHT . "'\n\n"                                                       .
 "rqg_batch.pl passes certain parameters to the Simplifier.\n"                                      .
-"Parameters settings which are finally left over and get ignored at all will be reported in a "    .
+"Parameter settings which are finally left over and get ignored at all will be reported in a "     .
 "line starting with\n"                                                                             .
 "     WARNING: The following command line content is left over ...\n\n"                            .
 "seed\n"                                                                                           .
@@ -1659,10 +1662,12 @@ sub register_result {
             if ($grammar_parent eq $parent_grammar) {
                 # Its a first replayer based on the current parent grammar.
                 reload_grammar($grammar_used);
-                # add_to_try_never stops all running RQG Worker using that order_id.
                 my $stop_count = Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_GENDATA,
                                                     Batch::STOP_REASON_WORK_FLOW);
                 Batch::stop_worker_on_order($order_id);
+                # FIXME:
+                # In case the reload_grammar above lets some rule disappear than we could
+                # stop all workers having some $order_id fiddling with the disappeared rule.
                 Batch::add_to_try_never($order_id);
                 $simp_success           = 1;
                 $grammar_simp_success   = 1;
@@ -1922,7 +1927,7 @@ sub switch_phase {
         say("");
         say("");
         if (1 <= $simp_success) {
-            say("SUMMARY: RQG test simplification achieved");
+            say("\n\nSUMMARY: RQG test simplification achieved");
             say("SUMMARY: simplified number of threads : $threads") if 1 <= $thread1_replay_success;
             say("SUMMARY: simplified RVT setting : '" . $rvt_snip . "'") if 1 <= $rvt_simp_success;
             if (1 <= $grammar_simp_success) {
@@ -2145,6 +2150,9 @@ sub report_replay {
             my $stop_count = Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_GENDATA,
                                                 Batch::STOP_REASON_WORK_FLOW);
             Batch::stop_worker_on_order_except_replayer($order_id);
+            # FIXME:
+            # In case the reload_grammar above lets some rule disappear than we could
+            # stop all workers having some $order_id fiddling with the disappeared rule.
             Batch::add_to_try_never($order_id);
             $grammar_simp_success = 1;
             $simp_success = 1;

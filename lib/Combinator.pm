@@ -759,9 +759,9 @@ sub register_result {
         if Auxiliary::script_debug("C4");
     # Batch::check_try_hashes();
     if ($left_over_trials) {
-        return (Batch::REGISTER_GO_ON);
+        return Batch::REGISTER_GO_ON;
     } else {
-        return (Batch::REGISTER_END);
+        return Batch::REGISTER_END;
     }
 
 

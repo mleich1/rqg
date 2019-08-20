@@ -245,22 +245,14 @@ use constant STOP_REASON_RQG_LIMIT   => 'rqg_limit';
 #   Any delay or fail of abort because of trouble when writing the entry is not acceptable.
 #   So WORKER_STOP_REASON needs to be undef.
 #
-# Whenever rqg_batch.pl calls Combinator/Simplifier::register_result than that routine will
-# return an array
-# first element is the status (the usual like STATUS_ENVIRONMENT_FAILURE etc.)
-#     Expected reaction:
-#     If STATUS_OK != that status than emergency_exit with that status.
-#     Its because Combinator/Simplifier::register_result cannot reach emergency_exit.
-#     Btw: action should be set to REGISTER_GO_ON and not undef.
-#     Use case:
-#     Trouble when processing the result, updating files etc. makes all 'hopeless'.
-# second element is string and tells the caller how to proceed
+# Whenever lib/Batch.pm calls Combinator/Simplifier::register_result than that routine will
+# return a string how to proceed.
 # The constants are for that.
-use constant REGISTER_GO_ON      => 'register_ok';
+use constant REGISTER_GO_ON        => 'register_ok';
      # Expected reaction:
      # Just go on == Ask for the next job when having free resources except status was != STATUS_OK.
      # No remarkable change in the work flow. The next tests are roughly like the previous one.
-use constant REGISTER_STOP_ALL   => 'register_stop_all';
+use constant REGISTER_STOP_ALL     => 'register_stop_all';
      # Expected reaction:
      # Stop all active RQG runs and ask for the next job when having free resources.
      # Use case:
@@ -269,7 +261,7 @@ use constant REGISTER_STOP_ALL   => 'register_stop_all';
      # Bugreplay where we
      # - need to replay some desired outcome only once
      # - want to go on with free resources and something different as soon as possible.
-use constant REGISTER_STOP_YOUNG => 'register_stop_young';
+use constant REGISTER_STOP_YOUNG   => 'register_stop_young';
      # Expected reaction:
      # Stop all active RQG runs which are in phase init , start or gentest.
      # Use case:
@@ -1893,9 +1885,9 @@ sub process_finished_runs {
                     $worker_array[$worker_num][WORKER_EXTRA3]
             );
             if      ($batch_type eq BATCH_TYPE_COMBINATOR) {
-                ($action) = Combinator::register_result(@result_record);
+                $action = Combinator::register_result(@result_record);
             } elsif ($batch_type eq BATCH_TYPE_RQG_SIMPLIFIER) {
-                ($action) = Simplifier::register_result(@result_record);
+                $action = Simplifier::register_result(@result_record);
             } else {
                 emergency_exit(STATUS_CRITICAL_FAILURE,
                     "INTERNAL ERROR: The batch type '$batch_type' is unknown. ");
