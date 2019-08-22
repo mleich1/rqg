@@ -7,9 +7,9 @@ This RQG version is focussed on taking care that
   tend to a smaller fraction of false alarms and work more like wished
 - problem analysis becomes more comfortable and faster
 - parallel RQG test runs on the same box have a lower risk to clash on the same
-  ressources and use a smaller amount of ressources possible
+  ressources like ports and use a smaller amount of ressources possible
 - grammar simplification becomes faster
-- some RQG run with "perl -w" throws significant less warnings than today.
+- some RQG run with "perl -w" throws significant less warnings than in history.
 
 The "start" was a fork of https://github.com/elenst/rqg 2018-04-11.
 The forking was done in order to avoid any thinkable damage to Elena's RQG
@@ -19,18 +19,22 @@ improvements to RQG were required and doable.
 
 Please excuse
 - any problems of my RQG when using it with
-  - complicated usage variants of combinations.pl
+  - complicated usage variants of Combinations
   - optimizer tests
   - sophisticated setups with Galera, whatever replication, multi server setup etc.
   because I do not see me able to check any modification regarding usability in
   in these areas in the moment.
 - that some
      git blame ....
-  shows me surprising frequent as last person who modified a line.
-  I could not resist to adjust the code to my personal standards regarding readability.
-  When looking for the last person making more probable significant changes use
-     git blame -w .....
-  which ignores at least changes around white spaces.
+  - shows me surprising frequent as last person who modified a line.
+    I could not resist to adjust the code to my personal standards regarding readability.
+    When looking for the last person making more probable significant changes use
+       git blame -w .....
+    which ignores at least changes around white spaces.
+  - shows me sometimes as author of some file but it is 100% the work of Elena only.
+    The reason for that is that I copied that file from one of her development trees
+    into my tree.
+
 
 Collection of hints (under construction)
 ----------------------------------------
@@ -91,7 +95,7 @@ Collection of hints (under construction)
    - removal of trailing white spaces
    - line length <= 100 characters
    - no use of tabs because authors frequent
-     - mix tabs and spaces which looks than ugly in case you go with some diffent tabstop value
+     - mix tabs and spaces which looks than ugly in case you go with some different tabstop value
      - do not agree on how many spaces a tabstop should be
    - indentation unit of 4 white spaces
      I am aware that a few spaces more would increase the readability.
@@ -178,31 +182,33 @@ Collection of hints (under construction)
 
 
 DONE (incomplete and arbitrary sorted list):
+--------------------------------------------
 1. Introduce the capability to define a
    - whitelist desired statuses + desired text patterns
    - blacklist unwanted statuses + unwanted text patterns
    including (hopefully) reasonable defaults (STATUS_ANY is desired and STATUS_OK is unwanted).
+   --> lib/Auxiliary.pm etc.
 2. Implement a routine which processes a file (log of RQG run) and  gives a verdict based on
-   these lists.
+   these lists. --> lib/Verdict.pm
 3. Implement some new RQG runner (rqg.pl) which
-   1. performs a RQG run according to the setup supplied
+   1. performs a RQG run according to the setup supplied via command line
    2. calculates the verdict based on balck/whitelist matching after the RQG run finished
    3. performs a (hopefully) perfect cleanup including archiving according to the verdict got
 4. Implement a new RQG tool (rqg_batch.pl) which performs a batch of RQG runs according to the
-   setup supplied. rqg_batch.pl uses rqg.pl.
+   setup supplied via config file and command line.
+   Massive parallelization is supported too.
    This tool replaces (at least for my tasks)
-   - immediate bughunt.pl, combinations.pl
-   - in future also util/simplify-grammar.pl
-   Certain features for efficient job management will get added in future.
-5. Implement some new grammar simplifier (util/new-simplify-grammar.pl) who supports massive
-   parallelization by exploiting rqg_batch.pl.
-   This is some intermediate solution because the new far way superior grammar simplification
-   mechanism to be implemented somewhere in future requires informations at runtime and
-   functionality to priorize future jobs or stop ongoing jobs which is best placed in rqg_batch.pl.
-   So the final solution will be: In case certain options get supplied than rqg_batch.pl
-   controls and performs the grammar simplification.
-6. rqg.pl, rqg_batch.pl and util/new-simplify-grammar.pl follow some extreme strict regulations
-   regarding placement of files, cleanup etc.
+      bughunt.pl
+      combinations.pl
+      util/simplify-grammar.pl
+   Certain features for
+   - efficient job management are located in lib/Batch.pm
+   - resource control for preventing disasters on the testing box are in lib/ResourceControl.pm
+   rqg_batch.pl uses some configurable RQG runner. The default is rqg.pl.
+5. Implement some new grammar simplifier (lib/Simplifier.pm etc.) which exploits the capabililties
+   provided by rqg_batch.pl and rqg.pl.
+6. rqg.pl, rqg_batch.pl follow some extreme strict regulations regarding placement of files,
+   cleanup etc.
 7. Extend the grammar simplification algorithm so that all top level rules get simplified.
    Old state: Only the rule 'query' gets considered up till that the simplifier might
               not work if other top level rules exist and play an important role.
@@ -221,7 +227,7 @@ DONE (incomplete and arbitrary sorted list):
       is already in the content of rqg.yy
     This is required for the grammar simplifier but gives also advantages in other situations
     like archiving of data for replay attempts in future.
-11. Correct the simplifier algorithm (--> lib/GenTest/Simplifier/Grammar1.pm)
+11. Correct the simplifier algorithm (--> lib/GenTest/Simplifier/Grammar_advanced.pm)
     The illegal actions:
     1. The simplifier tries to remove even the last non "empty string" component/alternative
        of a grammar rule.
@@ -232,7 +238,6 @@ DONE (incomplete and arbitrary sorted list):
           rule_2  : ;          # last "empty string" component. The simplifier would inline
                                # that rule and by that the empty string == no removal of value.
 
-       But this is strict forbidden in case we simplify for the following theoretical scenario:
     2. The simplifier tries to remove parts of components.
        Example observed:
           Snip of some component: , REPEAT ( CAST ( $my_int AS CHAR(1)), @fill_amount ) )
@@ -248,14 +253,15 @@ DONE (incomplete and arbitrary sorted list):
         "Something": Number of rows in table A or SUM(column_a) or
                      column_b WHERE column_pk = 13 or ...
         And we had the interesting case that there was a change though it should not.
-        The current simplifier will maybe shrink one of the rules 'rule_1' or 'rule_2' to "empty"
+        The old simplifier would maybe shrink one of the rules 'rule_1' or 'rule_2' to "empty"
         and than the validator will kick in and "cry" his alarm which gets than valuated as success
-        in simplification.
+        (replay) in simplification.
         Impact: The final result of grammar simplification will be nothing else than garbage.
     This happens frequent but there must be some simplification algorithm which could be used
     for all the other cases too.
-12. Use wthing the grammar simplifier some more dynamic amount of walk through the grammar rounds
-    (--> lib/GenTest/Simplifier/Grammar1.pm)
+    Now we have some non destructive (default) and some destructive grammar simplification mode.
+12. Use within the grammar simplifier some more dynamic amount of walk through the grammar rounds
+    (--> lib/GenTest/Simplifier/Grammar_advanced.pm)
 13. Develop a program which is capable to check if the protocol of some RQG run matches the
     blacklist/whitelist statuses/patterns setting provided.
     (--> checker.pl)
@@ -268,58 +274,64 @@ DONE (incomplete and arbitrary sorted list):
     5. If no trouble during 4. shutdown of server 2 + destroy his data + run next loop round.
        If trouble terminate the test.
 15. Job queues (--> lib/Batch.pm)
-
-
-TODO (incomplete list):
------------------------
--- Add to rqg_batch.pl
-   - permanent observation of ressources
-   Decide based on these results if to maybe
-   - stop the rqg_batch.pl run including killing all ongoing RQG runs because not solvable
-     trouble is direct ahead -- avoid OS breakdown ...
-   - stop(KILL) some already ongoing RQG run because that would avoid to run into predicted
-     trouble
-   - do nothing than observing the system
-   - start some additional RQG run because the forecast regarding resources is positive
--- Implement some new far way superior grammar simplification mechanism which is a combination of
-   1. Some more efficient algorithm for deciding which never tried simplification to check first.
-      Base will be a weight according the likelihood that some rulle will be used for the generation
-      of a statements.
-      In short: Simplify the top level rules first.
-      Per experience the current algorithm focuses far way too fast on simplifying rare used rules.
-      Simplifying the most frequent used grammar rules first gives a speedup of ~ 100%.
-      This tendency is also valid if using "masking" as simplification method. Just the
-      average speedup is there a bit smaller and the handling is complex.
-   2. Have different simplifications concurrent in testing
-      The current util/new-simplify-grammar.pl just tries n times the same simplification in
-      parallel which is
-      - not plain bad because we need frequent several attempts and so we exploit all available
-        resources
-      - per experience a quite inefficient use of these resources because the likelihood to
-        replay differs dramatic up till that certain grammars are not capable to replay at all.
-      Checking different grammars simplified based on masking, stop all runs on replay, compute
-      a new "competition" is not the greatest solution but it performed surprising good and beats
-      the current algorithm.
-   3. The fact that we could have several different grammars which have replayed is a side effect of
-      2. and the archiving which costs some time.
-      Aborting all runs which were started invoking the result of X but before Y was finished
-      and restarting with X and Y applied is no good solution because
-      - a replay might require either the grammar components removed in X or in Y
-      - abort runs means also annihilate all already done investments (Imagine that a long
-        lasting gendata was just finished)
-      - aborting runs is error prone and therefore risky
-      In case we memorize (requires adding bookkeeping) what the second replayer Y made like
+16. Simplification
+    Having n RQG tests with different grammars
+        They are all slightly shrinked derivates of in history successful grammars.
+    in parallel could culminate in more than one grammar replaying the desired outcome.
+    We can only pick one of them.
+    In case we memorize (requires bookkeeping) what the second replayer Y made like
          That run tried with
          dml:
              INSERT ... |
              UPDATE ... | <======= This removed
              DELETE ... ;
-      than we could apply that in some next grammar simplification attempt.
-      This is maybe also doable in case of masking but extreme complicated because there we have
-      most probably just the information about mask-level, mask and maybe the md5sum or something
-      similar describing the grammar.
-   4. Add maybe the option to not remove components of rules which contain the keywords DROP or
-      DELETE.
+    than we could apply that in some next grammar simplification attempt again including
+    to give such runs a higher priority.
+17. Modify the grammar simplifier so that GRAMMAR_FLAG_COMPACT_RULES is no more the default.
+      Example:
+      rule1: update | insert | delete | insert ;
+      Old (GRAMMAR_FLAG_COMPACT_RULES is default)
+      -------------------------------------------
+      Use as base:    rule1: update | delete | insert ;
+      and try in worst case
+          rule1: update | delete          ;
+          rule1: update |          insert ;
+          rule1:          delete | insert ;
+      New (no default)
+      ----------------
+      Use as base:    rule1: update | insert | delete | insert ;
+      and try in worst case
+          rule1: update |          delete          ;
+          rule1: update | insert |          insert ;
+          rule1:          insert | delete | insert ;
+      Advantages/disadvantages per already existing experience:
+      a) Simplification speed:
+         Not using GRAMMAR_FLAG_COMPACT_RULES has more frequent some positive impact than using
+         GRAMMAR_FLAG_COMPACT_RULES.
+         But the overall impact of one or the other is rather minor.
+         Note:
+         Non rare but also less than medium frequent observed.
+               The several time playing a negative role was rare observed.
+               In sum: Not that important.
+      b) Evolution of resource consumption:
+         I need to think about that.
+         Any existing experiences come from test runs before applying GRAMMAR_FLAG_COMPACT_RULES.
+         When running simplification with applying GRAMMAR_FLAG_COMPACT_RULES we make some
+         drastic move into quite unknown area.
+
+At simplification start we have only experiences with grammars where the
+         GRAMMAR_FLAG_COMPACT_RULES was not applied. But we base the grammar simplifier setup
+         on these experiences.
+         Applying GRAMMAR_FLAG_COMPACT_RULES has medium frequent some drastic impact on resource
+         consumption and that is sometimes quite strong to the bad.
+          rule1: update | insert | delete | insert ;
+          rule1: update | insert | delete | insert ;
+
+
+TODO (incomplete list):
+-----------------------
+   1. Add maybe the option to not remove components of rules which contain the keywords DROP,
+      TRUNCATE or DELETE.
       Background:
       - As soon as we remove such components we are non rare faced with some serious growth of the
         storage space consumption which is counter productive in many aspects
@@ -333,11 +345,9 @@ TODO (incomplete list):
                             expected core file size >= 959647744, found: 55398400.
            I have no fixed opinion regarding if its better to assert with core or to make something
            like an emergency shutdown of the server without core.
-           Even a clever RQG resource control and emergency shutdowns can prevent that maybe
+           Even a clever RQG resource control and emergency shutdowns cannot prevent that maybe
            even one RQG test with one server consumes all available storage space.
            And the result of the test is of no value.
-           So as long as we do not jeopardize the goal of the test its better to prevent avoid
-           that trouble by all means we have.
       - The simplifier produces grammars which are capable to replay but start to need to require
         far way more test runs.
         Example:
@@ -372,42 +382,10 @@ TODO (incomplete list):
       - ignore or drop grammar a. Depending on point of view either grammar b or c is better.
       - Present the bug fixer grammar c as example which SQL the bug needs
       - From now on use grammar c for any replay attempt. Its the most efficient.
+      Some prototype code exists but I am not convinced of it.
    5. The first step within the grammar simplification process is:
       Try to replay with the original YY grammar and give up in case that goal was not achieved.
       Handle this amount of trials better if required.
-   6. Modify the grammar simplifier so that GRAMMAR_FLAG_COMPACT_RULES is at least no more
-      the default.
-      Example:
-      rule1: update | insert | delete | insert ;
-      Old
-      ---
-      Use as base:    rule1: update | delete | insert ;
-      and try in worst case
-          rule1: update | delete          ;
-          rule1: update |          insert ;
-          rule1:          delete | insert ;
-      New
-      ---
-      Use as base:    rule1: update | insert | delete | insert ;
-      and try in worst case
-          rule1: update |          delete          ;
-          rule1: update | insert |          insert ;
-          rule1:          insert | delete | insert ;
-      Advantages per already existing experience:
-      a) In case the fact that certain components occur several times plays a positive role on
-         simplification than this gets preserved.
-         Note: Non rare but also less than medium frequent observed.
-               The several time playing a negative role was rare observed.
-               In sum: Not that important.
-      b) At simplification start we have only experiences with grammars where the
-         GRAMMAR_FLAG_COMPACT_RULES was not applied. But we base the grammar simplifier setup
-         on these experiences.
-         Applying GRAMMAR_FLAG_COMPACT_RULES has medium frequent some drastic impact on resource
-         consumption and that is sometimes quite strong to the bad.
-         consumption during runtime. At simplification start we have only experiences with
-         the grammar without GRAMMAR_FLAG_COMPACT_RULES.
-          rule1: update | insert | delete | insert ;
-          rule1: update | insert | delete | insert ;
    7. Simplify also the amount of reporters, validators, transformers and threads.
       Open:
       Whatever simplification (grammar, reporters, ...) goes with steps doing different things.
@@ -539,10 +517,6 @@ The planned and partially already implemented architecture around rqg_batch.pl
 ------------------------------------------------------------------------------
 rg_batch.pl
 1. initializes the Combinator or Simplifier
-   Current state:
-   Only the Combinator exists. The advanced Simplifier has to be implemented.
-   The current simplifier is better than the old one but just some intermediate version
-   which lacks important optimizations.
 2. as soon as there are free resources rqg_batch "asks" the Combinator or Simplifier for some
    job and gets than some fragment of a RQG command line (grammar, threads etc. assignment)
    returned.
@@ -564,5 +538,24 @@ rg_batch.pl
    - The repetition of stopped RQG runs is implemented.
 
 
-Matthias 2018-10
+Typical errors in Simplifier config file
+----------------------------------------
+1. String found where operator expected at (eval 25) line 102, near "'STATUS_CONTENT_MISMATCH'
+           'STATUS_CRITICAL_FAILURE'"
+        (Missing operator before
+           'STATUS_CRITICAL_FAILURE'?)
+   Unable to load storage/<timestamp>/simplifier.cfg:
+       syntax error at (eval 25) line 102, near "'STATUS_CONTENT_MISMATCH'
+
+   Reason:
+   whitelist_statuses => [
+           'STATUS_REPLICATION_FAILURE',
+           'STATUS_CONTENT_MISMATCH'      <== The ',' afther the 'STATUS_CONTENT_MISMATCH' is
+           'STATUS_CRITICAL_FAILURE'          missing and there follows '<something>'.
+   ],
+
+   Recommendation:
+   Append all time a ',' to members of lists.
+
+Matthias 2019-08
 
