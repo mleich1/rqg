@@ -133,7 +133,7 @@ kill_query_or_session_or_release:
 #     - a maybe open transaction before that select
 #     - the later statements of a transaction maybe opened by that select
 # (2) No COMMIT before and after selecting in test . rqg_sessions in order to have no freed locks
-#     before the KILL affecting the own session is issued. This is only valid iff AUTOCOMMIT=0.
+#     before the KILL affecting the own session is issued. This is only valid if AUTOCOMMIT=0.
 #
    COMMIT ; correct_rqg_sessions_table      ; COMMIT                                 | # (1)
             own_id_part   AND kill_age_cond          ; KILL SOFT CONNECTION @kill_id | # (2)

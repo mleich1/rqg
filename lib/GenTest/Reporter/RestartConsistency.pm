@@ -240,6 +240,7 @@ sub dump_database {
 
 sub compare_dumps {
 	say("INFO: $who_am_i Comparing SQL dumps between servers before and after restart...");
+    # FIXME:
     # mleich 2019-03:
     # Diff in line  ) ENGINE= ... AUTO_INCREMENT=...
     # but the CREATE TABLE .... <table_name> .... line is not included.
@@ -254,6 +255,13 @@ sub compare_dumps {
     # In general
     # In case we have a failing test than printing up to a few thousand lines more into the
     # RQG log makes the inspection easier.
+    # Use a solution like
+    # - in Elena's lib/GenTest/Reporter/Upgrade.pm
+    # or
+    # - a routine in lib/Auxiliary which egalizes dump content which differs usually between
+    #   master and slave in "full" replication like
+    #   - event if enabled or disabled
+    #   - the number after AUTO_INCREMENT
 	my $diff_result = system("diff -U 50 $vardir/server_before.dump $vardir/server_after.dump");
 	$diff_result = $diff_result >> 8;
 
