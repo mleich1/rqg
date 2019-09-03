@@ -152,8 +152,6 @@ my $threads;
 my $prng;
 my $comb_count;
 
-# Name of the convenience symlink if symlinking supported by OS
-my $symlink = "last_batch_workdir";
 
 # A string which should be in mid of the command line options when rqg_batch calls the RQG runner.
 my $cl_snip_end = '';
