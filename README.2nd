@@ -244,7 +244,7 @@ DONE (incomplete and arbitrary sorted list):
           Attempts to remove (between the arrows):
           ->) ) ;<-  ->fill_amount<- ->)), @<- ->1<- ->(<- ->CHAR<- -> <- ->AS<- -> <-
           ->$my_int<- ->( <- ->CAST<- ->(<- ->REPEAT<- ->,<-
-    Both cases could be tolerated in case we simplify a crash but the are plain illegal in case
+    Both cases could be tolerated in case we simplify a crash but they are plain illegal in case
     we simplify for something different.
     Example of evil impact in some artificial scenario:
         rule_no_change:
@@ -287,45 +287,60 @@ DONE (incomplete and arbitrary sorted list):
              DELETE ... ;
     than we could apply that in some next grammar simplification attempt again including
     to give such runs a higher priority.
-17. Modify the grammar simplifier so that GRAMMAR_FLAG_COMPACT_RULES is no more the default.
+17. Modify the grammar simplifier algorithm so that we need the same number of grammar
+    simplification steps no matter if GRAMMAR_FLAG_COMPACT_RULES is applied or not.
       Example:
       rule1: update | insert | delete | insert ;
-      Old (GRAMMAR_FLAG_COMPACT_RULES is default)
-      -------------------------------------------
-      Use as base:    rule1: update | delete | insert ;
-      and try in worst case
+
+      Old algorithm (GRAMMAR_FLAG_COMPACT_RULES is default)
+      -----------------------------------------------------
+      With GRAMMAR_FLAG_COMPACT_RULES use as base:    rule1: update | delete | insert ;
+      and try in worst case 3 steps
           rule1: update | delete          ;
           rule1: update |          insert ;
           rule1:          delete | insert ;
-      New (no default)
-      ----------------
+      Without GRAMMAR_FLAG_COMPACT_RULES use as base:    rule1: update | insert | delete | insert ;
+      and try in worst case 4 steps
+          rule1: update | insert | delete          ;
+          rule1: update | insert            insert ;
+          rule1: update |          delete | insert ;
+          rule1:          insert | delete | insert ;
+      Note: The number of steps depends a lot on the shape of the grammar.
+
+      New algorithm (default is "no" transformation of grammar)
+      ---------------------------------------------------------
       Use as base:    rule1: update | insert | delete | insert ;
       and try in worst case
           rule1: update |          delete          ;
           rule1: update | insert |          insert ;
           rule1:          insert | delete | insert ;
-      Advantages/disadvantages per already existing experience:
-      a) Simplification speed:
-         Not using GRAMMAR_FLAG_COMPACT_RULES has more frequent some positive impact than using
-         GRAMMAR_FLAG_COMPACT_RULES.
-         But the overall impact of one or the other is rather minor.
-         Note:
-         Non rare but also less than medium frequent observed.
-               The several time playing a negative role was rare observed.
-               In sum: Not that important.
-      b) Evolution of resource consumption:
-         I need to think about that.
-         Any existing experiences come from test runs before applying GRAMMAR_FLAG_COMPACT_RULES.
-         When running simplification with applying GRAMMAR_FLAG_COMPACT_RULES we make some
-         drastic move into quite unknown area.
+      So the historic advantage of GRAMMAR_FLAG_COMPACT_RULES when using the old simplifier
+      algorithm does no more exist with the new one.
 
-At simplification start we have only experiences with grammars where the
-         GRAMMAR_FLAG_COMPACT_RULES was not applied. But we base the grammar simplifier setup
-         on these experiences.
-         Applying GRAMMAR_FLAG_COMPACT_RULES has medium frequent some drastic impact on resource
-         consumption and that is sometimes quite strong to the bad.
-          rule1: update | insert | delete | insert ;
-          rule1: update | insert | delete | insert ;
+      Advantages/disadvantages of the new algorithm + default per already existing experience:
+      a) Simplification speed
+         Depending on the test GRAMMAR_FLAG_COMPACT_RULES could be an advantage but also a
+         disadvantage.
+         In average there is a minor advantage when not applying GRAMMAR_FLAG_COMPACT_RULES.
+      b) Evolution of resource consumption during grammar simplification
+         There could be some drastic change of resource consumption (especially the space required
+         in vardir) to the bad but also the good.
+         Given the facts that
+         - (unlikely) the rqg_batch.pl parameter "--parallel" might be tweaked to avoid some
+           dangerous resource consumption and the corresponding experience was taken from
+           previous tests with the original grammar
+         - (all time) the rqg_batch.pl ResourceControl works better when having
+           - a bigger amount of experiences (tests already run since start of rqg_batch.pl)
+             At the point of progress where GRAMMAR_FLAG_COMPACT_RULES is applied if
+             assigned at all both variants (with/without GRAMMAR_FLAG_COMPACT_RULES) have the
+             same rather limited amount of experiences.
+           - slowly changing grammars
+             And here makes the application of GRAMMAR_FLAG_COMPACT_RULES some unusal big change.
+
+      Using GRAMMAR_FLAG_COMPACT_RULES is no more the default and no more recommended.
+      But there are also up till today no experiences which show that GRAMMAR_FLAG_COMPACT_RULES can
+      be serious bad.
+      Feel free to experiment.
 
 
 TODO (incomplete list):
@@ -511,51 +526,57 @@ TODO (incomplete list):
           CREATE TABLE t1 (col1 INT);
           A result file does not exist.
           We get a pass no matter how many repeats I run.
+--dryrun=... works quite incomplete because best_grammar.yy is not fully maintained.
 
 
-The planned and partially already implemented architecture around rqg_batch.pl
-------------------------------------------------------------------------------
+The architecture around rqg_batch.pl
+------------------------------------
 rg_batch.pl
-1. initializes the Combinator or Simplifier
+0. processes certain options from his command line
+1. initializes the Combinator or Simplifier by passing a sub set of the options through
+   Some main mandatory option is the rqg_batch.pl config file which gets processed by
+   the Combinator or the Simplifier.
 2. as soon as there are free resources rqg_batch "asks" the Combinator or Simplifier for some
    job and gets than some fragment of a RQG command line (grammar, threads etc. assignment)
    returned.
 3. complements the fragment with parameters which guarantee that a to be started RQG runner
    does not clash with his resources (vardir, workdir, ports, files) with other RQG runners
    in parallel.
-4. starts some corresponding RQG runner
+4. forks some corresponding RQG Worker
+   This Worker does some preparations and switches via "exec" to making the RQG run.
 5. "reports" the outcome of any finished job to the Combinator or Simplifier so that they
    can update their bookkeeping and adjust their responses (see 2.) according to the
-   progress corrently achieved.
+   progress currently achieved.
 6. observes the state of the system and prevents certain disasters
       Example: The vardir for the RQG batch run is frequent located on some RAM based
                filesystem which has usually some quite limited size.
                So a filesystem full is some real risk.
    and stops RQG runner in order to prevent them.
-   The "stopped" run should get repeated later if required.
-   Current state:
+   The "stopped" run will get repeated if required and as soon as possible.
    - The resource control has to be implemented.
    - The repetition of stopped RQG runs is implemented.
 
 
-Typical errors in Simplifier config file
-----------------------------------------
-1. String found where operator expected at (eval 25) line 102, near "'STATUS_CONTENT_MISMATCH'
+Hints
+---------------------------------------
+1. Typical errors in Simplifier config file
+1.1 String found where operator expected at (eval 25) line 102, near "'STATUS_CONTENT_MISMATCH'
            'STATUS_CRITICAL_FAILURE'"
         (Missing operator before
            'STATUS_CRITICAL_FAILURE'?)
-   Unable to load storage/<timestamp>/simplifier.cfg:
-       syntax error at (eval 25) line 102, near "'STATUS_CONTENT_MISMATCH'
+    Unable to load storage/<timestamp>/simplifier.cfg:
+        syntax error at (eval 25) line 102, near "'STATUS_CONTENT_MISMATCH'
 
-   Reason:
-   whitelist_statuses => [
-           'STATUS_REPLICATION_FAILURE',
-           'STATUS_CONTENT_MISMATCH'      <== The ',' afther the 'STATUS_CONTENT_MISMATCH' is
-           'STATUS_CRITICAL_FAILURE'          missing and there follows '<something>'.
-   ],
+    Reason:
+    whitelist_statuses => [
+            'STATUS_REPLICATION_FAILURE',
+            'STATUS_CONTENT_MISMATCH'      <== The ',' afther the 'STATUS_CONTENT_MISMATCH' is
+            'STATUS_CRITICAL_FAILURE'          missing and there follows '<something>'.
+    ],
 
-   Recommendation:
-   Append all time a ',' to members of lists.
+    Recommendation:
+    Append all time a ',' to members of lists.
+
 
 Matthias 2019-08
 
