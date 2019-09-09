@@ -818,13 +818,15 @@ sub get_connection {
                     status2text($status) . "($status).");
         exit $status;
     }
+    # At least for worker threads mysql_auto_reconnect MUST be 0.
+    # If not than we will get an automatic reconnect without executing *_connect.
     my $dbh = DBI->connect($executor->dsn(), undef, undef, {
         mysql_connect_timeout  => CONNECT_TIMEOUT,
         PrintError             => 0,
         RaiseError             => 0,
         AutoCommit             => 1,
         mysql_multi_statements => 1,
-        mysql_auto_reconnect   => 1
+        mysql_auto_reconnect   => 0
     } );
 
     if (not defined $dbh) {
@@ -1233,20 +1235,22 @@ sub execute {
          #    Even with mysql_connect_timeout => 20 added the distance between message about
          #    connection lost and connect attempt failed < 1s seen.
          # First (because easier to handle) hypothesis:
-         #    The server is extreme busy with freeing whatever temporary used resources belonging
-         #    to connection gone.
+         #    The server is for some short timespan so busy especially around around managing
+         #    connections so that he simply denies to create a new one.
          #    2018-07-02 Up till today I have never seen a false alarm from here again.
+         # At least for worker threads mysql_auto_reconnect MUST be 0.
+         # If not than we will get an automatic reconnect without executing *_connect.
          my $check_dbh;
          my $try_end_time = time() + CONNECT_TIMEOUT;
          while (time() < $try_end_time and not defined $check_dbh) {
              $check_dbh = DBI->connect($executor->dsn(), undef, undef, {
-             mysql_connect_timeout  => CONNECT_TIMEOUT,
-             PrintError             => 0,
-             RaiseError             => 0,
-             AutoCommit             => 0,
-             mysql_multi_statements => 0,
-             mysql_auto_reconnect   => 0
-         } );
+                                       mysql_connect_timeout  => CONNECT_TIMEOUT,
+                                       PrintError             => 0,
+                                       RaiseError             => 0,
+                                       AutoCommit             => 0,
+                                       mysql_multi_statements => 0,
+                                       mysql_auto_reconnect   => 0
+                                       } );
              sleep 1;
          }
          if (defined $check_dbh) {
