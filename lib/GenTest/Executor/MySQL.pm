@@ -1359,6 +1359,27 @@ sub execute {
          }
       }
 
+      # FIXME:
+      # We have @data and %data_hash.
+      # Figure out when what (just one or both ) is filled and pick the right.
+
+      # Check if the query was a CHECK TABLE and if we harvested a result set which points clear
+      # to data corruption in InnoDB. In the moment all other bad cases get ignored.
+      if ($query =~ m{check\s+table\s+}i) {
+         foreach my $data_elem (@data) {
+             # ->test.t1<->check<->Warning<->InnoDB: Index 'c' contains 1 entries, should be 0.<-
+             my $line = join(" ", @{$data_elem});
+             my ($ct_table, $ct_Op, $ct_Msg_type, $ct_Msg_text) = @{$data_elem};
+             next if ('status' eq $ct_Msg_type or 'note' eq $ct_Msg_type);
+             if ('Warning' eq $ct_Msg_type and $ct_Msg_text =~ /InnoDB: /i) {
+                 say("ERROR: The query '$query' passed but has a result set line\n" .
+                     "ERROR: ->$line<-.\n" .
+                     "ERROR: Will set status STATUS_DATABASE_CORRUPTION.");
+                 $result_status = STATUS_DATABASE_CORRUPTION;
+             }
+         }
+      }
+
       $result = GenTest::Result->new(
             query           => $query,
             status          => $result_status,
@@ -1372,6 +1393,7 @@ sub execute {
       );
 
       $executor->[EXECUTOR_ERROR_COUNTS]->{'(no error)'}++ if not ($execution_flags & EXECUTOR_FLAG_SILENT);
+
    }
 
    $sth->finish();

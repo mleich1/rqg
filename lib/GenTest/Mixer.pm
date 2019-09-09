@@ -366,9 +366,14 @@ sub next {
          # - It is unlikely that some rare "omit the execution of a small and rather arbitrary group
          #   of remaing queries" has some significant impact on funtional coverage.
          if ($execution_result->status() >= STATUS_CRITICAL_FAILURE) {
+            my $result_err = $execution_result->err();
+            # CHECK TABLE could pass (error is undef) but point to data corruption via result set.
+            # lib/GenTest/Executor/MySQL.pm will than set status STATUS_DATABASE_CORRUPTION.
+            # So the command which follows avoids the warning because of non initialized variable.
+            $result_err = 0 if not defined $result_err;
             say("$mixer_role in Mixer : Critical failure " .
                 status2text($execution_result->status()) . " (" . $execution_result->status() .
-                "), Error " . $execution_result->err() . " reported at dsn " . $executor->dsn());
+                "), Error $result_err reported at dsn " . $executor->dsn());
             last query;
          }
 
