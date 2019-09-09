@@ -90,7 +90,7 @@ sub report {
 
     # FIXME
     # 1. Shouldn't be the server already dead caused by calling monitor.
-    # 2. What if killing does not work? Probably minpr problem
+    # 2. What if killing does not work? Probably minor problem
     # 3. What if the server is already dead because of other reason than calling monitor above?
     if (defined $dbh_prev) {
         # Server is still running, kill it. Again.

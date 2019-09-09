@@ -575,6 +575,14 @@ sub run {
             }
         }
         
+        # FIXME:
+        # The shape of the insert statements should be rather
+        #     INSERT .... VALUES
+        #        (...,..,....),
+        #           ...
+        #        (...,..,....),
+        #        (...,..,....);
+        # so that the RQG test to MTR converter/simplifier is able to shrink rows away.
         my @row_buffer;
         foreach my $row_id (1..$table->[TABLE_ROW]) {
             my @data;
