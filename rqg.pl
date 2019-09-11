@@ -1317,7 +1317,8 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         valgrind_options   => \@valgrind_options,
         general_log        => 1,
         start_dirty        => $start_dirty,
-        node_count         => length($galera)
+        node_count         => length($galera),
+        user               => $user
     );
     if (not defined $rplsrv) {
         say("ERROR: Setting up the Galera Cluster failed.");

@@ -35,7 +35,7 @@
 # - keep the old code available for reference and as fall back position
 # the current package gets provided as 'DBServer::MySQL::GaleraMySQLd1'.
 #
-# 2019-08 Matthias Leich
+# 2019-09 Matthias Leich
 #
 
 package DBServer::MySQL::GaleraMySQLd1;
@@ -61,6 +61,7 @@ use constant GALERA_MYSQLD_GENERAL_LOG      =>  7;
 use constant GALERA_MYSQLD_DEBUG_SERVER     =>  8;
 use constant GALERA_MYSQLD_NODE_COUNT       =>  9;
 use constant GALERA_MYSQLD_NODES            => 10;
+use constant GALERA_MYSQLD_USER             => 11;
 
 
 ##########################################
@@ -83,7 +84,8 @@ sub new {
         'valgrind'          => GALERA_MYSQLD_VALGRIND,
         'valgrind_options'  => GALERA_MYSQLD_VALGRIND_OPTIONS,
         'node_count'        => GALERA_MYSQLD_NODE_COUNT,
-        'nodes'             => GALERA_MYSQLD_NODES
+        'nodes'             => GALERA_MYSQLD_NODES,
+        'user'              => GALERA_MYSQLD_USER
     },@_);
 
     unless ($self->[GALERA_MYSQLD_NODE_COUNT]) {
@@ -252,7 +254,8 @@ sub new {
             general_log         => $self->[GALERA_MYSQLD_GENERAL_LOG],
             start_dirty         => $self->[GALERA_MYSQLD_START_DIRTY],
             valgrind            => $self->[GALERA_MYSQLD_VALGRIND],
-            valgrind_options    => $self->[GALERA_MYSQLD_VALGRIND_OPTIONS]
+            valgrind_options    => $self->[GALERA_MYSQLD_VALGRIND_OPTIONS],
+            user                => $self->[GALERA_MYSQLD_USER]
         );
 
         if (not defined $self->nodes->[$i]) {
