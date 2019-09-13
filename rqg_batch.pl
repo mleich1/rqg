@@ -824,7 +824,10 @@ while($Batch::give_up <= 1) {
                         safe_exit($status);
                     }
                     Batch::append_string_to_file($rqg_log,
+                                                 "INFO: GenTest: Effective duration in s : 30\n");
+                    Batch::append_string_to_file($rqg_log,
                                                  "SUMMARY: RQG GenTest runtime in s : 60\n");
+                    Auxiliary::set_rqg_phase($rqg_workdir, Auxiliary::RQG_PHASE_COMPLETE);
                     safe_exit(STATUS_OK);
                 } else {
                     # say("DEBUG =>" . $command . "<=");
@@ -852,7 +855,7 @@ while($Batch::give_up <= 1) {
                 # processgroup of the RQG worker. We just focus on 2. instead.
                 # Observation: 2018-08 10s were not sufficient on some box.
                 my $max_waittime  = 30;
-                my $waittime_unit = 0.2;
+                my $waittime_unit = 0.1;
                 my $end_waittime  = Time::HiRes::time() + $max_waittime;
                 my $phase         = Auxiliary::get_rqg_phase($rqg_workdir);
                 my $message       = '';
@@ -979,7 +982,7 @@ while($Batch::give_up <= 1) {
     # ResourceControl should take care that reasonable big delays between starts are made.
     # This is completely handled in Batch::check_resources.
     # So the 0.3 here serves only for preventing a too busy rqg_batch.
-      sleep 0.3;
+      sleep 0.1;
 
 } # End of while($Batch::give_up <= 1) loop with search for a free RQG runner and a job + starting it.
 
