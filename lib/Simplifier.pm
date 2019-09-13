@@ -52,7 +52,7 @@ use Time::HiRes;
 
 # Simplification phases and the *_success variables
 # -------------------------------------------------
-# The actual simplification phase
+# The actual simplification phase (if maintained correct)
 my $phase        = '';
 # If switching from one simplification phase to the next is ahead or not
 my $phase_switch = 0;
@@ -161,13 +161,11 @@ use constant SIMP_ALGO_RANDOM     => 'random';  # not yet implemented
 use constant SIMP_ALGO_MASKING    => 'masking'; # not yet implemented
 # The algorithms SIMP_ALGO_RANDOM and SIMP_ALGO_MASKING are neither
 # - strict required
-#   SIMP_ALGO_WEIGHT seems to be matured enough for not having some
-#   alternative less complex algorithm.
+#   SIMP_ALGO_WEIGHT seems to be matured enough for not having some fall back position.
 # nor
 # - expected to be at least sometimes more powerful than SIMP_ALGO_WEIGHT.
 #   Per experience with historic implementations:
-#   - SIMP_ALGO_RANDOM is all time serious slower than SIMP_ALGO_WEIGHT but
-#     serious less complex.
+#   - SIMP_ALGO_RANDOM is all time serious slower than SIMP_ALGO_WEIGHT but serious less complex.
 #   - SIMP_ALGO_MASKING is
 #     - not serious less complex than SIMP_ALGO_WEIGHT
 #     - sometimes roughly as fast as SIMP_ALGO_WEIGHT up till a bit faster
@@ -294,8 +292,6 @@ my $grammar_file;
 my $threads;
 use constant THREADS_DEFAULT        => 10;
 
-# Name of the convenience symlink if symlinking supported by OS
-my $symlink = "last_batch_workdir";
 
 # Assembling of the RQG runner call via cl_snip (call line snips)
 # ===============================================================
@@ -344,27 +340,19 @@ use constant DURATION_ADAPTION_EXP      => 'Experimental';
 
 my $grammar_flags;
 
-my $parent_number = 0; # Contains the number of the next parent grammar to be generated.
-my $parent_grammar;    # Contains the name (no path) of the last parent grammar generated.
+my $parent_number = 0;          # The number of the next parent grammar to be generated.
+my $parent_grammar;             # The name (no path) of the last parent grammar generated.
+my $parent_grammar_string = ''; # The content of the last valid parent grammar.
 my $grammar_string;
 my $grammar_structure;
 #
-my $child_number  = 0;  # Contains the number of the next last child grammar to be generated.
-my $child_grammar;      # Contains the name (no path) of the last child grammar generated.
+my $child_number  = 0;          # The number of the next last child grammar to be generated.
+my $child_grammar;              # The name (no path) of the last child grammar generated.
 #
 my $best_grammar  = 'best_grammar.yy'; # The best of the replaying grammars.
+                                       # == It is a grammar which was really tried.
 
 sub get_shrinked_rvt_options;
-
-# $ever_success
-# -------------
-# Set to 1 in case the problem was replayed.
-# Used for deciding if to run certain phases of simplification at all or not.
-# (at least in the moment theoretical) Example:
-# In case we had no replay in the phase PHASE_FIRST_REPLAY than switching to certain other
-# phases makes no sense.
-# Up till now its unsure if the variable is really required.
-my $ever_success = 0;
 
 
 # Concept for reporter/validator/transformer (RVT_SIMP) and grammar (GRAMMAR_DEST/GRAMMAR_SIMP)
@@ -386,7 +374,7 @@ my $campaign_number  = 0;
 # Example:
 # Phase is PHASE_GRAMMAR_SIMP
 # In case we had during the last campaign (== Try to remove alternatives from grammar rules)
-# success at all and we have tried all possible simplifications at least once tjan it makes
+# success at all and we have tried all possible simplifications at least once than it makes
 # sense to repeat such a campaign. This is especially important for concurrency bugs.
 my $campaign_success = 0;
 # FIXME: Implement some upper limit for the number of campaigns as security measure.
@@ -397,14 +385,14 @@ my $campaign_success = 0;
 # Starting at some point all thinkable orders for simplifying some grammar were generated,
 # already tried or currently in trial.
 # This variable will be than set to 1.
-# The variable is also used by lib/Combinator.pm and therefor it is placed in lib/Batch.pm.
+# The variable is also used by lib/Combinator.pm and therefore it is placed in lib/Batch.pm.
 # my $Batch::out_of_ideas = 0;
 #
 # In case we have reached the state "out of ideas" than we could either
 # a) wait till all runs are finished and maybe start a new campaign
-#    This implies that all collected "knowlege" about currently valid orders like
-#    efforts invested etc. get lost because a campaign starts generating orders from scratch.
-#    We will get for any possible simplification a order.
+#    This implies that all collected "knowlege" about currently valid orders like efforts invested
+#    etc. gets lost because a campaign starts generating orders from scratch.
+#    We will get for any possible simplification again an order.
 #    The possible simplifications will not differ from the current known.
 #    Only the order when which simplification should be tried is modified.
 #    Possible advantage: That order could be better than extending the current campaign.
@@ -1046,7 +1034,7 @@ sub init {
 "$iso_ts algorithm (used for grammar simplification)             : '$algorithm' (Default '" . SIMP_ALGO_WEIGHT . "')\n"      .
 "$iso_ts grammar_flags                                           : $g_flags (Default undef)\n"                               .
 "$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
-"$iso_ts call line additions (bwlist excluded) : $cl_snip_all\n"                                                             .
+"$iso_ts call line additions (bwlists excluded) : $cl_snip_all\n"                                                            .
 "$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
 "$iso_ts whitelist_statuses : " . join(',',@{$config->whitelist_statuses}) . "\n"                                            .
 "$iso_ts whitelist_patterns : " . join(',',@{$config->whitelist_patterns}) . "\n"                                            .
@@ -1173,6 +1161,10 @@ sub get_job {
                         $job[Batch::JOB_MEMO2]    = $parent_grammar;
                         $job[Batch::JOB_MEMO3]    = $duration_a;
                     } else {
+                        # Usual reasons:
+                        # - The rule $rule_name does (no more) exist.
+                        # - The rule $rule_name exists but contains no more the component to remove.
+                        # - DTD protection is enabled and kicked in :(
                         say("DEBUG: Order id '$order_id' affecting rule '$rule_name' component " .
                             "'$component_string' is invalid.") if Auxiliary::script_debug("S4");
                         $order_is_valid = 0;
@@ -1446,6 +1438,8 @@ sub generate_orders {
                     if Auxiliary::script_debug("S5");
                 # We decompose one rule only.
                 $none_found = 0;
+                # For debugging only (makes protocols quite big)
+                # dump_orders;
             } else {
                 say("DEBUG: Rule '$rule_name' has only " . (scalar @rule_unique_component_list) .
                     " components.") if Auxiliary::script_debug("S5");
@@ -1766,13 +1760,7 @@ sub switch_phase {
     # Treat phases consisting of maybe repeated campaigns first
     # == The cases where we maybe stay in the current phase and do not shift.
     if ((PHASE_GRAMMAR_SIMP eq $phase or PHASE_GRAMMAR_DEST eq $phase) and $campaign_success) {
-        # We had either
-        # - less than two grammar simplification campaigns at all (only one is frequent not enough)
-        #   Background:
-        #   We might have a high fraction of verdicts != replay because hitting other errors or
-        #   STATUS_OK even though the grammar is capable to replay.
-        # - success within the last grammar simplification campaign
-        # and so we run one campaign more.
+        # We had success within the last simplification campaign and so we run one campaign more.
         $campaign_number++;
         $left_over_trials  = TRIALS_SIMP;
         $cl_snip_phase     = " $rvt_snip";
@@ -1793,8 +1781,7 @@ sub switch_phase {
         return;
     }
     if ((PHASE_RVT_SIMP eq $phase) and ($campaign_success)) {
-        # We had success within the last grammar simplification campaign and so run one more.
-        # No use of $campaign_number == 1 as criterion for repetition.
+        # We had success within the last simplification campaign and so we run one campaign more.
         $campaign_number++;
         $have_rvt_generated = 0;
         my $target          = $workdir . "/" . $child_grammar;
@@ -2114,8 +2101,28 @@ sub replay_runtime_adapt {
 sub report_replay {
 # Purpose
 # -------
-# Try to make progress (have a better parent grammar as base) as soon as possible.
-# This applies to the phases PHASE_GRAMMAR_SIMP and PHASE_RVT_SIMP only.
+# Try to
+# - make progress  (have a better parent grammar as base for new jobs)
+# - free resources (stop obsolete concurrent RQG runs)
+# as soon as possible.
+# This applies to the phases PHASE_GRAMMAR_SIMP/PHASE_GRAMMAR_DEST and PHASE_RVT_SIMP only.
+#
+# Please be aware that some RQG Worker which has signalled that he replayed does not need
+# to have finished his work. This means simply stopping all RQG Workers executing a job based on
+# the same order_id would probably also hit our "Winner" during final work and cause losing
+# hist archive and maybe more.
+#
+# Sample scenario
+# ---------------
+# t0
+#    The RQG Worker 1 detects that he had a replay and signals that.
+# t1 = t0 + a bit
+#    lib/Batch.pm detects the signal and calls report_replay
+# t2 = t1 + time required for archiving (if not disabled) + cleanup
+#    The RQG Worker 1 signals that he has finished his task and exits.
+# t3 = t2 + a bit
+#    lib/Batch.pm detects that and calls register_result.
+# Our win is roughly t3 - t1 which could be up to 200s depending on current CPU and IO load.
 #
 
     my ($replay_grammar, $replay_grammar_parent, $order_id) = @_;
@@ -2127,7 +2134,7 @@ sub report_replay {
         Batch::emergency_exit($status);
     }
     # FIXME:
-    # Activate the code below in case FIRST_REPLAY is adjusted to it
+    # Activate the code below in case FIRST_REPLAY and maybe others are adjusted to it.
 #   if (not defined $replay_grammar or not defined $replay_grammar_parent or
 #       not defined $order_id                                               ) {
 #       Carp::cluck("INTERNAL ERROR: All values must be defined.");
@@ -2242,16 +2249,14 @@ sub load_step {
     if (not defined $grammar_string) {
         my $status = STATUS_INTERNAL_ERROR;
         say("INTERNAL ERROR: Loading a grammar file within Simplifier::Grammar_advanced failed. " .
-            "Will ask for emergency exit." .
-        Auxiliary::exit_status_text($status));
+            "Will ask for emergency exit." . Auxiliary::exit_status_text($status));
         Batch::emergency_exit($status);
     }
     my $status = GenTest::Simplifier::Grammar_advanced::calculate_weights();
     if($status) {
         my $status = STATUS_INTERNAL_ERROR;
         say("INTERNAL ERROR: GenTest::Simplifier::Grammar_advanced::calculate_weights failed. " .
-            "Will ask for emergency exit." .
-        Auxiliary::exit_status_text($status));
+            "Will ask for emergency exit." . Auxiliary::exit_status_text($status));
         Batch::emergency_exit($status);
     }
     # Aborts if
