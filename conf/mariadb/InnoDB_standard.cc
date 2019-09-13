@@ -3,6 +3,7 @@
 # Suite for "torturing" preferably InnoDB with concurrent DDL/DML/....
 #
 #
+#
 # History
 # -------
 # 1. The initial set of tests (2018-05) was developed by Elena and covers roughly everything of
@@ -10,7 +11,7 @@
 # 2. I disabled certain tests, aded some new one and shifted the focus towards InnoDB.
 #
 #
-# The suites contains certain adjustments in order to avoid critical areas with known but
+# The suite contains certain adjustments in order to avoid critical areas with known but
 # not yet fixed bugs.
 #
 
@@ -23,7 +24,6 @@ $grammars =
 
   # modules/acl.yy unclear error
   # modules/admin.yy -> error if RocksDB missing
-  # Suffers in old releases massive from https://jira.mariadb.org/browse/MDEV-19449
 
   # Crowd of tests used by Elena in history.
   #    The mass of redefines per test cause
@@ -36,6 +36,7 @@ $grammars =
   #    So better run that crowd but use rather lean or hand crafted tests for simplification
   #    or specific features if possible.
   #
+  # Suffers in old releases massive from https://jira.mariadb.org/browse/MDEV-19449
   '--gendata=conf/mariadb/oltp.zz --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy',    # This looked once like a dud.
   '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --grammar=conf/percona_qa/BT-16274/BT-16274.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
   '--gendata=conf/percona_qa/percona_qa.zz --grammar=conf/percona_qa/percona_qa.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
