@@ -1,5 +1,5 @@
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2013, 2018, MariaDB Corporation Ab
+# Copyright (c) 2013, 2019, MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -561,10 +561,13 @@ sub startServer {
          # This is the parent (usually GenTest?) observing his child.
          #-----------------------------------------------------------
 
+         # FIXME:
+         # Move this routine to Auxiliary.pm or Basic.pm and do all with perl.
          sub get_pid_from_file {
             my $fname = shift;
             my $p     = `cat \"$fname\"`;
-            $p        =~ s/.*?([0-9]+).*/$1/;
+            # Appended 's' for matching the newline.
+            $p        =~ s/.*?([0-9]+).*/$1/s;
             return $p;
          }
 
@@ -593,6 +596,7 @@ sub startServer {
          if (-f $self->pidfile) {
             $pid = get_pid_from_file($self->pidfile);
             say("INFO: Server created pid file with pid $pid");
+            $self->[MYSQLD_SERVERPID] = $pid;
          } elsif (!$errlog_update) {
             sayError("Server has not started updating the error log within $start_wait_timeout sec. timeout, and has not created pid file");
             sayFile($errorlog);
@@ -673,6 +677,8 @@ sub startServer {
 
          unless (defined $pid) {
             say("WARNING: could not find the pid in the error log, might be an old version");
+         } else {
+            $self->[MYSQLD_SERVERPID] = $pid;
          }
 
          # Now we know the pid and can monitor it along with the pid file,
@@ -759,7 +765,8 @@ sub kill {
          }
          if (not Time::HiRes::time() < $wait_end) {
             # FIXME: Replace the croak
-            croak("ERROR: Unable to kill the server process " . $self->serverpid);
+            say("ERROR: Unable to kill the server process " . $self->serverpid .
+                "Will return DBSTATUS_FAILURE.");
          } else {
             say("INFO: Killed the server process " . $self->serverpid);
          }
@@ -767,10 +774,13 @@ sub kill {
    }
    # FIXME: We must return something and bring the test to some clean end if failure.
 
-   # clean up when the server is not alive.
+   # Clean up when the server is not alive.
+   my $return = $self->running ? DBSTATUS_FAILURE : DBSTATUS_OK;
    unlink $self->socketfile if -e $self->socketfile;
    unlink $self->pidfile if -e $self->pidfile;
-   return ($self->running ? DBSTATUS_FAILURE : DBSTATUS_OK);
+   $self->[MYSQLD_WINDOWS_PROCESS] = undef;
+   $self->[MYSQLD_SERVERPID]       = undef;
+   return $return;
 }
 
 sub term {
@@ -785,6 +795,8 @@ sub term {
         # clean up when server is not alive.
         unlink $self->socketfile if -e $self->socketfile;
         unlink $self->pidfile    if -e $self->pidfile;
+        $self->[MYSQLD_WINDOWS_PROCESS] = undef;
+        $self->[MYSQLD_SERVERPID]       = undef;
         return DBSTATUS_OK;
     }
 
@@ -792,6 +804,7 @@ sub term {
       ### Not for windows
       say("Don't know how to do SIGTERM on Windows");
       $self->kill;
+      $self->[MYSQLD_WINDOWS_PROCESS] = undef;
       $res= DBSTATUS_OK;
    } else {
       if (defined $self->serverpid) {
@@ -807,8 +820,10 @@ sub term {
                 " Trying kill");
             $self->kill;
             $res= DBSTATUS_FAILURE;
+            $self->[MYSQLD_SERVERPID]       = undef;
          } else {
             say("INFO: Terminated the server process " . $self->serverpid);
+            $self->[MYSQLD_SERVERPID]       = undef;
             $res= DBSTATUS_OK;
          }
       }
@@ -825,10 +840,12 @@ sub crash {
    if (osWindows()) {
       ## How do i do this?????
       $self->kill; ## Temporary
+      $self->[MYSQLD_WINDOWS_PROCESS] = undef;
    } else {
       if (defined $self->serverpid) {
          kill SEGV => $self->serverpid;
          say("INFO: Crashed the server process " . $self->serverpid . " with SEGV.");
+         $self->[MYSQLD_SERVERPID]       = undef;
       } else {
          Carp:cluck("ERROR: Crashing the server process impossible because server pid is not defined.");
       }
@@ -1325,23 +1342,61 @@ sub serverVariable {
    return $self->serverVariables()->{$var};
 }
 
+
 sub running {
+# Dual purpose
+# ------------
+# 1. Check if the server process is running and return
+#    0 - Process does not exist
+#    1 - Process is running
+# 2. In case
+#    - $self->serverpid is undef or wrong
+#    - the server process could be figured out by inspecting $self->pidfile
+#    - that server process is running
+#    than correct $self->pidfile.
+#    Background for that solution is the frequent seen evil scenario
+#        The current process is the RQG runner (parent) just executing lib/GenTest/App/GenTest.pm.
+#        The periodic reporter process (child) has stopped and than restarted the server.
+#        Hence the current process knows only some no more valid server pid.
+#        And that might cause that lib/GenTest/App/GenTest.pm is later unable to stop a server.
+#
+    my $who_am_i = "lib::DBServer::MySQL::MySQLd::running:";
    my($self) = @_;
    if (osWindows()) {
       ## Need better solution fir windows. This is actually the old
       ## non-working solution for unix....
+        # The weak assumption is:
+        # In case the pidfile exists than the server is running.
       return -f $self->pidfile;
-   } elsif ($self->serverpid and $self->serverpid =~ /^\d+$/) {
-      ## Check if the child process is active.
-      return kill(0, $self->serverpid);
-   } elsif (-f $self->pidfile) {
+    }
+    if (not -f $self->pidfile) {
+        return 0;
+    } elsif (not defined $self->serverpid) {
+        Carp::cluck("ALARM: $who_am_i called but server pid is undef.");
       my $pid = get_pid_from_file($self->pidfile);
       if ($pid and $pid =~ /^\d+$/) {
+            $self->[MYSQLD_SERVERPID] = $pid;
          return kill(0, $pid);
-      }
    } else {
+            say("ALARM: $who_am_i Also no real pid found in pidfile. Will return 0 == not running.");
       return 0;
    }
+    } elsif (not $self->serverpid =~ /^\d+$/) {
+        Carp::cluck("ALARM: $who_am_i called but server pid is not numeric. " .
+            "Will return 0 == not running.");
+            return 0;
+    } else {
+        ## Check if the child process is active.
+        my $return = kill(0, $self->serverpid);
+        if (!$return) {
+            my $pid = get_pid_from_file($self->pidfile);
+            if ($pid and $pid =~ /^\d+$/) {
+                $self->[MYSQLD_SERVERPID] = $pid;
+                $return = kill(0, $self->serverpid);
+            }
+        }
+        return $return;
+    }
 }
 
 sub _find {
