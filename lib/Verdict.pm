@@ -26,8 +26,6 @@ use Cwd;
 # use constant STATUS_OK       => 0;
 use constant STATUS_FAILURE    => 1; # Just the opposite of STATUS_OK
 
-my $script_debug = 0;
-
 
 # *_verdict_infrastructure
 #
@@ -167,7 +165,7 @@ sub check_normalize_set_black_white_lists {
 
     my $list_ref;
     Auxiliary::print_list("DEBUG: Initial RQG whitelist_statuses ",
-                          @whitelist_statuses) if $script_debug;
+                          @whitelist_statuses) if Auxiliary::script_debug("V2");
     if (not defined $whitelist_statuses[0]) {
         $whitelist_statuses[0] = 'STATUS_ANY_ERROR';
         say("INFO: whitelist_statuses[0] was not defined. Setting whitelist_statuses[0] " .
@@ -177,12 +175,13 @@ sub check_normalize_set_black_white_lists {
         # So do nothing.
    } else {
         my $result = Auxiliary::surround_quote_check($whitelist_statuses[0]);
-        say("Result of surround_quote_check for whitelist_statuses[0]") if $script_debug;
+        say("Result of surround_quote_check for whitelist_statuses[0]")
+            if Auxiliary::script_debug("V3");
         if (     'bad quotes' eq $result) {
             $failure_met = 1;
         } elsif ('single quote protection' eq $result or
                  'double quote protection' eq $result or
-                 'no quote protection' eq $result) {
+                 'no quote protection'     eq $result) {
             # The value is well formed and comes from a command line?
             $list_ref = Auxiliary::input_to_list(@whitelist_statuses);
             if(defined $list_ref) {
@@ -205,10 +204,10 @@ sub check_normalize_set_black_white_lists {
         # FIXME: How to check if the STATUS constant is defined?
     }
     Auxiliary::print_list("DEBUG: Final RQG whitelist_statuses ",
-                          @whitelist_statuses) if $script_debug;
+                          @whitelist_statuses) if Auxiliary::script_debug("V2");
 
     Auxiliary::print_list("DEBUG: Initial RQG whitelist_patterns ",
-                          @whitelist_patterns) if $script_debug;
+                          @whitelist_patterns) if Auxiliary::script_debug("V2");
     if (not defined $whitelist_patterns[0]) {
         $whitelist_patterns[0] = undef;
         say("INFO: whitelist_patterns[0] was not defined. Setting whitelist_patterns[0] " .
@@ -237,15 +236,15 @@ sub check_normalize_set_black_white_lists {
         }
     }
     Auxiliary::print_list("DEBUG: Final RQG whitelist_patterns ",
-                          @whitelist_patterns) if $script_debug;
+                          @whitelist_patterns) if Auxiliary::script_debug("V2");
 
 
     Auxiliary::print_list("DEBUG: Initial RQG blacklist_statuses ",
-                          @blacklist_statuses) if $script_debug;
+                          @blacklist_statuses) if Auxiliary::script_debug("V2");
     if (not defined $blacklist_statuses[0]) {
         $blacklist_statuses[0] = 'STATUS_OK';
         say("INFO: blacklist_statuses[0] was not defined. Setting blacklist_statuses[0] " .
-            "to STATUS_ANY_ERROR (== default).");
+            "to STATUS_OK (== default).");
     } elsif (defined $blacklist_statuses[1]) {
         # No treatment because we have more than just the first value.
         # So do nothing.
@@ -278,23 +277,21 @@ sub check_normalize_set_black_white_lists {
         # FIXME: How to check if the STATUS constant is defined?
     }
     Auxiliary::print_list("DEBUG: Final RQG blacklist_statuses ",
-                          @blacklist_statuses) if $script_debug;
+                          @blacklist_statuses) if Auxiliary::script_debug("V2");
 
 
     Auxiliary::print_list("DEBUG: Initial RQG blacklist_patterns ",
-                          @blacklist_patterns) if $script_debug;
+                          @blacklist_patterns) if Auxiliary::script_debug("V2");
     if (not defined $blacklist_patterns[0]) {
         $blacklist_patterns[0] = undef;
-        say("DEBUG: blacklist_patterns[0] was not defined. Setting blacklist_patterns[0] " .
-            "to undef (== default).") if $script_debug;
+        say("INFO: blacklist_patterns[0] was not defined. Setting blacklist_patterns[0] " .
+            "to undef (== default).");
     } elsif (defined $blacklist_patterns[1]) {
-        say("DEBUG: \$blacklist_patterns[1] ->" . $blacklist_patterns[1] . "<-") if $script_debug;
         # Optional splitting of first value is not supported if having more than one value.
         # So do nothing.
     } else {
-        say("DEBUG: \$blacklist_patterns[0] ->" . $blacklist_patterns[0] . "<-") if $script_debug;
         my $result = Auxiliary::surround_quote_check($blacklist_patterns[0]);
-        say("Result of surround_quote_check : $result") if $script_debug;
+        say("Result of surround_quote_check : $result") if Auxiliary::script_debug("V3");
         if      ('no quote protection' eq $result) {
             # The value comes most probably from a config file.
             # So nothing to do.
@@ -302,7 +299,7 @@ sub check_normalize_set_black_white_lists {
             $failure_met = 1;
         } elsif ('single quote protection' eq $result or 'double quote protection' eq $result) {
             # The value is well formed and comes from a command line?
-            say("Sending blacklist_patterns to input_to_list.") if $script_debug;
+            say("Sending blacklist_patterns to input_to_list.") if Auxiliary::script_debug("V3");
             $list_ref = Auxiliary::input_to_list(@blacklist_patterns);
             if(defined $list_ref) {
                 @blacklist_patterns = @$list_ref;
@@ -315,7 +312,7 @@ sub check_normalize_set_black_white_lists {
         }
     }
     Auxiliary::print_list("DEBUG: Final RQG blacklist_patterns ",
-                          @blacklist_patterns) if $script_debug;
+                          @blacklist_patterns) if Auxiliary::script_debug("V2");
 
     if ($failure_met) {
         bw_lists_help();
@@ -531,7 +528,7 @@ sub calculate_verdict {
         return undef;
     }
 
-    say("DEBUG: file_to_search_in '$file_to_search_in'") if $script_debug;
+    say("DEBUG: file_to_search_in '$file_to_search_in'") if Auxiliary::script_debug("V3");
 
     # RQG logs could be huge and even the memory on testing boxes is limited.
     # So we push in maximum the last 100000000 bytes of the log into $content.
@@ -540,20 +537,21 @@ sub calculate_verdict {
         say("ERROR: calculate_verdict: No RQG log content got. Will return undef.");
         return undef;
     } else {
-        say("DEBUG: Auxiliary::getFileSlice got content : ->$content<-") if $script_debug;
+        say("DEBUG: Auxiliary::getFileSlice got content : ->$content<-")
+            if Auxiliary::script_debug("V4");
     }
 
     my $cut_position;
     $cut_position = index($content, MATCHING_START);
     if ($cut_position >= 0) {
         $content = substr($content, $cut_position);
-        say("DEBUG: cut_position : $cut_position") if $script_debug;
+        say("DEBUG: cut_position : $cut_position") if Auxiliary::script_debug("V3");
     }
 
     $cut_position = index($content, MATCHING_END);
     if ($cut_position >= 0) {
         $content = substr($content, 0, $cut_position);
-        say("DEBUG: cut_position : $cut_position") if $script_debug;
+        say("DEBUG: cut_position : $cut_position") if Auxiliary::script_debug("V3");
     }
 
     my $p_match;
@@ -565,17 +563,19 @@ sub calculate_verdict {
 
     my $script_debug   = 1;
 
+    # FIXME:
+    # The INFO/DEBUG messages are not that good.
     my @list;
     $list[0] = 'STATUS_OK';
     $p_match = Auxiliary::status_matching($content, \@list, $status_prefix,
-                                           'MATCHING: STATUS_OK', $script_debug );
+                                           'MATCHING: STATUS_OK', 1);
     if ($p_match eq Auxiliary::MATCH_YES) {
         $ok_match = 1;
     }
 
     $list[0] = 'BATCH: Stop the run';
     $p_match = Auxiliary::content_matching($content, \@list,
-                                           'MATCHING: Stop the run', $script_debug );
+                                           'MATCHING: Stop the run', 1);
     if ($p_match eq Auxiliary::MATCH_YES) {
         $maybe_interest = 0;
         $was_stopped = 1;
@@ -583,47 +583,49 @@ sub calculate_verdict {
 
     $p_match = Auxiliary::status_matching($content, \@blacklist_statuses   ,
                                           $status_prefix, 'MATCHING: Blacklist statuses', 1);
-    say("DEBUG: Blacklist status matching returned : $p_match") if $script_debug;
+    say("INFO: Blacklist status matching returned : $p_match");
     # Note: Hitting Auxiliary::MATCH_UNKNOWN would be not nice.
     #       But its acceptable compared to Auxiliary::MATCH_YES.
     if ($p_match eq Auxiliary::MATCH_YES) {
         $maybe_match    = 0;
         $maybe_interest = 0;
-# FIXME: This is somehow not systematic of forbid STATUS_OK as Blacklist status.
-#       $bw_match       = 1;
     }
-    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match") if $script_debug;
+    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match")
+        if Auxiliary::script_debug("V2");
 
     $p_match = Auxiliary::content_matching ($content, \@blacklist_patterns ,
                                            'MATCHING: Blacklist text patterns', 1);
-    say("DEBUG: Blacklist pattern matching returned : $p_match") if $script_debug;
+    say("INFO: Blacklist pattern matching returned : $p_match");
     if ($p_match eq Auxiliary::MATCH_YES) {
         $maybe_match    = 0;
         $maybe_interest = 0;
         $bw_match       = 1;
     }
-    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match") if $script_debug;
+    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match")
+        if Auxiliary::script_debug("V2");
 
     # At this point we could omit checking in case $maybe_match = 0.
     # But there might be some interest to know if the whitelist stuff was hit too.
     # So we run it here in any case too.
     $p_match = Auxiliary::status_matching($content, \@whitelist_statuses   ,
                                           $status_prefix, 'MATCHING: Whitelist statuses', 1);
-    say("DEBUG: Whitelist status matching returned : $p_match") if $script_debug;
+    say("INFO: Whitelist status matching returned : $p_match");
     # Note: Hitting Auxiliary::MATCH_UNKNOWN is not acceptable because it would
     #       degenerate runs of the grammar simplifier.
     if ($p_match ne Auxiliary::MATCH_YES) {
         $maybe_match    = 0;
     }
-    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match") if $script_debug;
+    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match")
+        if Auxiliary::script_debug("V2");
 
     $p_match = Auxiliary::content_matching ($content, \@whitelist_patterns ,
                                             'MATCHING: Whitelist text patterns', 1);
-    say("DEBUG: Whitelist pattern matching returned : $p_match") if $script_debug;
+    say("INFO: Whitelist pattern matching returned : $p_match");
     if ($p_match ne Auxiliary::MATCH_YES and $p_match ne Auxiliary::MATCH_NO_LIST_EMPTY) {
         $maybe_match    = 0;
     }
-    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match") if $script_debug;
+    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match")
+        if Auxiliary::script_debug("V2");
     my $verdict = RQG_VERDICT_INIT;
     if ($maybe_match) {
         $verdict = RQG_VERDICT_REPLAY;
@@ -678,7 +680,7 @@ sub set_final_rqg_verdict {
         return STATUS_FAILURE;
     } else {
         say("DEBUG: set_rqg_verdict from '$initial_verdict' to " .
-            "'$verdict'.") if $script_debug;
+            "'$verdict'.") if Auxiliary::script_debug("V2");
         return STATUS_OK;
     }
 } # End sub set_final_rqg_verdict
