@@ -60,38 +60,29 @@ use constant INTERNAL_TOOL_ERROR => 200;
 # The digit
 # 1     -- more important and/or less frequent
 # n > 1 -- less important and/or more frequent
-# If admit that this
-# - concept is rather experimental
+# I admit that
+# - this concept is rather experimental
 # - the digits used in the modules rather arbitrary.
 #
-my %script_debug_hash;
 my $script_debug_init;
+our $script_debug_value;
 sub script_debug_init {
-    my ($script_debug_array_ref) = @_;
+    ($script_debug_value) = @_;
     if (@_ != 1) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: script_debug_init : 1 Parameter (script_debug_ref) is required.");
+        Carp::cluck("INTERNAL ERROR: script_debug_init : 1 Parameter (script_debug) is required.");
         safe_exit($status);
     }
-    my @script_debug_array;
-    if (defined $script_debug_array_ref) {
-        @script_debug_array = @$script_debug_array_ref;
-        if (0 == $#script_debug_array and $script_debug_array[0] =~ m/,/) {
-            @script_debug_array = split(/,/,$script_debug_array[0]);
+    if (not defined $script_debug_value) {
+        $script_debug_value = '';
         }
-    }
-    foreach my $element (@script_debug_array) {
-        if ($element eq '') {
-            say("WARN: script_debug element '' omitted. In case you want all debug messages " .
-                "assign '_all_'.");
-            next;
-        }
-        $script_debug_hash{$element} = 1;
-    }
-    my $string = join(",", sort keys %script_debug_hash);
-    say("INFO: script_debug : $string");
+    say("INFO: script_debug : '$script_debug_value'");
     $script_debug_init = 1;
-    return $string;
+    # In case I ever modify $script_debug_value here than the caller needs to
+    # a) get the manipulated value back     or
+    # b) access the manipulated value via $Auxiliary::script_debug_value
+    # I prefer a).
+    return $script_debug_value;
 }
 
 
@@ -106,14 +97,10 @@ sub script_debug {
         Carp::cluck("INTERNAL ERROR: script debug was not initialized.");
         exit INTERNAL_TOOL_ERROR;
     }
-    if (exists $script_debug_hash{'_all_'}) {
+    $pattern = '_' . $pattern . '_';
+    if (($script_debug_value =~ /$pattern/) or ($script_debug_value eq '_all_')) {
         return 1;
     } else {
-        foreach my $sdp_element (keys %script_debug_hash) {
-            if ($pattern =~ /$sdp_element/) { 
-                return 1;
-            }
-        }
         return 0;
     }
 }
@@ -1231,32 +1218,46 @@ sub archive_results {
         say("ERROR: RQG vardir '$vardir' is missing or not a directory.");
         return STATUS_FAILURE;
     }
-    # Maybe check if some of the all time required/used files exists in order to be sure to have
+    # Maybe check if some of the all time required/used files exist in order to be sure to have
     # picked the right directory.
-    # We make a   "cd $workdir"   first!
+    # We make a "cd $workdir"   first!
     my $archive     = "archive.tgz";
     my $archive_err = "rqg_arch.err";
-
+    my $cmd;
+    my $rc;
     my $status;
-    # FIXME/DECIDE:
-    # - Use the GNU tar long options bacuse the describe better what is done
-    # Failing cmd for experimenting
-    # my $cmd = "cd $workdir ; tar csf $archive rqg* $vardir 2>$archive_err";
-
-    my $cmd = "cd $workdir ; tar czf $archive rqg* $vardir 2>$archive_err";
+    $cmd  = "cd $workdir 2>rqg_arch.err";
+    $cmd .= "; find rqg* $vardir         -print0 | xargs --null chmod g+rw  2>>$archive_err";
+    # Even though using umask 002 the directories data/mysql and data/test lack often the 'x'.
+    $cmd .= "; find rqg* $vardir -type d -print0 | xargs --null chmod g+x 2>>$archive_err";
     say("DEBUG: cmd : ->$cmd<-") if script_debug("A5");
-    my $rc = system($cmd);
+    $rc = system($cmd);
+    if ($rc != 0) {
+        say("ERROR: Preparation for archiving '$cmd' failed with exit status " . ($? >> 8));
+        sayFile($archive_err);
+        return STATUS_FAILURE;
+    }
+
+    # FIXME/DECIDE:
+    # - Use the GNU tar long options because the describe better what is done
+    # Failing cmd for experimenting
+    # $cmd = "cd $workdir ; tar csf $archive rqg* $vardir 2>$archive_err";
+
+    $cmd = "cd $workdir 2>>$archive_err; tar czf $archive rqg* $vardir 2>>$archive_err";
+    say("DEBUG: cmd : ->$cmd<-") if script_debug("A5");
+    $rc = system($cmd);
     if ($rc != 0) {
         say("ERROR: The command for archiving '$cmd' failed with exit status " . ($? >> 8));
         sayFile($archive_err);
-        $status = STATUS_FAILURE;
+        return STATUS_FAILURE;
     } else {
         $status = STATUS_OK;
     }
     # We could get $archive_err even in case of archiver success because it might contain
     # messages like 'tar: Removing leading `/' from member names' etc.
+    sayFile($archive_err) if script_debug("A5");
     unlink $archive_err;
-    return $status;
+    return STATUS_OK;
 }
 
 sub help_rqg_home {
@@ -1998,6 +1999,49 @@ sub help_seed {
     say("- 'random' == Random integer >= 0 and < 32767");
     say("Per my (mleich) experiences 'random' is optimal for bug hunting.");
 }
+
+sub egalise_dump {
+    my ($dump_file, $dump_file_egalized) = @_;
+
+    my $who_am_i = 'Auxiliary::egalise_dump:';
+
+    if (not defined $dump_file) {
+        say("ERROR: $who_am_i The first parameter dump_file is not defined.");
+        return STATUS_FAILURE;
+    }
+    if (not defined $dump_file_egalized) {
+        say("ERROR: $who_am_i The second parameter dump_file_egalized is not defined.");
+        return STATUS_FAILURE;
+    }
+
+    if (not open (DUMP_FILE, '<', $dump_file)) {
+        say("ERROR: $who_am_i Open file '<$dump_file' failed : $!");
+        return STATUS_FAILURE;
+    }
+    if (not open (DUMP_FILE_EGALIZED, '>', $dump_file_egalized)) {
+        say("ERROR: $who_am_i Open file '>$dump_file_egalized' failed : $!");
+        return STATUS_FAILURE;
+    }
+    while (my $line = <DUMP_FILE>) {
+        # FIXME(later):
+        # AFAIR certain things like EVENTS or TRIGGER should be disabled on a slave.
+        # So test it out and add the required replacing.
+        $line =~ s{AUTO_INCREMENT=[1-9][0-9]*}{AUTO_INCREMENT=<egalized>};
+        if (not print DUMP_FILE_EGALIZED $line) {
+            say("ERROR: Print to file '$dump_file_egalized' failed : $!");
+        }
+    }
+    if (not close (DUMP_FILE)) {
+        say("ERROR: Close file '$dump_file' failed : $!");
+        return STATUS_FAILURE;
+    }
+    if (not close (DUMP_FILE_EGALIZED)) {
+        say("ERROR: Close file '$dump_file_egalized' failed : $!");
+        return STATUS_FAILURE;
+    }
+    return STATUS_OK; # 0
+}
+
 
 
 # FIXME: Maybe move from the Simplifier to here.

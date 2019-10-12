@@ -217,7 +217,7 @@ my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
     $parallel, $servers, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
     $help, $help_simplifier, $help_combinator, $help_verdict, $runner,
-    $stop_on_replay, $script_debug, $runid, $threads, $type, $algorithm, $resource_control);
+    $stop_on_replay, $script_debug_value, $runid, $threads, $type, $algorithm, $resource_control);
 
 $max_rqg_runtime = 1800;
 
@@ -347,7 +347,7 @@ if (not GetOptions(
            'discard_logs'              => \$discard_logs,           # Swallowed and handled by rqg_batch
            'discard-logs'              => \$discard_logs,
            'resource_control=s'        => \$resource_control,   # Swallowed and handled by rqg_batch
-           'script_debug=s@'           => \$script_debug,           # Swallowed and handled by rqg_batch
+           'script_debug=s'            => \$script_debug_value,     # Swallowed and handled by rqg_batch
            'runid:i'                   => \$runid,                  # Swallowed and handled by rqg_batch
                                                    )) {
     # Somehow wrong option.
@@ -356,7 +356,9 @@ if (not GetOptions(
 };
 
 # Support script debugging as soon as possible.
-my $scrip_debug_string = Auxiliary::script_debug_init($script_debug);
+# my $scrip_debug_string = Auxiliary::script_debug_init($script_debug_value);
+$script_debug_value = Auxiliary::script_debug_init($script_debug_value);
+# FIXME: Its outdated
 # For testing if script_debug works:
 # 1. Enable the following two lines
 #    say("script_debug match of 'T4'") if Auxiliary::script_debug("T4");
@@ -483,7 +485,8 @@ $cl_end .= " --report-xml-tt-type=$report_xml_tt_type "
     if defined $report_xml_tt_type and $report_xml_tt_type ne '';
 $cl_end .= " --report-xml-tt-dest=$report_xml_tt_dest "
     if defined $report_xml_tt_dest and $report_xml_tt_dest ne '';
-$cl_end .= "--script_debug=$scrip_debug_string " if $scrip_debug_string ne '';
+$cl_end .= "--script_debug=" . $script_debug_value
+    if $script_debug_value ne '';
 
 if (defined $runner) {
     if (File::Basename::basename($runner) ne $runner) {
@@ -843,7 +846,7 @@ while($Batch::give_up <= 1) {
                 my $workerspec = "Worker[$free_worker] with pid $pid for trial $trial_num";
                 # FIXME: Set the complete worker_array_entry here
                 $Batch::worker_array[$free_worker][Batch::WORKER_PID] = $pid;
-                say("DEBUG: $workerspec forked.") if $script_debug;
+                say("DEBUG: $workerspec forked.") if Auxiliary::script_debug("T1");
                 # Poll till the RQG Worker has taken over.
                 # This has happened when
                 # 1. the worker has run setpgrp(0,0) which is not available for WIN.
@@ -996,7 +999,6 @@ say("INFO: Phase of job generation and bring it into execution is over. give_up 
 my $poll_time = 1;
 # Poll till none of the RQG workers is active
 while (Batch::reap_workers()) {
-            # MLML Kill the max_rqg_runtime exceeding RQG runner
     Batch::check_rqg_runtime_exceeded($max_rqg_runtime);
     Batch::process_finished_runs();
     say("DEBUG: At begin of loop waiting till all RQG worker have finished.")

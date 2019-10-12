@@ -239,7 +239,7 @@ my (@basedirs, @mysqld_options, @vardirs, $rpl_mode,
     $restart_timeout, $gendata_advanced, $scenario, $upgrade_test, $store_binaries,
     $ps_protocol, @gendata_sql_files, $config_file,
     @whitelist_statuses, @whitelist_patterns, @blacklist_statuses, @blacklist_patterns,
-    $archiver_call, $noarchiving, $workdir, $queries, $script_debug,
+    $archiver_call, $noarchiving, $workdir, $queries, $script_debug_value,
     $options);
 
 my $gendata   = ''; ## default simple gendata
@@ -382,7 +382,7 @@ if (not GetOptions(
     'blacklist_patterns:s@'       => \@blacklist_patterns,
     'archiver_call:s'             => \$archiver_call,
     'noarchiving'                 => \$noarchiving,
-    'script_debug:s@'             => \$script_debug,
+    'script_debug:s'              => \$script_debug_value,
     )) {
     help();
     exit STATUS_CONFIG_ERROR;
@@ -390,7 +390,7 @@ if (not GetOptions(
 # say("\@ARGV after : " . join(' ',@ARGV));
 
 # Support script debugging as soon as possible and print its value.
-Auxiliary::script_debug_init($script_debug);
+$script_debug_value = Auxiliary::script_debug_init($script_debug_value);
 
 if (not defined $queries) {
     $queries = $default_queries;
