@@ -156,9 +156,9 @@ my @simp_chain_default = ( # PHASE_SIMP_BEGIN,
 # Grammar simplification algorithms
 # ---------------------------------
 my $algorithm;
-use constant SIMP_ALGO_WEIGHT     => 'weight';
-use constant SIMP_ALGO_RANDOM     => 'random';  # not yet implemented
-use constant SIMP_ALGO_MASKING    => 'masking'; # not yet implemented
+use constant SIMP_ALGO_WEIGHT       => 'weight';
+use constant SIMP_ALGO_RANDOM       => 'random';  # not yet implemented
+use constant SIMP_ALGO_MASKING      => 'masking'; # not yet implemented
 # The algorithms SIMP_ALGO_RANDOM and SIMP_ALGO_MASKING are neither
 # - strict required
 #   SIMP_ALGO_WEIGHT seems to be matured enough for not having some fall back position.
@@ -285,9 +285,6 @@ use constant QUERIES_DEFAULT        => 1000000;
 
 # Parameters typical for Simplifier runs
 # --------------------------------------
-my $seed;
-
-my $grammar_file;
 
 my $threads;
 use constant THREADS_DEFAULT        => 10;
@@ -490,6 +487,10 @@ sub init {
 # ---------------------------------------------
 
     my $queries;
+
+    # This variable is for the initial grammar file. That file will be used in the
+    # the current routine only.
+    my $grammar_file;
 
     say("DEBUG: Command line content left over after being processed by rqg_batch.pl : " .
         join(" ", @ARGV)) if Auxiliary::script_debug("S4");
@@ -1656,13 +1657,42 @@ sub register_result {
             if ($grammar_parent eq $parent_grammar) {
                 # Its a first replayer based on the current parent grammar.
                 reload_grammar($grammar_used);
+                my $source = $workdir . "/" . $grammar_used;
+                Batch::copy_file($source, $target);
                 my $stop_count = Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_GENDATA,
                                                     Batch::STOP_REASON_WORK_FLOW);
                 Batch::stop_worker_on_order($order_id);
-                # FIXME:
+                Batch::add_to_try_never($order_id);
                 # In case the reload_grammar above lets some rule disappear than we could
                 # stop all workers having some $order_id fiddling with the disappeared rule.
-                Batch::add_to_try_never($order_id);
+                my @orders_in_work = Batch::get_orders_in_work;
+                say("DEBUG: orders currently in work: " . join(" - ", @orders_in_work));
+                foreach my $order_in_work (@orders_in_work) {
+                    # In theory we should not need the next line.
+                    next if $order_id == $order_in_work;
+                    my $rule_name = $order_array[$order_in_work][ORDER_PROPERTY2];
+                    if (not defined $rule_name) {
+                        say("INTERNAL ERROR: Processing the orders in work rule_name is not " .
+                            "defined, order_id $order_id. Will ask for an emergency_exit.");
+                        my $status = STATUS_INTERNAL_ERROR;
+                        Batch::emergency_exit($status);
+                    }
+                    my $return = GenTest::Simplifier::Grammar_advanced::rule_exists($rule_name);
+                    if (not defined $return) {
+                        say("INTERNAL ERROR: Unable to figure out if the rule '$rule_name' " .
+                            "exists. Will ask for an emergency_exit.");
+                        my $status = STATUS_INTERNAL_ERROR;
+                        Batch::emergency_exit($status);
+                    } elsif ($return) {
+                        # That rule is used. Therefore the job in work stays valid.
+                    } else {
+                        # That rule is not/no more used. Therefore the job is invalid.
+                        say("DEBUG: Rule '$rule_name' occuring in order_id $order_in_work does " .
+                            "no more exist but is currently under attack. Will stop all RQG " .
+                            "Workers using that order.") if Auxiliary::script_debug("S5");
+                        Batch::stop_worker_on_order($order_in_work);
+                    }
+                }
                 $simp_success           = 1;
                 $grammar_simp_success   = 1;
                 $return = Batch::REGISTER_GO_ON;
@@ -1804,8 +1834,8 @@ sub switch_phase {
 
     if (PHASE_FINAL_REPLAY eq $phase) {
         if (-1 == $simp_success) {
-            say("\n\nSUMMARY: No simplification step was tried.\n"                                     .
-                "SUMMARY: Hence some simplified test does not exist. Omitting the phase '"             .
+            say("\n\nSUMMARY: No simplification step was tried.\n"                                 .
+                "SUMMARY: Hence some simplified test does not exist. Omitting the phase '"         .
                 PHASE_FINAL_REPLAY . "'.");
             say("");
             say("");
@@ -1813,12 +1843,12 @@ sub switch_phase {
             $phase_switch = 0;
             return;
         } elsif (0 == $simp_success) {
-            say("\n\nSUMMARY: None of the attempts to simplify the test achieved success.\n"           .
-                "SUMMARY: Hence some simplified test does not exist. Omitting the phase '"             .
-                PHASE_FINAL_REPLAY . "'.\n"                                                            .
-                "HINT: Maybe the\n"                                                                    .
-                "HINT: - black/white lists (especially the pattern sections) are faulty or\n"          .
-                "HINT: - RQG test setup (basedir, grammar etc.) is wrong or\n"                         .
+            say("\n\nSUMMARY: None of the attempts to simplify the test achieved success.\n"       .
+                "SUMMARY: Hence some simplified test does not exist. Omitting the phase '"         .
+                PHASE_FINAL_REPLAY . "'.\n"                                                        .
+                "HINT: Maybe the\n"                                                                .
+                "HINT: - black/white lists (especially the pattern sections) are faulty or\n"      .
+                "HINT: - RQG test setup (basedir, grammar etc.) is wrong or\n"                     .
                 "HINT: - trials/duration/queries are too small.");
             say("");
             say("");
@@ -1834,26 +1864,51 @@ sub switch_phase {
         say("INFO: threads is already 1. Omitting phase '" . PHASE_THREAD1_REPLAY . "'.");
         $phase = shift @simp_chain;
     }
+    our $clone_phase;
     if (PHASE_GRAMMAR_CLONE eq $phase ) {
         # FIXME: Find some solution which is more elegant than reloading from file.
         load_grammar($parent_grammar, 10);
         my $start_grammar_string = $grammar_string;
         GenTest::Simplifier::Grammar_advanced::print_rule_hash();
-        $grammar_string = GenTest::Simplifier::Grammar_advanced::use_clones_in_grammar;
-        if ($start_grammar_string eq $grammar_string) {
-            say("INFO: Cloning did not change the grammar. Therefore a repetition of grammar " .
-                "simplification is not required.");
+        if (not defined $clone_phase) {
+            $grammar_string = GenTest::Simplifier::Grammar_advanced::use_clones_in_grammar_top;
+            if ($start_grammar_string ne $grammar_string) {
+                $clone_phase = 'using top level rules only';
+                say("DEBUG: Cloning $clone_phase changed the grammar.")
+                    if Auxiliary::script_debug("S2");
+                unshift @simp_chain, PHASE_GRAMMAR_CLONE;
+            } else {
+                $grammar_string = GenTest::Simplifier::Grammar_advanced::use_clones_in_grammar;
+                if ($start_grammar_string ne $grammar_string) {
+                    $clone_phase = 'ordered by rule weight';
+                    say("DEBUG: Cloning $clone_phase changed the grammar.")
+                        if Auxiliary::script_debug("S2");
+                }
+            }
+        } elsif ($clone_phase eq 'using top level rules only') {
+            $grammar_string = GenTest::Simplifier::Grammar_advanced::use_clones_in_grammar;
+            if ($start_grammar_string ne $grammar_string) {
+                $clone_phase = 'ordered by rule weight';
+            } else {
+                $clone_phase = undef;
+            }
+        } else {
+            # Only $clone_phase = 'ordered by rule weight'; should be left over.
+            $clone_phase = undef;
+        }
+
+        if (defined $clone_phase) {
+            make_parent_from_string ($grammar_string);
+            my $iso_ts = isoTimestamp();
+            say("INFO: Cloning $clone_phase changed the grammar. Starting grammar simplification.");
+            Batch::write_result("$iso_ts   Cloning of multiple used rules with multiple " .
+                                "components $clone_phase ==> new parent grammar '$parent_grammar'\n");
+            $phase = PHASE_GRAMMAR_SIMP;
+        } else {
             $phase = shift @simp_chain;
             # Carp::cluck("DEBUG phase : $phase, simp_success : $simp_success");
             $phase_switch = 1;
             return;
-        } else {
-            make_parent_from_string ($grammar_string);
-            my $iso_ts = isoTimestamp();
-            Batch::write_result("$iso_ts   Cloning of multiple used rules with multiple " .
-                                "components ==> new parent grammar '$parent_grammar'\n");
-            say("INFO: Cloning changed the grammar. Starting grammar simplification.");
-            $phase = PHASE_GRAMMAR_SIMP;
         }
     }
 
@@ -2133,6 +2188,11 @@ sub report_replay {
                     "replay_grammar_parent, order_id) are required.");
         Batch::emergency_exit($status);
     }
+    if (not defined $order_id) {
+        Carp::cluck("INTERNAL ERROR: The third parameter order_id must be defined.");
+        my $status = STATUS_INTERNAL_ERROR;
+        Batch::emergency_exit($status);
+    }
     # FIXME:
     # Activate the code below in case FIRST_REPLAY and maybe others are adjusted to it.
 #   if (not defined $replay_grammar or not defined $replay_grammar_parent or
@@ -2157,10 +2217,37 @@ sub report_replay {
             my $stop_count = Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_GENDATA,
                                                 Batch::STOP_REASON_WORK_FLOW);
             Batch::stop_worker_on_order_except_replayer($order_id);
-            # FIXME:
+            Batch::add_to_try_never($order_id);
             # In case the reload_grammar above lets some rule disappear than we could
             # stop all workers having some $order_id fiddling with the disappeared rule.
-            Batch::add_to_try_never($order_id);
+            my @orders_in_work = Batch::get_orders_in_work;
+            say("DEBUG: orders currently in work: " . join(" - ", @orders_in_work));
+            foreach my $order_in_work (@orders_in_work) {
+                # Omit to stop our current Winner because he is most probably during archiving etc.
+                next if $order_id == $order_in_work;
+                my $rule_name = $order_array[$order_in_work][ORDER_PROPERTY2];
+                if (not defined $rule_name) {
+                    say("INTERNAL ERROR: Processing the orders in work rule_name is not " .
+                        "defined, order_id $order_id. Will ask for an emergency_exit.");
+                    my $status = STATUS_INTERNAL_ERROR;
+                    Batch::emergency_exit($status);
+                }
+                my $return = GenTest::Simplifier::Grammar_advanced::rule_exists($rule_name);
+                if (not defined $return) {
+                    say("INTERNAL ERROR: Unable to figure out if the rule '$rule_name' " .
+                        "exists. Will ask for an emergency_exit.");
+                    my $status = STATUS_INTERNAL_ERROR;
+                    Batch::emergency_exit($status);
+                } elsif ($return) {
+                    # That rule is used. Therefore the job in work stays valid.
+                } else {
+                    # That rule is not/no more used. Therefore the job is invalid.
+                    say("DEBUG: Rule '$rule_name' occuring in order_id $order_in_work does " .
+                        "no more exist but is currently under attack. Will stop all RQG " .
+                        "Workers using that order.") if Auxiliary::script_debug("S5");
+                    Batch::stop_worker_on_order($order_in_work);
+                }
+            }
             $grammar_simp_success = 1;
             $simp_success = 1;
         } else {
@@ -2216,10 +2303,7 @@ sub load_grammar {
     # Attention: This resets if some rule was already processed.
     $grammar_string = GenTest::Simplifier::Grammar_advanced::init(
              $workdir . "/" . $grammar_file, $threads, $max_inline_length, $grammar_flags);
-    load_step();
-    my $iso_ts = isoTimestamp();
-    Batch::write_result("$iso_ts          $grammar_file     loaded with threads = $threads " .
-                        "==> new parent grammar '$parent_grammar'\n");
+    load_step($grammar_file);
 }
 
 sub reload_grammar {
@@ -2238,13 +2322,12 @@ sub reload_grammar {
     # Problem: This seems to reset if some rule was already processed.
     $grammar_string = GenTest::Simplifier::Grammar_advanced::reload_grammar(
                       $workdir . "/" . $grammar_file, $threads, $grammar_flags);
-    load_step();
-    my $iso_ts = isoTimestamp();
-    Batch::write_result("$iso_ts          $grammar_file     loaded with threads = $threads " .
-                        "==> new parent grammar '$parent_grammar'\n");
+    load_step($grammar_file);
 }
 
 sub load_step {
+
+    my ($grammar_file) = @_;
 
     if (not defined $grammar_string) {
         my $status = STATUS_INTERNAL_ERROR;
@@ -2261,8 +2344,12 @@ sub load_step {
     }
     # Aborts if
     # - $grammar_string is not defined
-    # - creation of parent grammar file fails
-    make_parent_from_string ($grammar_string);
+    # - creation of new parent grammar file makes sense but fails
+    if (make_parent_from_string ($grammar_string)) {
+        my $iso_ts = isoTimestamp();
+        Batch::write_result("$iso_ts          $grammar_file     loaded with threads = $threads " .
+                            "==> new parent grammar '$parent_grammar'\n");
+    }
 }
 
 
@@ -2438,6 +2525,9 @@ sub get_shrinked_rvt_options {
 }
 
 sub make_parent_from_string {
+# Returns
+# 1 -- new (different) parent grammar file generated
+# 0 -- no parent grammar file generated because no progress achieved
 
     my ($grammar_string) = @_;
 
@@ -2446,9 +2536,22 @@ sub make_parent_from_string {
         Carp::cluck("INTERNAL ERROR: grammar_string is not defined.");
         Batch::emergency_exit($status);
     }
-    $parent_grammar= "p" . Auxiliary::lfill0($parent_number,5) . ".yy";
-    Batch::make_file($workdir . "/" . $parent_grammar, $grammar_string . "\n");
-    $parent_number++;
+    if ($parent_grammar_string eq $grammar_string) {
+        # In case the old parent equals the potential new parent than don't create a new parent.
+        say("DEBUG: Simplifier::make_parent_from_string: No progress achieved. Stick to old " .
+            "parent grammar.") if Auxiliary::script_debug("S4");
+        return 0;
+    } else {
+        if (Auxiliary::script_debug("S5")) {
+            say("DEBUG: OLD ->$parent_grammar_string<");
+            say("DEBUG: NEW ->$grammar_string<");
+        }
+        $parent_grammar= "p" . Auxiliary::lfill0($parent_number,5) . ".yy";
+        Batch::make_file($workdir . "/" . $parent_grammar, $grammar_string . "\n");
+        $parent_grammar_string = $grammar_string;
+        $parent_number++;
+        return 1;
+    }
 }
 
 sub make_child_from_parent {

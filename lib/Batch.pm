@@ -1725,22 +1725,30 @@ sub reactivate_till_filled {
 }
 
 
-sub get_active_order_hash {
-# Purpose:    FIXME
-# --------
-# Return all unique orders being just in execution.
-# == During the last reap_workers call we could not reap the main process.
-#    --> $worker_array[$worker_num][WORKER_PID] != -1
+# Rename to report_orders_in_work
+sub get_orders_in_work {
+# Purpose
+# -------
+# Return all ids of orders being just in execution.
+# 1. During the last reap_workers call we could not reap the main process
+#    ( $worker_array[$worker_num][WORKER_PID] != -1 ) of the RQG Worker.
+#    So the base might be slightly outdated like the process of some RQG Worker has become
+#    already a zombie. This is harmless.
+# 2. Please be aware of
+#    - There might be several RQG Workers executing jobs based on the same order.
+#    - Jobs based on the same order can differ regarding RQG grammar and other stuff.
 #
-    my %active_orders;
+    my %orders_in_work;
     for my $worker_num (1..$workers_max) {
         next if -1 == $worker_array[$worker_num][WORKER_PID];
-        $active_orders{$worker_array[$worker_num][WORKER_ORDER_ID]} = 1;
+        $orders_in_work{$worker_array[$worker_num][WORKER_ORDER_ID]} = 1;
     }
-    return %active_orders;
+    # Sorting only because prints look nicer.
+    my @orders_in_work = sort {$a <=> $b} keys %orders_in_work;
+    say("DEBUG: Batch::get_orders_in_work: " . join(" , ", @orders_in_work))
+        if Auxiliary::script_debug("B6");
+    return @orders_in_work;
 }
-
-
 
 
 sub reactivate_orders {

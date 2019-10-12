@@ -22,7 +22,7 @@ require Exporter;
 
 # Note:
 # Its currently unclear if routines managing the simplification process
-# need acces to all these constants.
+# need access to all these constants.
 # Main reason for having them exported:
 # GenTest::Simplifier::Grammar_advanced::<constant> is quite long.
 @EXPORT = qw(
@@ -65,20 +65,31 @@ my ($threads, $grammar_flags);
 sub init {
     (my $grammar_file, $threads, my $max_inline_length, $grammar_flags) = @_;
 
-    Carp::cluck("DEBUG: Grammar_advanced::init (grammar_file, threads, max_inline_length, " .
+    my $snip = "Simplifier::Grammar_advanced::init:";
+    if (@_ != 4) {
+        Carp::cluck("INTERNAL ERROR: $snip 4 Parameters (grammar_file, " .
+                    "threads, max_inline_length, grammar_flags) are required.");
+        say("INTERNAL ERROR: Grammar_advanced::init: Will return undef.");
+        return undef;
+    }
+
+    Carp::cluck("DEBUG: $snip (grammar_file, threads, max_inline_length, " .
                 "grammar_flags) entered") if $script_debug;
 
     if (not defined $max_inline_length) {
         Carp::cluck("INTERNAL ERROR: max_inline_length is not defined. Will return undef.");
+        say("INTERNAL ERROR: Grammar_advanced::init: Will return undef.");
         return undef;
     }
     if (not defined $threads) {
         Carp::cluck("INTERNAL ERROR: threads is not defined. Will return undef.");
+        say("INTERNAL ERROR: Grammar_advanced::init: Will return undef.");
         return undef;
     }
 
     my $status = load_grammar($grammar_file);
     if (STATUS_OK != $status) {
+        say("INTERNAL ERROR: $snip Will return undef.");
         return undef;
     }
     # Replace some maybe filled %rule_hash by some new one.
@@ -86,16 +97,22 @@ sub init {
     # --> This init sets RULE_JOBS_GENERATED to 0 !!!
     fill_rule_hash();
     # print_rule_hash();
+    if (STATUS_OK != set_default_rules_for_threads()) {
+        return undef;
+    }
     analyze_all_rules();
     print_rule_hash() if $script_debug;
     # Inline anything which has a length <= $max_inline_length.
     compact_grammar($max_inline_length);
     if (not defined $grammar_obj) {
-        Carp::confess("grammar_obj is not defined");
+        Carp::cluck("grammar_obj is not defined");
+        say("INTERNAL ERROR: $snip Will return undef.");
+        return undef;
     }
     return $grammar_obj->toString();
 
-}
+} # End sub init
+
 
 sub reload_grammar {
 # Purpose
@@ -110,6 +127,13 @@ sub reload_grammar {
 
     my ($grammar_file, $threads, $grammar_flags) = @_;
     # !!! The caller might have changed the value for threads compared to the previous run !!!
+
+    if (@_ != 3) {
+        Carp::cluck("INTERNAL ERROR: Grammar_advanced::reload_grammar: 3 Parameters " .
+                    "(grammar_file, threads, grammar_flags) are required.");
+        say("INTERNAL ERROR: Grammar_advanced::reload_grammar: Will return undef.");
+        return undef;
+    }
 
     Carp::cluck("DEBUG: Grammar_advanced::reload_grammar (grammar_file, threads, grammar_flags)" .
                 " entered") if $script_debug;
@@ -131,11 +155,13 @@ sub reload_grammar {
     my $max_inline_length = -1;
     compact_grammar($max_inline_length);
     if (not defined $grammar_obj) {
-        Carp::confess("grammar_obj is not defined");
+        Carp::cluck("grammar_obj is not defined");
+        return undef;
     }
     return $grammar_obj->toString();
 
-}
+} # End sub reload_grammar
+
 
 sub get_unique_component_list {
 # lib/GenTest/Grammar/Rule.pm routine unique_components with code example.
@@ -320,6 +346,7 @@ sub print_rule_info {
     say("DEBUG: '$rule_name' RULE_IS_TOP_LEVEL : "      . $rule_info->[RULE_IS_TOP_LEVEL]);
 }
 
+
 sub print_rule_hash {
     say("DEBUG: Print of rule_hash content ========== begin");
     foreach my $rule_name (sort keys %rule_hash ) {
@@ -328,6 +355,7 @@ sub print_rule_hash {
     }
     say("DEBUG: Print of rule_hash content ========== end")
 }
+
 
 sub add_rule_to_hash {
     my ($rule_name) = @_;
@@ -342,6 +370,7 @@ sub add_rule_to_hash {
     $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL]      =      0;
     say("DEBUG: add_rule_to_hash : rule '$rule_name' added.") if $script_debug;
 }
+
 
 sub fill_rule_hash {
     undef %rule_hash;
@@ -365,6 +394,7 @@ sub reset_rule_hash_values {
     }
 }
 
+
 sub grammar_rule_hash_consistency {
     my $is_inconsistent = 0;
     foreach my $rule_name ( keys %{$grammar_obj->rules()} ) {
@@ -385,6 +415,105 @@ sub grammar_rule_hash_consistency {
 }
 
 
+sub set_default_rules_for_threads {
+# 1. Do that after
+#    1.1 loading the grammar including redefines
+#    1.2 filling rule_hash
+# 2. Build fat grammar string
+    my $grammar_string_addition = '';
+    my $rule_name = "ill_rule";
+    foreach my $number (1..$threads) {
+        $rule_name = 'thread' . $number;
+        if (not exists $rule_hash{$rule_name}) {
+            my $sentence = '';
+            if (exists $rule_hash{'query'}) {
+                $sentence = "query";
+            }
+            if (exists $rule_hash{'thread'}) {
+                if ('' eq $sentence) {
+                    # Good grammar because "query" does not exist too.
+                    $sentence = "thread";
+                } else {
+                    say("WARN: The grammar contains the rules 'query' and 'thread'. " .
+                        "Will pick 'query' as component for '$rule_name'.");
+                }
+            }
+            if ('' eq $sentence) {
+                say("WARN: The grammar contains neither the rule 'query' nor 'thread'.");
+                # FIXME: Maybe abort?
+            }
+            my $string_addition = $rule_name . ":\n" . "    " . $sentence . " ;";
+            $grammar_string_addition .= "\n\n" . $string_addition;
+        } else {
+        }
+        $rule_name = 'thread' . $number . '_init';
+        if (not exists $rule_hash{$rule_name}) {
+            my $sentence = '';
+            if (exists $rule_hash{'query_init'}) {
+                $sentence = "query_init";
+            }
+            if (exists $rule_hash{'thread_init'}) {
+                if ('' eq $sentence) {
+                    # Good grammar because "query" does not exist too.
+                    $sentence = "thread_init";
+                } else {
+                    say("WARN: The grammar contains the rules 'query_init' and 'thread_init'. Will pick 'query_init'.");
+                }
+            }
+            # Having no *_init must be allowed.
+            my $string_addition = $rule_name . ":\n" . "    " . $sentence . " ;";
+            $grammar_string_addition .= "\n\n" . $string_addition;
+        } else {
+            say("DEBUG: rule : $rule_name does exist");
+        }
+        $rule_name = 'thread' . $number . '_connect';
+        if (not exists $rule_hash{$rule_name}) {
+            say("DEBUG: rule : $rule_name does not exist");
+            my $sentence = '';
+            if (exists $rule_hash{'query_connect'}) {
+                $sentence = "query_connect";
+            }
+            if (exists $rule_hash{'thread_connect'}) {
+                if ('' eq $sentence) {
+                    # Good grammar because "query" does not exist too.
+                    $sentence = "thread_connect";
+                } else {
+                    say("WARN: The grammar contains the rules 'query_connect' and 'thread_connect'. Will pick 'query_connect'.");
+                }
+            }
+            # Having no *_init must be allowed.
+            my $string_addition = $rule_name . ":\n" . "    " . $sentence . " ;";
+            $grammar_string_addition .= "\n\n" . $string_addition;
+        } else {
+        }
+    }
+    my $grammar_string_extended = $grammar_obj->toString() . $grammar_string_addition ;
+    say("DEBUG: Extended grammar ======================== BEGIN\n" .
+        $grammar_string_extended . "\n" .
+        "DEBUG: Extended grammar ======================== END") if $script_debug;
+    $grammar_obj = GenTest::Grammar->new(
+           'grammar_string'  => $grammar_string_extended,
+           'grammar_flags'  => $grammar_flags
+    );
+    if (not defined $grammar_obj) {
+        # Thinkable example: $grammar_string_addition contains garbage.
+        say("ERROR: Filling the grammar_obj failed. Will return STATUS_INTERNAL_ERROR later.");
+        say("ERROR: Extended grammar ======================== BEGIN\n" .
+        $grammar_string_extended . "\n" .
+        "ERROR: Extended grammar ======================== END");
+        return STATUS_INTERNAL_ERROR;
+    }
+    # Replace some maybe filled %rule_hash by some new one.
+    # --> There might be non reachable rules between!
+    # --> This init sets RULE_JOBS_GENERATED to 0 !!!
+    fill_rule_hash();
+    # print_rule_hash();
+
+    return STATUS_OK;
+
+} # End sub set_default_rules_for_threads
+
+
 sub analyze_all_rules {
 
 # Purpose/Activity:
@@ -395,29 +524,42 @@ sub analyze_all_rules {
 # - RULE_JOB_GENERATED does not get touched
 # - No inlining of rules
 
+    say("DEBUG: analyze_all_rules : Begin") if $script_debug;
     foreach my $rule_name (keys %rule_hash) {
         $rule_hash{$rule_name}->[RULE_IS_PROCESSED] = 0;
     }
 
+    # Emptying %rule_hash and recreating the required keys is not necessary because the
+    # number of rules shrinks during ONE "walk through the grammar round".
+    # In case we repeat the loop than most entries need to get reset.
+    # A reset of RULE_JOBS_GENERATED must be not done because we would probably
+    # create duplicates of jobs being already in queues.
+    reset_rule_hash_values();
+
     our $run_all_again = 1;
     while($run_all_again) {
         $run_all_again = 0;
-        # Emptying %rule_hash and recreating the required keys is not necessary because the
-        # number of rules shrinks during ONE "walk through the grammar round".
-        # In case we repeat the loop than most entries need to get reset.
-        # A reset of RULE_JOBS_GENERATED must be not done because we would probably
-        # create duplicates of jobs being already in queues.
         reset_rule_hash_values();
 
         grammar_rule_hash_consistency();
 
         my @top_rule_list = $grammar_obj->top_rule_list();
+        say("DEBUG: top_rule_list found : " . join(" ", @top_rule_list)) if $script_debug;
         foreach my $rule_name (@top_rule_list) {
-            # Never do something like the following now
-            #     We run with only 8 threads so delete the rule 'thread13'.
-            # because 'thread13' might be used in a component of some really used rule.
-            # In the current stage we do not know if 'thread13' is referenced.
-            $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL] = 1;
+            if (   $rule_name eq 'query'
+                or $rule_name eq 'thread'
+                or $rule_name eq 'query_init'
+                or $rule_name eq 'thread_init'
+                or $rule_name eq 'query_connect'
+                or $rule_name eq 'thread_connect' ) {
+                next;
+            } else {
+                # Never do something like the following now
+                #     We run with only 8 threads so delete the rule 'thread13'.
+                # because 'thread13' might be used in a component of some really used rule.
+                # In the current stage we do not know if 'thread13' is referenced.
+                $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL] = 1;
+            }
         }
 
         my $more_to_process = 1;
@@ -540,9 +682,9 @@ sub analyze_all_rules {
             }
         }
         # 'query' versus 'thread13'
-        alt_rules('query', 'thread', '');
-        alt_rules('query', 'thread', '_init');
-        alt_rules('query', 'thread', '_connect');
+        alt_rules('query',  'thread', '');
+        alt_rules('query',  'thread', '_init');
+        alt_rules('query',  'thread', '_connect');
         alt_rules('thread', 'thread', '_connect');
 
         # Now take care of the remaining rules
@@ -558,8 +700,9 @@ sub analyze_all_rules {
 
         say("DEBUG: Expect to run all again.") if ($run_all_again and $script_debug);
     }
+    say("DEBUG: analyze_all_rules : End") if $script_debug;
 
-}
+} # End sub analyze_all_rules
 
 
 sub extract_thread_from_rule_name {
@@ -611,8 +754,7 @@ sub extract_thread_from_rule_name {
 
     Carp::confess("INTERNAL ERROR: Unknown toplevel rule '$rule_name'.");
     say("ALARM we must never reach this line.");
-}
-
+} # End sub extract_thread_from_rule_name
 
 
 # sub remove_unused_rules {
@@ -640,30 +782,49 @@ sub extract_thread_from_rule_name {
 
 # }
 
+
 sub collapseComponents {
-# In case a rule consists of several equal elements only like
-#    rule_A: SELECT 13 | SELECT 13 ;
-# then collapse it to
-#    rule_A: SELECT 13 ;
-#
-# Usage is Grammar simplifier only. Therefore I hesitate to place that into
+# Usage is in Grammar simplifier only. Therefore I hesitate to place that into
 # lib/GenTest/Grammar/Rule.pm.
 #
     my ($rule_name) = @_;
-    my $rule_obj = $grammar_obj->rule($rule_name);
+    my $snip        = "DEBUG: collapseComponents for rule '$rule_name':";
+    my $rule_obj    = $grammar_obj->rule($rule_name);
     if (not defined $rule_obj) {
         Carp::cluck("INTERNAL ERROR: Rule '$rule_name' : Undef rule object got.");
-       exit STATUS_INTERNAL_ERROR;
+        exit STATUS_INTERNAL_ERROR;
     }
+
+    my $rule_before = $rule_obj->toString();
+    my $rule_after  = $rule_obj->toString();
+
+    # In case a rule consists of several equal elements only then collapse it to one element.
+    # Example:
+    #    rule_A: SELECT 13 | SELECT 13 ;   --> rule_A: SELECT 13 ;
+    #
     my @unique_components = $rule_obj->unique_components();
-    my $components = $rule_obj->components();
+    my $components        = $rule_obj->components();
     if ((1 <  scalar @$components) and
         (1 == scalar $rule_obj->unique_components())) {
-        splice (@$components, 1);
-        say("DEBUG: collapseComponents: The components of rule '$rule_name' were collapsed.")
-            if $script_debug;
+        while (1 <  scalar @$components) {
+            splice (@$components, 1);
+        }
+        say("$snip Number of unique components : 1 --> collapsing.") if $script_debug;
     }
-}
+
+    # In case we have more than one component and a component sentence is '' than DO NOT remove it.
+    # Bad example:
+    #    rule_A: | <fat component> ; --> rule_A:  <fat component> ;
+    # Because what if <fat component> is not required for what we search at all?
+    #
+
+    $rule_after = $rule_obj->toString();
+    if (($rule_after ne $rule_before) and $script_debug) {
+        say("$snip Before collapsing: ->" . $rule_before . "<-");
+        say("$snip After  collapsing: ->" . $rule_after  . "<-");
+    }
+
+} # End sub collapseComponents
 
 
 sub compact_grammar {
@@ -673,9 +834,9 @@ sub compact_grammar {
 # Replace rules consisting of one component only (best non rare case: Its an empty string),
 # by their content wherever they are used. Run remove_unused_rules after any of such operations.
 # Advantage:
-#    This makes grammars more handy.
+#    This makes grammars most time more handy.
 # Minor disadvantage:
-#    An inspection of the final grammar will no more show what was shrinked away.
+#    An inspection of the final grammar will no more show which rule was shrinked away.
 #    Example:
 #    - non compacted:  dml: ;
 #    - compacted: There is no rule 'dml'. But only a comparison with the original grammar will
@@ -702,7 +863,8 @@ sub compact_grammar {
     }
 
     foreach my $rule_name ( keys %{$grammar_obj->rules()} ) {
-        # Handle: rule_A: SELECT 13 | SELECT 13 ;
+        # Simplify:
+        # rule_A: SELECT 13 | SELECT 13 ; => rule_A: SELECT 13;
         collapseComponents($rule_name);
         # Important:
         # The number of rule components changes.
@@ -714,26 +876,57 @@ sub compact_grammar {
     # Begin of inlining
     foreach my $rule_name ( sort keys %{$grammar_obj->rules()} ) {
 
+        my $snip = $debug_snip . " Rule '$rule_name':";
+
         if ($rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL]) {
-            # Top level rules cannot be inlined.
+            # Top level rules cannot be inlined. ????
+            # thread1: ....;
+            # thread2: thread1;
+            #
             next;
         }
 
-        my $snip     = $debug_snip . " Rule '$rule_name':";
         my $rule_obj = $grammar_obj->rule($rule_name);
         if (not defined $rule_obj) {
             Carp::cluck("INTERNAL ERROR: Rule '$rule_name' : Undef rule object got.");
             exit STATUS_INTERNAL_ERROR;
         }
         my $components = $rule_obj->components();
-        # Rules with more than component cannot get inlined.
+        # Rules with more than one component will not get inlined.
+        # FIXME:
+        # Inlining in case of
+        # - "calling" rule has one component only
+        # - rule is called only once
+        # would be ok.
         next if 1 < scalar @$components;
 
-        say("$snip Candidate for inlining. ->" . $rule_obj->toString() . "<-")
-            if $script_debug;
+        # Fixme: Abort if having 0 components
+
+        # WE HAVE ONE COMPONENT
+
+        if (not defined $rule_obj->components->[0]) {
+            say("ALARM: The first component is undef.");
+        }
         my @the_component          = @{$rule_obj->components->[0]};
         my $the_component_sentence = join('', @the_component );
         say("$snip Component as Sentence ->$the_component_sentence<-") if $script_debug;
+
+        if (length($the_component_sentence) > $max_inline_length) {
+            say("$snip Omit inlining of rule $rule_name' because the component " .
+                "->$the_component_sentence<- is too long.") if $script_debug;
+            next;
+        }
+
+        if ($the_component_sentence =~ /^ *$/) {
+            # Rule with one component == empty string is a candidate for inlining
+        } elsif (1 == $rule_hash{$rule_name}->[RULE_REFERENCED]) {
+            # The rule is only one time referenced.
+        } else {
+            last;
+        }
+
+        say("$snip Candidate for inlining. ->" . $rule_obj->toString() . "<-")
+            if $script_debug;
         # FIXME: New parameter needed.
         # Q: Should a rule consisting of something like
         #        <very long blabla consisting of several words>
@@ -791,6 +984,7 @@ sub compact_grammar {
         say("$snip The content of the rule was inlined and therefore the rule deleted.") if $script_debug;
     } # End of search for inline candidates and inlining
     grammar_rule_hash_consistency;
+
 } # End of sub compact_grammar
 
 
@@ -1010,7 +1204,8 @@ sub next_rule_to_process {
         say("DEBUG: next_rule_to_process : Will return rule '$best_rule_name'.") if $script_debug;
     }
     return $best_rule_name;
-}
+
+} # End sub next_rule_to_process
 
 
 sub set_rule_jobs_generated {
@@ -1025,12 +1220,38 @@ sub set_rule_jobs_generated {
 }
 
 
+sub rule_exists {
+# Return
+# undef -- INTERNAL ERROR , stop everything + cleanup is recommended
+#     1 -- The rule $rule_name exists/is in use in the current parent grammar.
+#     0 -- The rule $rule_name does not exist in the current parent grammar.
+#
+    my ($rule_name) = @_;
+    if (@_ != 1) {
+        Carp::cluck("INTERNAL ERROR: 1 Parameter (rule_name) is required.  Will return undef.");
+        return undef;
+    }
+
+    if (not defined $rule_name) {
+        Carp::cluck("INTERNAL ERROR: rule_name is undef. Will return undef.");
+        return undef;
+    }
+
+    if (exists $rule_hash{$rule_name}) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+
 sub shrink_grammar {
 
 # Return
 # - undef if the rule $rule_name (combine with or)
 #   - does (no more) exist
 #   - exists but has one !unique! component only.
+#     FIXME: Does this work well in destructive simplification mode too?
 #   - exists but has no more a component leading to $component_string.
 #   - exists has more than one !unique! component and one leads to $component_string
 #     but the final grammar contains less less DROP/TRUNCATE/DELETE than the parent
@@ -1161,7 +1382,29 @@ sub shrink_grammar {
         }
     } else {
         #### Destructive simplification ####
-        @reduced_components = ( '' );
+        #
+        # Problem which should be fixed
+        # -----------------------------
+        # The experiment
+        #    One RQG runner only, 32 threads, Notebook i7, 4 Cores, HT = 2 --> OS: 8 CPUs
+        #    query:     ==> Generate a thread<n>: ; for every thread.
+        #        ;
+        #    I get temporary 100% CPU load.
+        # Critical rules:
+        # Need to be a root rule --> RULE_IS_TOP_LEVEL.
+        # Should be used frequent for statement generation --> *_connect and *_init are harmless.
+      # # Experiment begin
+        if (     (1 == $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL])
+             and (not $rule_name =~ /_init$/)
+             and (not $rule_name =~ /_connect$/)) {
+            # SELECT SLEEP(1) would make "SQL noise" without value. So use Perl.
+            @reduced_components = ( ' { sleep 1 ; return undef } ' );
+        } else {
+            @reduced_components = ( '' );
+        }
+      # # Experiment end
+        # This above is most probably no solution.
+
     }
 
     # Construct something like
@@ -1191,14 +1434,17 @@ sub shrink_grammar {
 } # End of sub shrink_grammar
 
 
+#----------------------------------------------------
+
 my $clone_number = 0;
+my $clone_limit = 100;
 sub use_clones_in_rule {
 #
 # Return values
 # undef --> Failure (recommendation for Simplifier is abort)
 #
     my ($rule_name) = @_;
-    say("Inspecting '$rule_name'");
+    say("DEBUG: use_clones_in_rule('$rule_name') begin") if $script_debug;
     my $rule_obj = $grammar_obj->rule($rule_name);
     $rule_hash{$rule_name}->[RULE_UNIQUE_COMPONENTS] = scalar $rule_obj->unique_components;
 
@@ -1232,12 +1478,70 @@ sub use_clones_in_rule {
                         # Non sense would be to clone
                         # - an only once used rule (technically just a rename)
                         # - a rule with one component/alternative only.
+                        # Even if a rule which has one component only and this component uses
+                        # several rules cloning makes no sense. Only inlining might be reasonable.
                     }
                 }
             }
         }
     }
-}
+    say("DEBUG: use_clones_in_rule('$rule_name') end") if $script_debug;
+
+} # End of sub use_clones_in_rule
+
+
+sub use_clones_in_grammar_top {
+# FIXME:
+# Add checks for mistakes and test
+#
+# We just make the cloning along the top level rules.
+# In order to avoid multiple processing of rules we mark processed rules by setting
+# RULE_JOBS_GENERATED. This field will be not touched when resetting rule_hash.
+#
+#
+    my $clone_start = $clone_number;
+
+    say("DEBUG: use_clones_in_grammar_top begin") if $script_debug;
+    my @top_rule_list = $grammar_obj->top_rule_list();
+    say("DEBUG: top_rule_list found : " . join(" ", @top_rule_list)) if $script_debug;
+    foreach my $rule_name (@top_rule_list) {
+        if (   $rule_name eq 'query'
+            or $rule_name eq 'thread'
+            or $rule_name eq 'query_init'
+            or $rule_name eq 'thread_init'
+            or $rule_name eq 'query_connect'
+            or $rule_name eq 'thread_connect' ) {
+            next;
+        } else {
+            use_clones_in_rule($rule_name);
+            #    print_rule_hash();
+            # Update RULE_REFERENCED and RULE_UNIQUE_COMPONENTS.
+            analyze_all_rules();
+            # Never call compact_grammar(...) here because it will bring the grammar (grammar_obj)
+            # and rule_hash out of sync. And than the consistency check will abort simplification.
+            #    print_rule_hash();
+            # "calculate_weight" will update RULE_WEIGHT of all rules.
+            # This is not required here because we work along @top_rule_list which is static.
+            # calculate_weights();
+            #    print_rule_hash();
+            # Caused by the nature of @top_rule_list we have no risk to process some rule again.
+            # $rule_hash{$rule_name}->[RULE_JOBS_GENERATED] = 1;
+        }
+        if ($clone_number - $clone_start >= $clone_limit) {
+            say("DEBUG: clone_limit reached");
+            last;
+        }
+    }
+
+    # Most probably not required but very useful if forgotten later.
+    foreach my $rule_name (keys %rule_hash) {
+        $rule_hash{$rule_name}->[RULE_IS_PROCESSED] = 0;
+    }
+    say("DEBUG: use_clones_in_grammar_top end") if $script_debug;
+    return $grammar_obj->toString();
+
+} # End of sub use_clones_in_grammar_top
+
 
 sub use_clones_in_grammar {
 
@@ -1248,7 +1552,7 @@ sub use_clones_in_grammar {
 # decreasing RULE_WEIGHT. In order to avoid multiple processing of rules we mark processed
 # rules by setting RULE_JOBS_GENERATED. This field will be not touched when resetting rule_hash.
 #
-    my $clone_limit = 100;
+    # my $clone_limit = 100;
     my $clone_start = $clone_number;
 
     # Without all RULE_IS_PROCESSED values set to 0 the operation will omit touching certain rules.
@@ -1259,19 +1563,19 @@ sub use_clones_in_grammar {
     my $rule_name = next_rule_to_process(RULE_JOBS_GENERATED, RULE_WEIGHT);
     # What if undef (== INTERNAL ERROR) ?
     while (defined $rule_name) {
-    #   print_rule_hash();
+        #   print_rule_hash();
         use_clones_in_rule($rule_name);
-    #   print_rule_hash();
+        #   print_rule_hash();
         # Update RULE_REFERENCED and RULE_UNIQUE_COMPONENTS.
         analyze_all_rules();
         # Never call compact_grammar(...) here because it will bring the grammar (grammar_obj)
         # and rule_hash out of sync. And than the consistency check will abort simplification.
-    #   print_rule_hash();
+        #   print_rule_hash();
         # "calculate_weight" will update RULE_WEIGHT of all rules.
         # This is not strict required but it will cause that "next_rule_to_process" provides on
         # the next call the most important (RULE_WEIGHT) non processed rule.
         calculate_weights();
-    #   print_rule_hash();
+        #   print_rule_hash();
         # Prevent that we inspect/process the current rule again.
         $rule_hash{$rule_name}->[RULE_JOBS_GENERATED] = 1;
         if ($clone_number - $clone_start >= $clone_limit) {
@@ -1286,6 +1590,6 @@ sub use_clones_in_grammar {
     }
     return $grammar_obj->toString();
 
-}
+} # End sub use_clones_in_grammar
 
 1;
