@@ -365,6 +365,7 @@ use constant  ER_ALTER_OPERATION_NOT_SUPPORTED_REASON           => 1846;
 use constant  ER_VIRTUAL_COLUMN_FUNCTION_IS_NOT_ALLOWED         => 1901;
 use constant  ER_KEY_BASED_ON_GENERATED_VIRTUAL_COLUMN          => 1904;
 use constant  ER_WARNING_NON_DEFAULT_VALUE_FOR_GENERATED_COLUMN => 1906;
+use constant  ER_UNSUPPORTED_ACTION_ON_GENERATED_COLUMN         => 1907;
 use constant  ER_CONST_EXPR_IN_VCOL                             => 1908;
 use constant  ER_UNKNOWN_OPTION                                 => 1911;
 use constant  ER_BAD_OPTION_VALUE                               => 1912;
@@ -748,6 +749,7 @@ my %err2type = (
     ER_UNKNOWN_SYSTEM_VARIABLE()                        => STATUS_SEMANTIC_ERROR,
     ER_UNKNOWN_TABLE()                                  => STATUS_SEMANTIC_ERROR,
     ER_UNKNOWN_VIEW()                                   => STATUS_SEMANTIC_ERROR,
+    ER_UNSUPPORTED_ACTION_ON_GENERATED_COLUMN()         => STATUS_UNSUPPORTED,
     ER_UNSUPPORT_COMPRESSED_TEMPORARY_TABLE()           => STATUS_UNSUPPORTED,
     ER_UNSUPPORTED_PS()                                 => STATUS_UNSUPPORTED,
     ER_UPDATE_TABLE_USED()                              => STATUS_SEMANTIC_ERROR,
@@ -1361,7 +1363,7 @@ sub execute {
 
       # FIXME:
       # We have @data and %data_hash.
-      # Figure out when what (just one or both ) is filled and pick the right.
+      # Figure out when what (just one or both) is filled and pick the right.
 
       # Check if the query was a CHECK TABLE and if we harvested a result set which points clear
       # to data corruption in InnoDB. In the moment all other bad cases get ignored.
