@@ -378,9 +378,13 @@ sub createMysqlBase  {
     ## Prepare config file if needed
     if ($self->[MYSQLD_CONFIG_CONTENTS] and ref $self->[MYSQLD_CONFIG_CONTENTS] eq 'ARRAY' and scalar(@{$self->[MYSQLD_CONFIG_CONTENTS]})) {
         $self->[MYSQLD_CONFIG_FILE] = $self->vardir."/my.cnf";
+        # FIXME: Replace the 'die'
         open(CONFIG,">$self->[MYSQLD_CONFIG_FILE]") || die "Could not open $self->[MYSQLD_CONFIG_FILE] for writing: $!\n";
         print CONFIG @{$self->[MYSQLD_CONFIG_CONTENTS]};
         close CONFIG;
+        say("Config file '" . $self->[MYSQLD_CONFIG_FILE] . "' ----------- begin");
+        sayFile($self->[MYSQLD_CONFIG_FILE]);
+        say("Config file '" . $self->[MYSQLD_CONFIG_FILE] . "' ----------- end");
     }
 
     my $defaults = ($self->[MYSQLD_CONFIG_FILE] ? "--defaults-file=$self->[MYSQLD_CONFIG_FILE]" : "--no-defaults");
@@ -406,6 +410,10 @@ sub createMysqlBase  {
     push @$boot_options, "--skip-log-bin";
     push @$boot_options, "--loose-innodb-encrypt-tables=OFF";
     push @$boot_options, "--loose-innodb-encrypt-log=OFF";
+    # Workaround for MENT-350
+    if ($self->_notOlderThan(10,4,6)) {
+        push @$boot_options, "--loose-server-audit-logging=OFF";
+    }
 
     my $command;
 
@@ -432,6 +440,7 @@ sub createMysqlBase  {
         $command = $self->generateCommand($boot_options);
     }
 
+    # FIXME: Maybe add the user in a clean way like CREATE USER ... GRANT .... if possible.
     ## Add last strokes to the boot/init file: don't want empty users, but want the test user instead
     print BOOT "USE mysql;\n";
     print BOOT "DELETE FROM user WHERE `User` = '';\n";
@@ -590,7 +599,7 @@ sub startServer {
          # 1. The pidfile exists.
          # 2. There was an errlog_update
          # 3. no pidfile exists and no error log update and timeout exceeded
-         # 4. 1.2 and is fulfilled.
+         # 4. 1. and 2. is fulfilled.
          # Warning: The states might already have changed.
 
          if (-f $self->pidfile) {
@@ -1342,50 +1351,51 @@ sub serverVariable {
    return $self->serverVariables()->{$var};
 }
 
-
 sub running {
-# Dual purpose
-# ------------
 # 1. Check if the server process is running and return
 #    0 - Process does not exist
 #    1 - Process is running
 # 2. In case
-#    - $self->serverpid is undef or wrong
-#    - the server process could be figured out by inspecting $self->pidfile
-#    - that server process is running
-#    than correct $self->pidfile.
-#    Background for that solution is the frequent seen evil scenario
+#      $self->serverpid is undef or wrong
+#      + the server process could be figured out by inspecting $self->pidfile
+#      + that server process is running
+#    than correct $self->[MYSQLD_SERVERPID] and return 1.
+#    Otherwise return 0.
+#    Background for that solution is the following frequent seen evil scenario
 #        The current process is the RQG runner (parent) just executing lib/GenTest/App/GenTest.pm.
 #        The periodic reporter process (child) has stopped and than restarted the server.
 #        Hence the current process knows only some no more valid server pid.
 #        And that might cause that lib/GenTest/App/GenTest.pm is later unable to stop a server.
 #
     my $who_am_i = "lib::DBServer::MySQL::MySQLd::running:";
-   my($self) = @_;
-   if (osWindows()) {
-      ## Need better solution fir windows. This is actually the old
-      ## non-working solution for unix....
+    my ($self) = @_;
+    if (osWindows()) {
+        ## Need better solution fir windows. This is actually the old
+        ## non-working solution for unix....
         # The weak assumption is:
         # In case the pidfile exists than the server is running.
-      return -f $self->pidfile;
+        return -f $self->pidfile;
     }
     if (not -f $self->pidfile) {
         return 0;
     } elsif (not defined $self->serverpid) {
-        Carp::cluck("ALARM: $who_am_i called but server pid is undef.");
-      my $pid = get_pid_from_file($self->pidfile);
-      if ($pid and $pid =~ /^\d+$/) {
+        Carp::cluck("ALARM: $who_am_i Sub was called but server pid variable is undef.");
+        my $pid = get_pid_from_file($self->pidfile);
+        if (defined $pid and $pid =~ /^\d+$/) {
             $self->[MYSQLD_SERVERPID] = $pid;
-         return kill(0, $pid);
-   } else {
-            say("ALARM: $who_am_i Also no real pid found in pidfile. Will return 0 == not running.");
-      return 0;
-   }
-    } elsif (not $self->serverpid =~ /^\d+$/) {
-        Carp::cluck("ALARM: $who_am_i called but server pid is not numeric. " .
-            "Will return 0 == not running.");
+            return kill(0, $pid);
+        } else {
+            say("ALARM: $who_am_i No valid value for pid found in pidfile. " .
+                "Will return 0 == not running.");
             return 0;
+        }
+    } elsif (not $self->serverpid =~ /^\d+$/) {
+        Carp::cluck("ALARM: $who_am_i Sub was called but server pid variable is not numeric. " .
+                    "Will return 0 == not running.");
+        return 0;
     } else {
+        # pidfile exists + $self->serverpid is defined + $self->serverpid is numeric
+
         ## Check if the child process is active.
         my $return = kill(0, $self->serverpid);
         if (!$return) {
@@ -1415,7 +1425,12 @@ sub _find {
       $paths .= join(",", map {"'" . $base . "/" . $_ ."'"} @$subdir) . ",";
    }
    my $names = join(" or ", @names );
-   # FIXME: Replace the confess by returning something better.
+   # FIXME: Replace what follows maybe with
+   # 1. Carp::cluck(.....)
+   # 2. return undef
+   # 3. The caller should make a regular abort if undef was returned.
+   # At least it must be prevented that the RQG runner aborts without stopping any
+   # running servers + cleanup.
    Carp::confess("ERROR: Cannot find '$names' in $paths");
 }
 
