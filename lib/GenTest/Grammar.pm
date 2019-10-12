@@ -1,5 +1,5 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2016,2018 MariaDB Corporation
+# Copyright (c) 2016,2019 MariaDB Corporation
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -42,11 +42,12 @@ use constant GRAMMAR_FLAGS    => 3;
 use constant GRAMMAR_FLAG_COMPACT_RULES         => 1;
 use constant GRAMMAR_FLAG_SKIP_RECURSIVE_RULES  => 2;
 
+my $script_debug = 0;
+
 1;
 
 sub new {
     my $class = shift;
-
 
     my $grammar = $class->SUPER::new({
         'grammar_files'        => GRAMMAR_FILES,
@@ -89,6 +90,7 @@ sub string {
 sub toString {
     my $grammar = shift;
     my $rules   = $grammar->rules();
+    # FIXME: Add already here the useful '\n' at file end?
     return join("\n\n", map { $grammar->rule($_)->toString() } sort keys %$rules);
 }
 
@@ -136,8 +138,9 @@ sub parseFromString {
     # Provide an #include directive
     #
 
-    # Th original code did not work at all.
-    # FIXME: Even after a first repair is quite unsafe and chaotic.
+    # The original code did not work at all.
+    # FIXME:
+    # Even after a first repair it stays quite unsafe and chaotic.
     # a) CWD is outside of RQG_HOME, RQG_HOME is set, file path is relative
     #    In case we do not prepend RQG_HOME than the file is not found.
     #    Unclear if all RQG tools set RQG_HOME in env.
@@ -179,26 +182,51 @@ sub parseFromString {
             # say("include_string->$include_string<-");
             $include_string;
     }}mie) {};
-    # say("grammar_string->$grammar_string<-");
 
     # Strip comments. Note that this is not Perl-code safe, since perl fragments
     # can contain both comments with # and the $# expression. A proper lexer will fix this
-
     $grammar_string =~ s{#.*$}{}iomg;
 
     # Join lines ending in \
-
     $grammar_string =~ s{\\$}{ }iomg;
 
     # Strip end-line whitespace
-
     $grammar_string =~ s{\s+$}{}iomg;
 
     # Add terminating \n to ease parsing
-
     $grammar_string = $grammar_string."\n";
 
-    my @rule_strings = split (";\s*[\r\n]+", $grammar_string);
+#   say("DEBUG: grammar_string original -----BEGIN -----\n" .
+#       $grammar_string . "\n" .
+#       "DEBUG: grammar_string original -----END -------");
+
+    # Strip begin-line whitespace
+    $grammar_string =~ s{^\s+}{}iomg;
+    # Strip whitespace between rule_name and ':'. The '\w' means alphanumeric including '_'.
+    # I hope that Perl snippets containing a ':' will be not touched.
+    $grammar_string =~ s{^(\w+)\s+:}{$1:}img;
+
+    # Introduce the pattern '§_split_§' as marker where the definition of some rule starts and ends.
+    # ----------------------------------------------------------------------------------------------
+    # This will be used later for splitting.
+    #
+    # 1. Place a '§_split_§\n' before any rule_name.
+    $grammar_string =~ s{^(\w+:)}{§_split_§\n$1}img;
+    # 2. Add a '§_split_§' to the end of $grammar_string
+    #    because its there missing.
+    $grammar_string = $grammar_string . '§_split_§';
+
+    # Remove all empty statements before the end of the rule.
+    $grammar_string =~ s{;[\s\n\r]*§_split_§}{§_split_§}img;
+
+    say("DEBUG: grammar_string -----BEGIN -----\n" .
+        $grammar_string . "\n" .
+        "DEBUG: grammar_string -----END -------") if $script_debug;
+
+    my @rule_strings = split ('§_split_§', $grammar_string);
+    say("DEBUG: grammar_string after splitting -----BEGIN -----\n" .
+        join('',@rule_strings) . "\n" .
+        "DEBUG: grammar_string after splitting -----END -------") if $script_debug;
 
     my %rules;
 
@@ -253,15 +281,35 @@ sub parseFromString {
 
     foreach my $rule_string (@rule_strings) {
         # say("DEBUG: rule_string : ->" . $rule_string . "<-");
-        my ($rule_name, $components_string) = $rule_string =~ m{^(.*?)\s*:(.*)$}sio;
+        # Experiment begin
+        # my ($rule_name, $components_string) = $rule_string =~ m{^(.*?)\s*:(.*)$}sio;
+        my ($rule_name, $components_string) = $rule_string =~ m{^(.*?)\s*:(.*)$}si;
+        # Experiment end
+
+        my $r_name   = '<undef>';
+        my $c_string = '<undef>';
+        $r_name      = $rule_name if defined $rule_name;
+        $c_string    = $components_string if defined $components_string;
+        say("DEBUG: After partial analysis: Rule '$r_name' rule_string ->$rule_string<- " .
+            "components_string ->$c_string<-") if $script_debug;
 
         if (not defined $rule_name) {
-            # say("DEBUG: Step1 rule_name not detected.");
+            if (defined $components_string and $components_string ne '') {
+                Carp::cluck("ERROR: rule_string is defined, not empty ->$components_string<- " .
+                    "and even though that the rule_name is undef.");
+                exit;
+            }
             next;
         }
-        $rule_name =~ s{[\r\n]}{}gsio;
+        # Original: $rule_name =~ s{[\r\n]}{}gsio;
+        # Experiment begin:
+        $rule_name =~ s{[\r\n]}{}mgsio;
+        # Experiment end:
         if (not defined $rule_name) {
             # say("DEBUG: Step2 rule_name not detected.");
+            Carp::cluck("DEBUG: RULE '$rule_name' rule_string ->$rule_string<- components_string " .
+                "->$components_string<-");
+            exit;
             next;
         }
         $rule_name =~ s{^\s*}{}gsio;
@@ -270,7 +318,10 @@ sub parseFromString {
             next;
         }
 
+        #
         next if $rule_name eq '';
+
+        # Remove the last ';' from $components_string because that is the rule end marker.
 
         if ($rule_name =~ /^query_add$/) {
             push @query_adds, $components_string;
@@ -291,6 +342,9 @@ sub parseFromString {
             $rules{$rule_name} = $components_string;
         }
     }
+    say("DEBUG: grammar_string after fiddling 1 -----BEGIN -----\n" .
+        join('',@rule_strings) . "\n" .
+        "DEBUG: grammar_string after fiddling 1 -----END -------") if $script_debug;
 
     if (@query_adds) {
         my $adds = join ' | ', @query_adds;
@@ -319,6 +373,10 @@ sub parseFromString {
         );
     }
 
+    say("DEBUG: grammar_string after fiddling 2 -----BEGIN -----\n" .
+        join('',@rule_strings) . "\n" .
+        "DEBUG: grammar_string after fiddling 2 -----END -------") if $script_debug;
+
     if (0 == scalar keys %rules) {
         say("WARN/ERROR: GenTest::Grammar::parseFromString : There are no rules in the grammar. " .
             "Will return STATUS_ENVIRONMENT_FAILURE.");
@@ -327,21 +385,83 @@ sub parseFromString {
 
     # Now we have all the rules extracted from grammar files, time to parse
 
-    foreach my $rule_name (keys %rules) {
+    foreach my $rule_name (sort keys %rules) {
 
         my $components_string = $rules{$rule_name};
 
-        my @component_strings = split (m{\|}, $components_string);
+        say("DEBUG:: Rule '$rule_name'     ->$components_string<-") if $script_debug;
+
+        # Remove "empty" statements before the end of components identified by '|' trailing.
+        # Example
+        #     thread2:        thread2:
+        #     A ; ; |     ==> A |
+        $components_string =~ s{;[\s;]*\|}{ \|}g;
+        # Remove "empty" statements at the begin of components identified by '|' heading.
+        # Example
+        #     thread2:        thread2:
+        #     A   |       ==> A |
+        #     ; B |       ==> B |
+        $components_string =~ s{\|[\n\r\s;]*;\s*(\w)}{\|\n$1}g;
+        # Remove "empty" statements in rules with one component only.
+        # Example
+        #     thread2:        thread2:
+        #     B ; ;       ==> B ;
+        # $components_string =~ s{[\n\r\s;]*;}{ ;}g;
+        $components_string =~ s{[\n\r\s;]*$}{}g;
+
+        say("DEBUG: Rule '$rule_name' components_string is now ->$components_string<-")
+            if $script_debug;
+
+        if ('' eq $components_string) {
+            say("DEBUG: Rule '$rule_name' components_string is empty.") if $script_debug;
+        }
+
+
+        # experiment begin
+        # my @component_strings = split (m{\|}, $components_string);
+        my @component_strings;
+        if ('' eq $components_string) {
+            # A setting to
+            #     { sleep 0.1 ; return undef } ;
+            # works nice (reduction of probably valueless CPU load).
+            # Thinkable disadvantage:
+            # In case the really working threads need in average less than 0.1s per query than we
+            # we increase the runtime required.
+            # But it should rather happen in the grammar simplifier and there for empty top level
+            # rules only.
+            #   if (   'query'   eq $rule_name
+            #       or 'threads' eq $rule_name) {
+            #       @component_strings = ( '{ sleep 0.1 ; return undef } ;' );
+            #   } else {
+                    # Without this setting perl aborts when executing the code of
+                    # lib/GenTest/Simplifier/Grammar_advanced.pm because of undef pointer or similar.
+                    @component_strings = ( '' );
+            #   }
+        } else {
+            @component_strings = split (m{\|}, $components_string);
+        }
+        # experiment end
         my @components;
         my %components;
 
         foreach my $component_string (@component_strings) {
-            # Remove leading whitespace
+            say("DEBUG: Rule '$rule_name' component_string initial ->$component_string<-")
+                if $script_debug;
+            # Remove leading and trailing whitespaces.
             $component_string =~ s{^\s+}{}sgio;
             $component_string =~ s{\s+$}{}sgio;
+            say("DEBUG: Rule '$rule_name' component_string after stripping whitespaces at begin " .
+                "and end ->$component_string<-") if $script_debug;
 
-            # Rempove repeating whitespaces
-            $component_string =~ s{\s+}{ }sgio;
+            if ('' eq $component_string) {
+                say("DEBUG: Rule '$rule_name' component_string is empty.") if $script_debug;
+            }
+
+            # Note:
+            # We cannot collapse repeating whitespaces to exact one like below because that will
+            # also mangle for example '    '.
+            # $component_string =~ s{\s+}{ }sgio;
+
 
             # Split this so that each identifier is separated from all syntax elements
             # The identifier can start with a lowercase letter or an underscore , plus quotes
@@ -349,7 +469,6 @@ sub parseFromString {
             $component_string =~ s{([_a-z0-9'"`\{\}\$\[\]]+)}{|$1|}sgio;
 
             # Revert overzealous splitting that splits things like _varchar(32) into several tokens
-
             $component_string =~ s{([a-z0-9_]+)\|\(\|(\d+)\|\)}{$1($2)|}sgo;
 
             # Remove leading and trailing pipes
@@ -369,9 +488,11 @@ sub parseFromString {
 
             if ((grep { $_ eq $rule_name } @component_parts) &&
                 (defined $grammar->[GRAMMAR_FLAGS] & GRAMMAR_FLAG_SKIP_RECURSIVE_RULES)) {
-                say("Skipping recursive production in rule '$rule_name'.") if rqg_debug();
+                say("DEBUG: Grammar::parseFromString: Skipping recursive production in rule " .
+                    "'$rule_name'.") if rqg_debug();
                 next;
             }
+
 
             #
             # If this grammar rule contains Perl code, assemble it between the various
@@ -381,20 +502,20 @@ sub parseFromString {
             #
 
             my $nesting_level = 0;
-            my $pos = 0;
+            my $pos           = 0;
             my $code_start;
 
             while (1) {
                 if (defined $component_parts[$pos]) {
                     if ($component_parts[$pos] =~ m{\{}so) {
-                        $code_start = $pos if $nesting_level == 0;    # Code segment starts here
+                        $code_start       = $pos if $nesting_level == 0;  # Code segment starts here
                         my $bracket_count = ($component_parts[$pos] =~ tr/{//);
-                        $nesting_level = $nesting_level + $bracket_count;
+                        $nesting_level    = $nesting_level + $bracket_count;
                     }
 
                     if ($component_parts[$pos] =~ m{\}}so) {
                         my $bracket_count = ($component_parts[$pos] =~ tr/}//);
-                        $nesting_level = $nesting_level - $bracket_count;
+                        $nesting_level    = $nesting_level - $bracket_count;
                         if ($nesting_level == 0) {
                             # Resemble the entire Perl code segment into a single string
                             splice(@component_parts, $code_start, ($pos - $code_start + 1) ,
@@ -456,12 +577,13 @@ sub top_rule_list {
 #   RQG tools calling this routine might have initiated RQG runs which are ongoing.
 #   So in case we abort here than we are unable to make some fast and perfect clean
 #   (kill processes, reap exit status, remove valueless files etc.) stop of that activity.
-#   Per experience with RQG over years the sloppy aborts at wrong places or often a disaster for
-#   successing tests.
+#   Per experience with RQG over years the sloppy aborts at wrong places via "croak" are often
+#   - a disaster for successing tests
+#   - a nightmare during analysis why the abort happened because "croak" gives too small info
 # - What is the ordering of the top level rules used for?
 #   Per experience over the last six years grammar simplification is faster if starting in the
 #   most frequent used rules.
-#   query
+#   query (or thread)
 #      Nearly all queries of threads which do not have their own top level rule thread<n>.
 #   thread<n>
 #      Nearly all queries of thread <n>
@@ -470,13 +592,14 @@ sub top_rule_list {
 #   thread<n>_connect
 #      Once per connect/reconnect of thread <n>
 #   query_init
-#      Once per RQG run of threads which do not have ...
+#      Once per RQG run of any thread having not his own thread<n>_init.
 #   thread<n>_init
 #      Once ...
-#   The ordering assumes what in average of many grammar is more efficient during simplification.
+#   The ordering assumes what in average for many grammars is more efficient during simplification.
 #   Most statements are generated via starting with 'query', ....
 #   Of course there could be some crashing generated in some other top level rule but that's in
 #   average serious less likely.
+# - GenTest/Grammar.pm does not "know" the number of threads to be used.
 #
 
     my $grammar = shift;
@@ -537,16 +660,16 @@ sub cloneRule {
     # Rule consists of
     # rule_name
     # pointer to array called components
-    #   An element of components is a pointer to an array of component_parts
+    #   An element of components is a pointer to an array of component_parts.
 
     my $components = $grammar->[GRAMMAR_RULES]->{$old_rule_name}->[1];
 
     my @new_components;
     for (my $idx=$#$components; $idx >= 0; $idx--) {
-        my $component = $components->[$idx];
+        my $component           = $components->[$idx];
         my @new_component_parts = @$component;
         # We go from the highest index to the lowest.
-        # So "push @new_components , \@new_component_parts ;" would give the wrong order
+        # So a "push @new_components , \@new_component_parts ;" would give the reverse order.
         unshift @new_components , \@new_component_parts ;
     }
 
