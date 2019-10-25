@@ -1872,7 +1872,6 @@ sub process_finished_runs {
         next if -1 != $worker_array[$worker_num][WORKER_PID];
         my $verdict  = $worker_array[$worker_num][WORKER_VERDICT];
         my $order_id = $worker_array[$worker_num][WORKER_ORDER_ID];
-        # if (defined $verdict) {
         if (defined $verdict) {
             # FIXME: Isn't that rather WORKER_PID == -1 ?
             # VERDICT_VALUE | State + reaction
@@ -1882,12 +1881,19 @@ sub process_finished_runs {
             # not defined   | RQG Worker is active or inactive
             #               | Nothing to do
             my ($status,$action);
+            my $total_runtime = $worker_array[$worker_num][WORKER_END] -
+                                $worker_array[$worker_num][WORKER_START];
+            if (not defined $total_runtime) {
+                # A RQG run died in Phase init -> Verdict will be init too.
+                # Real life example:
+                # I edited rqg.pl and made there a mistake in perl syntax.
+                $total_runtime = 0;
+            }
             my @result_record = (
                     $worker_array[$worker_num][WORKER_ORDER_ID],
                     $worker_array[$worker_num][WORKER_VERDICT],
                     $worker_array[$worker_num][WORKER_LOG],
-                    $worker_array[$worker_num][WORKER_END]
-                        - $worker_array[$worker_num][WORKER_START],
+                    $total_runtime,
                     $worker_array[$worker_num][WORKER_EXTRA1],
                     $worker_array[$worker_num][WORKER_EXTRA2],
                     $worker_array[$worker_num][WORKER_EXTRA3]
