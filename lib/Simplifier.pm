@@ -1115,7 +1115,7 @@ sub get_job {
                                                            # Child rvt_snip
                     $job[Batch::JOB_MEMO2]    = undef;     # undef or Parent grammar or
                                                            # Parent rvt_snip
-                    $job[Batch::JOB_MEMO3]    = undef;     # undef or Adapted duration
+                    $job[Batch::JOB_MEMO3]    = $duration; # We take the full duration!
                 } elsif (PHASE_RVT_SIMP eq $phase) {
                     my $option_to_attack = $order_array[$order_id][ORDER_PROPERTY2];
                     my $value_to_remove  = $order_array[$order_id][ORDER_PROPERTY3];
@@ -1135,7 +1135,7 @@ sub get_job {
                         $job[Batch::JOB_ORDER_ID] = $order_id;
                         $job[Batch::JOB_MEMO1]    = $cl_snip_step;
                         $job[Batch::JOB_MEMO2]    = $cl_snip_parent;
-                        $job[Batch::JOB_MEMO3]    = undef;
+                        $job[Batch::JOB_MEMO3]    = $duration; # We take the full duration!
                     }
                 } elsif (PHASE_GRAMMAR_SIMP eq $phase or
                          PHASE_GRAMMAR_DEST eq $phase   ) {
@@ -1666,7 +1666,8 @@ sub register_result {
                 # In case the reload_grammar above lets some rule disappear than we could
                 # stop all workers having some $order_id fiddling with the disappeared rule.
                 my @orders_in_work = Batch::get_orders_in_work;
-                say("DEBUG: orders currently in work: " . join(" - ", @orders_in_work));
+                say("DEBUG: orders currently in work: " . join(" - ", @orders_in_work))
+                    if Auxiliary::script_debug("S5");
                 foreach my $order_in_work (@orders_in_work) {
                     # In theory we should not need the next line.
                     next if $order_id == $order_in_work;
@@ -2062,13 +2063,13 @@ sub replay_runtime_adapt {
             $value = shift @desc_fifo;
         } elsif (DURATION_ADAPTION_EXP eq $duration_adaption) {
             # Lets assume the following:
-            # The per config assigned duration is 300s.
+            # The per config assigned duration is usually 300s.
             # The next derivate of the current parent grammar is either
             # A) capable to replay at all (*): 1 - z
             #    (*) Implies infinite number of attempts and endless runtime.
             # or
             # B) not capable to replay (**):       z
-            #    (**) And that applies no matter how often we try.
+            #    (**) And that applies no matter how often or long we try.
             # 0 <= z <= 1
             # Some more detail to A)
             # The likelihood that we replay with endless duration and attempts is 1 - x.
@@ -2103,8 +2104,8 @@ sub replay_runtime_adapt {
             # - the grammar is capable to replay but we have during the run already reached a state
             #   where a replay has become impossible
             #   Example:
-            #   Assert during DROP TABLE and the CREATE TABLE was already shrinked away.
-            #   In case the first DROP had luck and did not hit the assert than the game is over.
+            #   Assert during CREATE TABLE and the DROP TABLE was already shrinked away.
+            #   In case the first CREATE had luck and did not hit the assert than the game is over.
             # In both cases limiting the duration would give a speedup.
             # Of course the computed maximum duration could be more or less imperfect.
             # My hope is the following:
@@ -2221,7 +2222,8 @@ sub report_replay {
             # In case the reload_grammar above lets some rule disappear than we could
             # stop all workers having some $order_id fiddling with the disappeared rule.
             my @orders_in_work = Batch::get_orders_in_work;
-            say("DEBUG: orders currently in work: " . join(" - ", @orders_in_work));
+            say("DEBUG: orders currently in work: " . join(" - ", @orders_in_work))
+                if Auxiliary::script_debug("S5");
             foreach my $order_in_work (@orders_in_work) {
                 # Omit to stop our current Winner because he is most probably during archiving etc.
                 next if $order_id == $order_in_work;
