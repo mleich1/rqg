@@ -1684,28 +1684,28 @@ my $final_result   = STATUS_OK;
 # my $final_result = $gentest_result;
 #
 
-my $start_time = time();
 # The branch is just for the optics :-).
 if ($final_result == STATUS_OK) {
+    my $start_time = time();
     $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENDATA);
     $gentest_result = $gentest->doGenData();
     say("GenData returned status " . status2text($gentest_result) . " ($gentest_result)");
     $final_result = $gentest_result;
+    $message = "RQG GenData runtime in s : " . (time() - $start_time);
+    $summary .= "SUMMARY: $message\n";
+    say("INFO: " . $message);
 }
-my $gendata_end_time = time();
-$message = "RQG GenData runtime in s : " . (time() - $start_time);
-$summary .= "SUMMARY: $message\n";
-say("INFO: " . $message);
-$start_time = time();
-if ($gentest_result == STATUS_OK) {
+if ($final_result == STATUS_OK) {
+    my $start_time = time();
     $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENTEST);
     $gentest_result = $gentest->doGenTest();
     say("GenTest returned status " . status2text($gentest_result) . " ($gentest_result)");
     $final_result = $gentest_result;
+    $message = "RQG GenTest runtime in s : " . (time() - $start_time);
+    $summary .= "SUMMARY: $message\n";
+    say("INFO: " . $message);
 }
-$message = "RQG GenTest runtime in s : " . (time() - $start_time);
-$summary .= "SUMMARY: $message\n";
-say("INFO: " . $message);
+
 
 # If
 # - none of the GenTest work phases produced a failure
@@ -1713,7 +1713,7 @@ say("INFO: " . $message);
 # - the test goes with whatever kind of replication which could be synchronized
 # than compare the server dumps for any differences.
 
-if (($gentest_result == STATUS_OK)                       and
+if (($final_result == STATUS_OK)                         and
     ($number_of_servers > 1 or $number_of_servers == 0)  and # 0 is Galera
     (not defined $upgrade_test or $upgrade_test eq '')   and
     # FIXME: Couldn't some slightly modified $rplsrv->waitForSlaveSync solve that?
@@ -1808,6 +1808,11 @@ if (($gentest_result == STATUS_OK)                       and
 
 say("RESULT: The core of the RQG run ended with status " . status2text($final_result) .
     " ($final_result)");
+# FIXME:
+# If $final_result != STATUS_OK
+#     print all server error logs, stop all servers + cleanup + exit
+# and do not print any server error logs earlier except they would get later removed or ...
+
 my $ret = stopServers($final_result);
 if (STATUS_OK != $ret) {
     say("ERROR: Stopping the server(s) failed.");
@@ -1932,8 +1937,8 @@ $0 - Run a complete random query generation test, including server start with re
     --engine       : Table engine to use when creating tables with gendata (default no ENGINE in CREATE TABLE);
                      Different values can be provided to servers through --engine1 | --engine2 | --engine3
     --threads      : Number of threads to spawn (default $default_threads);
-    --queries      : Number of queries to execute per thread (default $default_queries);
-    --duration     : Duration of the test in seconds (default $default_duration seconds);
+    --queries      : Maximum number of queries to execute per thread (default $default_queries);
+    --duration     : Maximum duration of the test in seconds (default $default_duration seconds);
     --validators   : The validators to use
     --reporters    : The reporters to use
     --transformers : The transformers to use (turns on --validator=transformer). Accepts comma separated list
