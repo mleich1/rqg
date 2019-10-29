@@ -169,6 +169,9 @@ sub do_init {
 
     if (not $initialized ) {
 
+        # This handler for TERM is valid for all worker threads and the ErrorFilter.
+        # For debugging
+        # $SIG{TERM} = sub { say("DEBUG: $$ have just received TERM and will exit with exit status 0."); exit(0) };
         $SIG{TERM} = sub { exit(0) };
         $SIG{CHLD} = "IGNORE" if osWindows();
         $SIG{INT}  = "IGNORE";
@@ -442,7 +445,7 @@ sub doGenTest {
             if ($spawned_pid == $reporter_pid ) {
                $total_status_r = $child_exit_status if $child_exit_status > $total_status_r;
                say($message_begin . " for periodic reporter" . $message_end);
-               # There was only one reporter process. So we leave the loop.
+               # There is only exact one reporter process. So we leave the loop.
                $reporter_died = 1;
                say("DEBUG: GenTest: Therefore leaving the 'OUTER' loop.") if $debug_here;
                last OUTER;
@@ -464,10 +467,10 @@ sub doGenTest {
    # 2. What if a "Worker" has to report some bad status > current $total_status?
    #    Warning:
    #    There is a significant chance that this bad status is a sideeffect of the failure causing
-   #    a current bad $total_status.
+   #       a current bad $total_status.
    #    And than this bad status is frequent
-   #    - less accurate/detailed than a current bad $total_status
-   #    - higher than a current bad $total_status
+   #       - less accurate/detailed than a current bad $total_status
+   #       - higher than a current bad $total_status
    #    So in case we just take the maximum like usual than we destroy detail up to report a false
    #    status.
    foreach my $worker_pid (keys %worker_pids) {
@@ -476,7 +479,7 @@ sub doGenTest {
    }
 
    if ($reporter_died == 0) {
-      # Wait for periodic process to return the status of its last execution
+      # Wait for periodic process to return the status of its last execution.
       # FIXME:
       # 1. I have doubts if a sleep of 1 second is all time sufficient for catching a last status
       #    of some already ongoing execution. But otherwise: He had his chances before.
@@ -485,19 +488,20 @@ sub doGenTest {
       say("Killing periodic reporting process with pid $reporter_pid...");
       kill(15, $reporter_pid);
 
-      if (osWindows()) {
-         # We use sleep() + non-blocking waitpid() due to a bug in ActiveState Perl
-         Time::HiRes::sleep(1);
-         my $waitpid_return = waitpid($reporter_pid, &POSIX::WNOHANG() );
-         if (not defined $waitpid_return) {
-            waitpid($reporter_pid, &POSIX::WNOHANG() );
-         }
+      my $end_time = Time::HiRes::time() + 15;
+      while ($end_time > Time::HiRes::time()) {
+         my ($reaped, $reporter_status) = reapChild($reporter_pid, "Periodic reporting process");
+         if (0 == $reaped) {
+            if ($reporter_status > STATUS_OK) {
+                say("INTERNAL ERROR: Inconsistency that a reporter_status $reporter_status was " .
+                    "got though process [$reporter_pid] was not reaped.");
+                return STATUS_INTERNAL_ERROR;
       } else {
-         waitpid($reporter_pid, 0);
+                # Process is running
+                sleep(1);
+                next;
       }
-
-      if ($? > -1 ) {
-         my $reporter_status = $? > 0 ? $? >> 8 : 0;
+         } else {
          say("For pid $reporter_pid reporter status " . status2text($reporter_status));
          # FIXME: See also/join with reportResults
             # Some of the periodic reporters have capabilities to detect more precise than the
@@ -517,6 +521,8 @@ sub doGenTest {
          #   STATUS_ALARM or STATUS_ENVIRONMENT_FAILURE are often also real server crashes but
          #   they get their special treatment "look if its a real crash" in reportResults.
          $total_status = $reporter_status if $reporter_status > $total_status;
+            last;
+         }
       }
    }
 
@@ -614,6 +620,17 @@ sub reportResults {
        $total_status = STATUS_CRITICAL_FAILURE;
     }
 
+    # FIXME:
+    # Maybe check if the status is bad and if yes use logFilesToReport and dump all server error
+    # logs mentioned there instead of dumping error logs of all time present servers in reporters
+    # or similar.
+    # Advantage:
+    # - More information for bwlist search in the RQG log.
+    # - Less frequent duplicate information.
+    # Printing a lot in case of error should be ok but would be bad if having no error.
+    # Disadvantage:
+    # In case a test causes damage intentionally, the server laments from good reason but the
+    # lamenting is interpreted as unexpected bad effect than we get maybe false alarms.
 
     $self->reportXMLIncidents($total_status, \@report_results);
 
@@ -628,6 +645,12 @@ sub reportResults {
 }
 
 sub stopChild {
+# FIXME:
+# Correct the wording if time permits.
+# The parent process has sent the TERM signal to the current process.
+# And the current process has received that, calls the current sub and exits.
+#
+
     my ($self, $status) = @_;
 
     if (not defined $status) {
@@ -674,23 +697,43 @@ sub reportingProcess {
     Time::HiRes::sleep(($self->config->threads + 1) / 10);
     say("INFO: Periodic reporting process at begin of activity");
 
-    my $reporter_status= STATUS_OK;
+    my $previous_status = STATUS_OK;
+    my $status          = STATUS_OK;
     while (1) {
-        $reporter_status = $self->reporterManager()->monitor(REPORTER_TYPE_PERIODIC);
-        if ($reporter_status >= STATUS_CRITICAL_FAILURE) {
-            say("ERROR: Periodic reporting process: Critical status " .
-                status2text($reporter_status) . " got. Will exit with that.");
-            last;
-        }
+        $status = $self->reporterManager()->monitor(REPORTER_TYPE_PERIODIC);
+        # It looks as if sending TERM to the periodic reporting process is capable to affect
+        # what a reporter is currently doing and hereby the status finally reported.
+        # In case that is true than the status could be a false positive like most probably the
+        # following example observed 2019-10:
+        #   [338151] Killing periodic reporting process with pid 339348...
+        #   [339348] ERROR: Reporter 'Deadlock': The connect attempt to dsn ... failed:
+        #            Lost connection to MySQL server at 'waiting for initial communication packet'..
+        #   [339348] ERROR: Reporter 'Deadlock': Will return status 101.
+        #       IMHO STATUS_SERVER_DEADLOCKED would be also thinkable.
+        #   [339348] ERROR: Periodic reporting process: Critical status STATUS_SERVER_CRASHED got...
+        #   [339348] GenTest: child 339348 is being stopped with status STATUS_SERVER_CRASHED
+        #       The timespan between the messages is <= 1s.
+        #       But the server process was running and the server error log entries looked harmless.
+        # So we need to check $reporter_killed first and maybe return the previous status.
         if ($reporter_killed == 1) {
-            say("INFO: Periodic reporting process: Signal TERM received. " .
-                "Will exit with status " . status2text($reporter_status));
+            $status = $previous_status;
+            say("INFO: Periodic reporting process: Signal TERM received. Status of last reporter " .
+                "might be invalid. Will exit with previous status " . status2text($status));
             last;
+        } else {
+            if ($status >= STATUS_CRITICAL_FAILURE) {
+                say("ERROR: Periodic reporting process: Critical status " .
+                    status2text($status) . " got. Will exit with that.");
+                last;
+            } else {
+                # The reporter will have already reported the problem if any.
+                $previous_status = $status;
+            }
         }
         sleep(10);
     }
 
-    $self->stopChild($reporter_status);
+    $self->stopChild($status);
 }
 
 sub workerProcess {
