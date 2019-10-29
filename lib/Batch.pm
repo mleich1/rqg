@@ -450,54 +450,124 @@ sub stop_workers {
     }
 }
 
+# Several stop_worker variants used by the simplifier for optimization
+#
+# report_replay (archive if enabled has not yet arrived)
+# 1. A winner was found
+# 1.1 stop all worker with same order_id except verdict in (replay, interest) via
+#     stop_worker_on_order_except and mark the corresponding order_id invalid
+# 1.2 stop all worker with some order_id affecting some now disappeared rule except
+#     verdict in (interest) via stop_worker_on_order_except + stop_worker_on_order_replayer
+#     and mark the corresponding order_id invalid
+# 1.3 stop all worker in a phase up till including some assigned early phase
+# 2. Something else showed up
+#    Do nothing
+#
+# register_result (archive if enabled has arrived)
+# 1. A winner was found
+# 1.1 stop all worker with same order_id except verdict in (interest) via
+#     stop_worker_on_order_except + stop_worker_on_order_replayer
+#     and mark the corresponding order_id invalid
+# 1.2 stop all worker with some order_id affecting some now disappeared rule except
+#     verdict in (interest) via stop_worker_on_order_except + stop_worker_on_order_replayer
+#     and mark the corresponding order_id invalid
+# 2. Something else showed up
+# 2.1 stop all worker with some order_id and actual efforts invested >= $trials
+#     except verdict in (replay,interest) via stop_worker_on_order_except
+#     and ???drop the order_id???
+#
 # Use cases
 # 1. Register_result detects a first replayer --> grammar reload -> save stuff -> add_to_try_never
-#    All workers running a job based on that order_id should be stopped.
+#    All workers running a job based on that order_id should be stopped except interest was reached.
+#    stop all worker in a phase up till including some assigned phase
 # 2. Register_result detects a finished job being not a replayer + actual efforts invested >= $trials
-#    All workers running a job based on that order_id should be stopped.
-sub stop_worker_on_order {
-    my ($order_id) = @_;
+#    All workers running a job based on that order_id should be stopped. ????
 
-    check_order_id($order_id);
-    Carp::cluck("DEBUG: Try to stop RQG worker with orderid $order_id begin.")
-        if Auxiliary::script_debug("T6");
-    for my $worker_num (1..$workers_max) {
-        # Omit not running workers
-        next if -1 == $worker_array[$worker_num][WORKER_PID];
-        # Omit workers with other order_id
-        next if $order_id != $worker_array[$worker_num][WORKER_ORDER_ID];
-        stop_worker($worker_num, STOP_REASON_WORK_FLOW);
-    }
-    say("DEBUG: Try to stop RQG worker with orderid $order_id end.")
-        if Auxiliary::script_debug("T6");
-}
-
-sub stop_worker_on_order_except_replayer {
+sub stop_worker_on_order_except {
     my ($order_id) = @_;
 
     check_order_id($order_id);
     Carp::cluck("DEBUG: Try to stop nonreplaying RQG worker with orderid $order_id begin.")
         if Auxiliary::script_debug("T6");
+    my $stop_count = 0;
     for my $worker_num (1..$workers_max) {
         # Omit not running workers
         next if -1 == $worker_array[$worker_num][WORKER_PID];
         # Omit workers with other order_id
         next if $order_id != $worker_array[$worker_num][WORKER_ORDER_ID];
-        # Omit the worker which replayed
+        # Omit any worker which replayed and is maybe during archiving
         next if defined $worker_array[$worker_num][WORKER_VERDICT] and
                 Verdict::RQG_VERDICT_REPLAY eq $worker_array[$worker_num][WORKER_VERDICT];
+        # Omit any worker which reached something of interest and is maybe during archiving.
+        next if defined $worker_array[$worker_num][WORKER_VERDICT] and
+                Verdict::RQG_VERDICT_INTEREST eq $worker_array[$worker_num][WORKER_VERDICT];
         stop_worker($worker_num, STOP_REASON_WORK_FLOW);
+        $stop_count++;
     }
-    say("DEBUG: Try to stop nonreplaying RQG worker with orderid $order_id end.")
-        if Auxiliary::script_debug("T6");
+    say("DEBUG: Batch::stop_worker_on_order_except: $stop_count RQG worker running with orderid " .
+        "$order_id stopped.") if Auxiliary::script_debug("T6");
+    return $stop_count;
 }
 
-# # Stop all jobs with that order_id and same or more older grammar
+sub stop_worker_on_order_replayer {
+# To be used in Simplifier::register_result only.
+    my ($order_id) = @_;
 
-sub stop_worker_young_till_phase {
+    check_order_id($order_id);
+    Carp::cluck("DEBUG: Try to stop replaying RQG worker with orderid $order_id begin.")
+        if Auxiliary::script_debug("T6");
+    my $stop_count = 0;
+    for my $worker_num (1..$workers_max) {
+        # Omit not running workers
+        next if -1 == $worker_array[$worker_num][WORKER_PID];
+        # Omit workers with other order_id
+        next if $order_id != $worker_array[$worker_num][WORKER_ORDER_ID];
+        # Omit any worker which did not replay.
+        next if defined $worker_array[$worker_num][WORKER_VERDICT] and
+                Verdict::RQG_VERDICT_REPLAY ne $worker_array[$worker_num][WORKER_VERDICT];
+        stop_worker($worker_num, STOP_REASON_WORK_FLOW);
+        $stop_count++;
+    }
+    say("DEBUG: Batch::stop_worker_on_order_replayer: $stop_count replaying RQG worker running " .
+        "with orderid $order_id stopped.") if Auxiliary::script_debug("T6");
+    return $stop_count;
+}
+
+sub stop_worker_oldest {
+    # To be used only once.  Simplifier::report_replay
+    my $stop_count = 0;
+    my $oldest_worker_num     = -1;
+    my $oldest_worker_runtime = -1;
+    my $current_time = Time::HiRes::time();
+    for my $worker_num (1..$workers_max) {
+        # Omit not running workers
+        next if -1 == $worker_array[$worker_num][WORKER_PID];
+        # Omit any worker which replayed and is maybe during archiving
+        next if defined $worker_array[$worker_num][WORKER_VERDICT] and
+                Verdict::RQG_VERDICT_REPLAY eq $worker_array[$worker_num][WORKER_VERDICT];
+        # Omit any worker which reached something of interest and is maybe during archiving
+        next if defined $worker_array[$worker_num][WORKER_VERDICT] and
+                Verdict::RQG_VERDICT_INTEREST eq $worker_array[$worker_num][WORKER_VERDICT];
+        my $elapsed_runtime = $current_time - $worker_array[$worker_num][WORKER_START];
+        if ($elapsed_runtime > $oldest_worker_runtime) {
+            $oldest_worker_runtime = $elapsed_runtime;
+            $oldest_worker_num     = $worker_num;
+        }
+    }
+    if ($oldest_worker_num != -1) {
+        stop_worker($oldest_worker_num, STOP_REASON_WORK_FLOW);
+        $stop_count++;
+    }
+    say("DEBUG: Batch::stop_worker_oldest: $stop_count long running RQG worker with verdict " .
+        "not yet in (replay,interest) stopped.") if Auxiliary::script_debug("T6");
+    return $stop_count;
+}
+
+
+sub stop_worker_till_phase {
 # Purpose
 # -------
-# This gets used by the Simplifier only!
+# Used by simplier and others.
 # In case some RQG run using a derivate (according to order properties) of the current parent
 # grammar replayed the desired outcome than
 # - the derivate grammar gets loaded and some new parent grammar gets constructed
@@ -529,21 +599,29 @@ sub stop_worker_young_till_phase {
             } else {
                 my $allowed_list_ptr = Auxiliary::RQG_PHASE_ALLOWED_VALUE_LIST;
                 my @phase_list = @{$allowed_list_ptr};
-                my $phase_from_list = pop @phase_list;
+                # say("DEBUG: phase_list " . join("-", @phase_list));
+                my $phase_from_list = shift @phase_list;
+                # @phase_list is sorted according to work flow.
                 while (defined $phase_from_list) {
-                    if ($phase_from_list eq $phase and $rqg_phase eq $phase) {
+                    # DO NOT USE "next" because than the "$phase_from_list = shift @phase_list"
+                    # would be missing.
+                    if ($phase_from_list eq $rqg_phase) {
+                        my $order_id = $worker_array[$worker_num][WORKER_ORDER_ID];
                         stop_worker($worker_num, $reason);
                         $stop_count++;
-                        say("DEBUG: Stopped young RQG worker $worker_num")
-                             if Auxiliary::script_debug("T6");
+                        say("DEBUG: Stopped young RQG worker $worker_num using order_id " .
+                            "$order_id because being in phase $rqg_phase.") if Auxiliary::script_debug("T6");
                     }
-                    $phase_from_list = pop @phase_list;
+                    if ($phase_from_list eq $phase) {
+                        last;
                 }
+                    $phase_from_list = shift @phase_list;
             }
         }
     }
-    say("DEBUG: Batch::stop_worker_young: Number of RQG workers with phase <= '$phase' stopped: " .
-        "$stop_count") if Auxiliary::script_debug("T6");
+    }
+    say("DEBUG: Batch::stop_worker_young: $stop_count RQG workers with phase <= '$phase' stopped.")
+        if Auxiliary::script_debug("T6");
     return $stop_count;
 }
 
@@ -734,9 +812,8 @@ sub check_resources {
                 adjust_workers_range;
             }
             my $current_active_workers = $active_workers;
-            if (0 == stop_worker_young_till_phase(Auxiliary::RQG_PHASE_PREPARE,
-                                                             STOP_REASON_RESOURCE) ) {
-                # stop_worker_young_till_phase brought nothing.
+            if (0 == stop_worker_till_phase(Auxiliary::RQG_PHASE_PREPARE, STOP_REASON_RESOURCE) ) {
+                # stop_worker_till_phase brought nothing.
                 # So stop the youngest of the remaining RQG workers.
                 my $worker_start  = 0;
                 my $worker_number = 0;
@@ -1675,7 +1752,7 @@ sub add_to_try_never {
     #   All RQG runner working on the same order could be stopped.
     #   In case its grammar B is not based on the current parent grammar Y than it could have
     #   been a "Winner" already processed by "report_replay" or its a replayer without luck.
-    # So it we cannot run a     stop_worker_on_order($order_id);    here.
+    # So it we cannot run a     stop_worker_on_order_...($order_id);    here.
     say("DEBUG: Batch::add_to_try_never: $order_id added to \%try_never_hash.")
         if Auxiliary::script_debug("B5");
     # @try_queue does not get touched.

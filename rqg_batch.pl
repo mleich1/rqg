@@ -859,7 +859,9 @@ while($Batch::give_up <= 1) {
                 # Observation: 2018-08 10s were not sufficient on some box.
                 my $max_waittime  = 30;
                 my $waittime_unit = 0.1;
-                my $end_waittime  = Time::HiRes::time() + $max_waittime;
+                my $start_time    = Time::HiRes::time();
+                my $end_waittime  = $start_time + $max_waittime;
+                my $measure_time  = $start_time + 2;
                 my $phase         = Auxiliary::get_rqg_phase($rqg_workdir);
                 my $message       = '';
                 if (not defined $phase) {
@@ -867,23 +869,28 @@ while($Batch::give_up <= 1) {
                     $message = "ERROR: Problem to determine the work phase of " .
                                "the just started $workerspec.";
                 } else {
-                    while(Time::HiRes::time() < $end_waittime and
-                          $phase eq Auxiliary::RQG_PHASE_INIT)   {
+                    while(time() < $end_waittime) {
+                        $phase = Auxiliary::get_rqg_phase($rqg_workdir);
+                        last if $phase ne Auxiliary::RQG_PHASE_INIT;
+
                         # 1. The user created $exit_file for signalling rqg_batch.pl it should stop.
                         Batch::check_exit_file($exit_file);
                         last if $Batch::give_up > 1;
                         # 2. The assigned max_runtime is exceeded.
                         Batch::check_runtime_exceeded($batch_end_time);
                         last if $Batch::give_up > 1;
+
+                        if (Time::HiRes::time() > $measure_time) {
                         # 3. Resource problem is ahead.
                         my $delay_start = Batch::check_resources();
                         last if $Batch::give_up > 1;
-                        # Note: We might have stopped the just started worker.
-
+                            # Note: We might have to stop the just started worker.
+                            $measure_time  = Time::HiRes::time() + 2;
+                        } else {
                         Time::HiRes::sleep($waittime_unit);
-                        $phase = Auxiliary::get_rqg_phase($rqg_workdir);
                     }
-                    # last if $Batch::give_up > 1 above send us to here.
+                    }
+                    # last if $Batch::give_up > 1 above might have send us to here.
                     last if $Batch::give_up > 1;
                     if (Time::HiRes::time() > $end_waittime) {
                         $message = "Waitet >= $max_waittime" . "s for the just started " .
@@ -899,7 +906,7 @@ while($Batch::give_up <= 1) {
                     } else {
                         # There seems to be more load than we are willing to handle.
                         say("INFO: $message");
-                        Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_PREPARE,
+                        Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_PREPARE,
                                                             Batch::STOP_REASON_RESOURCE);
                         Batch::adjust_workers_range;
                     }
@@ -985,7 +992,7 @@ while($Batch::give_up <= 1) {
     # ResourceControl should take care that reasonable big delays between starts are made.
     # This is completely handled in Batch::check_resources.
     # So the 0.3 here serves only for preventing a too busy rqg_batch.
-      sleep 0.1;
+    # sleep 0.1;
 
 } # End of while($Batch::give_up <= 1) loop with search for a free RQG runner and a job + starting it.
 

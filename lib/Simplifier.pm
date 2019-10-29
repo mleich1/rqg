@@ -27,7 +27,7 @@ package Simplifier;
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2018, MariaDB Corporation Ab.
 #
-# The amount of parameters (call line + config file) is in the moment
+# The amount of parameters (call of init by rqg_batch.pl + config file) is in the moment
 # not that stable.
 #
 
@@ -58,7 +58,7 @@ my $phase        = '';
 my $phase_switch = 0;
 # Pointer to the assigned chain of simplification phases.
 my $simplify_chain;
-# The actual chain of simplification phases.
+# The actual chain (== what is left over of the original chain) of simplification phases.
 my @simp_chain;
 #
 #
@@ -93,7 +93,7 @@ my $rvt_simp_success       = -1;
 #     No risk to change the semantics of the test and than maybe harvesting false positives.
 #   - Disadvantage
 #     In case of bad effects where this risk does not exist, a typical example are asserts
-#     caused by concurrent activitity, some maybe a bot slower simplification speed.
+#     caused by concurrent activitity, some maybe a bit slower simplification speed.
 use constant PHASE_GRAMMAR_SIMP     => 'grammar_simp';
 # - without avoiding to destroy rules.
 #   == Trying to replace the last component of a rule by an empty string is allowed like in
@@ -552,8 +552,8 @@ sub init {
     #   'discard-logs'              => \$discard_logs,          # Swallowed and handled by rqg_batch
     #   'script_debug=s'            => \$script_debug,          # Swallowed and handled by rqg_batch
     #   'runid:i'                   => \$runid,                 # No use here
-        'simplify_chain:s'          => \$simplify_chain,        # For grammar simplifier only.
-        'algorithm:s'               => \$algorithm,             # For grammar simplifier only.
+        'simplify_chain:s'          => \$simplify_chain,        # For Simplifier only.
+        'algorithm:s'               => \$algorithm,             # For Simplifier only.
                                                        )) {
         # Somehow wrong option.
         # help();
@@ -1002,7 +1002,7 @@ sub init {
     # ...  analyze_all_rules(); -- Maintains counter except weight and removes unused rules
     # ...  compact_grammar();   -- collapseComponents (unique) and moderate inlining
     $grammar_string = GenTest::Simplifier::Grammar_advanced::init($grammar_file, $threads,
-                                                                  10, $grammar_flags);
+                                                                  20, $grammar_flags);
     # Aborts if
     # - $grammar_string is not defined
     # - creation of parent grammar file fails
@@ -1048,6 +1048,7 @@ sub init {
                     Verdict::black_white_lists_to_config_snip('cl');
 
     replay_runtime_fifo_init(10, $duration);
+    estimate_runtime_fifo_init(20, $duration);
 
     $phase        = shift @simp_chain;
     $phase_switch = 1;
@@ -1528,10 +1529,17 @@ sub register_result {
 
     $arrival_number = 1 if not defined $arrival_number;
 
-    # 0. In case of a replay we need to pull information which is not part of the routine
-    #    parameters but contained around end of the RQG run log.
-    my $gentest_runtime;
+    if (defined $adapted_duration and $adapted_duration =~ /^[0-9]+$/) {
+        # Do nothing.
+    } else {
+        say("WARN: No valid adapted duration of the test found. Use duration $duration instead.");
+        $adapted_duration = $duration;
+    }
+
     if ($verdict eq Verdict::RQG_VERDICT_REPLAY) {
+        # In case of a replay we need to pull information which is not part of the routine
+        # parameters but contained around end of the RQG run log.
+        my $gentest_runtime;
         # 2019-01-11T18:44:45 [21041] INFO: GenTest: Effective duration in s : 193
         # 2018-11-19T16:16:19 [19309] SUMMARY: RQG GenData runtime in s : 0
         # 2018-11-19T16:16:19 [19309] SUMMARY: RQG GenTest runtime in s : 31
@@ -1540,18 +1548,33 @@ sub register_result {
         my $logfile = $workdir . "/" . $saved_log_rel;
         $gentest_runtime = Batch::get_string_after_pattern($logfile,
                                "INFO: GenTest: Effective duration in s : ");
-        if (not defined $gentest_runtime) {
+        if (defined $gentest_runtime and $gentest_runtime =~ /^[0-9]+$/) {
+            # Do nothing.
+        } else {
+            # No valid YY grammar processing runtime found. Use the bigger GenTest runtime instead.
             $gentest_runtime = Batch::get_string_after_pattern($logfile,
                                    "SUMMARY: RQG GenTest runtime in s : ");
+            if (defined $gentest_runtime and $gentest_runtime =~ /^[0-9]+$/) {
+                # Do nothing.
+            } else {
+                say("WARN: No valid GenTest runtime found. Use duration $duration instead.");
+                $gentest_runtime = $duration;
+            }
         }
         replay_runtime_fifo_update($gentest_runtime);
-        say("DEBUG: Replayer with orderid : $order_id needed gentest_runtime : $gentest_runtime")
-            if Auxiliary::script_debug("S5");
+        estimate_runtime_fifo_update($gentest_runtime);
+    } elsif ($verdict eq Verdict::RQG_VERDICT_IGNORE_STATUS_OK) {
+        # Basically speculate: 1s more might have helped to replay.
+        estimate_runtime_fifo_update($adapted_duration + 1);
+    } else {
+        # Do nothing because runs
+        # - hitting a blacklist error
+        # - getting killed because of technical reasons
+        # do not count at all.
     }
 
     $grammar_used     = '<undef>' if not defined $grammar_used;
     $grammar_parent   = '<undef>' if not defined $grammar_parent;
-    $adapted_duration = '<undef>' if not defined $adapted_duration;
 
     # 1. Bookkeeping
     my $iso_ts = isoTimestamp();
@@ -1626,14 +1649,13 @@ sub register_result {
             Batch::add_to_try_never($order_id);
             $return = Batch::REGISTER_SOME_STOPPED;
         } elsif (PHASE_RVT_SIMP eq $phase) {
+            # FIXME: Compare stop_worker* use to PHASE_GRAMMAR_SIMP.
             my $rvt_now = get_shrinked_rvt_options(undef, undef, 0);
             if ($grammar_parent eq $rvt_now) {
                 # Its a first replayer based on the current parent rvt options.
-                # add_to_try_never stops all running RQG Worker using that order_id.
-                my $stop_count = Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_GENDATA,
-                                                    Batch::STOP_REASON_WORK_FLOW);
-                Batch::stop_worker_on_order($order_id);
-                Batch::add_to_try_never($order_id);
+                my $stop_count = Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA,
+                                                               Batch::STOP_REASON_WORK_FLOW);
+                Batch::stop_worker_on_order_except($order_id);
                 my $rvt_options = get_shrinked_rvt_options($order_array[$order_id][ORDER_PROPERTY2],
                                          $order_array[$order_id][ORDER_PROPERTY3], 1);
                 if (not defined $rvt_options) {
@@ -1641,6 +1663,9 @@ sub register_result {
                     my $status = STATUS_INTERNAL_ERROR;
                     Batch::emergency_exit($status);
                 }
+                # Another replayer with the same order_id is no more needed.
+                Batch::stop_worker_on_order_replayer($order_id);
+                Batch::add_to_try_never($order_id);
                 $simp_success     = 1;
                 $rvt_simp_success = 1;
                 $return           = Batch::REGISTER_GO_ON;
@@ -1655,14 +1680,18 @@ sub register_result {
         } elsif (PHASE_GRAMMAR_SIMP eq $phase or
                  PHASE_GRAMMAR_DEST eq $phase   ) {
             if ($grammar_parent eq $parent_grammar) {
-                # Its a first replayer based on the current parent grammar.
+                # Its a first replayer == Winner based on the current parent grammar.
+
+                my $stop_count = Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA,
+                                                               Batch::STOP_REASON_WORK_FLOW);
+                Batch::stop_worker_on_order_except($order_id);
                 reload_grammar($grammar_used);
                 my $source = $workdir . "/" . $grammar_used;
                 Batch::copy_file($source, $target);
-                my $stop_count = Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_GENDATA,
-                                                    Batch::STOP_REASON_WORK_FLOW);
-                Batch::stop_worker_on_order($order_id);
+                # Other replayer with the same order_id are no more of interest.
+                Batch::stop_worker_on_order_replayer($order_id);
                 Batch::add_to_try_never($order_id);
+
                 # In case the reload_grammar above lets some rule disappear than we could
                 # stop all workers having some $order_id fiddling with the disappeared rule.
                 my @orders_in_work = Batch::get_orders_in_work;
@@ -1670,7 +1699,7 @@ sub register_result {
                     if Auxiliary::script_debug("S5");
                 foreach my $order_in_work (@orders_in_work) {
                     # In theory we should not need the next line.
-                    next if $order_id == $order_in_work;
+                    next if $order_id == $order_in_work; # Maybe archiving with verdict interest.
                     my $rule_name = $order_array[$order_in_work][ORDER_PROPERTY2];
                     if (not defined $rule_name) {
                         say("INTERNAL ERROR: Processing the orders in work rule_name is not " .
@@ -1691,7 +1720,10 @@ sub register_result {
                         say("DEBUG: Rule '$rule_name' occuring in order_id $order_in_work does " .
                             "no more exist but is currently under attack. Will stop all RQG " .
                             "Workers using that order.") if Auxiliary::script_debug("S5");
-                        Batch::stop_worker_on_order($order_in_work);
+                        Batch::stop_worker_on_order_except($order_in_work);
+                        # Even some replayer is no more of interest.
+                        Batch::stop_worker_on_order_replayer($order_in_work);
+                        Batch::add_to_try_never($order_in_work);
                     }
                 }
                 $simp_success           = 1;
@@ -1723,9 +1755,8 @@ sub register_result {
                 "efforts_invested($efforts_invested), " .
                 "efforts_left_over(" . $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER] .
                 ") --> Stop using that order.") if Auxiliary::script_debug("S4");
-            # add_to_try_exhausted stops all running RQG Worker using that order_id.
+            Batch::stop_worker_on_order_except($order_id);
             Batch::add_to_try_exhausted($order_id);
-            Batch::stop_worker_on_order($order_id);
             $return = Batch::REGISTER_GO_ON;
         } else {
             if ($verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST) {
@@ -2002,10 +2033,12 @@ sub switch_phase {
 } # End of sub switch_phase
 
 
-my @replay_runtime_fifo;
 # - The value for duration finally assigned to some RQG run will be all time <= $duration.
 # - In case the assigned duration is finally the deciding delimiter than it is expected that
 #   the measured gentest runtime is slightly bigger than that assigned duration.
+# ------------------------------------------------------------------------------------------
+# Keep the runtime of replaying tests
+my @replay_runtime_fifo;
 sub replay_runtime_fifo_init {
     my ($elements) = @_;
     # In order to have simple code and a smooth queue of computed values we precharge with the
@@ -2014,24 +2047,86 @@ sub replay_runtime_fifo_init {
         $replay_runtime_fifo[$num] = $duration;
     }
 }
+# Keep the a manipulated runtime of not replaying tests
+my @estimate_runtime_fifo;
+sub estimate_runtime_fifo_init {
+    my ($elements) = @_;
+    # In order to have simple code and a smooth queue of computed values we precharge with the
+    # duration (assigned/calculated during init).
+    for my $num (0..($elements - 1)) {
+        $estimate_runtime_fifo[$num] = $duration;
+    }
+}
+
+sub limit_with_duration {
+    my ($value) = @_;
+    if ($value <= $duration) {
+        return $value;
+    } else {
+        return $duration;
+    }
+}
 
 sub replay_runtime_fifo_update {
     my ($value) = @_;
 
     shift @replay_runtime_fifo;
-    if ($value <= $duration) {
-        push @replay_runtime_fifo, $value;
-    } else {
-        push @replay_runtime_fifo, $duration;
-    }
+    $value = limit_with_duration($value);
+    push @replay_runtime_fifo, $value;
+    say("DEBUG: Update of replay runtime fifo with $value") if Auxiliary::script_debug("S4");
     replay_runtime_fifo_print();
 }
 
+sub estimate_runtime_fifo_update {
+    my ($value) = @_;
+
+    shift @estimate_runtime_fifo;
+    $value = limit_with_duration($value);
+    push @estimate_runtime_fifo, $value;
+    say("DEBUG: Update of estimate runtime fifo with $value") if Auxiliary::script_debug("S4");
+    estimate_runtime_fifo_print();
+}
+
 sub replay_runtime_fifo_print {
-    my $adapted_duration = replay_runtime_adapt();
-    say("DEBUG: Adapted duration : $adapted_duration , replay_runtime_fifo : " .
+    say("DEBUG: replay_runtime_fifo : " .
         join(" ", @replay_runtime_fifo)) if Auxiliary::script_debug("S5");
 }
+
+sub estimate_runtime_fifo_print {
+    say("DEBUG: estimate_runtime_fifo : " .
+        join(" ", @estimate_runtime_fifo)) if Auxiliary::script_debug("S5");
+}
+
+sub estimation {
+    my (@fifo) = @_;
+
+    my $num_samples = scalar @fifo;
+
+    my $single_sum  = 0;
+    foreach my $val (@fifo) {
+        $single_sum += $val;
+    }
+    my $mean =            $single_sum / $num_samples;
+    my $quadrat_dev_sum = 0;
+    foreach my $val (@fifo) {
+        my $single_dev = $val - $mean;
+        $quadrat_dev_sum += $single_dev * $single_dev;
+    }
+    my $std_dev    = sqrt($quadrat_dev_sum / ($num_samples - 1));
+
+    # >= 95% of all values should occur within 0 till $mean + $value.
+    # With increasing number of fifo elements the factor (2.26 for 10 elements) goes towards 2.
+    my $confidence = $std_dev * 2.26 / sqrt($num_samples);
+    my $value =      int($mean + $confidence);
+
+    say("DEBUG: num_samples($num_samples), mean($mean), confidence($confidence), " .
+        "value($value)") if Auxiliary::script_debug("S4");
+    return $mean, $value;
+}
+
+
+
+
 
 sub replay_runtime_adapt {
 # Purpose
@@ -2114,29 +2209,23 @@ sub replay_runtime_adapt {
             # - DURATION_ADAPTION_EXP shows compared to DURATION_ADAPTION_MAX
             #   - a more smooth adaptation with less drastic jumps
             #   - some more aggressive adaptation --> in average better speedup but without
-            my $num_samples = scalar @replay_runtime_fifo;
-
-            my $single_sum  = 0;
-            foreach my $val (@replay_runtime_fifo) {
-                $single_sum  += $val;
-            }
-            my $mean = $single_sum / $num_samples;
-            my $quadrat_dev_sum = 0;
-            foreach my $val (@replay_runtime_fifo) {
-                my $single_dev = $val - $mean;
-                $quadrat_dev_sum += $single_dev * $single_dev;
-            }
-            my $std_dev = sqrt($quadrat_dev_sum / ($num_samples - 1));
-            # >= 95% of all values should occur within 0 till $mean + $value_e.
-            my $confidence = $std_dev * 2.26 / sqrt($num_samples);
-            my $value_e = int($mean + $confidence);
-            if ($value_e > $duration) {
+            my ($r_mean, $r_value) = estimation(@replay_runtime_fifo);
+            my ($e_mean, $e_value) = estimation(@estimate_runtime_fifo);
+            if ($r_value > $duration) {
                 $value = $duration;
+            } elsif ($r_value > $e_mean) {
+                $value = $r_value;
             } else {
-                $value = $value_e;
+                $value = int (($r_value * 2 + $e_mean) / 3);
             }
-            say("DEBUG: num_samples($num_samples), mean($mean), confidence($confidence), " .
-                "value_e($value_e), value($value)") if Auxiliary::script_debug("S4");
+            replay_runtime_fifo_print();
+            estimate_runtime_fifo_print();
+            say("DEBUG: Replayer   duration fifo (r_mean, r_value) == ($r_mean, $r_value)\n" .
+                "DEBUG: Speculativ duration fifo (e_mean, e_value) == ($e_mean, $e_value)\n" .
+                "DEBUG: Adapted duration guessed: $value") if Auxiliary::script_debug("S4");
+         #  if ($value < 30) {
+         #      $value = 30;
+         #  }
         } else {
             my $status = STATUS_INTERNAL_ERROR;
             Carp::cluck("INTERNAL ERROR: replay_runtime_adapt : The duration_adaption " .
@@ -2208,17 +2297,22 @@ sub report_replay {
     if (PHASE_GRAMMAR_SIMP eq $phase or
         PHASE_GRAMMAR_DEST eq $phase   ) {
         if ($parent_grammar eq $replay_grammar_parent) {
-            # The grammar used is a child of the current parent grammar and that means
-            # its a first winner (!= a winner with outdated grammar).
+            # Its a first replayer == Winner based on the current parent grammar.
+
+            # After reloading the grammar of the winner we get a new parent grammar.
+            # Hereby all already running worker do something based on an outdated parent grammar.
+            # Stop all where not much efforts were already invested.
+            my $stop_count = Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA,
+                                                           Batch::STOP_REASON_WORK_FLOW);
+            # Stop all worker with same order_id except verdict in (interest, replay).
+            Batch::stop_worker_on_order_except($order_id);
+
             my $source = $workdir . "/" . $replay_grammar;
             my $target = $workdir . "/" . $best_grammar;
             Batch::copy_file($source, $target);
-            # This means the child grammar used should become the base of the next parent grammar.
             reload_grammar($replay_grammar);
-            my $stop_count = Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_GENDATA,
-                                                Batch::STOP_REASON_WORK_FLOW);
-            Batch::stop_worker_on_order_except_replayer($order_id);
             Batch::add_to_try_never($order_id);
+
             # In case the reload_grammar above lets some rule disappear than we could
             # stop all workers having some $order_id fiddling with the disappeared rule.
             my @orders_in_work = Batch::get_orders_in_work;
@@ -2247,9 +2341,18 @@ sub report_replay {
                     say("DEBUG: Rule '$rule_name' occuring in order_id $order_in_work does " .
                         "no more exist but is currently under attack. Will stop all RQG " .
                         "Workers using that order.") if Auxiliary::script_debug("S5");
-                    Batch::stop_worker_on_order($order_in_work);
+                    # Stop all worker with same order_id except verdict in (interest, replay).
+                    Batch::stop_worker_on_order_except($order_in_work);
+                    # Even some replayer is no more of interest.
+                    Batch::stop_worker_on_order_replayer($order_in_work);
+                    Batch::add_to_try_never($order_in_work);
                 }
             }
+
+            # In order to "make room" stop the longest running worker with verdict not yet
+            # in (interest, replay).
+            Batch::stop_worker_oldest();
+
             $grammar_simp_success = 1;
             $simp_success = 1;
         } else {
@@ -2269,9 +2372,9 @@ sub report_replay {
                 my $status = STATUS_INTERNAL_ERROR;
                 Batch::emergency_exit($status);
             }
-            my $stop_count = Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_GENDATA,
-                                                Batch::STOP_REASON_WORK_FLOW);
-            Batch::stop_worker_on_order_except_replayer($order_id);
+            my $stop_count = Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA,
+                                                           Batch::STOP_REASON_WORK_FLOW);
+            Batch::stop_worker_on_order_except($order_id);
             Batch::add_to_try_never($order_id);
             $rvt_simp_success = 1;
             $simp_success = 1;
@@ -2281,13 +2384,14 @@ sub report_replay {
         }
     } else {
         # Its a phase where the end is near like FIRST_REPLAY.
-        my $stop_count = Batch::stop_worker_young_till_phase(Auxiliary::RQG_PHASE_GENDATA,
-                                            Batch::STOP_REASON_WORK_FLOW);
-        Batch::stop_worker_on_order_except_replayer($order_id);
+        my $stop_count = Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA,
+                                                       Batch::STOP_REASON_WORK_FLOW);
+        Batch::stop_worker_on_order_except($order_id);
         Batch::add_to_try_never($order_id);
     }
     return $response;
 } # End sub report_replay
+
 
 sub load_grammar {
 
