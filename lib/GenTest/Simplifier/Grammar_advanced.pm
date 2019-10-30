@@ -34,6 +34,8 @@ require Exporter;
     RULE_IS_PROCESSED
     RULE_UNIQUE_COMPONENTS
     RULE_IS_TOP_LEVEL
+    SIMP_EMPTY_QUERY
+    SIMP_WAIT_QUERY
 );
 
 use strict;
@@ -51,11 +53,24 @@ my $script_debug = 0;
 # sub print_rule_hash();
 # sub analyze_all_rules();
 
-# Constants mayne used in future.
+# Constants
 use constant SIMP_GRAMMAR_OBJ     => 0;
 use constant SIMP_RULE_HASH       => 1;
-use constant SIMP_GRAMMAR_FLAGS   => 2; # Unclear if that will persist
-use constant SIMP_THREADS         => 3; # Unclear if that will persist
+use constant SIMP_GRAMMAR_FLAGS   => 2;
+use constant SIMP_THREADS         => 3;
+
+# Constants used in the phase PHASE_GRAMMAR_DEST
+# ----------------------------------------------
+# SIMP_EMPTY_QUERY is for replacing the complete content of a non top level rule.
+use constant SIMP_EMPTY_QUERY     => '';
+# SIMP_WAIT_QUERY is for replacing the complete content of a top level rule like thread<n> and
+# maybe query.
+# If using case SIMP_EMPTY_QUERY for such a top level rule we would just waste CPU power.
+# Hence we go with a wait which is less costly. A "SELECT SLEEP(1)" would make "SQL noise" without
+# value because the really working threads or reporters could detect some not responding or dead
+# DB server too. So we use Perl.
+use constant SIMP_WAIT_QUERY      => '{ sleep 1 ; return undef }';
+
 
 my $grammar_obj;
 my %rule_hash;
@@ -544,6 +559,7 @@ sub analyze_all_rules {
         grammar_rule_hash_consistency();
 
         my @top_rule_list = $grammar_obj->top_rule_list();
+        # FIXME: Check if @top_rule_list empty
         say("DEBUG: top_rule_list found : " . join(" ", @top_rule_list)) if $script_debug;
         foreach my $rule_name (@top_rule_list) {
             if (   $rule_name eq 'query'
@@ -752,6 +768,7 @@ sub extract_thread_from_rule_name {
         }
     }
 
+    # FIXME: Return a status
     Carp::confess("INTERNAL ERROR: Unknown toplevel rule '$rule_name'.");
     say("ALARM we must never reach this line.");
 } # End sub extract_thread_from_rule_name
@@ -814,7 +831,7 @@ sub collapseComponents {
 
     # In case we have more than one component and a component sentence is '' than DO NOT remove it.
     # Bad example:
-    #    rule_A: | <fat component> ; --> rule_A:  <fat component> ;
+    #    rule_A: | <fat component making a big runtime> ; --> rule_A:  <fat component> ;
     # Because what if <fat component> is not required for what we search at all?
     #
 
@@ -873,7 +890,7 @@ sub compact_grammar {
 
     my $debug_snip = "DEBUG: compact_grammar:";
 
-    # Begin of inlining
+    # Begin of inline attempts
     foreach my $rule_name ( sort keys %{$grammar_obj->rules()} ) {
 
         my $snip = $debug_snip . " Rule '$rule_name':";
@@ -939,6 +956,7 @@ sub compact_grammar {
             next;
         }
 
+        # Check all rules if they have components containing $rule_name.
         foreach my $inspect_rule_name ( sort keys %{$grammar_obj->rules()} ) {
 
             # Recursive rules can be inlined into other rules which reference them.
@@ -962,8 +980,6 @@ sub compact_grammar {
                     say("$snip: CID $component_id, PID $part_id, ->$component_part<-")
                         if $script_debug;
 
-                    # If $component_part ne $rule_name than it can be never a candidate.
-                    # There is no reason to check if there is rule with the name $component_part at all.
                     next if ($component_part ne $rule_name);
 
                     say("$snip Before inlining of other single component rule ->" .
@@ -983,6 +999,7 @@ sub compact_grammar {
         delete $rule_hash{$rule_name};
         say("$snip The content of the rule was inlined and therefore the rule deleted.") if $script_debug;
     } # End of search for inline candidates and inlining
+
     grammar_rule_hash_consistency;
 
 } # End of sub compact_grammar
@@ -1264,12 +1281,15 @@ sub shrink_grammar {
 
     # INTERNAL ERROR in case a parameter is undef.
     if (not defined $rule_name) {
+        # FIXME: Return a status
         Carp::confess("INTERNAL ERROR: parameter rule_name is undef.");
     }
     if (not defined $component_string) {
+        # FIXME: Return a status
         Carp::confess("INTERNAL ERROR: parameter component_string is undef.");
     }
     if (not defined $dtd_protection) {
+        # FIXME: Return a status
         Carp::confess("INTERNAL ERROR: parameter dtd_protection is undef.");
     }
 
@@ -1291,11 +1311,7 @@ sub shrink_grammar {
     if ('_to_empty_string_only' ne $component_string) {
         #### Non destructive simplification ####
 
-        # say("DEBUG: no_of_unique_components $no_of_unique_components ->" .
-        #     $rule_obj->toString . "<-");
-        if      (0 >= scalar @unique_components) {
-            Carp::confess("INTERNAL ERROR: Met 0 >= unique components in rule '$rule_name'.");
-        } elsif (1 == scalar @unique_components) {
+        if (1 == scalar @unique_components) {
             say("DEBUG: shrink_grammar: The rule '$rule_name' has already only one unique " .
                 "component.") if $script_debug;
             return undef;
@@ -1383,34 +1399,45 @@ sub shrink_grammar {
     } else {
         #### Destructive simplification ####
         #
-        # Problem which should be fixed
-        # -----------------------------
-        # The experiment
+        # Observation mid of 2019
+        # -----------------------
         #    One RQG runner only, 32 threads, Notebook i7, 4 Cores, HT = 2 --> OS: 8 CPUs
         #    query:     ==> Generate a thread<n>: ; for every thread.
         #        ;
-        #    I get temporary 100% CPU load.
-        # Critical rules:
-        # Need to be a root rule --> RULE_IS_TOP_LEVEL.
-        # Should be used frequent for statement generation --> *_connect and *_init are harmless.
-      # # Experiment begin
+        # I get temporary 100% CPU load because its a frequent used top level rule.
+        # The other *_connect and *_init are top level too but rather rare used.
+        #
         if (     (1 == $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL])
              and (not $rule_name =~ /_init$/)
              and (not $rule_name =~ /_connect$/)) {
-            # SELECT SLEEP(1) would make "SQL noise" without value. So use Perl.
-            @reduced_components = ( ' { sleep 1 ; return undef } ' );
+
+            if (1 == scalar @unique_components) {
+                my $existing_component_string = shift @unique_components;
+                if ($existing_component_string eq SIMP_WAIT_QUERY) {
+                    say("DEBUG: shrink_grammar: The rule '$rule_name' has already only one unique " .
+                        "component and its ->$existing_component_string<-.") if $script_debug;
+                    return undef;
+                }
+            }
+            say("DEBUG: shrink_grammar: Trying to replace the content of rule '$rule_name' by '" .
+                SIMP_WAIT_QUERY . "'.") if $script_debug;
+            @reduced_components = ( SIMP_WAIT_QUERY );
         } else {
-            @reduced_components = ( '' );
+            if (1 == scalar @unique_components) {
+                my $existing_component_string = shift @unique_components;
+                if ($existing_component_string eq SIMP_EMPTY_QUERY) {
+                    say("DEBUG: shrink_grammar: The rule '$rule_name' has already only one unique " .
+                        "component and its ->$existing_component_string<-.") if $script_debug;
+                    return undef;
+                }
+            }
+            say("DEBUG: shrink_grammar: Trying to replace the content of rule '$rule_name' by '" .
+                SIMP_EMPTY_QUERY . "'.") if $script_debug;
+            @reduced_components = ( SIMP_EMPTY_QUERY );
         }
-      # # Experiment end
-        # This above is most probably no solution.
 
     }
 
-    # Construct something like
-    # rule:                      or     rule:
-    #      ;                                'A' |
-    #                                       'B' ;
     $reduced_rule_string = "$rule_name:\n$indent" .
                            join(" |\n$indent", @reduced_components) . ' ;';
     if ($reduced_rule_string eq $rule_obj->toString()) {
