@@ -35,15 +35,19 @@
 #   - STALLED_QUERY_COUNT_THRESHOLD is also static
 #     IMHO better would be STALLED_QUERY_COUNT_THRESHOLD <= threads.
 #   - maybe network problems
+# and will report in all these cases STATUS_SERVER_DEADLOCKED.
 #
+# Please read the comments around the constant QUERY_LIFETIME_THRESHOLD.
 #
-# Rule of thumb:
-# Exit (This is the exit of the periodic reporting process!) only if having
-# - (banal) met a serious bad state
-# - initiated the intentional server crash needed for debugging.
-# Do not initiate the crash and just return STATUS_SERVER_DEADLOCKED because it seems that
-# caused by other processes etc. the RQG run might end with STATUS_SERVER_CRASHED,
+# Rule of thumb for coding:
+# Exit (This is the exit of the periodic reporting process running maybe several reporters.)
+# - (banal) only if having met a serious bad state
+# - after having initiated the intentional server crash needed for debugging.
+# Do not initiate the crash and just return STATUS_SERVER_DEADLOCKED or similar because it seems
+# that caused by other processes etc. the RQG run might end with STATUS_SERVER_CRASHED,
 # STATUS_ALARM or STATUS_ENVIRONMENT_FAILURE.
+#
+
 package GenTest::Reporter::Deadlock1;
 
 require Exporter;
@@ -75,19 +79,41 @@ use constant CONNECT_TIMEOUT_THRESHOLD       => 30;   # Seconds
 
 # Minimum lifetime of a query issued by some RQG worker thread/Validators before it is
 # considered suspicious.
-# FIXME: QUERY_LIFETIME_THRESHOLD should be <= assigned duration
+# Some hints for avoiding to get false alarms.
+# 1. It needs to be guranteed that SQL statements executed on some maybe overloaded testing box
+#    do not exceed QUERY_LIFETIME_THRESHOLD.
+#    This could be done by either
+#    - making QUERY_LIFETIME_THRESHOLD(here) sufficient big
+#    or
+#    - using the reporter QueryTimeout and assigning some fitting value to the RQG run like
+#      --querytimeout=<value>
+#      ==> QUERY_LIFETIME_THRESHOLD(here) > <value assigned to querytimeout> + OVERLOAD_ADD 
+#    or
+#    - assigning the GLOBAL/SESSION system variable "max_statement_time"
+# 2. When meeting a high fraction of RQG runs failing with STATUS_SERVER_DEADLOCKED try first to
+#    - reduce the load on the testiing box
+#    or
+#    - increase QUERY_LIFETIME_THRESHOLD
+#    in order to see if the fraction of fails with STATUS_SERVER_DEADLOCKED goes drastic down.
+# 3. The default value of 120s for QUERY_LIFETIME_THRESHOLD might look unfortunate small but
+#    its quite good for RQG test simplification.
+#
+# FIXME if possible/time permits:
+# QUERY_LIFETIME_THRESHOLD should be <= assigned duration
+# QUERY_LIFETIME_THRESHOLD should be ~ QueryTimeout + ...
 use constant QUERY_LIFETIME_THRESHOLD        => 120;  # Seconds
 
 # Number of suspicious queries required before a deadlock is declared.
-use constant STALLED_QUERY_COUNT_THRESHOLD   => 5;
+# use constant STALLED_QUERY_COUNT_THRESHOLD   => 5;
+use constant STALLED_QUERY_COUNT_THRESHOLD   => 2;
 
 # Number of times the actual test duration is allowed to exceed the desired one.
 # use constant ACTUAL_TEST_DURATION_MULTIPLIER => 2;
 
 # Number of seconds the actual test duration is allowed to exceed the desired one.
-use constant ACTUAL_TEST_DURATION_EXCEED     => 180;
+use constant ACTUAL_TEST_DURATION_EXCEED     => 180;  # Seconds
 
-# The time, in seconds, we will wait for a some query issued by the reporter (i.e. SHOW PROCESSLIST)
+# The time, in seconds, we will wait for some query issued by the reporter (i.e. SHOW PROCESSLIST)
 # before we declare the server hanged.
 use constant REPORTER_QUERY_THRESHOLD        => 30;   # Seconds
 
@@ -126,6 +152,11 @@ sub monitor {
     #
     # So I have decided to use some ACTUAL_TEST_DURATION_EXCEED instead of the
     # ACTUAL_TEST_DURATION_MULTIPLIER.
+    #
+    # Actual observation (2019-10)
+    # duration = 300, total test runtime > 1100 but the check direct below does not kick in.
+    # Reason: gendata loads a lot and the box is heavy loaded. No defect in RQG or here.
+    #
 
     if ($actual_test_duration > ACTUAL_TEST_DURATION_EXCEED + $reporter->testDuration()) {
         say("ERROR: $who_am_i Actual test duration($actual_test_duration" . "s) is more than "     .
@@ -177,7 +208,9 @@ sub monitor_nonthreaded {
     $exit_msg      = "Got no connect to server within " . $alarm_timeout . "s.";
     alarm ($alarm_timeout);
     $dbh = DBI->connect($dsn, undef, undef,
-                        { mysql_connect_timeout => CONNECT_TIMEOUT_THRESHOLD});
+                        { mysql_connect_timeout => CONNECT_TIMEOUT_THRESHOLD,
+                          PrintError            => 0,
+                          RaiseError            => 0});
     alarm (0);
     if (not defined $dbh) {
         say("ERROR: $who_am_i The connect attempt to dsn $dsn failed: " . $DBI::errstr);
@@ -223,11 +256,12 @@ sub monitor_nonthreaded {
     my $processlist_report = "$who_am_i Content of processlist ---------- begin\n";
     $processlist_report .= "$who_am_i ID -- COMMAND -- TIME -- INFO -- state\n";
     foreach my $process (@$processlist) {
+        my $process_command = $process->[PROCESSLIST_PROCESS_COMMAND];
+        $process_command = "<undef>" if not defined $process_command;
+        # next if $process_command eq 'Daemon';
         my $process_id   = $process->[PROCESSLIST_PROCESS_ID];
         my $process_info = $process->[PROCESSLIST_PROCESS_INFO];
         $process_info    = "<undef>" if not defined $process_info;
-        my $process_command = $process->[PROCESSLIST_PROCESS_COMMAND];
-        $process_command = "<undef>" if not defined $process_command;
         my $process_time = $process->[PROCESSLIST_PROCESS_TIME];
         $process_time    = "<undef>" if not defined $process_time;
         if (defined $process->[PROCESSLIST_PROCESS_INFO] and
@@ -241,9 +275,11 @@ sub monitor_nonthreaded {
                                    $process_time . " -- " . $process_info . " -- ok\n";
         }
     }
-    $processlist_report .= "$who_am_i Content of processlist ---------- end";
-
-    say($processlist_report);
+    # In case we have a stalled query at all than we already print the content of the processlist.
+    if ($stalled_queries) {
+        $processlist_report .= "$who_am_i Content of processlist ---------- end";
+        say($processlist_report);
+    }
 
     if ($stalled_queries >= STALLED_QUERY_COUNT_THRESHOLD) {
         say("ERROR: $who_am_i $stalled_queries stalled queries detected, declaring deadlock at " .
@@ -419,7 +455,13 @@ sub nativeReport {
         my $msg_begin = "INFO: $who_am_i Killing mysqld with pid $server_pid with";
         say("$msg_begin SIGHUP in order to force debug output.");
         kill(1, $server_pid);
-        sleep(2);
+
+        # FIXME:
+        # How to ensure that
+        # - all debug output is written before the SIGSEGV is sent
+        # - worker threads detecting that the server does not repond twist the final status to
+        #   something != STATUS_SERVER_DEADLOCKED
+        sleep( (REPORTER_QUERY_THRESHOLD + OVERLOAD_ADD) / 2);
 
         say("$msg_begin SIGSEGV in order to capture core.");
         kill(11, $server_pid);
