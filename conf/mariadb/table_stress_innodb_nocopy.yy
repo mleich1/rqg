@@ -341,8 +341,7 @@ key_or_index:
    KEY   ;
 
 check_table:
-   # CHECK TABLE table_names EXTENDED ;
-   CHECK TABLE table_names ;
+   CHECK TABLE table_names EXTENDED ;
 
 column_position:
                             |
