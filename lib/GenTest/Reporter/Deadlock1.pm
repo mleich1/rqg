@@ -95,13 +95,13 @@ use constant CONNECT_TIMEOUT_THRESHOLD       => 30;   # Seconds
 #    or
 #    - increase QUERY_LIFETIME_THRESHOLD
 #    in order to see if the fraction of fails with STATUS_SERVER_DEADLOCKED goes drastic down.
-# 3. The default value of 120s for QUERY_LIFETIME_THRESHOLD might look unfortunate small but
+# 3. The default value of 240s for QUERY_LIFETIME_THRESHOLD might look unfortunate small but
 #    its quite good for RQG test simplification.
 #
 # FIXME if possible/time permits:
 # QUERY_LIFETIME_THRESHOLD should be <= assigned duration
 # QUERY_LIFETIME_THRESHOLD should be ~ QueryTimeout + ...
-use constant QUERY_LIFETIME_THRESHOLD        => 120;  # Seconds
+use constant QUERY_LIFETIME_THRESHOLD        => 240;  # Seconds
 
 # Number of suspicious queries required before a deadlock is declared.
 # use constant STALLED_QUERY_COUNT_THRESHOLD   => 5;
@@ -461,7 +461,7 @@ sub nativeReport {
         # - all debug output is written before the SIGSEGV is sent
         # - worker threads detecting that the server does not repond twist the final status to
         #   something != STATUS_SERVER_DEADLOCKED
-        sleep( (REPORTER_QUERY_THRESHOLD + OVERLOAD_ADD) / 2);
+        sleep((REPORTER_QUERY_THRESHOLD + OVERLOAD_ADD) / 2);
 
         say("$msg_begin SIGSEGV in order to capture core.");
         kill(11, $server_pid);
