@@ -71,8 +71,10 @@ use constant SIMP_EMPTY_QUERY     => '';
 # DB server too. So we use Perl.
 use constant SIMP_WAIT_QUERY      => '{ sleep 1 ; return undef }';
 
-
+# Structure for keeping the actual grammar
+#-----------------------------------------
 my $grammar_obj;
+
 my %rule_hash;
 
 my ($threads, $grammar_flags);
@@ -80,7 +82,7 @@ my ($threads, $grammar_flags);
 sub init {
     (my $grammar_file, $threads, my $max_inline_length, $grammar_flags) = @_;
 
-    my $snip = "Simplifier::Grammar_advanced::init:";
+    my $snip = "GenTest::Simplifier::Grammar_advanced::init:";
     if (@_ != 4) {
         Carp::cluck("INTERNAL ERROR: $snip 4 Parameters (grammar_file, " .
                     "threads, max_inline_length, grammar_flags) are required.");
@@ -104,7 +106,7 @@ sub init {
 
     my $status = load_grammar($grammar_file);
     if (STATUS_OK != $status) {
-        say("INTERNAL ERROR: $snip Will return undef.");
+        say("INTERNAL ERROR: $snip load_grammar failed. Will return undef.");
         return undef;
     }
     # Replace some maybe filled %rule_hash by some new one.
@@ -113,12 +115,19 @@ sub init {
     fill_rule_hash();
     # print_rule_hash();
     if (STATUS_OK != set_default_rules_for_threads()) {
+        say("INTERNAL ERROR: $snip set_default_rules_for_threads failed. Will return undef.");
         return undef;
     }
-    analyze_all_rules();
+    if (STATUS_OK != analyze_all_rules()) {
+        say("INTERNAL ERROR: $snip analyze_all_rules failed. Will return undef.");
+        return undef;
+    }
     print_rule_hash() if $script_debug;
     # Inline anything which has a length <= $max_inline_length.
-    compact_grammar($max_inline_length);
+    if (STATUS_OK != compact_grammar($max_inline_length)) {
+        say("INTERNAL ERROR: $snip compact_grammar failed. Will return undef.");
+        return undef;
+    }
     if (not defined $grammar_obj) {
         Carp::cluck("grammar_obj is not defined");
         say("INTERNAL ERROR: $snip Will return undef.");
@@ -143,34 +152,44 @@ sub reload_grammar {
     my ($grammar_file, $threads, $grammar_flags) = @_;
     # !!! The caller might have changed the value for threads compared to the previous run !!!
 
+    my $snip = "GenTest::Simplifier::Grammar_advanced::reload_grammar:";
+
     if (@_ != 3) {
         Carp::cluck("INTERNAL ERROR: Grammar_advanced::reload_grammar: 3 Parameters " .
                     "(grammar_file, threads, grammar_flags) are required.");
-        say("INTERNAL ERROR: Grammar_advanced::reload_grammar: Will return undef.");
+        say("INTERNAL ERROR: $snip Will return undef.");
         return undef;
     }
 
-    Carp::cluck("DEBUG: Grammar_advanced::reload_grammar (grammar_file, threads, grammar_flags)" .
+    Carp::cluck("DEBUG: $snip (grammar_file, threads, grammar_flags)" .
                 " entered") if $script_debug;
 
     if (not defined $threads) {
-        say("INTERNAL ERROR: threads is not defined. Will return undef.");
+        say("INTERNAL ERROR: $snip threads is not defined. Will return undef.");
         return undef;
     }
-    my $status = load_grammar($grammar_file);
-    if (STATUS_OK != $status) {
+    if (STATUS_OK != load_grammar($grammar_file)) {
+        Carp::cluck("INTERNAL ERROR: reload_grammar failed. Will return undef.");
         return undef;
     }
     reset_rule_hash_values(); # This resets most rule_hash values belonging to a rule
                               # except RULE_JOBS_GENERATED.
     # print_rule_hash();
-    analyze_all_rules();
+    if (STATUS_OK != analyze_all_rules()) {
+        Carp::cluck("INTERNAL ERROR: analyze_all_rules failed. Will return undef.");
+        return undef;
+    }
     print_rule_hash() if $script_debug;
     # Do not inline anything because we are inside a grammar simplification campaign.
     my $max_inline_length = -1;
-    compact_grammar($max_inline_length);
+    if (STATUS_OK != compact_grammar($max_inline_length)) {
+        Carp::cluck("INTERNAL ERROR: compact_grammar failed.");
+        say("INTERNAL ERROR: $snip Will return undef.");
+        return undef;
+    }
     if (not defined $grammar_obj) {
         Carp::cluck("grammar_obj is not defined");
+        say("INTERNAL ERROR: $snip Will return undef.");
         return undef;
     }
     return $grammar_obj->toString();
@@ -211,8 +230,21 @@ sub get_unique_component_list {
 
 }
 
+sub estimate_cut_steps {
 
-# our $grammar_obj;
+    my $count = 0;
+
+    foreach my $rule_name (sort keys %rule_hash ) {
+        my $rule_obj = $grammar_obj->rule($rule_name);
+        my @rule_unique_component_list  = $rule_obj->unique_components();
+        my $rule_unique_component_count = scalar @rule_unique_component_list;
+        my $count_add = scalar @rule_unique_component_list -1;
+        $count += $count_add;
+        # say("DEBUG: estimate_cut_steps: rule_name '$rule_name', count_add $count_add, count_total $count");
+    }
+    return $count;
+}
+
 
 sub load_grammar {
 
@@ -226,19 +258,21 @@ sub load_grammar {
     );
     if (not defined $grammar_obj) {
         # Example: Open the grammar file failed.
-        say("ERROR: Filling the grammar_obj failed. Will return undef");
+        say("ERROR: GenTest::Simplifier::Grammar_advanced: Filling the grammar_obj failed. " .
+            "Will return STATUS_ENVIRONMENT_FAILURE.");
         return STATUS_ENVIRONMENT_FAILURE;
     }
     return STATUS_OK;
 }
 
 
-# our %rule_hash;
+# %rule_hash for keeping more orless actual properties of grammar rules
+# ---------------------------------------------------------------------
 # Key is rule_name
 #
 # Please see the amount of variables as experimental.
 # - some might be finally superfluous completely because than maybe functions deliver exact data on
-#   the fly and are better than the error prone maintenance
+#   the fly and are better than the error prone maintenance of information in %rule_hash
 # - some might be maintained but currently unused. Maybe some future improvements of the simplifier
 #   can exploit them
 # - some might be neither exploited nor maintained
@@ -425,7 +459,10 @@ sub grammar_rule_hash_consistency {
         }
     }
     if ($is_inconsistent) {
-        Carp::confess("INTERNAL ERROR: Cannot survive with grammar_obj to rule_hash inconsistency.");
+        Carp::cluck("INTERNAL ERROR: Cannot survive with grammar_obj to rule_hash inconsistency.");
+        return STATUS_INTERNAL_ERROR;
+    } else {
+        return STATUS_OK;
     }
 }
 
@@ -472,7 +509,8 @@ sub set_default_rules_for_threads {
                     # Good grammar because "query" does not exist too.
                     $sentence = "thread_init";
                 } else {
-                    say("WARN: The grammar contains the rules 'query_init' and 'thread_init'. Will pick 'query_init'.");
+                    say("WARN: The grammar contains the rules 'query_init' and 'thread_init'. " .
+                        "Will pick 'query_init'.");
                 }
             }
             # Having no *_init must be allowed.
@@ -538,8 +576,13 @@ sub analyze_all_rules {
 # - RULE_WEIGHT will not get actualized!
 # - RULE_JOB_GENERATED does not get touched
 # - No inlining of rules
+#
+# Return a status and never exit.
+#
 
-    say("DEBUG: analyze_all_rules : Begin") if $script_debug;
+    my $snip = "GenTest::Simplifier::Grammar_advanced::analyze_all_rules:";
+
+    say("DEBUG: $snip Begin") if $script_debug;
     foreach my $rule_name (keys %rule_hash) {
         $rule_hash{$rule_name}->[RULE_IS_PROCESSED] = 0;
     }
@@ -556,9 +599,17 @@ sub analyze_all_rules {
         $run_all_again = 0;
         reset_rule_hash_values();
 
-        grammar_rule_hash_consistency();
+        if (STATUS_OK != grammar_rule_hash_consistency()) {
+            say("ERROR: $snip grammar_rule_hash_consistency failed. " .
+                "Will return STATUS_INTERNAL_ERROR.");
+            return STATUS_INTERNAL_ERROR;
+        }
 
         my @top_rule_list = $grammar_obj->top_rule_list();
+        if ( 1 > scalar @top_rule_list ) {
+            say("ERROR: $snip \@top_rule_list is empty. Will return STATUS_INTERNAL_ERROR.");
+            return STATUS_INTERNAL_ERROR;
+        }
         # FIXME: Check if @top_rule_list empty
         say("DEBUG: top_rule_list found : " . join(" ", @top_rule_list)) if $script_debug;
         foreach my $rule_name (@top_rule_list) {
@@ -647,7 +698,7 @@ sub analyze_all_rules {
             my $val = extract_thread_from_rule_name($rule_name);
             if (not defined $threads) {
                 Carp::cluck("threads is undef");
-                exit STATUS_INTERNAL_ERROR;
+                return STATUS_INTERNAL_ERROR;
             }
             if ($threads < $val) {
                 say("DEBUG: threads is $threads and therefore the rule '$rule_name' will be never " .
@@ -716,7 +767,9 @@ sub analyze_all_rules {
 
         say("DEBUG: Expect to run all again.") if ($run_all_again and $script_debug);
     }
-    say("DEBUG: analyze_all_rules : End") if $script_debug;
+    say("DEBUG: $snip End") if $script_debug;
+
+    return STATUS_OK;
 
 } # End sub analyze_all_rules
 
@@ -805,11 +858,11 @@ sub collapseComponents {
 # lib/GenTest/Grammar/Rule.pm.
 #
     my ($rule_name) = @_;
-    my $snip        = "DEBUG: collapseComponents for rule '$rule_name':";
+    my $snip        = "GenTest::Simplifier::Grammar_advanced::collapseComponents for rule '$rule_name':";
     my $rule_obj    = $grammar_obj->rule($rule_name);
     if (not defined $rule_obj) {
         Carp::cluck("INTERNAL ERROR: Rule '$rule_name' : Undef rule object got.");
-        exit STATUS_INTERNAL_ERROR;
+        return STATUS_INTERNAL_ERROR;
     }
 
     my $rule_before = $rule_obj->toString();
@@ -826,7 +879,7 @@ sub collapseComponents {
         while (1 <  scalar @$components) {
             splice (@$components, 1);
         }
-        say("$snip Number of unique components : 1 --> collapsing.") if $script_debug;
+        say("DEBUG: $snip Number of unique components : 1 --> collapsing.") if $script_debug;
     }
 
     # In case we have more than one component and a component sentence is '' than DO NOT remove it.
@@ -837,9 +890,11 @@ sub collapseComponents {
 
     $rule_after = $rule_obj->toString();
     if (($rule_after ne $rule_before) and $script_debug) {
-        say("$snip Before collapsing: ->" . $rule_before . "<-");
-        say("$snip After  collapsing: ->" . $rule_after  . "<-");
+        say("DEBUG: $snip Before collapsing: ->" . $rule_before . "<-");
+        say("DEBUG: $snip After  collapsing: ->" . $rule_after  . "<-");
     }
+
+    return STATUS_OK;
 
 } # End sub collapseComponents
 
@@ -876,13 +931,15 @@ sub compact_grammar {
 
     if (not defined $max_inline_length) {
         Carp::cluck("INTERNAL ERROR: max_inline_length is undef.");
-        exit STATUS_INTERNAL_ERROR;
+        return STATUS_INTERNAL_ERROR;
     }
 
     foreach my $rule_name ( keys %{$grammar_obj->rules()} ) {
         # Simplify:
         # rule_A: SELECT 13 | SELECT 13 ; => rule_A: SELECT 13;
-        collapseComponents($rule_name);
+        if (STATUS_OK != collapseComponents($rule_name) ) {
+            return STATUS_INTERNAL_ERROR;
+        }
         # Important:
         # The number of rule components changes.
         # So if this number is stored in rule_hash than this value is now outdated.
@@ -893,7 +950,7 @@ sub compact_grammar {
     # Begin of inline attempts
     foreach my $rule_name ( sort keys %{$grammar_obj->rules()} ) {
 
-        my $snip = $debug_snip . " Rule '$rule_name':";
+        my $snip = $debug_snip . " Attempt to inline Rule '$rule_name'";
 
         if ($rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL]) {
             # Top level rules cannot be inlined. ????
@@ -906,23 +963,26 @@ sub compact_grammar {
         my $rule_obj = $grammar_obj->rule($rule_name);
         if (not defined $rule_obj) {
             Carp::cluck("INTERNAL ERROR: Rule '$rule_name' : Undef rule object got.");
-            exit STATUS_INTERNAL_ERROR;
+            return STATUS_INTERNAL_ERROR;
         }
         my $components = $rule_obj->components();
+
         # Rules with more than one component will not get inlined.
         # FIXME:
         # Inlining in case of
         # - "calling" rule has one component only
         # - rule is called only once
         # would be ok.
+        # say("DEBUG: No of components in '$rule_name': " . scalar @$components);
         next if 1 < scalar @$components;
 
         # Fixme: Abort if having 0 components
 
-        # WE HAVE ONE COMPONENT
+        # We have one component in $rule_name.
 
         if (not defined $rule_obj->components->[0]) {
-            say("ALARM: The first component is undef.");
+            Carp::cluck("INTERNAL ERROR: Rule '$rule_name': The first component is undef.");
+            return STATUS_INTERNAL_ERROR;
         }
         my @the_component          = @{$rule_obj->components->[0]};
         my $the_component_sentence = join('', @the_component );
@@ -934,27 +994,17 @@ sub compact_grammar {
             next;
         }
 
+        # FIXME: Rework this. In the moment it is without value.
         if ($the_component_sentence =~ /^ *$/) {
             # Rule with one component == empty string is a candidate for inlining
         } elsif (1 == $rule_hash{$rule_name}->[RULE_REFERENCED]) {
             # The rule is only one time referenced.
         } else {
-            last;
+            # Never use "last" here.
         }
 
         say("$snip Candidate for inlining. ->" . $rule_obj->toString() . "<-")
             if $script_debug;
-        # FIXME: New parameter needed.
-        # Q: Should a rule consisting of something like
-        #        <very long blabla consisting of several words>
-        #    get inlined or not. The latter makes manual work on
-        #    simplified grammar far way more convenient.
-        #--------------
-        if (length($the_component_sentence) > $max_inline_length) {
-            say("$snip Omit inlining of rule because the component " .
-                "->$the_component_sentence<- is too long.") if $script_debug;
-            next;
-        }
 
         # Check all rules if they have components containing $rule_name.
         foreach my $inspect_rule_name ( sort keys %{$grammar_obj->rules()} ) {
@@ -966,7 +1016,7 @@ sub compact_grammar {
             my $inspect_rule_obj = $grammar_obj->rule($inspect_rule_name);
             if (not defined $inspect_rule_obj) {
                 Carp::cluck("INTERNAL ERROR: Rule '$inspect_rule_name' : Undef rule object got.");
-                exit STATUS_INTERNAL_ERROR;
+                return STATUS_INTERNAL_ERROR;
             }
             my $inspect_components = $inspect_rule_obj->components();
 
@@ -977,16 +1027,16 @@ sub compact_grammar {
                 for (my $part_id = $#{$inspect_components->[$component_id]}; $part_id >= 0; $part_id--) {
 
                     my $component_part = $inspect_components->[$component_id]->[$part_id];
-                    say("$snip: CID $component_id, PID $part_id, ->$component_part<-")
-                        if $script_debug;
+                    say("$snip: Inspect rule '$inspect_rule_name' CID $component_id, " .
+                        "PID $part_id, ->$component_part<-") if $script_debug;
 
                     next if ($component_part ne $rule_name);
 
-                    say("$snip Before inlining of other single component rule ->" .
+                    say("$snip Rule '$inspect_rule_name' before inline operation ->" .
                         $inspect_rule_obj->toString() . "<-") if $script_debug;
                     splice(@{$component}, $part_id, 1, @the_component );
 
-                    say("$snip After inlining of other single component rule ->" .
+                    say("$snip Rule '$inspect_rule_name' after inline operation ->" .
                         $inspect_rule_obj->toString() . "<-") if $script_debug;
                     # Important:
                     # The number of references to other rules might change.
@@ -997,10 +1047,17 @@ sub compact_grammar {
         } # End of inlining
         $grammar_obj->deleteRule($rule_name);
         delete $rule_hash{$rule_name};
-        say("$snip The content of the rule was inlined and therefore the rule deleted.") if $script_debug;
+        say("$snip The content of the rule '$rule_name' was inlined and therefore the rule " .
+            "was deleted.") if $script_debug;
     } # End of search for inline candidates and inlining
 
-    grammar_rule_hash_consistency;
+    if (STATUS_OK != grammar_rule_hash_consistency()) {
+        say("ERROR: grammar_rule_hash_consistency failed. " .
+            "Will return STATUS_INTERNAL_ERROR.");
+        return STATUS_INTERNAL_ERROR;
+    } else {
+        return STATUS_OK;
+    }
 
 } # End of sub compact_grammar
 
@@ -1033,6 +1090,8 @@ sub calculate_weights {
 #
 # Maybe have a fall back position like just charge a 1 into all rules.
 #
+# return a status
+#
 
     sub inspect_rule_and_charge {
         my ($rule_name) = @_;
@@ -1064,7 +1123,11 @@ sub calculate_weights {
         }
     }
 
-    analyze_all_rules();
+    if (STATUS_OK != analyze_all_rules()) {
+        Carp::cluck("ERROR: analyze_all_rules failed. Will return STATUS_INTERNAL_ERROR.");
+        return STATUS_INTERNAL_ERROR;
+    }
+
     foreach my $rule_name (keys %rule_hash) {
         $rule_hash{$rule_name}->[RULE_IS_PROCESSED] = 0;
     }
@@ -1484,7 +1547,8 @@ sub use_clones_in_rule {
 
         for (my $part_id = $#{$components->[$component_id]}; $part_id >= 0; $part_id--) {
             my $component_part = $components->[$component_id]->[$part_id];
-            say("DEBUG: '$rule_name' part_id $part_id component_part ->$component_part<-") if $script_debug;
+            say("DEBUG: '$rule_name' part_id $part_id component_part ->$component_part<-")
+                if $script_debug;
             if (exists $rule_hash{$component_part}) {
                 say("DEBUG: '$rule_name' part_id $part_id component_part ->$component_part<- " .
                     "is a rule.") if $script_debug;
@@ -1525,11 +1589,16 @@ sub use_clones_in_grammar_top {
 # In order to avoid multiple processing of rules we mark processed rules by setting
 # RULE_JOBS_GENERATED. This field will be not touched when resetting rule_hash.
 #
+# In case of error return undef.
 #
     my $clone_start = $clone_number;
 
     say("DEBUG: use_clones_in_grammar_top begin") if $script_debug;
     my @top_rule_list = $grammar_obj->top_rule_list();
+    if (0 == scalar @top_rule_list) {
+        Carp::cluck("ERROR: \@top_rule_list is empty. Will return undef.");
+        return undef;
+    }
     say("DEBUG: top_rule_list found : " . join(" ", @top_rule_list)) if $script_debug;
     foreach my $rule_name (@top_rule_list) {
         if (   $rule_name eq 'query'
@@ -1543,7 +1612,11 @@ sub use_clones_in_grammar_top {
             use_clones_in_rule($rule_name);
             #    print_rule_hash();
             # Update RULE_REFERENCED and RULE_UNIQUE_COMPONENTS.
-            analyze_all_rules();
+            if (STATUS_OK != analyze_all_rules()) {
+                Carp::cluck("ERROR: analyze_all_rules failed. Will return undef.");
+                return undef;
+            }
+
             # Never call compact_grammar(...) here because it will bring the grammar (grammar_obj)
             # and rule_hash out of sync. And than the consistency check will abort simplification.
             #    print_rule_hash();
@@ -1579,6 +1652,9 @@ sub use_clones_in_grammar {
 # decreasing RULE_WEIGHT. In order to avoid multiple processing of rules we mark processed
 # rules by setting RULE_JOBS_GENERATED. This field will be not touched when resetting rule_hash.
 #
+# return undef in case of failure
+#
+
     # my $clone_limit = 100;
     my $clone_start = $clone_number;
 
@@ -1586,7 +1662,10 @@ sub use_clones_in_grammar {
     foreach my $rule_name (keys %rule_hash) {
         $rule_hash{$rule_name}->[RULE_IS_PROCESSED] = 0;
     }
-    calculate_weights();
+    if (STATUS_OK != calculate_weights()) {
+        Carp::cluck("ERROR: calculate_weights failed. Will return undef.");
+        return undef;
+    }
     my $rule_name = next_rule_to_process(RULE_JOBS_GENERATED, RULE_WEIGHT);
     # What if undef (== INTERNAL ERROR) ?
     while (defined $rule_name) {
@@ -1594,14 +1673,20 @@ sub use_clones_in_grammar {
         use_clones_in_rule($rule_name);
         #   print_rule_hash();
         # Update RULE_REFERENCED and RULE_UNIQUE_COMPONENTS.
-        analyze_all_rules();
+        if (STATUS_OK != analyze_all_rules()) {
+            Carp::cluck("ERROR: analyze_all_rules failed. Will return undef.");
+            return undef;
+        }
         # Never call compact_grammar(...) here because it will bring the grammar (grammar_obj)
         # and rule_hash out of sync. And than the consistency check will abort simplification.
         #   print_rule_hash();
         # "calculate_weight" will update RULE_WEIGHT of all rules.
         # This is not strict required but it will cause that "next_rule_to_process" provides on
         # the next call the most important (RULE_WEIGHT) non processed rule.
-        calculate_weights();
+        if (STATUS_OK != calculate_weights()) {
+            Carp::cluck("ERROR: calculate_weights failed. Will return undef.");
+            return undef;
+        }
         #   print_rule_hash();
         # Prevent that we inspect/process the current rule again.
         $rule_hash{$rule_name}->[RULE_JOBS_GENERATED] = 1;

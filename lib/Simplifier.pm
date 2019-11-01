@@ -1140,21 +1140,79 @@ sub get_job {
                     }
                 } elsif (PHASE_GRAMMAR_SIMP eq $phase or
                          PHASE_GRAMMAR_DEST eq $phase   ) {
-                    my $rule_name        = $order_array[$order_id][ORDER_PROPERTY2];
-                    my $component_string = $order_array[$order_id][ORDER_PROPERTY3];
-                    my $dtd_protection   = 0;
-                    say("DEBUG: Simplifier::order_is_valid : rule_name '$rule_name', component ->" .
-                        $component_string . "<-") if Auxiliary::script_debug("S5");
-                    my $new_rule_string = GenTest::Simplifier::Grammar_advanced::shrink_grammar(
-                             $rule_name, $component_string, $dtd_protection);
-                    if (defined $new_rule_string) {
+
+                    # $order_id is the id of the main order.
+                    # The main order is picked by upper level routines depending on the history
+                    # of the orders.
+                    # The maybe added extra order id's serve to accelerate the simplification
+                    # process. They are picked random.
+                    # The order ids to be used are kept in @oid_list like
+                    # @oid_list = (random order_id n, ..., random order_id 1, $order_id)
+                    # It is essential that the id of the main order if valid is at the end.
+                    # Otherwise a random order might overrule the main order and than upper
+                    # level routines might do incorrect bookkeeping which has than negative
+                    # consequences for the simplification speed.
+                    # In case we have a replay where one of the random id orders caused that the
+                    # rule A the main order is changing gets removed than we might get some
+                    # incorrect bookkeeping for the main order too.
+                    # But after reloading the grammar the rule A will be no more contained and
+                    # the id of the main order will become invalid.
+                    my @oid_list;
+                    unshift @oid_list, $order_id;
+
+                    my $cut_steps = GenTest::Simplifier::Grammar_advanced::estimate_cut_steps();
+                    if ($cut_steps > 30) {
+                        my $extra_order = Batch::get_rand_try_all_id();
+                        unshift @oid_list, $extra_order if defined $extra_order;
+                    }
+                    if ($cut_steps > 100) {
+                        my $extra_order = Batch::get_rand_try_all_id();
+                        unshift @oid_list, $extra_order if defined $extra_order;
+                    }
+                    if ($cut_steps > 300) {
+                        my $extra_order = Batch::get_rand_try_all_id();
+                        unshift @oid_list, $extra_order if defined $extra_order;
+                    }
+
+                    # Based on the order id's, their validity and their order within @oid_list
+                    # a $redefine_string gets generated.
+                    # And this string gets than appended to the child grammar to be tried.
+                    my $redefine_string;
+
+                    my $rule_name;
+                    my $component_string;
+                    foreach my $oid ( @oid_list ) {
+                        my $curr_rule_name        = $order_array[$oid][ORDER_PROPERTY2];
+                        my $curr_component_string = $order_array[$oid][ORDER_PROPERTY3];
+                        my $dtd_protection        = 0;
+                        say("DEBUG: Simplifier::order_is_valid: oid: $oid, " .
+                            "rule_name '$rule_name', component ->" . $curr_component_string . "<-")
+                            if Auxiliary::script_debug("S5");
+                        my $new_rule_string = GenTest::Simplifier::Grammar_advanced::shrink_grammar(
+                                 $curr_rule_name, $curr_component_string, $dtd_protection);
+                        if (not defined $new_rule_string) {
+                            # say("DEBUG: Order id $oid new_rule_string is undef.");
+                            next;
+                        } else {
+                            $redefine_string .= "\n" . $new_rule_string . "\n";
+                            $rule_name        = $curr_rule_name;
+                            $component_string = $curr_component_string;
+                        }
+                    }
+
+                    if (defined $redefine_string) {
+                        if (0) {
+                            say("DEBUG: last valid rule_name '$rule_name', redefine_string " .
+                                "->$redefine_string<-");
+                        }
                         $child_grammar = "c" . Auxiliary::lfill0($child_number,5) . ".yy";
-                        Batch::make_file($workdir . "/" . $child_grammar, $grammar_string .
-                                         "\n\n# Generated by grammar simplifier\n" .
-                                         $new_rule_string . "\n");
+                        Batch::make_file($workdir . "/" . $child_grammar, $grammar_string . "\n\n" .
+                                         "########## Generated by grammar simplifier ##########\n" .
+                                         "# order_id_list: " . join(" ", @oid_list) .
+                                         $redefine_string );
                         $child_number++;
-                        $order_is_valid = 1;
-                        my $duration_a     = replay_runtime_adapt();
+                        $order_is_valid           = 1;
+                        my $duration_a            = replay_runtime_adapt();
                         $job[Batch::JOB_CL_SNIP]  = $cl_snip_all . $cl_snip_phase . $cl_snip_step .
                                              " --grammar=" . $workdir . "/" . $child_grammar .
                                              " --duration=$duration_a";
@@ -1213,6 +1271,7 @@ sub get_job {
         }
         say("DEBUG: End of loop for getting an order.") if Auxiliary::script_debug("S6");
     } # End of while (not defined $order_id)
+
     if (Auxiliary::script_debug("S6")) {
         if (defined $order_id) {
             say("DEBUG: OrderID is $order_id.");
@@ -1413,15 +1472,10 @@ sub generate_orders {
         }
     } elsif (PHASE_GRAMMAR_SIMP eq $phase or
              PHASE_GRAMMAR_DEST eq $phase   ) {
-        my $none_found = 1;
-        while ($none_found) {
-            my $rule_name = GenTest::Simplifier::Grammar_advanced::next_rule_to_process(
+        my $rule_name = GenTest::Simplifier::Grammar_advanced::next_rule_to_process(
                                 RULE_JOBS_GENERATED, RULE_WEIGHT);
-            if (not defined $rule_name) {
-                say("DEBUG: next_rule_to_process delivered undef.")
-                    if Auxiliary::script_debug("S5");
-                last;
-            }
+        while (defined $rule_name) {
+            $success = 0;
             if (PHASE_GRAMMAR_DEST eq $phase) {
                 # Generate the destructive step.
                 add_order($cl_snip_all . $cl_snip_phase, $rule_name, "_to_empty_string_only");
@@ -1436,17 +1490,16 @@ sub generate_orders {
                     add_order($cl_snip_all . $cl_snip_phase, $rule_name, $component);
                     $success++;
                 }
-                say("DEBUG: Rule '$rule_name' was decomposed into $success orders.")
-                    if Auxiliary::script_debug("S5");
-                # We decompose one rule only.
-                $none_found = 0;
-                # For debugging only (makes protocols quite big)
                 # dump_orders;
             } else {
                 say("DEBUG: Rule '$rule_name' has only " . (scalar @rule_unique_component_list) .
                     " components.") if Auxiliary::script_debug("S5");
             }
             GenTest::Simplifier::Grammar_advanced::set_rule_jobs_generated($rule_name);
+            say("DEBUG: Rule '$rule_name' was decomposed into $success orders.")
+                if Auxiliary::script_debug("S5");
+            $rule_name = GenTest::Simplifier::Grammar_advanced::next_rule_to_process(
+                             RULE_JOBS_GENERATED, RULE_WEIGHT);
         }
     } elsif (PHASE_SIMP_END eq $phase) {
     } else {
@@ -1502,7 +1555,7 @@ sub register_result {
 #
 # Warning:
 # $left_over_trials > 0 must be checked before returning because otherwise we have no limitation.
-# This is fatal for FIRST_REPLAY, THREAD1_REPLAY
+# This would be fatal for FIRST_REPLAY, THREAD1_REPLAY
 #
 
     our $arrival_number;
