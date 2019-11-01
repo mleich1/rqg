@@ -1686,7 +1686,7 @@ sub check_worker_number {
 }
 
 sub add_order {
-# Simplifier::add_order calls Batch::add_order whenever a NEW was generated.
+# Simplifier::add_order calls Batch::add_order whenever a new order was generated.
     my ($order_id) = @_;
     check_order_id($order_id);
     push @try_queue, $order_id;
@@ -1799,6 +1799,14 @@ sub reactivate_till_filled {
 # Please note that %try_all_hash is empty could happen.
 # Example:
 # query: <some select(mean text without rules) crashing the server>;
+}
+
+sub get_rand_try_all_id {
+    my @try_all_list = sort keys %try_all_hash;
+    my $key_count    = scalar @try_all_list;
+    return undef if 0 == $key_count;
+    my $rand_num     = int(rand($key_count));
+    return $try_all_list[$rand_num];
 }
 
 
