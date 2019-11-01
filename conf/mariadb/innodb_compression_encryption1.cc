@@ -55,6 +55,11 @@
 # 7. (maybe permanent) Play around with different values for
 #    innodb_buffer_pool_instances , innodb_doublewrite , innodb-encryption-threads , threads
 #
+# Set --mysqld=--loose_innodb_use_native_aio=0 in case the DB server start fails because of that.
+# Newer releases of MariaDB use a fall back in case the corresponding resource in OS is too small.
+# Using aio is the default.
+#
+
 $combinations = [
     [
         '
@@ -63,10 +68,10 @@ $combinations = [
           --duration=300
           --engine=InnoDB
           --queries=100000000
-          --mysqld=--loose_innodb_use_native_aio=0
-          --reporters=Backtrace,ErrorLog,Deadlock,RestartConsistency
+          --mysqld=--loose_innodb_use_native_aio=1
+          --reporters=Backtrace,ErrorLog,Deadlock1,RestartConsistency
           --restart_timeout=30
-          --mysqld=--log_output=FILE
+          --mysqld=--log_output=none
           --sqltrace=MarkErrors
           --grammar=conf/mariadb/innodb_compression_encryption.yy
           --gendata=conf/mariadb/innodb_compression_encryption.zz
