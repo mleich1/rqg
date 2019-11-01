@@ -1,4 +1,4 @@
-# Copyright (C) 2018 MariaDB Corporation Ab.
+# Copyright (C) 2018,2019 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -25,11 +25,9 @@
 # to some unfortunate direction.
 # =========================================================
 # aio is on most boxes/OS a very short resource.
-# So
-# --mysqld=--loose_innodb_use_native_aio=0,
-# is usually required but it implies that aio related code of InnoDB is not covered.
-# It just prevents valueless starts of RQG runners and also other ugly effects to be
-# accepted+already known from that reason.
+# So set
+# --mysqld=--loose_innodb_use_native_aio=0
+# in case the MariaDB version requires it.
 #
 #
 # Threads running the queries from YY grammar might frequent lose their
@@ -160,8 +158,8 @@ $combinations = [
          --gendata=conf/mariadb/table_stress.zz
          --gendata_sql=conf/mariadb/table_stress.sql
          --engine=Innodb
-         --reporters=Deadlock,ErrorLog,Backtrace
-         --mysqld=--loose_innodb_use_native_aio=0
+         --reporters=Deadlock1,ErrorLog,Backtrace
+         --mysqld=--loose_innodb_use_native_aio=1
          --mysqld=--connect_timeout=60
          --mysqld=--net_read_timeout=30
          --mysqld=--net_write_timeout=60
