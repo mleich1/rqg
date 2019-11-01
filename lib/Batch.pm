@@ -548,6 +548,10 @@ sub stop_worker_oldest {
         # Omit any worker which reached something of interest and is maybe during archiving
         next if defined $worker_array[$worker_num][WORKER_VERDICT] and
                 Verdict::RQG_VERDICT_INTEREST eq $worker_array[$worker_num][WORKER_VERDICT];
+        # FIXME: In case that warning showed never up than remove the next 3 lines.
+        if (-1 == $worker_array[$worker_num][WORKER_START]) {
+            say("WARN: stop_worker_oldest: -1 == worker_start seen.");
+        }
         my $elapsed_runtime = $current_time - $worker_array[$worker_num][WORKER_START];
         if ($elapsed_runtime > $oldest_worker_runtime) {
             $oldest_worker_runtime = $elapsed_runtime;
@@ -968,9 +972,9 @@ sub reap_workers {
 
                 my $verdict;
                 $worker_array[$worker_num][WORKER_END] = time();
-                if (not defined $worker_array[$worker_num][WORKER_START]) {
+                if (-1 == $worker_array[$worker_num][WORKER_START]) {
                     # The parent (rqg_batch.pl) has never detected that the child (rqg.pl) started
-                    # to work. Hence WORKER_START is undef. And than in minimum the current RQG
+                    # to work. Hence WORKER_START is -1. And than in minimum the current RQG
                     # worker had to be stopped because of maximum rqg_batch.pl runtime exceeded.
                     # So we set here WORKER_START = WORKER_END in order to avoid strange total
                     # runtime values like current unix timestamp in "result.txt".
@@ -1968,7 +1972,7 @@ sub process_finished_runs {
             my ($status,$action);
             my $total_runtime = $worker_array[$worker_num][WORKER_END] -
                                 $worker_array[$worker_num][WORKER_START];
-            if (not defined $total_runtime) {
+            if (-1 ==$worker_array[$worker_num][WORKER_START]) {
                 # A RQG run died in Phase init -> Verdict will be init too.
                 # Real life example:
                 # I edited rqg.pl and made there a mistake in perl syntax.
