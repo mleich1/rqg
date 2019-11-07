@@ -1,3 +1,5 @@
+#!/bin/bash
+
 PAR=$1
 
 OOS_DIR=`pwd`"/bld_fast"
@@ -19,6 +21,7 @@ else
     mkdir "$OOS_DIR"
 fi
 
+set -e
 cd "$OOS_DIR"
 BLD_PROT="$OOS_DIR""/build.prt"
 rm -f "$BLD_PROT"
@@ -28,14 +31,18 @@ git show --pretty='format:%D %H %cI' -s                          2>&1   | tee -a
 echo                                                             2>&1   | tee -a "$BLD_PROT"
 echo "#--------------------------------------------------------------"  | tee -a "$BLD_PROT"
 
-make clean                                                       2>&1   | tee -a "$BLD_PROT"
-rm CMakeCache.txt                                                2>&1   | tee -a "$BLD_PROT"
+rm -f ../CMakeCache.txt                                          2>&1   | tee -a "$BLD_PROT"
 
+START_TS=`date '+%s'`
 cmake -DCONC_WITH_{UNITTEST,SSL}=OFF -DWITH_EMBEDDED_SERVER=OFF -DWITH_UNIT_TESTS=OFF              \
 -DWITH_WSREP=ON                                                                                    \
 -DPLUGIN_TOKUDB=NO -DPLUGIN_MROONGA=NO -DPLUGIN_OQGRAPH=NO                                         \
 -DPLUGIN_ROCKSDB=NO -DPLUGIN_CONNECT=NO -DWITH_SAFEMALLOC=OFF -DWITH_SSL=bundled                   \
 -DWITH_ASAN:BOOL=OFF   ..                                        2>&1   | tee -a "$BLD_PROT"
+END_TS=`date '+%s'`
+RUNTIME=$(($END_TS - $START_TS))
+echo -e "\nElapsed time for cmake: $RUNTIME\n\n"                        | tee -a "$BLD_PROT"
+
 if [ "" != "$PAR" ]
 then
    PARALLEL=$PAR
@@ -44,7 +51,11 @@ else
    PARALLEL=$((PARALLEL + PARALLEL / 2))
 fi
 
+START_TS=`date '+%s'`
 nice -19 make -j $PARALLEL                                       2>&1   | tee -a "$BLD_PROT"
+END_TS=`date '+%s'`
+RUNTIME=$(($END_TS - $START_TS))
+echo -e "\nElapsed time for nice -19 make -j $PARALLEL: $RUNTIME\n"     | tee -a "$BLD_PROT"
 echo "#--------------------------------------------------------------"  | tee -a "$BLD_PROT"
 
 # The server, how he is started by RQG, expects the plugins located in $OOS_DIR/lib/plugin/
