@@ -1430,6 +1430,7 @@ sub get_string_after_pattern {
         return undef;
     }
 
+    # FIXME: The ([a-zA-Z0-9_/\.]+).* is questionable.
     if ($content=~ s|.*$pattern([a-zA-Z0-9_/\.]+).*|$1|s) {
         return $content;
     } else {

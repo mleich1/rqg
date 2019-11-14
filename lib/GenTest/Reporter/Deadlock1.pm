@@ -87,7 +87,7 @@ use constant CONNECT_TIMEOUT_THRESHOLD       => 30;   # Seconds
 #    or
 #    - using the reporter QueryTimeout and assigning some fitting value to the RQG run like
 #      --querytimeout=<value>
-#      ==> QUERY_LIFETIME_THRESHOLD(here) > <value assigned to querytimeout> + OVERLOAD_ADD 
+#      ==> QUERY_LIFETIME_THRESHOLD(here) > <value assigned to querytimeout> + OVERLOAD_ADD
 #    or
 #    - assigning the GLOBAL/SESSION system variable "max_statement_time"
 # 2. When meeting a high fraction of RQG runs failing with STATUS_SERVER_DEADLOCKED try first to

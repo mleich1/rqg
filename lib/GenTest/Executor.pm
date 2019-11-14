@@ -360,7 +360,26 @@ sub cacheMetaData {
 
         my $metadata= $self->getSchemaMetaData();
         if (not defined $metadata) {
-            Carp::cluck("FATAL ERROR: failed to cache schema metadata" .
+            # Observation 2019-11
+            # The reason is unclear. Maybe too overloaded testing box.
+            # Caching schema metadata for dbi:mysql:host=127.0.0.1:port=30900:user=root:database=test:mysql_local_infile=1
+            # FATAL ERROR: getSchemaMetaData: selectrow_arrayref failed with error 2013. at lib/GenTest/Executor/MySQL.pm line 1699.
+            # GenTest::Executor::MySQL::getSchemaMetaData(...)) called at lib/GenTest/Executor.pm line 361
+            # GenTest::Executor::cacheMetaData(GenTest::Executor::MySQL=...) called at lib/GenTest/App/GenTest.pm line 322
+            # GenTest::App::GenTest::doGenTest(GenTest::App::GenTest....) called at /home/mleich/work/RQG_mleich4/rqg.pl line 1701
+            # FATAL ERROR: getSchemaMetaData: The query was ->SELECT COUNT(*) FROM INFORMATION_SCHEMA.INNODB_LOCK_WAITS<-.
+            # FATAL ERROR: getSchemaMetaData: Will return undef.
+            # FATAL ERROR: failed to cache schema metadataWill return status STATUS_ENVIRONMENT_FAILURE. at lib/GenTest/Executor.pm line 363.
+            # GenTest::Executor::cacheMetaData(GenTest::Executor::MySQL=...) called at lib/GenTest/App/GenTest.pm line 322
+            # GenTest::App::GenTest::doGenTest(GenTest::App::GenTest=...) called at /home/mleich/work/RQG_mleich4/rqg.pl line 1701
+            # ERROR: metadata caching failed with status STATUS_ALARM. Will return that status. at lib/GenTest/App/GenTest.pm line 325.
+            # GenTest::App::GenTest::doGenTest(GenTest::App::GenTest=...) called at /home/mleich/work/RQG_mleich4/rqg.pl line 1701
+            #
+            # SUMMARY: RQG GenData runtime in s : 11  -- The server was in history connectable.
+            # SUMMARY: RQG GenTest runtime in s : 7   -- Here was the problem but why?
+            # SUMMARY: RQG total runtime in s : 22
+
+            Carp::cluck("FATAL ERROR: failed to cache schema metadata " .
                         "Will return status STATUS_ENVIRONMENT_FAILURE.");
             return STATUS_ENVIRONMENT_FAILURE;
         }
