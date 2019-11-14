@@ -489,7 +489,12 @@ sub startServer {
                                           "--pid-file=".$self->pidfile],
                                          $self->_logOptions);
    if (defined $self->[MYSQLD_SERVER_OPTIONS]) {
-        $command = $command." ".join(' ',@{$self->[MYSQLD_SERVER_OPTIONS]});
+        # Original code with the following bad effect seen
+        #     A call is given to the shell and many but not all option settings are enclosed in double quotes.
+        #     The non enclosed make trouble if looking like
+        #     wsrep_provider_options=repl.causal_read_timeout=PT90S;base_port=16002;<whatever>
+        # $command = $command." ".join(' ',@{$self->[MYSQLD_SERVER_OPTIONS]});
+        $command = $command . ' "' .join('" "', @{$self->[MYSQLD_SERVER_OPTIONS]}) . '"';
    }
    # If we don't remove the existing pidfile,
    # the server will be considered started too early, and further flow can fail
