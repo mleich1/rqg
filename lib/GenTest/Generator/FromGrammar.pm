@@ -1,6 +1,6 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018, MariaDB Corporation Ab.
+# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -137,10 +137,20 @@ sub next {
     #        rule2 , rule1 ;
     #
     # Given the facts that
-    # - the extreme growth of memory consumption could be very dangerous for the OS on
-    #   the testing box
+    # - the extreme growth of memory consumption could be very dangerous for RQG and its tools
+    #   but also the OS on the testing box
     # - users should be made aware of the defect in case its some non simplified grammar
-    # I tend to let the RQG worker thread abort with STATUS_ENVIRONMENT_FAILURE.
+    # I tended to let the RQG worker thread exit with STATUS_ENVIRONMENT_FAILURE.
+    # And usually after a short time span the RQG runner exits with STATUS_ENVIRONMENT_FAILURE too.
+    # Serious disadvantage:
+    # Grammar simplification and also "masking" lead quite often to such defects in grammars.
+    # An end with STATUS_ENVIRONMENT_FAILURE does not provide any progress for simplification.
+    # Serious more efficient would be to avoid any possible trouble and going on with the test.
+    # Half experimental solution:
+    # Try to detect that problem as early as possible and react immediate with
+    # 1. Warn about the possible endless loop in grammar
+    # 2. Try to free as much memory (-> @sentence, @expansion) as possible
+    # 3. Return undef which does not get interpreted as statement to be executed.
     #
 
 	sub expand {
@@ -159,14 +169,12 @@ sub next {
 #       say("DEBUG: sentence_end -------");
 
         # Define some standard message because blacklist_patterns matching needs it.
-        my $abort_message_part = "WARN: Possible endless loop in grammar. Will abort the thread.";
+        my $warn_message_part = "WARN: Possible endless loop in grammar. Will return undef.";
 
 		if ($#sentence > GENERATOR_MAX_LENGTH) {
 			say("WARN: GenTest::Generator::FromGrammar : Sentence is now longer than " .
-                GENERATOR_MAX_LENGTH() . " symbols.\n" . $abort_message_part);
-            # Experiment begin
-            exit(STATUS_ENVIRONMENT_FAILURE);
-            # Experiment end
+                GENERATOR_MAX_LENGTH() . " symbols.\n" . $warn_message_part);
+            @sentence = ();
 			return undef;
 		}
 		
@@ -189,10 +197,9 @@ sub next {
 
 				if (++($rule_counters->{$orig_item}) > GENERATOR_MAX_OCCURRENCES) {
 			        say("WARN: GenTest::Generator::FromGrammar : Rule '$orig_item' occured more " .
-                        "than ".GENERATOR_MAX_OCCURRENCES()." times.\n" . $abort_message_part);
-                    # Experiment begin
-                    exit(STATUS_ENVIRONMENT_FAILURE);
-                    # Experiment end
+                        "than ".GENERATOR_MAX_OCCURRENCES()." times.\n" . $warn_message_part);
+                    @sentence = ();
+                    @expansion = ();
 					return undef;
 				}
 
@@ -218,9 +225,13 @@ sub next {
 					if ($@ ne '') {
 						if ($@ =~ m{at .*? line}o) {
 							say("Internal grammar error: $@");
-							return undef;			# Code called die()
+                            @sentence = ();
+                            @expansion = ();
+							return undef;    # the original code called die()
 						} else {
 							warn("Syntax error in Perl snippet $orig_item : $@");
+                            @sentence = ();
+                            @expansion = ();
 							return undef;
 						}
 					}
