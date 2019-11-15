@@ -59,6 +59,8 @@ use constant SIMP_RULE_HASH       => 1;
 use constant SIMP_GRAMMAR_FLAGS   => 2;
 use constant SIMP_THREADS         => 3;
 
+my $component_indent = GenTest::Grammar::Rule::COMPONENT_INDENT;
+
 # Constants used in the phase PHASE_GRAMMAR_DEST
 # ----------------------------------------------
 # SIMP_EMPTY_QUERY is for replacing the complete content of a non top level rule.
@@ -104,11 +106,16 @@ sub init {
         return undef;
     }
 
-    my $status = load_grammar($grammar_file);
+    my $status = load_grammar_from_files($grammar_file);
     if (STATUS_OK != $status) {
-        say("INTERNAL ERROR: $snip load_grammar failed. Will return undef.");
+        say("INTERNAL ERROR: $snip load_grammar_from_files failed. Will return undef.");
         return undef;
     }
+    # print("\n# Grammar just loaded ----------\n");
+    # print($grammar_obj->toString() . "\n");
+    # print("----------------------------------\n");
+    # print("\n" . $grammar_obj->toString() . "\n");
+
     # Replace some maybe filled %rule_hash by some new one.
     # --> There might be non reachable rules between!
     # --> This init sets RULE_JOBS_GENERATED to 0 !!!
@@ -118,20 +125,45 @@ sub init {
         say("INTERNAL ERROR: $snip set_default_rules_for_threads failed. Will return undef.");
         return undef;
     }
+    # print("\n# Grammar after set_default_rules_for_threads ----------\n");
+    # print($grammar_obj->toString() . "\n");
+    # print("----------------------------------\n");
+
     if (STATUS_OK != analyze_all_rules()) {
         say("INTERNAL ERROR: $snip analyze_all_rules failed. Will return undef.");
         return undef;
     }
+    # print("\n# Grammar after analyze_all_rules ----------\n");
+    # print($grammar_obj->toString() . "\n");
+    # print("----------------------------------\n");
     print_rule_hash() if $script_debug;
+
     # Inline anything which has a length <= $max_inline_length.
     if (STATUS_OK != compact_grammar($max_inline_length)) {
         say("INTERNAL ERROR: $snip compact_grammar failed. Will return undef.");
         return undef;
     }
+    # print("\n# Grammar after compact_grammar ----------\n");
+    # print($grammar_obj->toString() . "\n");
+    # print("----------------------------------\n");
+    print_rule_hash() if $script_debug;
+
     if (not defined $grammar_obj) {
         Carp::cluck("grammar_obj is not defined");
         say("INTERNAL ERROR: $snip Will return undef.");
         return undef;
+    }
+
+    # Some consistency check for grammar
+    foreach my $rule_name (sort keys %rule_hash) {
+        my @unique_component_list = get_unique_component_list($rule_name);
+        if (1 > scalar @unique_component_list) {
+            say("INTERNAL ERROR: Rule '$rule_name' less than one unique components. Will return undef.");
+            return undef;
+        } else {
+            say("DEBUG: '$rule_name' UCL -->" . join("<-->", @unique_component_list) . "<--")
+                if $script_debug;
+        }
     }
     return $grammar_obj->toString();
 
@@ -168,7 +200,7 @@ sub reload_grammar {
         say("INTERNAL ERROR: $snip threads is not defined. Will return undef.");
         return undef;
     }
-    if (STATUS_OK != load_grammar($grammar_file)) {
+    if (STATUS_OK != load_grammar_from_files($grammar_file)) {
         Carp::cluck("INTERNAL ERROR: reload_grammar failed. Will return undef.");
         return undef;
     }
@@ -246,7 +278,7 @@ sub estimate_cut_steps {
 }
 
 
-sub load_grammar {
+sub load_grammar_from_files {
 
     my ($grammar_file)= @_;
     my @grammar_files;
@@ -258,6 +290,23 @@ sub load_grammar {
     );
     if (not defined $grammar_obj) {
         # Example: Open the grammar file failed.
+        say("ERROR: GenTest::Simplifier::Grammar_advanced: Filling the grammar_obj failed. " .
+            "Will return STATUS_ENVIRONMENT_FAILURE.");
+        return STATUS_ENVIRONMENT_FAILURE;
+    }
+    return STATUS_OK;
+}
+
+
+sub load_grammar_from_string {
+
+    my ($grammar_string)= @_;
+
+    $grammar_obj = GenTest::Grammar->new(
+           'grammar_string'  => $grammar_string,
+           'grammar_flags'  => $grammar_flags
+    );
+    if (not defined $grammar_obj) {
         say("ERROR: GenTest::Simplifier::Grammar_advanced: Filling the grammar_obj failed. " .
             "Will return STATUS_ENVIRONMENT_FAILURE.");
         return STATUS_ENVIRONMENT_FAILURE;
@@ -492,9 +541,13 @@ sub set_default_rules_for_threads {
             }
             if ('' eq $sentence) {
                 say("WARN: The grammar contains neither the rule 'query' nor 'thread'.");
-                # FIXME: Maybe abort?
+                $sentence = SIMP_WAIT_QUERY;
             }
-            my $string_addition = $rule_name . ":\n" . "    " . $sentence . " ;";
+            my $string_addition = $rule_name . ":\n" . "$component_indent" . $sentence . " ;";
+            # Prevent   BOL <no white space><more than one white space>;EOL
+            $string_addition =~ s{ +;$}{ ;}img;
+            # Prevent wrong formatted last component if empty.
+            $string_addition =~ s{^ +;$}{$component_indent ;}img;
             $grammar_string_addition .= "\n\n" . $string_addition;
         } else {
         }
@@ -514,14 +567,18 @@ sub set_default_rules_for_threads {
                 }
             }
             # Having no *_init must be allowed.
-            my $string_addition = $rule_name . ":\n" . "    " . $sentence . " ;";
+            my $string_addition = $rule_name . ":\n" . "$component_indent" . $sentence . " ;";
+            # Prevent   BOL <no white space><more than one white space>;EOL
+            $string_addition =~ s{ +;$}{ ;}img;
+            # Prevent wrong formatted last component if empty.
+            $string_addition =~ s{^ +;$}{$component_indent ;}img;
             $grammar_string_addition .= "\n\n" . $string_addition;
         } else {
-            say("DEBUG: rule : $rule_name does exist");
+            # say("DEBUG: rule : $rule_name does exist");
         }
         $rule_name = 'thread' . $number . '_connect';
         if (not exists $rule_hash{$rule_name}) {
-            say("DEBUG: rule : $rule_name does not exist");
+            # say("DEBUG: rule : $rule_name does not exist");
             my $sentence = '';
             if (exists $rule_hash{'query_connect'}) {
                 $sentence = "query_connect";
@@ -531,11 +588,16 @@ sub set_default_rules_for_threads {
                     # Good grammar because "query" does not exist too.
                     $sentence = "thread_connect";
                 } else {
-                    say("WARN: The grammar contains the rules 'query_connect' and 'thread_connect'. Will pick 'query_connect'.");
+                    say("WARN: The grammar contains the rules 'query_connect' and " .
+                        "'thread_connect'. Will pick 'query_connect'.");
                 }
             }
             # Having no *_init must be allowed.
             my $string_addition = $rule_name . ":\n" . "    " . $sentence . " ;";
+            # Prevent   BOL <no white space><more than one white space>;EOL
+            $string_addition =~ s{ +;$}{ ;}img;
+            # Prevent wrong formatted last component if empty.
+            $string_addition =~ s{^ +;$}{$component_indent ;}img;
             $grammar_string_addition .= "\n\n" . $string_addition;
         } else {
         }
@@ -625,6 +687,7 @@ sub analyze_all_rules {
                 #     We run with only 8 threads so delete the rule 'thread13'.
                 # because 'thread13' might be used in a component of some really used rule.
                 # In the current stage we do not know if 'thread13' is referenced.
+                say("DEBUG: Marking rule '$rule_name' is top level.") if $script_debug;
                 $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL] = 1;
             }
         }
@@ -633,19 +696,26 @@ sub analyze_all_rules {
         while ($more_to_process) {
             $more_to_process = 0;
             foreach my $rule_name (keys %rule_hash) {
+                # say("DEBUG: 1 rule_name --> $rule_name");
 
                 next if 1 == $rule_hash{$rule_name}->[RULE_IS_PROCESSED];
                 if (0 == $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL] and
                     0 == $rule_hash{$rule_name}->[RULE_REFERENCED]      ) {
                     next;
                 }
+                # say("DEBUG: 2 rule_name --> $rule_name");
                 # Non processed potential top level rules need to get processed anyway because
-                # we need for any rule determine RULE_REFERENCED.
+                # we need for any rule to determine RULE_REFERENCED.
                 # In case of non top level rules and RULE_REFERENCED == 0 we just do not know if
                 # they will be used at all. So process the other rules first.
 
                 my $rule_obj = $grammar_obj->rule($rule_name);
                 $rule_hash{$rule_name}->[RULE_UNIQUE_COMPONENTS] = scalar $rule_obj->unique_components;
+                if (1 > scalar $rule_obj->unique_components) {
+                    say("INTERNAL ERROR: Rule '$rule_name' : 1 > number of unique components.");
+                    return STATUS_INTERNAL_ERROR;
+                }
+                # say("DEBUG: 3 rule_name --> $rule_name components: " . scalar $rule_obj->unique_components);
 
                 # Decompose the rule.
                 my $components = $rule_obj->components();
@@ -1101,6 +1171,13 @@ sub calculate_weights {
         # Decompose the rule.
         my $components = $rule_obj->components();
 
+        my $component_count = scalar @{$components};
+        if (1 > $component_count) {
+            print_rule_hash();
+            Carp::cluck("INTERNAL ERROR: Rule '$rule_name' component_count < 1 detected.");
+            return STATUS_INTERNAL_ERROR;
+        }
+
         my $charge_unit = $rule_hash{$rule_name}->[RULE_WEIGHT] / (scalar @{$components});
 
         for (my $component_id = $#$components; $component_id >= 0; $component_id--) {
@@ -1369,7 +1446,6 @@ sub shrink_grammar {
     my $rule_obj          = $grammar_obj->rule($rule_name);
     my @unique_components = $rule_obj->unique_components();
 
-    my $indent = "    ";
     my $reduced_rule_string;
     if ('_to_empty_string_only' ne $component_string) {
         #### Non destructive simplification ####
@@ -1501,13 +1577,23 @@ sub shrink_grammar {
 
     }
 
-    $reduced_rule_string = "$rule_name:\n$indent" .
-                           join(" |\n$indent", @reduced_components) . ' ;';
+    # We need a white space before the ';' in order to prevent last lines of a rule
+    # like "    other_rule;"
+    $reduced_rule_string = "$rule_name:\n$component_indent" .
+                           join(" |\n$component_indent", @reduced_components) . ' ;';
+    # Prevent   BOL <no white space><more than one white space>;EOL
+    $reduced_rule_string =~ s{ +;$}{ ;}img;
+    $reduced_rule_string =~ s{^ +;$}{$component_indent ;}img;
+    # Prevent wrong formatted last component if empty.
+    # $string =~ s{^ +;$}{$component_indent ;}img;
+    $reduced_rule_string =~ s{ +\|}{ \|}img;
+    $reduced_rule_string =~ s{^ *\|}{$component_indent \|}img;
+
     if ($reduced_rule_string eq $rule_obj->toString()) {
         # Known special case:
         # The last campaign had success and we have caused by that or another campaign
         # <top_level_rule>:
-        # <indent> ;
+        # <component_indent> ;
         # In the current campaign '_to_empty_string_only' was proposed for that <top_level_rule>.
         # In case we do not return undef than we get a valueless RQG run harvesting success and
         # therefore some next campaign --> ~ "endless".

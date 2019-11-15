@@ -1,5 +1,5 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
-# Copyright (c) 2018, MariaDB Corporation Ab.
+# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -23,6 +23,9 @@ use strict;
 
 use constant RULE_NAME          => 0;
 use constant RULE_COMPONENTS    => 1;
+
+# When printing a grammar or a rule than all components of a rule should begin with this indent.
+use constant COMPONENT_INDENT   => '    ';
 
 my %args = (
     'name'        => RULE_NAME,
@@ -115,6 +118,7 @@ sub unique_components {
     my $components = $rule->components();
     foreach my $component (@$components) {
         my $component_string = join('', @$component);
+        # print("DEBUG: CS component_string ->$component_string<-\n");
         if (not exists $rule_component_hash{$component_string}) {
             $rule_component_hash{$component_string} = 1;
             push @rule_unique_component_list , $component_string;
@@ -133,7 +137,21 @@ sub unique_components {
 sub toString {
     my $rule = shift;
     my $components = $rule->components();
-    return $rule->name() . ":\n    " . join(" |\n    ", map { join('', @$_) } @$components) . " ;";
+    my $component_indent = COMPONENT_INDENT;
+
+    # Warning: An element of @$components is an array and not some string.
+    my $string =     $rule->name() . ":\n$component_indent" .
+                           join(" |\n$component_indent", map { join('', @$_) } @$components) . " ;";
+    # Prevent <more than one white space>;EOL
+    $string =~ s{ +;$}{ ;}img;
+    # Prevent BOL<one white space>;EOL
+    $string =~ s{^ *;$}{$component_indent;}img;
+    $string =~ s{ +\|}{ \|}img;
+    $string =~ s{^ *\|}{$component_indent\|}img;
+
+    # Original
+    # return $rule->name() . ":\n    " . join(" |\n    ", map { join('', @$_) } @$components) . ";";
+    return $string;
 }
 
 
