@@ -98,7 +98,12 @@ sub participatingRules {
 #
 
 sub next {
-	my ($generator, $executors) = @_;
+
+    # Original code harvesting a warning like
+    #     Variable "$generator" will not stay shared
+    # because the inner sub "expand" fiddles with $generator and $executors too.
+	# my ($generator, $executors) = @_;
+	our ($generator, $executors) = @_;
 
 	# Suppress complaints "returns its argument for UTF-16 surrogate".
 	# We already know that our UTFs in some grammars are ugly.
@@ -115,9 +120,9 @@ sub next {
 	my %rule_counters;
 	my %invariants;
 
-	my $last_field;
-	my $last_table;
-	my $last_database;
+	our $last_field;
+	our $last_table;
+	our $last_database;
 
 	my $stack = GenTest::Stack::Stack->new();
 	my $global = $generator->globalFrame();
