@@ -95,7 +95,7 @@ sub run {
     our $sql_file = $self->sql_file();
     if (not -e $sql_file) {
         say("ERROR: GenTest::App::GendataSQL::run : The SQL file '$sql_file' " .
-            "does no more exist.");
+            "does (no more) exist.");
         say("ERROR: Will return STATUS_ENVIRONMENT_FAILURE.");
         return $bad_status;
     }
@@ -117,7 +117,7 @@ sub run {
     sub run_sql_cmd {
         my ($executor, $sql_cmd) = @_;
         if (not defined $sql_cmd) {
-         Carp::confess("Error: SQL command to be executed is not defined.");
+            Carp::confess("Error: SQL command to be executed is not defined.");
         }
         # 1. The execute will write the SQL statement including errors to the output in case SQL
         #    tracing is enabled.
