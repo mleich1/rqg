@@ -91,7 +91,7 @@ use GenTest::App::GenConfig;
 # use DBServer::DBServer;
 # use DBServer::MySQL::MySQLd;
 # use DBServer::MySQL::ReplMySQLd;
-# use DBServer::MySQL::GaleraMySQLd;
+# use DBServer::MySQL::GaleraMySQLd1;
 use Verdict;
 
 if (defined $ENV{RQG_HOME}) {

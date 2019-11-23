@@ -75,7 +75,7 @@ sub new {
         if (defined $grammar->string()) {
             my $parse_result = $grammar->parseFromString($grammar->string());
             return undef if $parse_result > STATUS_OK;
-            # If not undef than $grammar->[GRAMMAR_RULES] is now filled.
+            # $grammar->[GRAMMAR_RULES] is now filled.
         }
     }
 
@@ -634,6 +634,13 @@ sub parseFromString {
         }
     }
 
+    # my $str_before = $grammar->[GRAMMAR_STRING];
+    # if ($str_before ne $final_string) {
+    #     say("str_before =>\n" . $str_before . "\n<=");
+    #     say("final_string =>\n" . $final_string . "\n<=");
+    # }
+    # $grammar->[GRAMMAR_STRING] holds the old grammar string and not our improved one.
+    # So update it.
     $grammar->[GRAMMAR_STRING] = $final_string;
 
     if ($script_debug) {
