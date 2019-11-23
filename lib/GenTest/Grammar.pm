@@ -147,7 +147,7 @@ sub dump_transformed_grammar {
 sub parseFromString {
     my ($grammar, $grammar_string) = @_;
 
-    dump_transformed_grammar ($grammar_string, 1, 'reading the grammar string');
+    dump_transformed_grammar ($grammar_string, 1, 'reading the grammar string.');
 
     #
     # Provide an #include directive
@@ -197,65 +197,80 @@ sub parseFromString {
             # say("include_string->$include_string<-");
             $include_string;
     }}mie) {};
-    dump_transformed_grammar ($grammar_string, 2, 'expanding includes');
+    dump_transformed_grammar ($grammar_string, 2, 'expanding includes.');
+
+    my $aux_separator  = "§_aux_separator_§\n";
+    my $rule_separator = "§_rule_separator_§\n";
+    my $comp_separator = "§_comp_separator_§\n";
+
+    # Check if the grammar contains one of the separators used here.
+    # Reason for 'yes'
+    # 1. The grammar author used words like '§_rule_separator_§'.
+    # 2. The grammar is "infected" by some bug in current or historic Grammar.pm.
+    my $tmp_grammar_string = $grammar_string;
+    foreach my $separator ($aux_separator, $rule_separator, $comp_separator) {
+        # Remove the "\n" because that could get lost during transformations.
+        $separator =~ s{\n$}{}o;
+        if ($tmp_grammar_string =~ m{$separator}) {
+            Carp::cluck("FATAL ERROR: Grammar just read contains the separator '$separator'.");
+            say("====>\n" . $tmp_grammar_string . "\n<====");
+            return STATUS_INTERNAL_ERROR;
+        }
+    }
 
     # Strip comments. Note that this is not Perl-code safe, since perl fragments
     # can contain both comments with # and the $# expression. A proper lexer will fix this
     $grammar_string =~ s{#.*$}{}iomg;
-    dump_transformed_grammar ($grammar_string, 3, 'stripping comments');
+    dump_transformed_grammar ($grammar_string, 3, 'stripping comments.');
 
     # Replace multiple tabs by a single white space
     $grammar_string =~ s{\t+}{ }iomg;
-    dump_transformed_grammar ($grammar_string, 4, 'tab to white space');
+    dump_transformed_grammar ($grammar_string, 4, 'tab to white space conversion.');
 
     # Replace any '\r' by '\n'
     $grammar_string =~ s{\r}{\n}iomg;
-    dump_transformed_grammar ($grammar_string, 5, '\r to \n');
+    dump_transformed_grammar ($grammar_string, 5, '\r to \n conversion.');
 
     # Take care of the rule names first
     # ---------------------------------
     # Strip whitespaces between rule_name and ':'. The '\w' means alphanumeric including '_'.
     # I hope that Perl snippets containing a ':' will be never touched.
     $grammar_string =~ s{^\s*(\w+)\s+:}{$1:}img;
-    dump_transformed_grammar ($grammar_string, 6, "strip white spaces and empty lines before " .
+    dump_transformed_grammar ($grammar_string, 6, "remove white spaces and empty lines before " .
                               "rule name and between rule name and ':'");
 
-    my $separator = '§_rule_separator_§';
-
     # 1. Place a separator before any rule_name.
-    $grammar_string =~ s{^(\w+:)}{$separator\n$1}img;
+    $grammar_string =~ s{^(\w+:)}{$rule_separator$1}img;
     dump_transformed_grammar ($grammar_string, 7,
-                              'add the rule separator + \n before any rule name');
+                              'add the rule separator before any rule name');
 
     # 2. Add a separator to the end of the grammar because its there missing.
-    $grammar_string = $grammar_string . "$separator\n";
+    $grammar_string = $grammar_string . "$rule_separator";
     dump_transformed_grammar ($grammar_string, 8,
-                              'append the rule separator + \n to the grammar end');
+                              'append the rule separator to the grammar end.');
 
     # Remove the separator from the begin of the grammar
-    # FIXME: Does this seperator really disturb?
-    $grammar_string =~ s{^\s*$separator\n*}{}ig;
-    dump_transformed_grammar ($grammar_string, 9, "remove white space + rule separator '\\n' " .
-                              "from the begin of the grammar");
+    $grammar_string =~ s{^\s*$rule_separator}{}ig;
+    dump_transformed_grammar ($grammar_string, 9, "remove white spaces + rule separator " .
+                              "from the begin of the grammar.");
 
     # Remove the ';' at the end of any rule.
-    $grammar_string =~ s{;\s*$separator}{$separator}img;
-    dump_transformed_grammar ($grammar_string, 10, "Shrink multiple white spaces before the ';' " .
-                              "to exact one");
+    $grammar_string =~ s{;\s*$rule_separator}{$rule_separator}img;
+    dump_transformed_grammar ($grammar_string, 10, "remove white spaces between ';' and the " .
+                              "rule separator.");
 
     # Split grammar_string into rules
-    # my @rule_strings = split ("$separator", $grammar_string);
-    my @rule_strings = split ("$separator\n", $grammar_string);
+    my @rule_strings = split ("$rule_separator", $grammar_string);
     dump_transformed_grammar ("->\n" . join("<-\n->",@rule_strings) . "\n<-", 11,
-                              "after splitting into rules");
+                              "after splitting into rules.");
 
     my @new_rule_strings;
     foreach my $rule_string (@rule_strings) {
 
         say("DEBUG: 1 rule_string at begin ->$rule_string<-") if $script_debug;
 
-        # Shrink multiple end-line whitespaces to exact one
-        $rule_string =~ s{\s+$}{}img;
+        # Remove end-line whitespaces
+        $rule_string =~ s{\s*$}{}img;
         say("DEBUG: 2 rule_string between  ->$rule_string<-") if $script_debug;
 
         # Join lines ending in \ + add at "glue point" a single space
@@ -270,7 +285,7 @@ sub parseFromString {
     }
     @rule_strings = @new_rule_strings;
     dump_transformed_grammar ("->\n" . join("<-\n->",@rule_strings) . "\n<-", 14,
-                              "after egalization inside of rules");
+                              "after egalization inside of rules.");
 
     my %rules;
 
@@ -325,10 +340,7 @@ sub parseFromString {
     my %thread_init_adds = ();
 
     foreach my $rule_string (@rule_strings) {
-        # Experiment begin ???
-        # my ($rule_name, $components_string) = $rule_string =~ m{^(.*?)\s*:(.*)$}sio;
-        my ($rule_name, $components_string) = $rule_string =~ m{^(.*?)\s*:(.*)$}si;
-        # Experiment end
+        my ($rule_name, $components_string) = $rule_string =~ m{^(.*?)\s*:(.*)$}sio;
 
         my $r_name   = '<undef>';
         my $c_string = '<undef>';
@@ -340,14 +352,14 @@ sub parseFromString {
             $components_string = '';
         }
         # $c_string    = $components_string if defined $components_string;
-        say("DEBUG: After partial analysis: Rule '$r_name' rule_string ->\n" . $rule_string . "\n<-\n" .
-            "components_string ->\n" . $c_string . "\n<-") if $script_debug;
+        say("DEBUG: After partial analysis: Rule '$r_name' rule_string =>\n" . $rule_string .
+            "\n<=components_string=>\n" . $c_string . "\n<=") if $script_debug;
 
         if (not defined $rule_name) {
             if (defined $components_string and $components_string ne '') {
                 Carp::cluck("ERROR: rule_string is defined and not empty ->" . $components_string .
                             "<- and even though that the rule_name is undef.");
-                exit;
+                return STATUS_INTERNAL_ERROR;
             }
             say("DEBUG: Rule name is undef.") if $script_debug;
             next;
@@ -409,7 +421,6 @@ sub parseFromString {
     }
     dump_transformed_grammar ("->\n" . $new_grammar_string . "\n<-", 16, "after *_add step 2");
 
-    $separator = '§_comp_separator_§';
     $new_grammar_string = '';
     foreach my $rule_name (sort keys %rules) {
 
@@ -417,63 +428,81 @@ sub parseFromString {
         my %components;
 
         my $components_string = $rules{$rule_name};
-        say("DEBUG: 1 rule '$rule_name' components_string at begin ->" .
-            $components_string . "<-") if $script_debug;
+        say("DEBUG: 1 rule '$rule_name' components_string at begin ==>\n" .
+            $components_string . "\n<=") if $script_debug;
 
-        # Translate all '|' to separator
-        $components_string =~ s{\|}{$separator\n}img;
-        say("DEBUG: 2 rule '$rule_name' components_string between  ->" .
-            $components_string . "<-") if $script_debug;
+        # Translate all '|' to $comp_separator
+        $components_string =~ s{\|}{$comp_separator}img;
+        say("DEBUG: 2 rule '$rule_name' components_string between  ==>\n" .
+            $components_string . "\n<=") if $script_debug;
 
-        # Remove empty statements before the separator
-        $components_string =~ s{;\s*$separator}{$separator}img;
-        say("DEBUG: 4 rule '$rule_name' components_string between  ->" .
-            $components_string . "<-") if $script_debug;
-
-        # Remove empty statements after the separator
-        $components_string =~ s{$separator\s*;}{$separator}img;
-        say("DEBUG: 5 rule '$rule_name' components_string between  ->" .
-            $components_string . "<-") if $script_debug;
+        # 2. Add an auxiliary separator to the begin and the end of the rule.
+        $components_string = $aux_separator . $components_string . $aux_separator;
+        say("DEBUG: 2a rule '$rule_name' components_string between  ==>\n" .
+            $components_string . "\n<=") if $script_debug;
 
         # Translate ';<maybe white spaces>;' to ';'
         $components_string =~ s{;\s*;}{;}img;
-        say("DEBUG: 3 rule '$rule_name' components_string between  ->" .
-            $components_string . "<-") if $script_debug;
+        say("DEBUG: 2b rule '$rule_name' components_string between  ==>\n" .
+            $components_string . "\n<=") if $script_debug;
 
-        # Shrink multiple leading white spaces of lines to exact one
-        $components_string =~ s{^\s+}{}img;
-        say("DEBUG: 6 rule '$rule_name' components_string between  ->" .
-            $components_string . "<-") if $script_debug;
+        # Remove empty statements before the aux separator
+        $components_string =~ s{;\s*$aux_separator}{$aux_separator}img;
+        say("DEBUG: 2c rule '$rule_name' components_string between  ==>\n" .
+            $components_string . "\n<=") if $script_debug;
 
-        # Shrink multiple trailing white spaces before the separator one
-        $components_string =~ s{ +$separator}{$separator}img;
-        say("DEBUG: 7 rule '$rule_name' components_string between  ->" .
-            $components_string . "<-") if $script_debug;
+        # Remove empty statements after the aux separator
+        $components_string =~ s{$aux_separator\s*;}{$aux_separator}img;
+        say("DEBUG: 2d rule '$rule_name' components_string between  ==>\n" .
+            $components_string . "\n<=") if $script_debug;
 
-        # FIXME:
-        # 1. Do we need th " - 1" appended ?
-        # 2. Can we go with the stuff set to comment below?
-        my @component_strings = split (m{$separator\n}, $components_string, - 1);
+        # Remove white spaces around the aux separator
+        $components_string =~ s{\s*$aux_separator\s*}{$aux_separator}img;
+        say("DEBUG: 3 rule '$rule_name' components_string between  ==>\n" .
+            $components_string . "\n<=") if $script_debug;
+
+        # Remove the aux separator
+        $components_string =~ s{$aux_separator}{}img;
+        say("DEBUG: 3a rule '$rule_name' components_string between  ==>\n" .
+            $components_string . "\n<=") if $script_debug;
+
+        # Remove empty statements before the separator
+        $components_string =~ s{;\s*$comp_separator}{$comp_separator}img;
+        say("DEBUG: 4 rule '$rule_name' components_string between  ==>\n" .
+            $components_string . "\n<=") if $script_debug;
+
+        # Remove empty statements after the separator
+        $components_string =~ s{$comp_separator\s*;}{$comp_separator}img;
+        say("DEBUG: 5 rule '$rule_name' components_string between  ==>\n" .
+            $components_string . "\n<=") if $script_debug;
+
+        # Remove leading white spaces of lines
+        $components_string =~ s{^\s*}{}img;
+        say("DEBUG: 6 rule '$rule_name' components_string between  ==>\n" .
+            $components_string . "\n<=") if $script_debug;
+
+        # Remove white spaces around the separator
+        $components_string =~ s{\s*$comp_separator\s*}{$comp_separator}img;
+        say("DEBUG: 7 rule '$rule_name' components_string between  ==>\n" .
+            $components_string . "\n<=") if $script_debug;
+
+        # The "- 1" for the last parameter is essential because otherwise last components
+        # which are "empty" will disappear after the split.
+        # Negative example:
+        # rule:             rule:
+        #     ABC |     -->     ABC ;
+        #     ;
+        my @component_strings = split (m{$comp_separator}, $components_string, - 1);
+
+        # Unclear if right
         if (0 == scalar @component_strings) {
-           say("DEBUG: Rule '$rule_name' has 0 components after split. " .
-               "Assuming one empty component.") if $script_debug;
+           say("WARN: Rule '$rule_name' has 0 components after split. " .
+               "Assuming one empty component.");
            @component_strings = ( '' );
         }
 
-#       my @component_strings;
-#       if ('' eq $components_string) {
-#           # empty_rule:
-#           #     ;
-#           # next_rule:
-#           # ....
-#           # 1. The ';' of empty_rule has disappeared after the splitting into rules.
-#           # 2. The remaining $components_string is '' which does not contain '§_comp_separator_§'
-#           @component_strings = ( '' );
-#       } else {
-#           @component_strings = split (m{$separator\n}, $components_string);
-#       }
-        say("DEBUG: 7 rule '$rule_name' components_string after splitting ->" .
-            join("<->", @component_strings) . "<-") if $script_debug;
+        say("DEBUG: 8 rule '$rule_name' components_string after splitting ==>\n" .
+            join("\n<==>\n", @component_strings) . "\n<=") if $script_debug;
 
         foreach my $component_string (@component_strings) {
 
@@ -492,29 +521,29 @@ sub parseFromString {
             # Old code: $component_string =~ s{\s+}{ }sgio;
             #
             $component_string =~ s{ +}{ }sgio;
-            say("DEBUG: 8 rule '$rule_name' one of the components_strings ->" .
-                $components_string . "<-") if $script_debug;
+            say("DEBUG: 9 rule '$rule_name' one of the components_strings ==>\n" .
+                $components_string . "\n<=") if $script_debug;
 
             # Split this so that each identifier is separated from all syntax elements
             # The identifier can start with a lowercase letter or an underscore , plus quotes
 
             $component_string =~ s{([_a-z0-9'"`\{\}\$\[\]]+)}{|$1|}sgio;
-            say("DEBUG: 9 rule '$rule_name' one of the components_strings ->" .
-                $components_string . "<-") if $script_debug;
+            say("DEBUG: 9a rule '$rule_name' one of the components_strings ==>\n" .
+                $components_string . "\n<=") if $script_debug;
 
             # Revert overzealous splitting that splits things like _varchar(32) into several tokens
 
             $component_string =~ s{([a-z0-9_]+)\|\(\|(\d+)\|\)}{$1($2)|}sgo;
-            say("DEBUG: 10 rule '$rule_name' one of the components_strings ->" .
-                $components_string . "<-") if $script_debug;
+            say("DEBUG: 10 rule '$rule_name' one of the components_strings ==>\n" .
+                $components_string . "\n<=") if $script_debug;
 
             # Remove leading and trailing pipes
             $component_string =~ s{^\|}{}sgio;
-            say("DEBUG: 11 rule '$rule_name' one of the components_strings ->" .
-                $components_string . "<-") if $script_debug;
+            say("DEBUG: 11 rule '$rule_name' one of the components_strings ==>\n" .
+                $components_string . "\n<=") if $script_debug;
             $component_string =~ s{\|$}{}sgio;
-            say("DEBUG: 12 rule '$rule_name' one of the components_strings ->" .
-                $components_string . "<-") if $script_debug;
+            say("DEBUG: 12 rule '$rule_name' one of the components_strings ==>\n" .
+                $components_string . "\n<=") if $script_debug;
 
             if ((exists $components{$component_string}) &&
                 (defined $grammar->[GRAMMAR_FLAGS] & GRAMMAR_FLAG_COMPACT_RULES)) {
@@ -526,7 +555,7 @@ sub parseFromString {
 
             my @component_parts = split (m{\|}, $component_string);
             say("DEBUG: 13 rule '$rule_name' one of the components_strings after splitting into " .
-                "parts ->" . join("<->", @component_parts) . "<-") if $script_debug;
+                "parts ==>\n" . join("\n<==>\n", @component_parts) . "\n<=") if $script_debug;
 
             if ((grep { $_ eq $rule_name } @component_parts) && defined $grammar->[GRAMMAR_FLAGS] &&
                 ($grammar->[GRAMMAR_FLAGS] & GRAMMAR_FLAG_SKIP_RECURSIVE_RULES)) {
@@ -546,14 +575,14 @@ sub parseFromString {
             my $code_start;
             while (1) {
                 if (defined $component_parts[$pos]) {
-                   # say("DEBUG: component_parts[$pos]: ->" . $component_parts[$pos] . "<-");
+                   # say("DEBUG: component_parts[$pos]: ->" . $component_parts[$pos] . "\n<=")
                    if ($component_parts[$pos] =~ m{\{}so) {
                        $code_start = $pos if $nesting_level == 0;  # Code segment starts here
                        my $bracket_count = ($component_parts[$pos] =~ tr/{//);
                        $nesting_level = $nesting_level + $bracket_count;
                    }
-                   say("DEBUG: 14_1 rule '$rule_name' one of the components_strings after " .
-                       "splitting into parts ->" . join("<->", @component_parts) . "<-")
+                   say("DEBUG: 14a rule '$rule_name' one of the components_strings after " .
+                       "splitting into parts ==>\n" . join("\n<==>\n", @component_parts) . "\n<=")
                        if $script_debug;
 
                    if ($component_parts[$pos] =~ m{\}}so) {
@@ -569,13 +598,13 @@ sub parseFromString {
                    }
                 }
                 $pos++;
-                say("DEBUG: 14_2 rule '$rule_name' one of the components_strings after " .
-                    "splitting into parts ->" . join("<->", @component_parts) . "<-")
+                say("DEBUG: 14b rule '$rule_name' one of the components_strings after " .
+                    "splitting into parts ==>\n" . join("\n<==>\n", @component_parts) . "\n<=")
                     if $script_debug;
                 last if $pos > $#component_parts;
             }
             say("DEBUG: 15 rule '$rule_name' one of the components_strings after splitting " .
-                "into parts ->" . join("<->", @component_parts) . "<-") if $script_debug;
+                "into parts ==>\n" . join("\n<==>\n", @component_parts) . "\n<=") if $script_debug;
 
             push @components, \@component_parts;
         }
@@ -589,9 +618,26 @@ sub parseFromString {
 
     $grammar->[GRAMMAR_RULES] = \%rules;
 
+    my $final_string = $grammar->toString();
+
+    # Check if the grammar contains one of the separators used here.
+    # Reason for 'yes'
+    #    The grammar is "infected" by some bug in current Grammar.pm.
+    $tmp_grammar_string = $final_string;
+    foreach my $separator ($aux_separator, $rule_separator, $comp_separator) {
+        # Remove the "\n" because that could get lost during transformations.
+        $separator =~ s{\n$}{}o;
+        if ($tmp_grammar_string =~ m{$separator}) {
+            Carp::cluck("FATAL ERROR: Grammar just read contains the separator '$separator'.");
+            say("====>\n" . $tmp_grammar_string . "\n<====");
+            return STATUS_INTERNAL_ERROR;
+        }
+    }
+
+    $grammar->[GRAMMAR_STRING] = $final_string;
+
     if ($script_debug) {
-        my $grammar_string = $grammar->toString();
-        dump_transformed_grammar ($grammar_string, 16, "final grammar");
+        dump_transformed_grammar ($final_string, 16, "final grammar");
         exit;
     }
 
