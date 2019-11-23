@@ -38,6 +38,7 @@ require Exporter;
     SIMP_WAIT_QUERY
 );
 
+use utf8;
 use strict;
 use Carp;
 use lib 'lib';
@@ -111,10 +112,6 @@ sub init {
         say("INTERNAL ERROR: $snip load_grammar_from_files failed. Will return undef.");
         return undef;
     }
-    # print("\n# Grammar just loaded ----------\n");
-    # print($grammar_obj->toString() . "\n");
-    # print("----------------------------------\n");
-    # print("\n" . $grammar_obj->toString() . "\n");
 
     # Replace some maybe filled %rule_hash by some new one.
     # --> There might be non reachable rules between!
@@ -158,14 +155,19 @@ sub init {
     foreach my $rule_name (sort keys %rule_hash) {
         my @unique_component_list = get_unique_component_list($rule_name);
         if (1 > scalar @unique_component_list) {
-            say("INTERNAL ERROR: Rule '$rule_name' less than one unique components. Will return undef.");
+            say("INTERNAL ERROR: Rule '$rule_name' less than one unique components. " .
+                "Will return undef.");
             return undef;
         } else {
             say("DEBUG: '$rule_name' UCL -->" . join("<-->", @unique_component_list) . "<--")
                 if $script_debug;
         }
     }
-    return $grammar_obj->toString();
+
+    my $final_string = $grammar_obj->toString();
+    say("DEBUG: $snip End reached. Returning grammar string ==>\n" . $final_string . "\n<==")
+        if $script_debug;
+    return $final_string;
 
 } # End sub init
 
@@ -224,6 +226,7 @@ sub reload_grammar {
         say("INTERNAL ERROR: $snip Will return undef.");
         return undef;
     }
+
     return $grammar_obj->toString();
 
 } # End sub reload_grammar
