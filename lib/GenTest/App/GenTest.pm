@@ -165,6 +165,25 @@ sub logFilesToReport {
 sub do_init {
     my $self = shift;
 
+    # Attention
+    # ---------
+    # Either
+    # - never run SQL here (valid 2019-11)
+    # or
+    # - take care that
+    #   - sqltracing is done according to configuration
+    #   - whatever sqltrace to test converter pick even the SQL done here
+    #
+    # Artificial negative example:
+    # Here gets some global or session server variable set -> in sqltrace if enabled.
+    # A marker like "Start of <whatever>" gets printed into RQG log.
+    # New session (impact of global variable) or old session (impact of session ...) runs
+    # the SQL stream <whatever>.
+    # A marker like "End of <whatever>" gets printed into RQG log.
+    # The converter processes the RQG log and extracts all SQL between the markers.
+    # But the SQL which was done in "do_init" is missing!
+    #
+
     our $initialized = 0 if not defined $initialized;
 
     if (not $initialized ) {
@@ -212,12 +231,12 @@ sub run {
 
     $self->do_init();
 
-    my $gendata_result;
-    $gendata_result = $self->doGenData();
-    return $gendata_result if $gendata_result != STATUS_OK;
+    my $status;
+    $status = $self->doGenData();
+    return $status if $status != STATUS_OK;
 
-    $gendata_result = $self->doGenTest();
-    return $gendata_result;
+    $status = $self->doGenTest();
+    return $status;
 
 }
 
@@ -496,31 +515,31 @@ sub doGenTest {
                 say("INTERNAL ERROR: Inconsistency that a reporter_status $reporter_status was " .
                     "got though process [$reporter_pid] was not reaped.");
                 return STATUS_INTERNAL_ERROR;
-      } else {
+            } else {
                 # Process is running
                 sleep(1);
                 next;
-      }
+            }
          } else {
-         say("For pid $reporter_pid reporter status " . status2text($reporter_status));
-         # FIXME: See also/join with reportResults
+            say("For pid $reporter_pid reporter status " . status2text($reporter_status));
+            # FIXME: See also/join with reportResults
             # Some of the periodic reporters have capabilities to detect more precise than the
             # threads running YY grammar what the state of the test is.
-         # But its too complicated and to distill here something valuable.
-         # Q1: Which reporter reported what?
-         # Q2: What are the reliable capabilities of reporter X?
-         # Q3: Had the reporter a chance to detect a maybe bad state or was his last run too
-         #     long ago? STATUS_OK does not all time imply that the system state if good.
-         #     Per observation 2018-09-28 it is not guaranteed that some periodic reporter must
-         #     have detected that a server really (there was a core) crashed.
-         # So we cannot refine anything here even if
-         # - we get here STATUS_OK
-         # - we get here STATUS_SERVER_CRASHED and the maximum status got from the threads is
-         #   STATUS_CRITICAL_FAILURE (== Its bad but don't know + let the other decide)
-         #      than already the usual "take the maximum" mechanism does what is required.
-         #   STATUS_ALARM or STATUS_ENVIRONMENT_FAILURE are often also real server crashes but
-         #   they get their special treatment "look if its a real crash" in reportResults.
-         $total_status = $reporter_status if $reporter_status > $total_status;
+            # But its too complicated and to distill here something valuable.
+            # Q1: Which reporter reported what?
+            # Q2: What are the reliable capabilities of reporter X?
+            # Q3: Had the reporter a chance to detect a maybe bad state or was his last run too
+            #     long ago? STATUS_OK does not all time imply that the system state if good.
+            #     Per observation 2018-09-28 it is not guaranteed that some periodic reporter must
+            #     have detected that a server really (there was a core) crashed.
+            # So we cannot refine anything here even if
+            # - we get here STATUS_OK
+            # - we get here STATUS_SERVER_CRASHED and the maximum status got from the threads is
+            #   STATUS_CRITICAL_FAILURE (== Its bad but don't know + let the other decide)
+            #      than already the usual "take the maximum" mechanism does what is required.
+            #   STATUS_ALARM or STATUS_ENVIRONMENT_FAILURE are often also real server crashes but
+            #   they get their special treatment "look if its a real crash" in reportResults.
+            $total_status = $reporter_status if $reporter_status > $total_status;
             last;
          }
       }
@@ -606,7 +625,7 @@ sub reportResults {
        $total_status = STATUS_OK;
     } elsif (STATUS_SERVER_CRASHED == $report_status and STATUS_SERVER_DEADLOCKED == $total_status) {
        # Scenario is:
-       # Reporter detects server freeze --> crash server intentionally -->
+       # Reporter "Deadlock" detects server freeze --> crash server intentionally -->
        # exit with STATUS_SERVER_DEADLOCKED --> Backtrace or ServerDead run and report
        # STATUS_SERVER_CRASHED.
        # Hence we do nothing.
@@ -827,17 +846,22 @@ sub workerProcess {
 sub doGenData {
     my $self = shift;
 
+    my $who_am_i = "GenTest::App::GenTest::doGenData:";
+
     $self->do_init();
 
     return STATUS_OK if defined $self->config->property('start-dirty');
+
+    say("INFO: Begin of GenData activity");
+
+    my $gendata_result = STATUS_OK;
 
     my $i = 0;
     # my $i = -1; The server numbers reported should be 1 2 3 ...
     foreach my $dsn (@{$self->config->dsn}) {
         $i++;
-        last if $self->config->property('upgrade-test') and $i>0;
+        last if $self->config->property('upgrade-test') and $i > 0; # FIXME: ???????????
         next unless $dsn;
-        my $gendata_result = STATUS_OK;
         if (defined $self->config->property('gendata-advanced')) {
             $gendata_result = GenTest::App::GendataAdvanced->new(
                dsn => $dsn,
@@ -851,11 +875,13 @@ sub doGenData {
                varchar_length => $self->config->property('varchar-length')
             )->run();
         }
+        last if STATUS_OK != $gendata_result;
 
-        # FIXME: Wouldn't be "last" better?
-        next if not defined $self->config->gendata();
+        # Original code:
+        # next if not defined $self->config->gendata();
+        last if not defined $self->config->gendata();
 
-        say("DEBUG: GenTest::App::GenTest::doGenData: self->config->gendata : ->" .
+        say("DEBUG: $who_am_i self->config->gendata : ->" .
             $self->config->gendata . "<-") if $debug_here;
 
         if ($self->config->gendata eq '' or $self->config->gendata eq '1') {
@@ -889,7 +915,7 @@ sub doGenData {
                notnull => $self->config->notnull
             )->run();
         }
-        return $gendata_result if $gendata_result > STATUS_OK;
+        last if STATUS_OK != $gendata_result;
 
         if ( $self->config->gendata_sql ) {
             # $self->config->gendata_sql might be just a string containing a file name.
@@ -907,9 +933,11 @@ sub doGenData {
                    say("ERROR: lib::GenTest::App::GenTest::doGenData : The SQL file '$file' " .
                        "does not exist.");
                    say("ERROR: Will return status STATUS_ENVIRONMENT_FAILURE");
-                   return STATUS_ENVIRONMENT_FAILURE;
+                   $gendata_result = STATUS_ENVIRONMENT_FAILURE;
+                   last;
                }
             }
+            last if STATUS_OK != $gendata_result;
             foreach my $file ( @{$self->config->gendata_sql} )
             {
                say("INFO: Start processing the SQL file '$file'.");
@@ -920,15 +948,20 @@ sub doGenData {
                     server_id   => $i, # 'server_id'   => GDS_SERVER_ID,
                     sqltrace    => $self->config->sqltrace,
                )->run();
-               return $gendata_result if $gendata_result > STATUS_OK;
+               last if STATUS_OK != $gendata_result;
             }
         }
+        last if STATUS_OK != $gendata_result;
 
         # For multi-master setup, e.g. Galera, we only need to do generation once
-        return STATUS_OK if $self->config->property('multi-master');
+        # Original code:
+        # return STATUS_OK if $self->config->property('multi-master');
+        last if $self->config->property('multi-master');
     }
 
-    return STATUS_OK;
+    say("INFO: End of GenData activity");
+
+    return $gendata_result;
 
 } # End of sub doGenData
 
