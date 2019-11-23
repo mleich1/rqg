@@ -64,17 +64,21 @@ Some general recommendations
     rqg_batch or the running OS.
   Most frequent on my notebook:
       Luck: Editing some file in parallel is sufficient fast, Firefox is already quite slow.
-  Box with swap space on harddisk or the rqg_batch vardir points on harddisk:
-      Let's assume rqg_batch causes heavy paging or excessive writing into the vardir.
+  rqg_batch vardir points on harddisk:
+      Let's assume rqg_batch causes excessive writing into the vardir.
       Ugly: You move the mouse and have to wait some seconds till the impact becomes visible.
             The same applies for switching to the console or login etc.
+
 - Perform all types of rqg_batch.pl runs (Combinator and Simplifier) mentioned in the work flow
-  on the same or at least some comparable box with the same setup of the main rqg_batch variables
-  (--parallel, --vardir).
+  on the same or at least some comparable (structure of filesystem, OS) box with the same setup of
+  the main rqg_batch variables (--parallel, --vardir).
+  In case going that way config files could be often reused.
+
 - RATHER NEVER use
   - rqg_batch in parallel to rqg_batch or
   - rqg_batch in parallel to mysql-test-run.pl
   and both are configured with high value for "parallel" == allowed to be 'greedy'.
+
 - Please be aware that rqg_batch.pl tries to avoid clashes with previous, parallel and future
   test runs using the same setup by concept and thorough picking directories for storage etc.
   But
@@ -91,7 +95,8 @@ Some general recommendations
   So having one heavy rqg_batch run and nothing using DB servers in parallel should be safe.
   As soon as another rqg_batch or MTR runs in parallel you rely on the perfection of the setups in
   order to avoid collisions which than harm the test results up till the OS.
-- Which settings to put into command line and which one via config file?
+
+- Which settings to put into command line and which one into config file?
   Testing box specific settings like
       especially parallel, basedir*
       maybe workdir, vardir
@@ -108,6 +113,7 @@ Some general recommendations
   Combinator run        - grammar is somewhere between the combinations
   Simplifier run        - grammar could be in command line (-> shell script) or in config file
   Manual simplification - grammar in command line is the most convenient way
+
 - Some tricks which sometimes help to find more bugs without significant additional manual efforts
   like extending grammars or modifying RQG test setups:
   What follows
@@ -134,7 +140,12 @@ rqg_batch.pl
     manages parallel RQG runs (rqg.pl) according to its setup and hopefully clash free.
     By that its roughly comparable to
         mysql-test-run.pl --parallel=<value bigger than one> ...
-    and its also "dangerous" like some too "greedy" MTR.
+    and it could be also as "dangerous" as some too "greedy" MTR.
+    The rqg_batch resource control should make rqg_batch runs less dangerous and does that
+    quite reliable since begin 2019. But I do not see me able to guarantee that 100%.
+    It is at least thinkable that defect grammars or defects in RQG might consume resources
+    faster than the resource control is capable to react.
+
 
 Combinator
     One work mode (-> type) of rqg_batch.pl.
@@ -167,13 +178,17 @@ parallel
      consumption (especially if the vardir is on a tmpfs).
    In case the builtin resource control of rqg_batch is supported and works roughly perfect
    than some value of parallel which is oversized regarding CPU and memory should be no problem.
-   I use
-   - '--parallel=30'  on my   8 CPU(HT already included),  32 GB RAM notebook
-   - '--parallel=168' on a  112 CPU(HT already included), 196 GB RAM "batlecruiser"
+   I use    --parallel=(3 * NPROC)    on my main testing boxes running Ubuntu
+   -   8 CPU(HT already included),  32 GB RAM notebook
+   - 112 CPU(HT already included), 196 GB RAM "batlecruiser"
    without serious trouble (resource control is supported!).
    The resource control starts to prevent the start of additional RQG runs up till stopping
    already ongoing RQG run as soon as trouble with resources is either predicted or obvious
-   short ahead. So you might end up with 90 parallel RQG runs instead of 168 in theory.
+   short ahead.
+   So I usually end up with
+   - 12 till 24 parallel RQG runs on my notebook
+   - 70 till 150 parallel RQG runs on the "batlecruiser"
+
    rqg_batch in general and especially its resource control does not check if OS or user
    limits are hit.
 
@@ -204,6 +219,8 @@ vardir
    I recommend to use a tmpfs and to clean it
       rm -rf /dev/shm/var*
    before starting some rqg_batch run.
+   This will remove the /dev/shm/var_* which are used by MTR.
+   rqg_batch.pl itself will only try to remove /dev/shm/vardir/*.
    The run will mostly rely on CPU and I/O to RAM speed.
 
    Significant paging should be avoided by rqg_batch.pl resource control AND
@@ -365,7 +382,7 @@ and you just get the defaults.
    Default: 30.
 6. duration_adaption
    Adjust the duration assigned to the RQG runs dynamic to the progress.
-   This gets applied only in the phase RQG_GRAMMAR_SIMP/RQG_GRAMMAR_DEST.
+   This gets applied only in the phase RQG_GRAMMAR_SIMP/RQG_GRAMMAR_CLONE.
    Purpose:
       Example for effect often observed between mid till end of grammar simplification:
       Shrinked grammar
@@ -404,7 +421,7 @@ and you just get the defaults.
       that is not guaranteed.
       Example:
           Clash of the single user (we go with thread=1) with some just executed EVENT or some
-          asynchronous of the server or the storage engine.
+          asynchronous activity of the server or the storage engine.
       Lets assume its really a not a concurrency problem than there are two alternatives
       a) You interrupt the simplification process, enable the RQG sqltracing, replay
          convert the sqltrace to some MTR based test (*), set up the mysqltest simplifier (*)
@@ -486,6 +503,6 @@ How to observe what rqg_batch is doing/the progress?
   251   944  7718 last_batch_workdir/p00004.yy
 
 
-Matthias Leich, 2019-03-13
+Matthias Leich, 2019-11-15
 
 
