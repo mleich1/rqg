@@ -1,5 +1,5 @@
 # Copyright (C) 2016, 2019 MariaDB Corporation Ab.
-# 
+#
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation; version 2 of the License.
@@ -14,7 +14,7 @@
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301
 # USA
 
-# The module checks that after the test flow has finished, 
+# The module checks that after the test flow has finished,
 # the server is able to restart successfully without losing any data
 
 # It is supposed to be used with the native server startup,
@@ -63,7 +63,7 @@ sub report {
 
     # In case of two servers, we will be called twice.
     # Only kill the first server and ignore the second call.
-    
+
     $first_reporter = $reporter if not defined $first_reporter;
     return STATUS_OK if $reporter ne $first_reporter;
 
@@ -92,9 +92,9 @@ sub report {
 
     my $dump_return = dump_database($reporter,$dbh,'before');
     if ($dump_return > STATUS_OK) {
-        say("ERROR: $who_am_i Dumping the database failed with status $dump_return.");
-        return $dump_return;
+        say("WARNING: $who_am_i Dumping the database failed with status $dump_return.");
     }
+    my $dump_return_before = $dump_return;
 
     my $pid = $reporter->serverInfo('pid');
     kill(15, $pid);
@@ -121,7 +121,7 @@ sub report {
     say("INFO: $who_am_i Copying datadir... (interrupting the copy operation may cause investigation problems later)");
     if (osWindows()) {
         system("xcopy \"$datadir\" \"$orig_datadir\" /E /I /Q");
-    } else { 
+    } else {
         system("cp -r $datadir $orig_datadir");
     }
     $errorlog_before = $server->errorlog.'_orig';
@@ -175,8 +175,8 @@ sub report {
         say("ERROR: $who_am_i Restart has failed.");
         return $recovery_status;
     }
-    
-    # 
+
+    #
     # Phase 2 - server is now running, so we execute various statements in order to verify table consistency
     #
 
@@ -194,30 +194,40 @@ sub report {
             my $db_table = "`$database`.`$table`";
             say("INFO: $who_am_i Verifying table: $db_table");
             $dbh->do("CHECK TABLE $db_table EXTENDED");
+            my $err = $dbh->err();
+            if (defined $err) {
             # 1178 is ER_CHECK_NOT_IMPLEMENTED
-            return STATUS_DATABASE_CORRUPTION if $dbh->err() > 0 && $dbh->err() != 1178;
+                say("INFO: CHECK TABLE $db_table EXTENDED failed with $err.");
+                return STATUS_DATABASE_CORRUPTION if $err > 0 && $err != 1178;
+            }
         }
     }
     say("INFO: $who_am_i Schema does not look corrupt");
 
-    # 
+    #
     # Phase 3 - dump the server again and compare dumps
     #
     my $dump_return = dump_database($reporter,$dbh,'after');
     if ($dump_return > STATUS_OK) {
-        say("ERROR: $who_am_i Dumping the database failed with status $dump_return.");
-        return $dump_return;
+        say("WARNING: $who_am_i Dumping the database failed with status $dump_return.");
     }
+    my $dump_return_after = $dump_return;
+    if($dump_return_before != $dump_return_after) {
+        say("ERROR: dump_return_before($dump_return_before) and dump_return_after(" .
+            "$dump_return_after) differ. Will return STATUS_DATABASE_CORRUPTION.");
+       return STATUS_DATABASE_CORRUPTION;
+    }
+
     return compare_dumps();
 }
-    
-    
+
+
 sub dump_database {
     # Suffix is "before" or "after" (restart)
     my ($reporter, $dbh, $suffix) = @_;
     my $port = $reporter->serverVariable('port');
     $vardir = $reporter->properties->servers->[0]->vardir() unless defined $vardir;
-    
+
 	my @all_databases = @{$dbh->selectcol_arrayref("SHOW DATABASES")};
 	my $databases_string = join(' ', grep { $_ !~ m{^(mysql|information_schema|performance_schema)$}sgio } @all_databases );
 	
@@ -235,7 +245,12 @@ sub dump_database {
     # my $dump_result = system('"'.$reporter->serverInfo('client_bindir')."/mysqldump\" --hex-blob --no-tablespaces --compact --order-by-primary --skip-extended-insert --host=127.0.0.1 --port=$port --user=root --password='' --databases $databases_string > $dump_file");
     my $dump_result = system('"'.$reporter->serverInfo('client_bindir')."/mysqldump\" --force --hex-blob --no-tablespaces --compact --order-by-primary --skip-extended-insert --host=127.0.0.1 --port=$port --user=root --password='' --databases $databases_string > $dump_file 2>$dump_err_file ");
     # mleich1: Experiment end
-    return ($dump_result ? STATUS_ENVIRONMENT_FAILURE : STATUS_OK);
+    if (0 < $dump_result) {
+        say("ERROR: $who_am_i Dumping the server $suffix restart failed with $dump_result.");
+        return STATUS_ENVIRONMENT_FAILURE;
+    } else {
+        return STATUS_OK;
+    }
 }
 
 sub compare_dumps {
