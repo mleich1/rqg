@@ -123,9 +123,25 @@ use constant PHASE_GRAMMAR_CLONE    => 'grammar_clone';
 # Replace grammar language builtins like _digit and similar by rules doing the same.
 # In case this is not a no op than there must a PHASE_GRAMMAR_SIMP round follow.
 use constant PHASE_GRAMMAR_BUILTIN  => 'grammar_builtin';  # Implementation later if ever
+
 # The variable serves for PHASE_GRAMMAR_SIMP, PHASE_GRAMMAR_CLONE,
 # PHASE_GRAMMAR_BUILTIN all together.
 my $grammar_simp_success   = -1;
+
+# Attempt to reduce the gendata stuff -- NOT YET IMPLEMENTED
+# ----------------------------------------------------------
+# Raw ideas:
+# 1. Run RQG tests based on same setup with sqltrace = MarkErrors till getting a replay.
+# 2. Extract the SQLs executed with success maybe already in rqg.pl before archiving --> rqg.gds
+#    cat rqg.gds rqg.sql > (new) rqg.sql
+# 4. Run tests which follow with gendata_sql using (new) rqg.sql only (no other kind of gendata)
+# 5. Find a good point of time when to shrink (new) rqg.sql with a parallelized version
+#    of the algorithm by Andreas Zeller (simplify_mysqltest goes without parallelization).
+#    Maybe after GRAMMAR_CLONE?
+use constant PHASE_GENDATA_SIMP     => 'gendata_simp';
+# Given the fact that too many tests do not use zz files I hesitate to implement a
+# simplifier for zz files.
+
 #
 # Attempt to replay with the actual best replaying grammar.
 use constant PHASE_FINAL_REPLAY     => 'final_replay';
@@ -356,7 +372,7 @@ my $grammar_structure;
 my $child_number  = 0;          # The number of the next last child grammar to be generated.
 my $child_grammar;              # The name (no path) of the last child grammar generated.
 #
-my $best_grammar  = 'best_grammar.yy'; # The best of the replaying grammars.
+my $best_grammar  = 'best_grammar.yy'; # The best/last of the replaying grammars.
                                        # == It is a grammar which was really tried.
 
 sub get_shrinked_rvt_options;
@@ -392,7 +408,7 @@ my $campaign_success = 0;
 #   - starting some campaign
 #   - having had a replay even if based on some outdated parent grammar
 # - incremented in case the problem was replayed even if based on some outdated parent grammar
-# Used for deciding if to run some next campaign, requires 1 == $campaign_success, or not.
+# Used for deciding if to abort the current campaign because of too long without further success.
 # Example:
 # Phase is PHASE_GRAMMAR_SIMP
 # - observed
@@ -415,7 +431,7 @@ my $campaign_duds_since_replay = 0;
 # my $Batch::out_of_ideas = 0;
 #
 # In case we have reached the state "out of ideas" than we could either
-# a) wait till all runs are finished and maybe start a new campaign
+# a) wait till all runs are finished and maybe start a new campaign.
 #    This implies that all collected "knowlege" about currently valid orders like efforts invested
 #    etc. gets lost because a campaign starts generating orders from scratch.
 #    We will get for any possible simplification again an order.
@@ -442,6 +458,47 @@ my $campaign_duds_since_replay = 0;
 # During one campaign the @try_queue will get up to n times refilled by content of other queues.
 # Hence $refill_number will get incremented per refill.
 my $refill_number    = 0;
+#
+# Rough description of reasons for aborting some campaign
+# -------------------------------------------------------
+# The order of reasons is according to likelihood descending.
+# 1. We have some amount of valid orders/simplification ideas.
+#    Every of these orders was already tried more times than $trials without replay.
+#    ==~ Any of these ideas were already tried quite often.
+#        But this does not imply that every of them removes the capability to replay.
+#        Hence in case the current campaign had
+#        - some simplification success at all trying them again makes sense.
+#          But we should rather do that in some new campaign with new statistics etc.
+#        - no simplification success at all than we should switch the simplification phase.
+#    Detail:
+#    - All ideas/orders get ORDER_EFFORTS_LEFT_OVER precharged with $trials on creation.
+#    - There is a decrement ORDER_EFFORTS_LEFT_OVER per RQG run finished.
+#    - There are two increment ORDER_EFFORTS_LEFT_OVER per RQG run which replayed based on some
+#      outdated parent grammar.
+#    - Orders/ideas which replayed based on the actual parent grammar get removed.
+# 2. We had nothing else than 2 * trials finished RQG runs without replay since the start of the
+#    campaign or the last replay.
+#    ==~ The forecast derived from history is so bad that a drastic change of the approach
+#        (new campaign starting with differect statistics or switch to next simplification phase)
+#        is recommended.
+# 3. No further simplification of the grammar is thinkable.
+#    artificial and somehow "ill" example:
+#    - threads = 1
+#    - the grammar contains only
+#      thread1: { sleep 1 ; return undef } ;
+#      This means there is no
+#      - component which could be removed because there is only one component left over
+#      - component with a non "dead" query which could be replaced by some "dead" query.
+#        "{ sleep 1 ; return undef }" is already a "dead" query.
+#    - Imagine the test harvests an assert because some reporter is bad programmed or runs some
+#      SQL causing the assert.
+#    ==~ There is no (automatic) simplification idea left over.
+# 4. We had 9999 RQG runs within that campaign.
+#    ==~ Its not unlikely that
+#        - we suffered from a defect within the simplifier.
+#          So extending the current campaign is quite questionable.
+#        Its not unlikely that we suffered from a defect within the simplifier.
+#
 
 
 # Additional parameters maybe being target of simplification
@@ -1040,6 +1097,13 @@ sub init {
     # ...  compact_grammar();   -- collapseComponents (unique) and moderate inlining
     $grammar_string = GenTest::Simplifier::Grammar_advanced::init($grammar_file, $threads,
                                                                   20, $grammar_flags);
+    if (not defined $grammar_string) {
+        say("ERROR: Simplifier::Grammar_advanced::init returned an undef grammar string.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("$0 will exit with exit status " . status2text($status) . "($status)");
+        safe_exit($status);
+    }
+
     # Aborts if
     # - $grammar_string is not defined
     # - creation of parent grammar file fails
@@ -1097,6 +1161,28 @@ sub init {
 
 
 sub get_job {
+# 1. If 1 == $phase_switch
+#    - bail out if there are left over active RQG runs because a new campaign or phase
+#      starts with new statistics. Hence their results will not fit and they should have
+#      been already stopped.
+#    - run up till 10 phase switch attempts (end either up in running a next campaign
+#      or switching really to the next phase) followed by
+#      - giving up if $phase eq PHASE_SIMP_END
+#      - running 2. otherwise
+# 2. If 0 == $phase_switch because having that value from begin on or getting that after
+#    running 1
+# 2.1 Ask for the id of some order
+#     If
+#     - one got check if its valid
+#       - yes -> prepare the base (grammars, call line snips etc.) for the job and go to 3.
+#       - no  -> mark it as invalid and go to 2.1 again
+#     - none got try to reactivate old orders taken out of use/focus but not known to be invalid
+#       and go to 2.1 again
+# 3. If having
+#    - no valid order got at all set $phase_switch = 1 and return undef
+#    - a valid order return a description of the job
+#
+
     my $order_id;
     my @job;
 # In lib/Batch.pm
@@ -1585,22 +1671,15 @@ sub add_order {
     print_order($order_id_now) if Auxiliary::script_debug("S5");
 }
 
+
 sub register_result {
 # Bookkeeping and adjust own behaviour to result and give the caller an order how to go on.
-# lib/Batch.pm calling register_result provides
-# use constant JOB_CL_SNIP    => 0;  # OMITTED
-# use constant JOB_ORDER_ID   => 1;
-# use constant JOB_MEMO1      => 2;  # undef or Child  grammar or Child  rvt_snip
-#                                    # In history: $worker_array[$free_worker][WORKER_EXTRA1]
-# use constant JOB_MEMO2      => 3;  # undef or Parent grammar or Parent rvt_snip
-#                                    # In history: $worker_array[$free_worker][WORKER_EXTRA2]
-# use constant JOB_MEMO3      => 4;  # undef or Adapted duration
-#                                    # In history: $worker_array[$free_worker][WORKER_EXTRA3]
+#
 # Return Batch::REGISTER_.... (== An order how to proceed) or abort via Batch::emergency_exit.
 #
 # Warning:
-# $left_over_trials > 0 must be checked before returning because otherwise we have no limitation.
-# This would be fatal for FIRST_REPLAY, THREAD1_REPLAY
+# $left_over_trials > 0 must be checked before returning because otherwise we have no limitation
+# for the phases FIRST_REPLAY, THREAD1_REPLAY, FINAL_REPLAY.
 #
 
     our $arrival_number;
@@ -1616,7 +1695,7 @@ sub register_result {
     }
     if (not defined $order_id or not defined $verdict) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: order_id is undef");
+        Carp::cluck("INTERNAL ERROR: order_id or verdict is undef");
         Batch::emergency_exit($status);
     }
     Carp::cluck("DEBUG: Simplifier::register_result(order_id, verdict, saved_log_rel, " .
@@ -1865,13 +1944,23 @@ sub register_result {
                 $return = Batch::REGISTER_GO_ON;
             }
         }
-        if (PHASE_GRAMMAR_SIMP eq $phase) {
+        if (PHASE_GRAMMAR_SIMP eq $phase or
+            PHASE_RVT_SIMP     eq $phase   ) {
             $campaign_duds_since_replay++;
             if ($campaign_duds_since_replay >= 2 * $trials) {
-                say("DEBUG: We had $campaign_duds_since_replay finished trials since last " .
+                # The current campaign should abort. Depending on the success of the current
+                # campaign we should get some additional campaign or a switch of to the next
+                # simplification phase.
+                $phase_switch = 1;
+                Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW);
+                say("DEBUG: Setting phase_switch to $phase_switch because we had " .
+                    "$campaign_duds_since_replay finished trials since last " .
                     "replay. Assigned trials : $trials. Giving up with that campaign.")
                     if Auxiliary::script_debug("S3");
-                $left_over_trials = 0;
+
+                # Never set $left_over_trials to 0 here.
+
+                $return = Batch::REGISTER_SOME_STOPPED;
             }
         }
     } else {
@@ -1884,11 +1973,27 @@ sub register_result {
     if ($left_over_trials > 0) {
         return $return;
     } else {
-        # The fate of the phase is decided.
         $phase_switch = 1;
         Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW);
-        say("DEBUG: Setting phase_switch to $phase_switch because left_over_trials" .
-            "($left_over_trials) no more > 0.") if Auxiliary::script_debug("S3");
+        if (PHASE_GRAMMAR_SIMP eq $phase or
+            PHASE_RVT_SIMP     eq $phase   ) {
+            # In case of PHASE_RVT_SIMP and PHASE_GRAMMAR_SIMP $left_over_trials gets
+            # precharged with 9999 at begin of campaign.
+            # Per experience a proper campaign could reach up till ~ 2000 finished RQG runs.
+            # The oversized 9999 serves for indentifying possible defects in the simplifier
+            # and having some limit at all.
+            # Caused by the fact that I am not sufficient sure if we could ever reach 9999
+            # without defect simplifier I emit here a warning and abort the campaign only.
+            say("WARN: left_over_trials is no more > 0. And that even though we are in phase " .
+                "'$phase'. Giving up with the current campaign.");
+        } else {
+            # In case $phase not in (PHASE_RVT_SIMP, PHASE_GRAMMAR_SIMP) $left_over_trials gets
+            # precharged with $trials at begin of campaign.
+            # This is a rather moderate value serving for giving up early enough with
+            # the current campaign and switch to the next phase.
+            say("DEBUG: left_over_trials is no more > 0. Giving up with the current campaign.")
+                if Auxiliary::script_debug("S3");
+        }
         return Batch::REGISTER_SOME_STOPPED;
     }
 
@@ -2146,6 +2251,7 @@ sub switch_phase {
 # ------------------------------------------------------------------------------------------
 # Keep the runtime of replaying tests
 my @replay_runtime_fifo;
+#
 sub replay_runtime_fifo_init {
     my ($elements) = @_;
     # In order to have simple code and a smooth queue of computed values we precharge with the
@@ -2154,8 +2260,9 @@ sub replay_runtime_fifo_init {
         $replay_runtime_fifo[$num] = $duration;
     }
 }
-# Keep the a manipulated runtime of not replaying tests
+# Keep the manipulated runtime of not replaying tests
 my @estimate_runtime_fifo;
+#
 sub estimate_runtime_fifo_init {
     my ($elements) = @_;
     # In order to have simple code and a smooth queue of computed values we precharge with the
@@ -2230,9 +2337,6 @@ sub estimation {
         "value($value)") if Auxiliary::script_debug("S4");
     return $mean, $value;
 }
-
-
-
 
 
 sub replay_runtime_adapt {
@@ -2359,9 +2463,10 @@ sub report_replay {
 # This applies to the phases PHASE_GRAMMAR_SIMP and PHASE_RVT_SIMP only.
 #
 # Please be aware that some RQG Worker which has signalled that he replayed does not need
-# to have finished his work. This means simply stopping all RQG Workers executing a job based on
-# the same order_id would probably also hit our "Winner" during final work and cause losing
-# hist archive and maybe more.
+# to have already finished his work. This means simply stopping all RQG Workers executing a job
+# based on the same order_id would probably also hit our "Winner" during final work.
+# And that would cause losing all important and valuable collected information like RQG log
+# maybe archive and more.
 #
 # Sample scenario
 # ---------------
