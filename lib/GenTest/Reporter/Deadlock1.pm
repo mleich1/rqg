@@ -447,7 +447,10 @@ sub nativeReport {
     my $datadir    = $reporter->serverVariable('datadir');
 
     if ( ($^O eq 'MSWin32') || ($^O eq 'MSWin64')) {
-        my $cdb_command = "cdb -p $server_pid -c \".dump /m $datadir\mysqld.dmp;q\"";
+        # Original code
+        # my $cdb_command = "cdb -p $server_pid -c \".dump /m $datadir\mysqld.dmp;q\"";
+        # Attempt to fix the     "Unrecognized escape \m passed through"
+        my $cdb_command = "cdb -p $server_pid -c \".dump /m $datadir\\mysqld.dmp;q\"";
         say("INFO: $who_am_i Executing $cdb_command");
         system($cdb_command);
     } else {
