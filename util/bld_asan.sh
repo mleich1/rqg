@@ -22,6 +22,11 @@ else
 fi
 
 set -e
+
+# In case there was some previous in source build than wipe it to a significant extend.
+make clean
+rm -f CMakeCache.txt
+
 cd "$OOS_DIR"
 BLD_PROT="$OOS_DIR""/build.prt"
 rm -f "$BLD_PROT"
@@ -30,8 +35,6 @@ echo "#=============================================================="  | tee -a
 git show --pretty='format:%D %H %cI' -s                          2>&1   | tee -a "$BLD_PROT"
 echo                                                             2>&1   | tee -a "$BLD_PROT"
 echo "#--------------------------------------------------------------"  | tee -a "$BLD_PROT"
-
-rm -f ../CMakeCache.txt                                          2>&1   | tee -a "$BLD_PROT"
 
 START_TS=`date '+%s'`
 cmake -DCONC_WITH_{UNITTEST,SSL}=OFF -DWITH_EMBEDDED_SERVER=OFF -DWITH_UNIT_TESTS=OFF              \
