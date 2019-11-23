@@ -63,7 +63,7 @@ sub setComponents {
 sub unique_components {
 
 # Return an array of unique components ordered according to the needs of the grammar
-# simplifier (from the last to the first component).
+# simplifier (from the last to the first component except '' all time the last).
 # A component is here a string and not an array with elements pointing to strings
 # like in the grammar object.
 #
@@ -121,7 +121,7 @@ sub unique_components {
         # print("DEBUG: CS component_string ->$component_string<-\n");
         if (not exists $rule_component_hash{$component_string}) {
             $rule_component_hash{$component_string} = 1;
-            push @rule_unique_component_list , $component_string;
+            push @rule_unique_component_list , $component_string if '' ne $component_string;
         } else {
             # print("Did exist in rule_component_hash: $component_string\n");
         }
@@ -131,6 +131,7 @@ sub unique_components {
     # The "agreement" for the grammmar simplifier is to attack the components lines
     # bottom up and in the lines right to left.
     @rule_unique_component_list = reverse @rule_unique_component_list;
+    push @rule_unique_component_list, '' if exists $rule_component_hash{''};
     return @rule_unique_component_list;
 }
 
