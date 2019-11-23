@@ -171,6 +171,7 @@ sub strict_fields {
 sub run {
     my ($self) = @_;
 
+    # Begin marker for tools which extract the SQL's.
     say("INFO: Starting GenTest::App::Gendata");
 
     my $spec_file = $self->spec_file();
@@ -575,14 +576,6 @@ sub run {
             }
         }
         
-        # FIXME:
-        # The shape of the insert statements should be rather
-        #     INSERT .... VALUES
-        #        (...,..,....),
-        #           ...
-        #        (...,..,....),
-        #        (...,..,....);
-        # so that the RQG test to MTR converter/simplifier is able to shrink rows away.
         my @row_buffer;
         foreach my $row_id (1..$table->[TABLE_ROW]) {
             my @data;
@@ -638,7 +631,11 @@ sub run {
                         @possible_values = @{$data_perms[$value_type]};
                     }
                     
-                    croak("# Unable to generate data for field '$field->[FIELD_TYPE] $field->[FIELD_NULLABILITY]'") if $#possible_values == -1;
+                    if ($#possible_values == -1) {
+                        Carp::cluck("INTERNAL ERROR: Unable to generate data for field " .
+                                    "'$field->[FIELD_TYPE] $field->[FIELD_NULLABILITY]'");
+                        return STATUS_INTERNAL_ERROR;
+                    }
                     
                     my $possible_value = $prng->arrayElement(\@possible_values);
                     $possible_value = $field->[FIELD_TYPE] if not defined $possible_value;
@@ -667,7 +664,17 @@ sub run {
                 (($row_id % 50) == 0) ||
                 ($row_id == $table->[TABLE_ROW])
                 ) {
-                my $insert_result = $executor->execute("INSERT /*! IGNORE */ INTO $table->[TABLE_NAME] VALUES ".join(', ', @row_buffer));
+                # The shape of the insert statements should be (if written by sqltrace)
+                #     INSERT .... VALUES
+                #        (...,..,....),
+                #           ...
+                #        (...,..,....),
+                #        (...,..,....);
+                # so that whatever line oriented simplifier is able to shrink most rows away without
+                # causing wrong syntax.
+                # Original code:
+                # my $insert_result = $executor->execute("INSERT /*! IGNORE */ INTO $table->[TABLE_NAME] VALUES ".join(', ', @row_buffer));
+                my $insert_result = $executor->execute("INSERT /*! IGNORE */ INTO $table->[TABLE_NAME] VALUES ".join(",\n", @row_buffer));
                 return $insert_result->status() if $insert_result->status() >= STATUS_CRITICAL_FAILURE;
                 @row_buffer = ();
             }
@@ -701,6 +708,10 @@ sub run {
     }
 
     $executor->currentSchema($schema_perms[0]);
+
+    # End marker for tools which extract the SQL's.
+    say("INFO: Finishing GenTest::App::Gendata");
+
     return STATUS_OK;
 }
 
