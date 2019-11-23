@@ -88,14 +88,20 @@ use File::Basename; # We use dirname
 use Cwd;            # We use abs_path , getcwd
 my $rqg_home;
 my $rqg_home_call = Cwd::abs_path(File::Basename::dirname($0));
-my $rqg_home_env  = Cwd::abs_path($ENV{'RQG_HOME'});
+my $rqg_home_env;
+my $env_val       = $ENV{'RQG_HOME'};
+if (defined $env_val) {
+    $rqg_home_env = Cwd::abs_path($env_val);
+} else {
+    $env_val      = "<undef>";
+}
 my $start_cwd     = Cwd::getcwd();
 
 use lib 'lib'; # In case we are in the root of a RQG install than we have at least a chance.
 
 print("# DEBUG: \$0 ->$0<-\n" .
       "# DEBUG: rqg_home_call ->$rqg_home_call<-\n" .
-      "# DEBUG: rqg_home_env  ->$rqg_home_env<-\n"  .
+      "# DEBUG: rqg_home_env  ->$env_val<-\n"  .
       "# DEBUG: start_cwd     ->$start_cwd<-\n");
 
 if (defined $rqg_home_env) {
@@ -119,7 +125,7 @@ if (defined $rqg_home_env) {
         exit 2;
     } else {
         $rqg_home = $start_cwd;
-        print("DEBUG: rqg_home '$rqg_home' computed usable\n");
+        print("# DEBUG: rqg_home '$rqg_home' computed usable\n");
     }
 }
 say("DEBUG: rqg_home might be ->$rqg_home<-");
@@ -141,7 +147,7 @@ $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
 $Carp::MaxArgNums= 8;
 
-use constant RQG_RUNNER_VERSION  => 'Version 3.1.1 (2019-08)';
+use constant RQG_RUNNER_VERSION  => 'Version 3.1.2 (2019-11)';
 use constant STATUS_CONFIG_ERROR => 199;
 
 use strict;
@@ -498,7 +504,7 @@ if (STATUS_OK != $return){
 # say("DEBUG: RQG phase is '$return'");
 
 # FIXME: This is currently not used.
-say("INFO: RQG archiver_call : " . $archiver_call);
+# say("INFO: RQG archiver_call : " . $archiver_call);
 if (not defined $noarchiving) {
    $noarchiving = 0;
 } else {
