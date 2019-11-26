@@ -1,6 +1,6 @@
 # Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights
 # reserved.
-# Copyright (c) 2018 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -279,6 +279,7 @@ sub printProps {
 ## Internal print method
 sub _printProps {
    my ($properties, $indent) = @_;
+   # Example for a property: transformers
    $indent = 1 if not defined $indent;
    my $x = join(" ", map {""} (1..$indent*3));
    foreach my $property (sort keys %$properties) {
@@ -286,8 +287,15 @@ sub _printProps {
          say ($x . $property . " => ");
          _printProps($properties->{$property}, $indent + 1);
       } elsif (UNIVERSAL::isa($properties->{$property}, "ARRAY")) {
-         my @uvl = Auxiliary::unified_value_list( @{$properties->{$property}});
-         say($x . $property . " => ['" . join("', '", @uvl) .  "']");
+         my @uvl_p;
+         foreach my $uv (Auxiliary::unified_value_list( @{$properties->{$property}})) {
+            if (defined $uv) {
+               push @uvl_p, $uv;
+            } else {
+               push @uvl_p, 'undef';
+            }
+         }
+         say($x . $property . " => ['" . join("', '", @uvl_p) .  "']");
       } else {
          if (defined $properties->{$property}) {
             say($x . $property . " => " . $properties->{$property});
