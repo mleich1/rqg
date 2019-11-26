@@ -21,12 +21,12 @@ else
     mkdir "$OOS_DIR"
 fi
 
-set -e
 
 # In case there was some previous in source build than wipe it to a significant extend.
 make clean
 rm -f CMakeCache.txt
 
+set -e
 cd "$OOS_DIR"
 BLD_PROT="$OOS_DIR""/build.prt"
 rm -f "$BLD_PROT"
