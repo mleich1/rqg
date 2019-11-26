@@ -494,10 +494,8 @@ sub parseFromString {
         #     ;
         my @component_strings = split (m{$comp_separator}, $components_string, - 1);
 
-        # Unclear if right
+        # Example:  rule: ;
         if (0 == scalar @component_strings) {
-           say("WARN: Rule '$rule_name' has 0 components after split. " .
-               "Assuming one empty component.");
            @component_strings = ( '' );
         }
 
