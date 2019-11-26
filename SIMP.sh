@@ -92,7 +92,6 @@ set +e
 PARALLEL=`nproc`
 PARALLEL=$(($PARALLEL * 3))
 
-TRIALS=$(($PARALLEL * 4))
 TRIALS=64
 
 CASE=`basename $CONFIG .cfg`

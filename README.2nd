@@ -577,6 +577,20 @@ Hints
     Recommendation:
     Append all time a ',' to members of lists.
 
+2. Typical errors in RQG YY grammars
+2.1 Rules must have a lower case name.
+    Otherwise the will not get valuated as the name of a rule.
+2.2 Separating the components of a rule is intented but instead of the correct '|' a ';' is used.
+    Negative example:
+    rule1:
+        t3 ;
+        t4 ;
+    query:
+        SELECT col1 FROM rule1;
+    leads to the generation of queries like
+    a)  SELECT col1 FROM t3 ; <-- correct syntax
+    b)  t4 ;                  <-- wrong syntax
 
-Matthias 2019-08
+
+Matthias 2019-11
 
