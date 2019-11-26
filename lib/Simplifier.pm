@@ -416,7 +416,8 @@ my $campaign_success = 0;
 #   This lasted ~ 1700 (unfortunate config) RQG runs without any replay till it ended.
 # - never observed but thinkable because somehow a sibling of the observation above
 #   We had during the current campaign some replays but the last one was too long ago.
-# Solution: Stop the campaign in case $campaign_duds_since_replay >= 2 * trials.
+# Solution: Stop the campaign in case $campaign_duds_since_replay
+# >= 2 * Maximum of ($cut_steps , $trials).
 my $campaign_duds_since_replay = 0;
 #
 # FIXME: Implement some upper limit for the number of campaigns as security measure.
@@ -1309,6 +1310,7 @@ sub get_job {
 
                     my $rule_name;
                     my $component_string;
+                    my $any_valid = 0;
                     foreach my $oid ( @oid_list ) {
                         my $curr_rule_name        = $order_array[$oid][ORDER_PROPERTY2];
                         my $curr_component_string = $order_array[$oid][ORDER_PROPERTY3];
@@ -1326,6 +1328,7 @@ sub get_job {
                         } else {
                             # Do not print $new_rule_string into the comment because it could
                             # contain line breaks.
+                            $any_valid++;
                             $redefine_string .= "# Order Id $oid\n" . "# -------------- \n" .
                                                 $new_rule_string . "\n\n";
                             $rule_name        = $curr_rule_name;
@@ -1333,7 +1336,7 @@ sub get_job {
                         }
                     }
 
-                    if (defined $redefine_string) {
+                    if ($any_valid > 0) {
                         if (0) {
                             say("DEBUG: last valid rule_name '$rule_name', redefine_string " .
                                 "->$redefine_string<-");
@@ -1359,7 +1362,7 @@ sub get_job {
                         say("DEBUG: Order id '$order_id' affecting rule '$rule_name' component " .
                             "'$component_string' is invalid.") if Auxiliary::script_debug("S4");
                         $order_is_valid = 0;
-                        Batch::add_to_try_never($order_id);
+                        # Already done above      Batch::add_to_try_never($order_id);
                         # FIXME:
                         # Stop all RQG runner which do something based on that $order_id?
                         # But could such runner exist at all?
@@ -1947,7 +1950,9 @@ sub register_result {
         if (PHASE_GRAMMAR_SIMP eq $phase or
             PHASE_RVT_SIMP     eq $phase   ) {
             $campaign_duds_since_replay++;
-            if ($campaign_duds_since_replay >= 2 * $trials) {
+            my $max_value = GenTest::Simplifier::Grammar_advanced::estimate_cut_steps();
+            $max_value = $trials if $max_value < $trials;
+            if ($campaign_duds_since_replay >= 2 * $max_value) {
                 # The current campaign should abort. Depending on the success of the current
                 # campaign we should get some additional campaign or a switch of to the next
                 # simplification phase.
