@@ -407,6 +407,19 @@ sub createMysqlBase  {
     } else {
         push(@$boot_options, @{$self->[MYSQLD_SERVER_OPTIONS]});
     }
+    # 2019-05 mleich
+    # Bootstrap with --mysqld=--loose-innodb_force_recovery=5 fails.
+    my @cleaned_boot_options;
+    foreach my $boot_option (@$boot_options) {
+        if ($boot_option =~ m{.*innodb_force_recovery}) {
+            say("DEBUG: -->" . $boot_option . "<-- will be removed from the bootstrap options.");
+            next;
+        } else {
+            push @cleaned_boot_options, $boot_option;
+        }
+    }
+    @$boot_options = @cleaned_boot_options;
+
     push @$boot_options, "--skip-log-bin";
     push @$boot_options, "--loose-innodb-encrypt-tables=OFF";
     push @$boot_options, "--loose-innodb-encrypt-log=OFF";
