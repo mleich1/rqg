@@ -356,9 +356,12 @@ sub report {
 
                     if (defined $err) {
                         if ( 1178 == $err or
+                             1317 == $err or
                              1969 == $err   ) {
                              # 1178, "The storage engine for the table doesn\'t support ...
-                             # 1969, "Query execution was interrupted (max_statement_time exceeded
+                             # 1317, "Query execution was interrupted" seen on 10.2 for OPTIMIZE ...
+                             #       reason was max_statement_time exceeded
+                             # 1969, "Query execution was interrupted (max_statement_time exceeded)
                             say("DEBUG: $sql harvested harmless $errstr.");
                             next;
                         } else {
@@ -370,7 +373,53 @@ sub report {
 
                     if (defined $sth->{NUM_OF_FIELDS} and $sth->{NUM_OF_FIELDS} > 0) {
                         my $result = Dumper($sth->fetchall_arrayref());
-                        next if $result =~ m{is not BASE TABLE}sio;    # Do not process VIEWs
+                        # Do not process VIEWs
+                        next if $result =~ m{is not BASE TABLE}sio;
+                        # OPTIMIZE might be not supported and than mapped to something else.
+                        # And that could become victim of 'Query execution was interrupted'.
+                        # 2019-05 10.2
+                        # $err was obviously not defined.
+                        # $VAR1 = [
+                        # [
+                        #   'test.table2_innodb_int_autoinc',
+                        #   'optimize',
+                        #   'note',
+                        #   'Table does not support optimize, doing recreate + analyze instead'
+                        # ],
+                        # [
+                        #   'test.table2_innodb_int_autoinc',
+                        #   'optimize',
+                        #   'error',
+                        #   'Query execution was interrupted'
+                        # ],
+                        # [
+                        #   'test.table2_innodb_int_autoinc',
+                        #   'optimize',
+                        #   'status',
+                        #   'Operation failed'
+                        # ]
+                        #       ];
+                        next if (($result =~ m{error'}sio) and ($result =~ m{Query execution was interrupted}sio));
+                        # 2019-11 Masses of
+                        # Executing REPAIR TABLE `test`.`table1_innodb_key_pk_parts_2_int_autoinc` EXTENDED.
+                        # $VAR1 = [
+                        # [
+                        #   'test.table1_innodb_key_pk_parts_2_int_autoinc',
+                        #   'repair',
+                        #   'error',
+                        #   'Partition p0 returned error'
+                        # ],
+                        # [
+                        #   'test.table1_innodb_key_pk_parts_2_int_autoinc',
+                        #   'repair',
+                        #   'error',
+                        #   'Unknown - internal error 188 during operation'
+                        # ]
+                        #   ];
+                        # and that even though the walk queries and all CHECK/ANALYZE before the
+                        # REPAIR passed.
+                        # Per Marko: InnoDB does not support REPAIR.
+                        next if (($result =~ m{error'}sio) and ($result =~ m{Unknown - internal error 188 during operation}sio));
                         if ($result =~ m{error'|corrupt|repaired|invalid|crashed}sio) {
                             print $result;
                             say("ERROR: Failures found in the output above. " .
