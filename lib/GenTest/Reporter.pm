@@ -196,6 +196,17 @@ sub new {
 sub updatePid {
 	my $pid_file = $_[0]->serverVariable('pid_file');
 
+    # Observation: 2019-12
+    # --------------------
+    # Reporter Deadlock got no connection and reported STATUS_SERVER_CRASHED.
+    # Reporter Backtrace fiddled a bit around and harvested
+    #     sync: error opening '/dev/shm/vardir/1576241904/19/1/mysql.pid': No such file or directory
+    # The server error log shows that shutdown was asked from unknown side.
+    # And the error log ends with: [Note] /home/mleich/Server/10.5/bld_debug//sql/mysqld: Shutdown complete
+    #
+    # So what to do in case the pid_file disappears because of regular shutdown?
+    #
+
 	open (PF, $pid_file);
 	read (PF, my $pid, -s $pid_file);
 	close (PF);

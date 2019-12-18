@@ -961,6 +961,13 @@ sub doGenData {
 
     say("INFO: End of GenData activity");
 
+    # FIXME:
+    # (mleich) 2019-11 Observation
+    # Some server build with ASAN aborted with core during generation of initial data.
+    # Unfortunately RQG just reported STATUS_ENVIRONMENT_FAILURE and did not generate a backtrace.
+    # In case the server was not responding, lets assume that it crashed, calling the
+    # reporter Backtrace or something similar would make a lot sense.
+
     return $gendata_result;
 
 } # End of sub doGenData

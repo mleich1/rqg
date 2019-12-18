@@ -16,6 +16,11 @@
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301
 # USA
 
+# FIXME: (mleich)
+# Make a clone GenTest::Properties1 which does not croak, die, exit
+# or Carp::confess in case of errors.
+# Use that in the ingredients of rqg_batch.pl, Combinator, Simplifier, Verdict and rqg,pl.
+
 ## Handling of config properties and options
 ## 
 ## default: Default values
@@ -72,6 +77,8 @@ sub AUTOLOAD {
     
     if (defined $self->[PROPS_LEGAL_HASH]) {
         if ( not $self->[PROPS_LEGAL_HASH]->{$name} ) {
+            # FIXME:
+            # Replace by Carp::cluck, returning undef and checking for undef in calling routines.
            Carp::confess("ERROR: Illegal property '$name' caught by GenTest::Properties::AUTOLOAD.\n" .
                "Will exit.");
            # return undef;
@@ -97,7 +104,7 @@ sub new {
 	    'legal' => PROPS_LEGAL,
 	    'help' => PROPS_HELP ## disabled since I get weird warning....
        }, @_);
-    
+
     ## List of legal properties, if no such list, all properties are
     ## legal. The PROPS_LEGAL_HASH becomes the union of PROPS_LEGAL,
     ## PROPS_REQURED, PROPS_OPTIONS (specified on command line and
@@ -199,6 +206,8 @@ sub new {
 
     if (defined $message) {
         $props->_help();
+        # FIXME:
+        # Replace by Carp::cluck, returning undef and checking for undef in calling routines.
         Carp::confess($message);
     }
     
@@ -215,6 +224,8 @@ sub property {
     my ($self, $name, $arg) = @_;
 
     if (defined $self->[PROPS_LEGAL_HASH]) {
+        # FIXME:
+        # Replace by Carp::cluck, returning undef and checking for undef in calling routines.
         Carp::confess("Illegal property '$name' caught by AUTOLOAD ") 
             if not $self->[PROPS_LEGAL_HASH]->{$name};
     }
@@ -229,6 +240,8 @@ sub unsetProperty {
     my ($self, $name) = @_;
 
     if (defined $self->[PROPS_LEGAL_HASH]) {
+        # FIXME:
+        # Replace by Carp::cluck, returning undef and checking for undef in calling routines.
         Carp::confess("ERROR: Illegal property '$name' caught by AUTOLOAD ")
             if not $self->[PROPS_LEGAL_HASH]->{$name};
     }
@@ -239,10 +252,14 @@ sub unsetProperty {
 ## Read properties from a given file
 sub _readProps {
     my ($file) = @_;
+    # FIXME:
+    # Replace by Carp::cluck, returning undef and checking for undef in calling routines.
     open(PFILE, $file) or Carp::confess "Unable to read properties file '$file': $!";
     read(PFILE, my $propfile, -s $file);
     close PFILE;
     my $props = eval($propfile);
+    # FIXME:
+    # Replace by Carp::cluck, returning undef and checking for undef in calling routines.
     Carp::confess "Unable to load $file: $@" if $@;
     return $props;
 }
@@ -394,6 +411,11 @@ sub _help {
         }
     } else {
         ## Generic help (not very helpful, but better than nothing).
+        # FIXME:
+        # $0 could call sub A for processing config_file 'a' and
+        # and sub A could generate config_file 'b' and call sub B for ...
+        # Consequence: Search in $0 help info or code might not help!
+        Carp::cluck("ERROR: Trouble with properties/options");
         print "$0 - Legal properties/options:\n";
         my $required = {map {$_=>1} @{$self->[PROPS_REQUIRED]}};
         foreach my $k (sort keys %{$self->[PROPS_LEGAL_HASH]}) {

@@ -66,6 +66,14 @@ sub nativeReport {
     my $pid_file = $reporter->serverVariable('pid_file');
     say("pid_file is $pid_file");
 
+    # Observation 2019-12
+    # -------------------
+    # 14:59:06 [26267] pid_file is /dev/shm/vardir/1576241904/19/1/mysql.pid
+    # sync: error opening '/dev/shm/vardir/1576241904/19/1/mysql.pid': No such file or directory
+    # sync: error opening '/dev/shm/vardir/1576241904/19/1/mysql.pid': No such file or directory
+    # 14:59:11 [26267] ALARM: Reporter::Backtrace 4.92569899559021s waited but the server error_log remains without '... (core dumped)'.
+    # 15:03:42 [26267] INFO: Even after 270s waiting: The core file name is not defined.
+    # 15:03:42 [26267] Will return STATUS_SERVER_CRASHED, undef
     my $pid = $reporter->serverInfo('pid');
 
     # Observation: 2018 June - September
