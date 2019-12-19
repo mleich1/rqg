@@ -1,3 +1,21 @@
+# Copyright (C) 2019 MariaDB corporation Ab. All rights reserved.  Use
+# is subject to license terms.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; version 2 of the License.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301
+# USA
+
+
 # InnoDB_standard.cc
 #
 # Suite for "torturing" preferably InnoDB with concurrent DDL/DML/....
@@ -161,9 +179,6 @@ $combinations = [ $grammars,
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
     --mysqld=--innodb-buffer-pool-size=256M
-    --whitelist_statuses="\'STATUS_ANY_ERROR\'"
-    --blacklist_statuses="\'STATUS_OK\'"
-    --blacklist_patterns="\'Sentence is now longer than .{1,10} symbols. Possible endless loop in grammar. Aborting.\',\'\[ERROR\] InnoDB: preallocating .{1,120} with error 28\',\' is truncated: expected core file size \',\' is not a core dump: File truncated\'"
     '
   ],
   [
@@ -173,14 +188,4 @@ $combinations = [ $grammars,
   ]
 ];
 
-# blacklist_patterns
-# ------------------
-# - "ill" grammar caused by initial state or maybe masking
-#   Sentence is now longer than ... Possible endless loop ...
-# - no more space in filesystem containing the RQG vardir
-#   - InnoDB suffering during server runtime
-#     InnoDB: preallocating ... with error 28
-#   - Server crashes with core but core file is too incomplete:
-#     - is truncated: expected core file size
-#     - is not a core dump: File truncated
 
