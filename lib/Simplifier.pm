@@ -113,6 +113,13 @@ my $rvt_simp_success       = -1;
 #
 use constant PHASE_GRAMMAR_SIMP     => 'grammar_simp';
 #
+# Attempt to reduce the amount of threads (useful before 'grammar_clone')
+# Try with n in (1, 2, 3, ...) but n < $threads.
+# In case one replays than make all orders with more threads invalid and stop corresponding jobs.
+# Limit the number of finished attempts.
+use constant PHASE_THREAD_REDUCE    => 'thread_reduce';
+my $thread_reduce_success  = -1;
+
 # Attempt to clone rules
 # - containing more than one alternative/component
 # - being used more than once
@@ -153,16 +160,18 @@ use constant PHASE_SIMP_END         => 'simp_end';
 # This is the list of values which the user is allowed to set.
 use constant PHASE_SIMP_ALLOWED_VALUE_LIST => [
       PHASE_FIRST_REPLAY, PHASE_THREAD1_REPLAY, PHASE_RVT_SIMP, PHASE_GRAMMAR_SIMP,
-      PHASE_GRAMMAR_CLONE, PHASE_GRAMMAR_BUILTIN, PHASE_FINAL_REPLAY,
+      PHASE_THREAD_REDUCE, PHASE_GRAMMAR_CLONE, PHASE_GRAMMAR_BUILTIN, PHASE_FINAL_REPLAY,
    ];
 # FIXME:
-# PHASE_THREAD1_REPLAY, PHASE_RVT_SIMP are capable to cut the replay runtime+complexity of test
-# serious down. But they could also suffer from a low likelihood to replay.
+# PHASE_THREAD1_REPLAY, PHASE_RVT_SIMP , PHASE_THREAD_REDUCE are capable to cut the replay
+# runtime+complexity of test serious down.
+# But especially the first two could also suffer from a low likelihood to replay.
 my @simp_chain_default = ( # PHASE_SIMP_BEGIN,
                            PHASE_FIRST_REPLAY,
                            PHASE_THREAD1_REPLAY,
                            PHASE_RVT_SIMP,
                            PHASE_GRAMMAR_SIMP,
+                           PHASE_THREAD_REDUCE,
                            PHASE_GRAMMAR_CLONE,
                            PHASE_FINAL_REPLAY,
                            # PHASE_SIMP_END,
@@ -215,6 +224,7 @@ use constant SIMP_ALGO_MASKING      => 'masking'; # not yet implemented
 #   The main difference to the free bughunting above is that the parent stops all other RQG Worker,
 #   cleans up and exits as soon as a RQG worker had the verdict "replay".
 # - grammar simplification
+#
 # There are two main reasons why some order management is required:
 # 1. The fastest grammar simplification mechanism
 #    - works with chunks of orders
@@ -223,7 +233,7 @@ use constant SIMP_ALGO_MASKING      => 'masking'; # not yet implemented
 #    - repeats frequent the execution of some order because
 #      - the order might have not had success on the previous execution but it looks as if repeating
 #        that execution is the most promising we could do
-#      - the order had uccess on the previous execution but it was a second "winner", so its
+#      - the order had success on the previous execution but it was a second "winner", so its
 #        simplification could be not applied. But trying again is highly recommended.
 #    - tries to get a faster simplification via bookkeeping about efforts invested in orders.
 # 2. Independent of the goal of the batch run the parent might be forced to stop some ongoing
@@ -272,7 +282,7 @@ use constant ORDER_EFFORTS_LEFT_OVER => 4;
 my $workdir;
 
 my $config_file;
-my $config_file_copy_rel = "simplifier.cfg";
+my $config_file_copy_rel  = "simplifier.cfg";
 
 # File for bookkeeping + easy overview about results achieved.
 my $result_file;
@@ -286,7 +296,7 @@ my $title_line_part =
        " | " . Batch::RQG_NO_TITLE        . " | " . Verdict::RQG_VERDICT_TITLE .
        " | " . Batch::RQG_LOG_TITLE       . " | " . Batch::RQG_ORDERID_TITLE   .
        " | " . "RunTime"                  . " | " . RQG_DERIVATE_TITLE         .
-       " | " . RQG_PARENT_TITLE . "\n";
+       " | " . RQG_PARENT_TITLE           . " | " . "Extra_info" . "\n";
 
 # Whatever trials
 # ---------------
@@ -336,10 +346,10 @@ use constant THREADS_DEFAULT        => 10;
 #    2. Also certain options might become in future also target of some simplification phase.
 #       Than we need to handle that option here anyway.
 my $cl_snip_all   = '';
-# 3. The third snip is valid(static) for all steps in one Simplification phase.
+# 3. The third snip is valid(static) for all steps in one Simplification phase except THREAD_REDUCE
 #    Example: PHASE_THREAD1_REPLAY --> "--threads=1"
 my $cl_snip_phase = '';
-# 3. The forth snip is valid for one simplification step/job within a simplification phase given.
+# 4. The forth snip is valid for one simplification step/job within a simplification phase given.
 #    Example: PHASE_GRAMMAR_SIMP and job M --> "--grammar=c<n>.yy"
 my $cl_snip_step  = '';
 #
@@ -385,8 +395,17 @@ sub get_shrinked_rvt_options;
 #
 # $campaign_number
 # ----------------
-# Incremented whenever such a campaign gets started.
+# Set to 1 in case of switching to phase PHASE_RVT_SIMP or PHASE_GRAMMAR_SIMP.
+# Incremented whenever such a campaign ends and a new one gets started.
 my $campaign_number  = 0;
+#
+# $campaign_number_max
+# --------------------
+# Just for the following case (up till today never seen):
+# Caused by some defect within the code of PHASE_RVT_SIMP or PHASE_GRAMMAR_SIMP we get
+# roughly endless additional campaigns.
+# Per experience: Mid 2019 with sub optimal simplification code 21 campaigns observed.
+my $campaign_number_max = 30;
 #
 # $campaign_success
 # -----------------
@@ -420,7 +439,6 @@ my $campaign_success = 0;
 # >= 2 * Maximum of ($cut_steps , $trials).
 my $campaign_duds_since_replay = 0;
 #
-# FIXME: Implement some upper limit for the number of campaigns as security measure.
 #
 # $out_of_ideas
 # -------------
@@ -518,58 +536,68 @@ my %validator_hash;
 
 $| = 1;
 
+sub unset_variables {
+    @order_array       = undef;
+    @reporter_array    = undef;
+    undef %reporter_hash;
+    @transformer_array = undef;
+    undef %transformer_hash;
+    @validator_array   = undef;
+    undef %validator_hash;
+}
 
 sub init {
-    ($config_file, $workdir) = @_;
+    ($config_file, $workdir, my $verdict_setup) = @_;
     # Based on the facts that
     # - Combinator/Simplifier init gets called before any Worker is running
     # - this init will be never called again
     # we can run safe_exit($status) and do not need to initiate an emergency_exit.
     #
-    if (2 != scalar @_) {
+    my $who_am_i = "Simplifier::init:";
+    if (3 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: Simplifier::init : Two parameters " .
-                    "(config_file, workdir) are required.");
+        Carp::cluck("INTERNAL ERROR: $who_am_i Three parameters " .
+                    "(config_file, workdir, verdict_setup) are required.");
         safe_exit($status);
     }
 
-    Carp::cluck("# " . isoTimestamp() . " DEBUG: Simplifier::init : Entering routine with " .
-                "variables (config_file, workdir).\n") if Auxiliary::script_debug("S1");
+    Carp::cluck("# " . isoTimestamp() . " DEBUG: $who_am_i Entering routine with variables " .
+                "(config_file, workdir, verdict_setup).\n") if Auxiliary::script_debug("S1");
 
     # Check the easy stuff first.
     if (not defined $config_file) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNALE ERROR: Simplifier::init : config file is undef. " .
+        Carp::cluck("INTERNALE ERROR: $who_am_i config file is undef. " .
                     Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
     if (not -f $config_file) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Simplifier::init : The config file '$config_file' does not exist or is not " .
+        say("ERROR: $who_am_i The config file '$config_file' does not exist or is not " .
             "a plain file. " . Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
 
     if (not defined $workdir) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNALE ERROR: Simplifier::init : workdir is undef. " .
+        Carp::cluck("INTERNALE ERROR: $who_am_i workdir is undef. " .
                     Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
     if (not -d $workdir) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Simplifier::init : The workdir '$workdir' does not exist or is not " .
+        say("ERROR: $who_am_i The workdir '$workdir' does not exist or is not " .
             "a directory. " . Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
 
-    my $config_file_copy = $workdir . "/" . $config_file_copy_rel;
-    if (not File::Copy::copy($config_file, $config_file_copy)) {
+    if (not defined $verdict_setup or '' eq $verdict_setup) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Copying the config file '$config_file' to '$config_file_copy' failed : $!. " .
+        say("ERROR: $who_am_i \$verdict_setup is undef or '' " .
             Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
+
 
 # ---------------------------------------------
 
@@ -579,7 +607,7 @@ sub init {
     # the current routine only.
     my $grammar_file;
 
-    say("DEBUG: Command line content left over after being processed by rqg_batch.pl : " .
+    say("DEBUG: $who_am_i Command line content left over after being processed by rqg_batch.pl : " .
         join(" ", @ARGV)) if Auxiliary::script_debug("S4");
 
     # Read the command line options which are left over after being processed by rqg_batch.
@@ -634,7 +662,7 @@ sub init {
     #   'runner=s'                  => \$runner,                # Swallowed and handled by rqg_batch
     #   'stop_on_replay'            => \$stop_on_replay,        # Swallowed and handled by rqg_batch
     #   'servers=i'                 => \$servers,               # Swallowed and handled by rqg_batch
-        'threads=i'                 ,                           # Handled here (placed in cl_snip)
+        'threads=i'                 ,                           # Handled here (placed in cl_snip)  ### FIXME, is that right?
     #   'discard_logs'              => \$discard_logs,          # Swallowed and handled by rqg_batch
     #   'discard-logs'              => \$discard_logs,          # Swallowed and handled by rqg_batch
     #   'script_debug=s'            => \$script_debug,          # Swallowed and handled by rqg_batch
@@ -658,7 +686,7 @@ sub init {
     # We work with the copy only!
     # config_file_copy
     #   'seed=s'                    => \$seed,                  # Handled here
-    $options->{'config'} = $config_file_copy;
+    $options->{'config'} = $config_file;
     my $config = GenTest::Properties->new(
         options     => $options,
         legal       => [
@@ -682,10 +710,6 @@ sub init {
                     'search_var_size',
                     'simplify_chain',
                     'simplify_mode',
-                    'whitelist_statuses',
-                    'whitelist_patterns',
-                    'blacklist_statuses',
-                    'blacklist_patterns',
         ],
         required    => [
                     'rqg_options',
@@ -1060,17 +1084,6 @@ sub init {
         say("DEBUG: RQG options after  'mangling' ->$rqg_options_end<-");
     }
 
-    if (STATUS_OK != Verdict::check_normalize_set_black_white_lists (
-                    ' The RQG run ended with status ', # $status_prefix,
-                    $config->blacklist_statuses, $config->blacklist_patterns,
-                    $config->whitelist_statuses, $config->whitelist_patterns)) {
-        say("ERROR: Setting the values for blacklist and whitelist search failed.");
-        # my $status = STATUS_CONFIG_ERROR;
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("$0 will exit with exit status " . status2text($status) . "($status)");
-        safe_exit($status);
-    }
-
     if (not defined $grammar_file) {
         say("ERROR: Grammar file is not defined.");
         help_();
@@ -1113,6 +1126,7 @@ sub init {
 
     $result_file  = $workdir . "/result.txt";
     my $iso_ts = isoTimestamp();
+    $verdict_setup =~ s/^/$iso_ts /gm;
     my $g_flags;
     if (not defined $grammar_flags) {
         $g_flags = '<undef>';
@@ -1140,15 +1154,12 @@ sub init {
 "$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
 "$iso_ts call line additions (bwlists excluded) : $cl_snip_all\n"                                                            .
 "$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
-"$iso_ts whitelist_statuses : " . join(',',@{$config->whitelist_statuses}) . "\n"                                            .
-"$iso_ts whitelist_patterns : " . join(',',@{$config->whitelist_patterns}) . "\n"                                            .
-"$iso_ts blacklist_statuses : " . join(',',@{$config->blacklist_statuses}) . "\n"                                            .
-"$iso_ts blacklist_patterns : " . join(',',@{$config->blacklist_patterns}) . "\n"                                            .
-"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" ;
+"$iso_ts Verdict setup\n"                                                                                                    .
+$verdict_setup                                                                                                               .
+"$iso_ts ================================================================================================================\n" ;
     Batch::write_result($header);
 
-    $cl_snip_all .= " " . $rqg_options_end . " " . $mysql_options .
-                    Verdict::black_white_lists_to_config_snip('cl');
+    $cl_snip_all .= " " . $rqg_options_end . " " . $mysql_options ;
 
     replay_runtime_fifo_init(10, $duration);
     estimate_runtime_fifo_init(20, $duration);
@@ -1234,6 +1245,8 @@ sub get_job {
                     # Any order is valid. The sufficient enough tried were already sorted out above.
                     $order_is_valid = 1;
                     # The grammar to be used is the parent grammar when entering the phase.
+                    # FIXME: Shouldn't $cl_snip_phase = " --grammar=" . $workdir . "/" . $child_grammar; ?
+                    # FIXME: Shouldn't $cl_snip_step = " --threads=1" for PHASE_THREAD1_REPLAY?
                     $job[Batch::JOB_CL_SNIP]  = $cl_snip_all . $cl_snip_phase .
                                          " --grammar=" . $workdir . "/" . $child_grammar;
                     $job[Batch::JOB_ORDER_ID] = $order_id;
@@ -1242,6 +1255,28 @@ sub get_job {
                     $job[Batch::JOB_MEMO2]    = undef;     # undef or Parent grammar or
                                                            # Parent rvt_snip
                     $job[Batch::JOB_MEMO3]    = $duration; # We take the full duration!
+                } elsif (PHASE_THREAD_REDUCE eq $phase) {
+                    # The grammar to be used is the parent grammar when entering the phase.
+                    $job[Batch::JOB_CL_SNIP]  = $cl_snip_all . $cl_snip_phase .
+                                         " --grammar=" . $workdir . "/" . $child_grammar;
+                    $job[Batch::JOB_ORDER_ID] = $order_id;
+                    $job[Batch::JOB_MEMO1]    = $order_array[$order_id][ORDER_PROPERTY2];
+                                                           # reduced number of threads
+                    $job[Batch::JOB_MEMO2]    = undef;     # undef or Parent grammar or
+                                                           # Parent rvt_snip
+                    $job[Batch::JOB_MEMO3]    = $duration; # We take the full duration!
+                    if ($job[Batch::JOB_MEMO1] >= $threads) {
+                        say("DEBUG: Order id '$order_id' trying to change threads from $threads " .
+                            " to " . $job[Batch::JOB_MEMO1] . " is invalid.")
+                            if Auxiliary::script_debug("S4");
+                        $order_is_valid = 0;
+                        Batch::add_to_try_never($order_id);
+                        $order_id = undef;
+                    } else {
+                        $cl_snip_step   = " --threads=" . $job[Batch::JOB_MEMO1];
+                        $job[Batch::JOB_CL_SNIP]  = $cl_snip_all . $cl_snip_phase . $cl_snip_step ;
+                        $order_is_valid = 1;
+                    }
                 } elsif (PHASE_RVT_SIMP eq $phase) {
                     my $option_to_attack = $order_array[$order_id][ORDER_PROPERTY2];
                     my $value_to_remove  = $order_array[$order_id][ORDER_PROPERTY3];
@@ -1362,11 +1397,6 @@ sub get_job {
                         say("DEBUG: Order id '$order_id' affecting rule '$rule_name' component " .
                             "'$component_string' is invalid.") if Auxiliary::script_debug("S4");
                         $order_is_valid = 0;
-                        # Already done above      Batch::add_to_try_never($order_id);
-                        # FIXME:
-                        # Stop all RQG runner which do something based on that $order_id?
-                        # But could such runner exist at all?
-                        # Could we pick a "Winner" during archiving?
                         $order_id = undef;
                     }
                 } elsif (PHASE_SIMP_END eq $phase) {
@@ -1380,8 +1410,13 @@ sub get_job {
             say("DEBUG: Batch::get_order delivered an undef order_id.")
                 if Auxiliary::script_debug("S5");
             # %try_first_hash and @try_queue were empty and so $order_id is undef.
-            if (PHASE_RVT_SIMP eq $phase or PHASE_GRAMMAR_SIMP eq $phase) {
-                if (5 > $refill_number) {
+            if (PHASE_RVT_SIMP eq $phase or PHASE_GRAMMAR_SIMP eq $phase or
+                PHASE_THREAD_REDUCE eq $phase) {
+                my $max_refills = 5;
+                # mleich 2019-12 Observation:
+                # Only 5 refills is unfortunate small for PHASE_THREAD_REDUCE.
+                $max_refills = 10 if PHASE_THREAD_REDUCE eq $phase;
+                if ($max_refills > $refill_number) {
                     $refill_number++;
                     Batch::reactivate_try_replayer;
                     Batch::reactivate_try_over;
@@ -1514,7 +1549,8 @@ sub dump_orders {
     say("DEBUG: Content of the order array ------------- end");
 }
 
-my $have_rvt_generated = 0;
+my $have_rvt_generated           = 0;
+my $have_thread_reduce_generated = 0;
 sub generate_orders {
 
     # Hint:
@@ -1531,6 +1567,8 @@ sub generate_orders {
     # PHASE_THREAD1_REPLAY    handled
     # PHASE_RVT_SIMP          handled
     # PHASE_GRAMMAR_SIMP      handled
+    # PHASE_THREAD_REDUCE     handled
+    # PHASE_GRAMMAR_CLONE     handled
     # PHASE_FINAL_REPLAY      handled
     # PHASE_SIMP_END
     if      (PHASE_FIRST_REPLAY   eq $phase or
@@ -1538,6 +1576,28 @@ sub generate_orders {
              PHASE_FINAL_REPLAY   eq $phase) {
         add_order($cl_snip_all . $cl_snip_phase, 'unused', '_unused_');
         $success = 1;
+    } elsif (PHASE_THREAD_REDUCE eq $phase) {
+        if ($have_thread_reduce_generated) {
+            $success = 0;
+        } else {
+            my %thread_num_hash;
+            my $thread_num = 1;
+            # The goal is to have
+            # - low order ids for low numbers of threads in order to favour them a bit
+            # - a high density (at least 1, 2, 3) for low thread numbers
+            # - a decreasing density for high thread numbers
+            while ($thread_num < $threads) {
+                $thread_num_hash{int($thread_num)} = 1;
+                $thread_num = $thread_num * 1.3;
+            }
+            my @thread_num_list = sort {$a <=> $b} keys %thread_num_hash;
+            foreach $thread_num ( @thread_num_list ) {
+                add_order($cl_snip_all . $cl_snip_phase, $thread_num, '_unused_');
+                $success = 1;
+            }
+            dump_orders() if Auxiliary::script_debug("S5");
+        }
+        $have_thread_reduce_generated = 1;
     } elsif (PHASE_RVT_SIMP eq $phase) {
         # RVT_SIMP:
         # - best     <whatever>              --> 'None' only (except transforme where '' is best)
@@ -1686,13 +1746,13 @@ sub register_result {
 #
 
     our $arrival_number;
-    my ($order_id, $verdict, $saved_log_rel, $total_runtime,
+    my ($order_id, $verdict, $extra_info, $saved_log_rel, $total_runtime,
         $grammar_used, $grammar_parent, $adapted_duration) = @_;
 
-    if (@_ != 7) {
+    if (@_ != 8) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: register_result : 7 Parameters (order_id, verdict, " .
-                    "saved_log_rel, total_runtime, grammar_used, grammar_parent, " .
+        Carp::cluck("INTERNAL ERROR: register_result : 8 Parameters (order_id, verdict, " .
+                    "extra_info, saved_log_rel, total_runtime, grammar_used, grammar_parent, " .
                     "adapted_duration) are required.");
         Batch::emergency_exit($status);
     }
@@ -1701,8 +1761,8 @@ sub register_result {
         Carp::cluck("INTERNAL ERROR: order_id or verdict is undef");
         Batch::emergency_exit($status);
     }
-    Carp::cluck("DEBUG: Simplifier::register_result(order_id, verdict, saved_log_rel, " .
-                "total_runtime, grammar_used, grammar_parent, adapted_duration)")
+    Carp::cluck("DEBUG: Simplifier::register_result(order_id, verdict, extra_info, " .
+                "saved_log_rel, total_runtime, grammar_used, grammar_parent, adapted_duration)")
         if Auxiliary::script_debug("S4");
 
     my $return = 'INIT';
@@ -1765,7 +1825,8 @@ sub register_result {
         Auxiliary::lfill($order_id,       Batch::RQG_ORDERID_LENGTH)   . " | " .
         Auxiliary::lfill($total_runtime,  Batch::RQG_ORDERID_LENGTH)   . " | " .
         Auxiliary::rfill($grammar_used,   RQG_SPECIALITY_LENGTH)       . " | " .
-        Auxiliary::rfill($grammar_parent, RQG_SPECIALITY_LENGTH)       . "\n";
+        Auxiliary::rfill($grammar_parent, RQG_SPECIALITY_LENGTH)       . " | " .
+        $extra_info                                                    . "\n";
     Batch::append_string_to_file ($result_file, $line);
     $arrival_number++;
 
@@ -1814,6 +1875,7 @@ sub register_result {
                 $first_replay_success   = 1;
                 # Attention:
                 # There was a replay but this is not a success in simplification.
+
                 # Hence $simp_success must not be touched.
             } elsif (PHASE_THREAD1_REPLAY eq $phase) {
                 say("INFO: We had a replay in phase '$phase'. " .
@@ -1828,6 +1890,59 @@ sub register_result {
             }
             Batch::add_to_try_never($order_id);
             $return = Batch::REGISTER_SOME_STOPPED;
+        } elsif (PHASE_THREAD_REDUCE eq $phase) {
+            # $grammar_used is the number of threads used in that RQG run.
+            $campaign_duds_since_replay = 0;
+            if ($grammar_used < $threads) {
+                # 0. Its a replayer providing progress.
+                $threads               = $grammar_used;
+                $simp_success          = 1;
+                $thread_reduce_success = 1;
+                my $iso_ts = isoTimestamp();
+                Batch::write_result("$iso_ts          Number of threads reduced to $threads \n");
+
+                # 1. Stop all worker fiddling with the same $order_id except they have reached
+                #    'replay' or 'interest'.
+                Batch::stop_worker_on_order_except($order_id);
+                # 2. Stop all worker fiddling with the same $order_id in case they have reached
+                #    a replay because we are already processing a replayer.
+                Batch::stop_worker_on_order_replayer($order_id);
+
+                Batch::add_to_try_never($order_id);
+
+                # 3. The "$threads = $grammar_used;" above makes all jobs/orders going with some higher
+                #    number of threads obsolete.
+                # Stop all workers having some $order_id fiddling with a higher number of threads.
+                my @orders_in_work = Batch::get_orders_in_work;
+                say("DEBUG: orders currently in work: " . join(" - ", @orders_in_work))
+                    if Auxiliary::script_debug("S5");
+                foreach my $order_in_work (@orders_in_work) {
+                    # In theory we should not need the next line.
+                    next if $order_id == $order_in_work; # IMHO not required here but no harm.
+                    my $threads_in_order = $order_array[$order_in_work][ORDER_PROPERTY2];
+                    if (not defined $threads_in_order) {
+                        say("INTERNAL ERROR: Processing the orders in work threads_in_order is not " .
+                            "defined, order_id $order_id. Will ask for an emergency_exit.");
+                        my $status = STATUS_INTERNAL_ERROR;
+                        Batch::emergency_exit($status);
+                    }
+                    if ($threads_in_order > $threads) {
+                        # That number of threads has now become obsolete.
+                        say("DEBUG: Threads reduced to $threads_in_order in order_id " .
+                            "$order_in_work is now obsolete but currently in work. " .
+                            "Will stop all RQG Workers using that order.")
+                            if Auxiliary::script_debug("S5");
+                        Batch::stop_worker_on_order_except($order_in_work);
+                        # Even some replayer is no more of interest.
+                        Batch::stop_worker_on_order_replayer($order_in_work);
+                        Batch::add_to_try_never($order_in_work);
+                    }
+                }
+                $return = Batch::REGISTER_GO_ON;
+            } else {
+                # Its a too late replayer.    $grammar_used >= threads
+                $return = Batch::REGISTER_GO_ON;
+            }
         } elsif (PHASE_RVT_SIMP eq $phase) {
             # FIXME: Compare stop_worker* use to PHASE_GRAMMAR_SIMP.
             my $rvt_now = get_shrinked_rvt_options(undef, undef, 0);
@@ -1980,8 +2095,9 @@ sub register_result {
     } else {
         $phase_switch = 1;
         Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW);
-        if (PHASE_GRAMMAR_SIMP eq $phase or
-            PHASE_RVT_SIMP     eq $phase   ) {
+        if (PHASE_GRAMMAR_SIMP  eq $phase or
+            PHASE_RVT_SIMP      eq $phase or
+            PHASE_THREAD_REDUCE eq $phase   ) {
             # In case of PHASE_RVT_SIMP and PHASE_GRAMMAR_SIMP $left_over_trials gets
             # precharged with 9999 at begin of campaign.
             # Per experience a proper campaign could reach up till ~ 2000 finished RQG runs.
@@ -2038,48 +2154,67 @@ sub switch_phase {
 
     # Treat phases consisting of maybe repeated campaigns first
     # == The cases where we maybe stay in the current phase and do not shift.
-    if ((PHASE_GRAMMAR_SIMP eq $phase) and $campaign_success) {
-        # We had success within the last simplification campaign and so we run one campaign more.
-        $campaign_number++;
-        $campaign_duds_since_replay = 0;
-        $left_over_trials  = TRIALS_SIMP;
-        $cl_snip_phase     = " $rvt_snip";
-        Batch::write_result("$iso_ts ---------- $phase campaign $campaign_number ----------\n" .
-                            $iso_ts . $title_line_part);
+    if ((PHASE_GRAMMAR_SIMP eq $phase) and ($campaign_success)) {
+        if ($campaign_number_max > $campaign_number) {
+            # We had success within the last simplification campaign and so we run one campaign more.
+            $campaign_number++;
+            $campaign_duds_since_replay = 0;
+            $left_over_trials  = TRIALS_SIMP;
+            $cl_snip_phase     = " $rvt_snip";
+            Batch::write_result("$iso_ts ---------- $phase campaign $campaign_number ----------\n" .
+                                $iso_ts . $title_line_part);
 
-        load_grammar($parent_grammar, 10);
-        Batch::init_order_management();
-        Batch::init_load_control();
-        say("DEBUG: Simplifier::switch_phase: Leaving routine. Current phase is '$phase'.")
-                if Auxiliary::script_debug("S4");
-        $campaign_success  = 0;
-        $refill_number     = 0;
-#       $out_of_ideas      = 0;
-        $phase_switch      = 0;
-        # Essential: We are already in PHASE_GRAMMAR_SIMP and will stay there for another campaign.
-        return;
+            load_grammar($parent_grammar, 10);
+            Batch::init_order_management();
+            Batch::init_load_control();
+            say("DEBUG: Simplifier::switch_phase: Leaving routine. Current phase is '$phase'.")
+                    if Auxiliary::script_debug("S4");
+            $campaign_success  = 0;
+            $refill_number     = 0;
+    #       $out_of_ideas      = 0;
+            $phase_switch      = 0;
+            # Essential: We are already in PHASE_GRAMMAR_SIMP and will stay there for another campaign.
+            return;
+        } else {
+            say("WARN: Current phase is '$phase' and limit of $campaign_number_max campaigns for " .
+                "that phase was reached was reached.");
+        }
     }
     if ((PHASE_RVT_SIMP eq $phase) and ($campaign_success)) {
-        # We had success within the last simplification campaign and so we run one campaign more.
-        $campaign_number++;
-        $have_rvt_generated = 0;
-        my $target          = $workdir . "/" . $child_grammar;
-        $left_over_trials   = TRIALS_SIMP;
-        $cl_snip_phase      = " --grammar=" . $target ;
-        Batch::write_result("$iso_ts ---------- $phase campaign $campaign_number ---------- ($child_grammar)\n" .
-                            $iso_ts . $title_line_part);
-        Batch::init_order_management();
-        Batch::init_load_control();
-        say("DEBUG: Simplifier::switch_phase: Leaving routine. Current phase is '$phase'.")
-                if Auxiliary::script_debug("S4");
-        $campaign_success   = 0;
-#       $out_of_ideas       = 0;
-        $phase_switch       = 0;
-        return;
+        if ($campaign_number_max > $campaign_number) {
+            # We had success within the last simplification campaign and so we run one campaign more.
+            $campaign_number++;
+            $have_rvt_generated = 0;
+            my $target          = $workdir . "/" . $child_grammar;
+            $left_over_trials   = TRIALS_SIMP;
+            $cl_snip_phase      = " --grammar=" . $target ;
+            Batch::write_result("$iso_ts ---------- $phase campaign $campaign_number ---------- " .
+                                "($child_grammar)\n" .
+                                $iso_ts . $title_line_part);
+            Batch::init_order_management();
+            Batch::init_load_control();
+            say("DEBUG: Simplifier::switch_phase: Leaving routine. Current phase is '$phase'.")
+                    if Auxiliary::script_debug("S4");
+            $campaign_success   = 0;
+    #       $out_of_ideas       = 0;
+            $phase_switch       = 0;
+            return;
+        } else {
+            say("WARN: Current phase is '$phase' and limit of $campaign_number_max campaigns for " .
+                "that phase was reached was reached.");
+        }
     }
 
 
     $phase = shift @simp_chain;
+    say("INFO: Simplification phase switched to '$phase'.");
+
+    if (1 == $threads and
+        ((PHASE_THREAD1_REPLAY eq $phase) or
+         (PHASE_THREAD_REDUCE  eq $phase)   )) {
+        say("INFO: threads is already 1. Omitting phase '" . $phase . "'.");
+        $phase = shift @simp_chain;
+    }
 
     if (PHASE_FINAL_REPLAY eq $phase) {
         if (-1 == $simp_success) {
@@ -2109,36 +2244,44 @@ sub switch_phase {
         }
     }
 
-    if (PHASE_THREAD1_REPLAY eq $phase and 1 == $threads ) {
-        say("INFO: threads is already 1. Omitting phase '" . PHASE_THREAD1_REPLAY . "'.");
-        $phase = shift @simp_chain;
-    }
     our $clone_phase;
     if (PHASE_GRAMMAR_CLONE eq $phase ) {
-        # FIXME: Find some solution which is more elegant than reloading from file.
+        # FIXME maybe:
+        # Find some solution which is more elegant than reloading from file.
+        # Why load_grammar and not reload_grammar? Because its comparable to beginning a new campaign?
         load_grammar($parent_grammar, 10);
         my $start_grammar_string = $grammar_string;
         GenTest::Simplifier::Grammar_advanced::print_rule_hash();
+        # FIXME:
+        # When running in destructive mode cloning of rules with one unique component makes sense!
         if (not defined $clone_phase) {
+            $clone_phase = 'using top level rules only';
             $grammar_string = GenTest::Simplifier::Grammar_advanced::use_clones_in_grammar_top;
             if ($start_grammar_string ne $grammar_string) {
-                $clone_phase = 'using top level rules only';
-                say("DEBUG: Cloning $clone_phase changed the grammar.")
+                say("DEBUG: Cloning attempt '$clone_phase' changed the grammar.")
                     if Auxiliary::script_debug("S2");
                 unshift @simp_chain, PHASE_GRAMMAR_CLONE;
             } else {
+                say("INFO: Cloning attempt '$clone_phase' did not change the grammar.")
+                    if Auxiliary::script_debug("S2");
+                $clone_phase = 'all ordered by rule weight';
                 $grammar_string = GenTest::Simplifier::Grammar_advanced::use_clones_in_grammar;
                 if ($start_grammar_string ne $grammar_string) {
-                    $clone_phase = 'ordered by rule weight';
-                    say("DEBUG: Cloning $clone_phase changed the grammar.")
+                    say("DEBUG: Cloning attempt '$clone_phase' changed the grammar.")
                         if Auxiliary::script_debug("S2");
+                } else {
+                    say("INFO: Cloning attempt '$clone_phase' did not change the grammar.");
+                    $clone_phase = undef;
                 }
             }
         } elsif ($clone_phase eq 'using top level rules only') {
+            $clone_phase = 'all ordered by rule weight';
             $grammar_string = GenTest::Simplifier::Grammar_advanced::use_clones_in_grammar;
             if ($start_grammar_string ne $grammar_string) {
-                $clone_phase = 'ordered by rule weight';
+                say("DEBUG: Cloning attempt '$clone_phase' changed the grammar.")
+                    if Auxiliary::script_debug("S2");
             } else {
+                say("INFO: Cloning attempt '$clone_phase' did not change the grammar.");
                 $clone_phase = undef;
             }
         } else {
@@ -2156,8 +2299,6 @@ sub switch_phase {
         } else {
             $phase = shift @simp_chain;
             # Carp::cluck("DEBUG phase : $phase, simp_success : $simp_success");
-            $phase_switch = 1;
-            return;
         }
     }
 
@@ -2168,6 +2309,16 @@ sub switch_phase {
     # might change the value from 1 to 0.
     if      (PHASE_FIRST_REPLAY eq $phase)     {
         $first_replay_success   = 0 if -1 == $first_replay_success;
+        $left_over_trials       = $trials;
+        make_child_from_parent();
+        my $target              = $workdir . "/" . $child_grammar;
+        $cl_snip_phase          = " $rvt_snip --grammar=" . $target;
+        Batch::write_result("$iso_ts ---------- $phase ---------- ($child_grammar)\n" .
+                            $iso_ts . $title_line_part);
+    } elsif (PHASE_THREAD_REDUCE eq $phase)     {
+        $simp_success           = 0 if -1 == $simp_success;
+        $thread_reduce_success  = 0 if -1 == $thread_reduce_success;
+        # Observation 2019-12 : The only 5 refills limits more than trials.
         $left_over_trials       = $trials;
         make_child_from_parent();
         my $target              = $workdir . "/" . $child_grammar;
@@ -2354,6 +2505,12 @@ sub replay_runtime_adapt {
 # - $duration_adaption
 # - values collected within replay_runtime_fifo during runtime
 #
+# FIXME maybe:
+# Observation 2019-12
+# The server crash during shutdown.
+# So adapted duration is all time = duration assigned to rqg_batch.pl via command line or config.
+# Maybe strangle that a bit?
+#
     my $value;
 
     if      (PHASE_FIRST_REPLAY   eq $phase or
@@ -2528,6 +2685,8 @@ sub report_replay {
             Batch::copy_file($source, $target);
             reload_grammar($replay_grammar);
             Batch::add_to_try_never($order_id);
+            $grammar_simp_success = 1;
+            $simp_success = 1;
 
             # In case the reload_grammar above lets some rule disappear than we could
             # stop all workers having some $order_id fiddling with the disappeared rule.
@@ -2535,7 +2694,9 @@ sub report_replay {
             say("DEBUG: orders currently in work: " . join(" - ", @orders_in_work))
                 if Auxiliary::script_debug("S5");
             foreach my $order_in_work (@orders_in_work) {
-                # Omit to stop our current Winner because he is most probably during archiving etc.
+                # The next line is for protecting the replayer we are inspecting.
+                # He might be during archiving. And than the stop_worker_on_order_replayer
+                # (a few lines lower) would stop him.
                 next if $order_id == $order_in_work;
                 my $rule_name = $order_array[$order_in_work][ORDER_PROPERTY2];
                 if (not defined $rule_name) {
@@ -2559,7 +2720,9 @@ sub report_replay {
                         "Workers using that order.") if Auxiliary::script_debug("S5");
                     # Stop all worker with same order_id except verdict in (interest, replay).
                     Batch::stop_worker_on_order_except($order_in_work);
-                    # Even some replayer is no more of interest.
+                    # Even some replayer using $order_in_work which is != $order_id is no more
+                    # of interest. We run report_replay for a worker with $order_id.
+                    # So he is safe.
                     Batch::stop_worker_on_order_replayer($order_in_work);
                     Batch::add_to_try_never($order_in_work);
                 }
@@ -2569,13 +2732,75 @@ sub report_replay {
             # in (interest, replay).
             Batch::stop_worker_oldest();
 
-            $grammar_simp_success = 1;
-            $simp_success = 1;
         } else {
             # Its a replayer with outdated grammar.
             # Hence we can postpone decision+loading to the point of time when the main process
             # of the RQG worker was reaped and the result gets processed.
             # So we do nothing.
+        }
+    } elsif (PHASE_THREAD_REDUCE eq $phase) {
+        # $replay_grammar is the number of threads used in that RQG run.
+        if (not defined $replay_grammar) {
+            say("INTERNAL ERROR: \$replay_grammar is not defined, order_id $order_id. " .
+                "Will ask for an emergency_exit.");
+                my $status = STATUS_INTERNAL_ERROR;
+                Batch::emergency_exit($status);
+        }
+        # The update for $campaign_duds_since_replay (set to 0) comes in register_result.
+        if ($replay_grammar < $threads) {
+            # 0. Its a replayer providing progress.
+            $threads               = $replay_grammar;
+            $simp_success          = 1;
+            $thread_reduce_success = 1;
+            my $iso_ts = isoTimestamp();
+            Batch::write_result("$iso_ts          Number of threads reduced to $threads \n");
+
+            # 1. Stop all worker fiddling with the same $order_id except they have reached
+            #    'replay' or 'interest'.
+            Batch::stop_worker_on_order_except($order_id);
+
+            Batch::add_to_try_never($order_id);
+
+            # 2. The "$threads = $grammar_used;" above makes all jobs/orders going with some higher
+            #    number of threads obsolete.
+            # Stop all workers having some $order_id fiddling with a higher number of threads.
+            my @orders_in_work = Batch::get_orders_in_work;
+            say("DEBUG: orders currently in work: " . join(" - ", @orders_in_work))
+                if Auxiliary::script_debug("S5");
+            foreach my $order_in_work (@orders_in_work) {
+                # The next line if for protecting the replayer we are inspecting.
+                # He might be during archiving. And than the stop_worker_on_order_replayer
+                # (a few lines lower) would stop him.
+                next if $order_id == $order_in_work;
+                my $threads_in_order = $order_array[$order_in_work][ORDER_PROPERTY2];
+                if (not defined $threads_in_order) {
+                    say("INTERNAL ERROR: Processing the orders in work threads_in_order is not " .
+                        "defined, order_id $order_id. Will ask for an emergency_exit.");
+                    my $status = STATUS_INTERNAL_ERROR;
+                    Batch::emergency_exit($status);
+                }
+                if ($threads_in_order > $threads) {
+                    # That number of threads has now become obsolete.
+                    say("DEBUG: Threads reduced to $threads_in_order in order_id " .
+                        "$order_in_work is now obsolete but currently in work. " .
+                        "Will stop all RQG Workers using that order.")
+                        if Auxiliary::script_debug("S5");
+                    Batch::stop_worker_on_order_except($order_in_work);
+                    # Even some replayer is no more of interest.
+                    Batch::stop_worker_on_order_replayer($order_in_work);
+                    Batch::add_to_try_never($order_in_work);
+                }
+            }
+
+            # 3. Never run certain stop routines like PHASE_GRAMMAR_SIMP does
+            #    - Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA
+            #    - Batch::stop_worker_oldest
+            #    because they
+            #    - do not use more threads than the current value $threads
+            #    - use more threads than the current value $threads but have reached 'interest'.
+
+        } else {
+            # Its a too late replayer or we just inspected him again.
         }
     } elsif (PHASE_RVT_SIMP eq $phase) {
         my $rvt_now = get_shrinked_rvt_options(undef, undef, 0);
@@ -2598,12 +2823,17 @@ sub report_replay {
             # Its a too late winner.
             # So we do nothing.
         }
-    } else {
-        # Its a phase where the end is near like FIRST_REPLAY.
+    } elsif (PHASE_FIRST_REPLAY eq $phase or PHASE_THREAD1_REPLAY eq $phase or
+             PHASE_FINAL_REPLAY eq $phase) {
+        # Its a phase with end (after register_result) ahead.
         my $stop_count = Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA,
                                                        Batch::STOP_REASON_WORK_FLOW);
         Batch::stop_worker_on_order_except($order_id);
         Batch::add_to_try_never($order_id);
+    } else {
+        Carp::cluck("INTERNAL ERROR: report_replay: Handling for phase '$phase' is missing.");
+        my $status = STATUS_INTERNAL_ERROR;
+        Batch::emergency_exit($status);
     }
     return $response;
 } # End sub report_replay

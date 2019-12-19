@@ -23,7 +23,7 @@
 # TODO:
 # Make here some very strict version
 # 0. Check the use of
-#    - sub exit_test  stop servers, maybe archiving, cleanup etc. and call run_end
+#    - sub exit_test  stop servers, cleanup etc. and call run_end
 #    - sub run_end  status is decided, give summary, flip to RQG_PHASE_COMPLETE, run safe_exit
 #    - safe_exit from GenTest.pm making POSIX::_exit($exit_status)... but not setting RQG_PHASE
 # 1. Conflicts option1 vs option2 are not allowed and lead to abort of test
@@ -245,7 +245,7 @@ my (@basedirs, @mysqld_options, @vardirs, $rpl_mode,
     $restart_timeout, $gendata_advanced, $scenario, $upgrade_test, $store_binaries,
     $ps_protocol, @gendata_sql_files, $config_file,
     @whitelist_statuses, @whitelist_patterns, @blacklist_statuses, @blacklist_patterns,
-    $archiver_call, $noarchiving, $workdir, $queries, $script_debug_value,
+    $workdir, $queries, $script_debug_value,
     $options);
 
 my $gendata   = ''; ## default simple gendata
@@ -386,8 +386,6 @@ if (not GetOptions(
     'whitelist_patterns:s@'       => \@whitelist_patterns,
     'blacklist_statuses:s@'       => \@blacklist_statuses,
     'blacklist_patterns:s@'       => \@blacklist_patterns,
-    'archiver_call:s'             => \$archiver_call,
-    'noarchiving'                 => \$noarchiving,
     'script_debug:s'              => \$script_debug_value,
     )) {
     help();
@@ -413,17 +411,6 @@ say("DEBUG: After reading command line options");
 if ( defined $help ) {
     help();
     exit STATUS_OK;
-}
-
-if (STATUS_OK != Verdict::check_normalize_set_black_white_lists (
-      ' The RQG run ended with status ', # $status_prefix,
-      \@blacklist_statuses, \@blacklist_patterns,
-      \@whitelist_statuses, \@whitelist_patterns)) {
-    say("ERROR: Setting the values for blacklist and whitelist search failed.");
-    # my $status = STATUS_CONFIG_ERROR;
-    my $status = STATUS_ENVIRONMENT_FAILURE;
-    say("$0 will exit with exit status " . status2text($status) . "($status)");
-    safe_exit($status);
 }
 
 # FIXME: Make $workdir mandatory??
@@ -474,7 +461,7 @@ say("INFO: RQG workdir : '$workdir' and infrastructure is prepared.");
 # In case of failure use
 #    run_end($status);
 # and never
-#   exit_test($status);  # includes blacklist/whitelist matching, archiving etc.
+#   exit_test($status);
 # as long as
 # - it is not decided if our current script or a different script runs the final test
 #   Reason: The other scripts do not write the entries required for blacklist/whitelist matching.
@@ -502,14 +489,6 @@ if (STATUS_OK != $return){
 # For debugging of Auxiliary::set_rqg_phase
 # $return = Auxiliary::get_rqg_phase($workdir);
 # say("DEBUG: RQG phase is '$return'");
-
-# FIXME: This is currently not used.
-# say("INFO: RQG archiver_call : " . $archiver_call);
-if (not defined $noarchiving) {
-   $noarchiving = 0;
-} else {
-   $noarchiving = 1;
-}
 
 if (defined $scenario) {
     system("perl $ENV{RQG_HOME}/run-scenario.pl @ARGV_saved");
@@ -1337,7 +1316,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
     if ($status > DBSTATUS_OK) {
         stopServers($status);
         sayError("Could not start Galera cluster");
-        # FIXME: What about bw_list matching and archiving?
         my $status = STATUS_ENVIRONMENT_FAILURE;
         exit_test($status);
     }
@@ -1357,7 +1335,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
     if ($status > DBSTATUS_OK) {
         stopServers($status);
         sayError("Some Galera cluster nodes were not in sync.");
-        # FIXME: What about bw_list matching and archiving?
         my $status = STATUS_ENVIRONMENT_FAILURE;
         exit_test($status);
     }
@@ -1980,10 +1957,10 @@ $0 - Run a complete random query generation test, including server start with re
     --restart-timeout: If the server has gone away, do not fail immediately, but wait to see if it restarts (it might be a part of the test)
     --upgrade-test : enable Upgrade reporter and treat server1 and server2 as old/new server, correspondingly. After the test flow
                      on server1, server2 will be started on the same datadir, and the upgrade consistency will be checked
-    --workdir   : (optional) Workdir of this RQG run
-                  Nothing assigned: We use the current working directory of the RQG runner process, certain files will be created.
-                  Some directory assigned: We use the assigned directory and expect that certain files already exist.
-    --help      : This help message
+    --workdir      : (optional) Workdir of this RQG run
+                     Nothing assigned: We use the current working directory of the RQG runner process, certain files will be created.
+                     Some directory assigned: We use the assigned directory and expect that certain files already exist.
+    --help         : This help message
 
     If you specify --basedir1 and --basedir2, two servers will be started and the results from the queries
     will be compared between them.
@@ -2001,7 +1978,6 @@ sub exit_test {
     say(Verdict::MATCHING_END);
     my $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_ANALYZE);
 
-    # It is intentional that the time for analysis and archiving is not included.
     $message = "RQG total runtime in s : " . (time() - $rqg_start_time);
     $summary .= "SUMMARY: $message\n";
     say("INFO: " . $message);
@@ -2010,104 +1986,54 @@ sub exit_test {
         $logfile = $workdir . '/rqg.log';
     }
 
-    if (-f $logfile and not -z $logfile) {
-        # A RQG run either initiated by rqg_batch or started under conditions looking like
-        # initiated by rqg_batch.
-        # In both cases we can expect to have some regular filled RQG log file.
-        # --> Making a verdict should be possible.
-        my $verdict = Verdict::calculate_verdict($logfile);
-        if (not defined $verdict) {
-            say("ERROR: Something in the verdict determination worked wrong.");
-        }
-        say("VERDICT: $verdict");
-        $summary .= "SUMMARY: RQG verdict : $verdict\n";
-        # We write the summary string
-        # - Gendata/GenTest(*)/... runtimes
-        # - the verdict
-        # into the job file too because this could be used for speeding up grammar simplification.
-        # (*) The grammar simplifier needs currently only the GenTest runtime.
-        # FIXME: NO. ^^^^^^^^ Even that is not required.
-        # 1. See 'replay' signalled by some not yet finished RQG run.
-        # 2. If its the first winner with a derivate/child grammar based on the current
-        #    paranet grammar than
-        #    - copy that child grammar over best_grammar.yy
-        #    - load this grammar into the simplifier structure and dump the next parent grammar
-        # 3. Anything else like
-        #    - actualize adaptive runtime queues (found at the end of the RQG log)
-        #    - move the archive and the log of that run to the final destination
-        #    could be postponed till that RQG run is really complete (archiving is finished).
-        # Not 100% clear point:
-        # What if:
-        # The "Win" gets detected after completion of the RQG run.
-        # This saves in case of a Winner/first replayer depending on the load on the
-        # testing box ~ 30 till 120 seconds.
-        $return = Verdict::set_final_rqg_verdict($workdir, $verdict);
+    my $vardir_size = Auxiliary::measure_space_consumption($vardirs[0]);
+    say("INFO: vardir_size : $vardir_size");
 
-        my $vardir_size = Auxiliary::measure_space_consumption($vardirs[0]);
-        say("INFO: vardir_size : $vardir_size");
-
-        if ($verdict ne Verdict::RQG_VERDICT_IGNORE           and
-            $verdict ne Verdict::RQG_VERDICT_IGNORE_STATUS_OK and
-            $verdict ne Verdict::RQG_VERDICT_IGNORE_BLACKLIST and
-            $verdict ne Verdict::RQG_VERDICT_IGNORE_STOPPED) {
-            $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_ARCHIVING);
-            if (not $noarchiving) {
-                if (STATUS_OK !=  Auxiliary::archive_results($workdir, $vardirs[0])) {
-                    say("ERROR: Archiving the remainings of the RQG test failed.");
-                    my $status = STATUS_ENVIRONMENT_FAILURE;
-                    run_end($status);
-                } else {
-                    say("INFO: Archive '" . $workdir . "/archive.tgz' created.");
-                }
-            }
-            if(not File::Path::rmtree($vardirs[0])) {
-                say("ERROR: Removal of the tree '$vardirs[0]' failed. : $!.");
-                my $status = STATUS_ENVIRONMENT_FAILURE;
-                run_end($status);
-            }
-            say("DEBUG: The RQG vardir '$vardirs[0]' was removed.");
-        }
-    } else {
-        say("INFO: It does not look as if '$logfile' is the real RQG log. " .
-            "So making a verdict is impossible.");
-    }
     run_end($status);
 }
 
 sub run_end {
     my ($status) = @_;
     say($summary);
-    $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_COMPLETE);
+    # $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_COMPLETE);
     say("$0 will exit with exit status " . status2text($status) . "($status)");
     safe_exit($status);
 }
 
 sub help_vardir {
 
-   say("HELP: The vardir of the RQG run ('vardir').\n" .
-       "      The vardirs of all database servers will be created as sub directories within that directory.\n" .
-       "      Also certain dumps, temporary files (variable tmpdir in RQG code) etc. will be placed there.\n" .
-       "      RQG tools and the RQG runners feel 'free' to destroy or create the vardir whenever they want.\n" .
-       "      The parent directory of 'vardir' must exist in advance.\n" .
-       "      The recommendation is to assign some directory placed on some filesystem which satisfies your needs.\n" .
-       "      Example 1:\n" .
-       "         Higher throughput and/or all CPU cores heavy loaded gives better results. (very often)\n" .
-       "         AND\n" .
-       "         The RQG test does not consume much storage space during runtime. (often)\n" .
-       "         Use some vardir placed on a RAM based filesystem(tmpfs) like '/dev/shm/vardir'" .
-       "      Example 2:\n" .
-       "         Slow responding IO system gives better results. (rare)\n" .
-       "         OR\n" .
-       "         The RQG test does consume much storage space during runtime. (sometimes)\n" .
-       "         Use some vardir placed on a disk based filesystem like <RQG workdir>/vardir\n".
-       "         Having the vardir on some SSD is not recommended because RQG runs would write there a huge \n" .
-       "         of data and IO is there maybe not slow enough.\n" .
-       "      Default(sometimes sub optimal because test properties and your needs are not known to RQG)\n" .
-       "         <RQG workdir>/vardir\n" .
-       "      Why is it no more supported to set the vardir<n> for the DB servers within the RQG call?\n" .
-       "      - Maximum safety against concurrent activity of other RQG and MTR tests could be only " .
-       "        ensured if the RQG run uses vardirs for servers which are specific to the RQG run."   .
-       "        Just assume the ugly case that concurrent tests create/destroy/modify in <release>/mysql-test/var.\n" .
+   say("HELP: The vardir of the RQG run ('vardir').\n"                                             .
+       "      The vardirs of all database servers will be created as sub directories within "      .
+       "that directory.\n"                                                                         .
+       "      Also certain dumps, temporary files (variable tmpdir in RQG code) etc. will be "     .
+       "placed there.\n"                                                                           .
+       "      RQG tools and the RQG runners feel 'free' to destroy or create the vardir whenever " .
+       "they want.\n"                                                                              .
+       "      The parent directory of 'vardir' must exist in advance.\n"                           .
+       "      The recommendation is to assign some directory placed on some filesystem which "     .
+       "satisfies your needs.\n"                                                                   .
+       "      Example 1:\n"                                                                        .
+       "         Higher throughput and/or all CPU cores heavy loaded gives better results. "       .
+       "(very often)\n"                                                                            .
+       "         AND\n"                                                                            .
+       "         The RQG test does not consume much storage space during runtime. (often)\n"       .
+       "         Use some vardir placed on a RAM based filesystem(tmpfs) like '/dev/shm/vardir'."  .
+       "      Example 2:\n"                                                                        .
+       "         Slow responding IO system towards data storage gives better results. (rare)\n"    .
+       "         OR\n"                                                                             .
+       "         The RQG test does consume much storage space during runtime. (sometimes)\n"       .
+       "         Use some vardir placed on a disk based filesystem like <RQG workdir>/vardir.\n"   .
+       "         Having the vardir on some SSD is not recommended because RQG runs would write\n"  .
+       "         there a huge amount of data and IO is there maybe not slow enough.\n"             .
+       "      Default(sometimes sub optimal because test properties and your needs are not known " .
+       "to RQG)\n"                                                                                 .
+       "         <RQG workdir>/vardir\n"                                                           .
+       "      Why is it no more supported to set the vardir<n> for the DB servers within the "     .
+       "RQG call?\n"                                                                               .
+       "      - Maximum safety against concurrent activity of other RQG and MTR tests could be\n"  .
+       "        only ensured if the RQG run uses vardirs for servers which are specific to the\n"  .
+       "        RQG run. Just assume the ugly case that concurrent tests create/destroy/modify\n"  .
+       "        in <release>/mysql-test/var.\n"                                                    .
        "      - Creating/Archiving/Removing only one directory 'vardir' only is easier.");
 }
 

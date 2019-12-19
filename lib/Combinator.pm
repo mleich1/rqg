@@ -48,7 +48,7 @@ use File::Basename;
 use File::Path qw(make_path);
 use File::Copy;
 use lib 'lib';
-use lib "$ENV{RQG_HOME}/lib";
+# use lib "$ENV{RQG_HOME}/lib";
 use Auxiliary;
 use Verdict;
 use Batch;
@@ -96,7 +96,7 @@ my $script_debug = 1;
 my @order_array = ();
 # index is the id of creation in generate_order
 #
-# EFFORTS_INVESTED
+# ORDER_EFFORTS_INVESTED
 # Number or sum of runtimes of executions which finished regular
 use constant ORDER_EFFORTS_INVESTED => 0;
 #
@@ -124,7 +124,7 @@ use constant ORDER_PROPERTY3        => 4;
 
 
 my $config_file;
-my $config_file_copy_rel = "combinations.cc";
+my $config_file_copy_rel  = "combinations.cc";
 
 # File for bookkeeping + easy overview about results achieved.
 my $result_file;
@@ -157,60 +157,64 @@ my $comb_count;
 my $cl_snip_end = '';
 
 
-# FIXME: Check and describe how this variable is used.
+# FIXME: Describe how this variable is used.
 my $next_order_id = 1;
 $| = 1;
 
 1;
 
+sub unset_variables {
+    @order_array       = undef;
+}
+
 sub init {
-    ($config_file, $workdir) = @_;
+    ($config_file, $workdir, my $verdict_setup) = @_;
     # Based on the facts that
     # - Combinator/Simplifier init gets called before any Worker is running
     # - this init will be never called again
     # we can run safe_exit($status) and do not need to initiate an emergency_exit.
     #
-    if (2 != scalar @_) {
+    my $who_am_i = "Combinator::init:";
+    if (3 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: Combinator::init : Two parameters " .
-                    "(config_file, workdir) are required.");
+        Carp::cluck("INTERNAL ERROR: $who_am_i Three parameters " .
+                    "(config_file, workdir, verdict_setup) are required.");
         safe_exit($status);
     }
 
-    Carp::cluck(isoTimestamp() . " DEBUG: Combinator::init : Entering routine with variables " .
-                "(config_file, workdir)") if Auxiliary::script_debug("C1");
+    Carp::cluck("# " . isoTimestamp() . " DEBUG: $who_am_i Entering routine with variables " .
+                "(config_file, workdir, verdict_setup)") if Auxiliary::script_debug("C1");
 
     # Check the easy stuff first.
     if (not defined $config_file) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNALE ERROR: Combinator::init : config file is undef. " .
+        Carp::cluck("INTERNAL ERROR: $who_am_i config file is undef. " .
                     Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
     if (not -f $config_file) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Combinator::init : The config file '$config_file' does not exist or is not " .
+        say("ERROR: $who_am_i The config file '$config_file' does not exist or is not " .
             "a plain file. " . Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
 
     if (not defined $workdir) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNALE ERROR: Combinator::init : workdir is undef. " .
+        Carp::cluck("INTERNAL ERROR: $who_am_i workdir is undef. " .
                     Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
     if (not -d $workdir) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Combinator::init : The workdir '$workdir' does not exist or is not " .
+        say("ERROR: $who_am_i The workdir '$workdir' does not exist or is not " .
             "a directory. " . Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
 
-    my $config_file_copy = $workdir . "/" . $config_file_copy_rel;
-    if (not File::Copy::copy($config_file, $config_file_copy)) {
+    if (not defined $verdict_setup or '' eq $verdict_setup) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Copying the config file '$config_file' to '$config_file_copy' failed : $!. " .
+        say("ERROR: $who_am_i \$verdict_setup is undef or '' " .
             Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
@@ -220,7 +224,16 @@ sub init {
 
     my $duration;
 
+    say("DEBUG: $who_am_i Command line content left over after being processed by rqg_batch.pl : " .
+        join(" ", @ARGV)) if Auxiliary::script_debug("S4");
+
     # Read the command line options which are left over after being processed by rqg_batch.
+    # -------------------------------------------------------------------------------------
+    # Hints:
+    # 1. Code                       | Command line        |  Impact
+    #    'variable=s' => \$variable   --variable= --var2     --> $variable is undef
+    #    'variable:s' => \$variable   --variable= --var2     --> $variable is defined and ''
+    # 2. rqg_batch.pl does not process the config file content.
     my $options = {};
     Getopt::Long::Configure('pass_through');
     if (not GetOptions(
@@ -279,24 +292,26 @@ sub init {
     };
     my $argv_remain = join(" ", @ARGV);
     if (defined $argv_remain and $argv_remain ne '') {
-        say("WARNING: The following options were left over/ignored. ->$argv_remain<-");
+        say("WARN: $who_am_i The following command line content is left over ==> gets ignored. " .
+            "->$argv_remain<-");
     }
 
     # We work with the copy only!
-    if (not open (CONF, $config_file_copy)) {
+    if (not open (CONF, $config_file)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Combinator::init : Unable to open config file copy '$config_file_copy': $! " .
+        say("ERROR: $who_am_i Unable to open config file copy '$config_file': $! " .
             Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
-    read(CONF, my $config_text, -s $config_file_copy);
+    read(CONF, my $config_text, -s $config_file);
     close(CONF);
+
     # For experiments:
     # $config_text = "Hello";
     eval ($config_text);
     if ($@) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Combinator::init : Unable to load config file copy '$config_file_copy': " .
+        say("ERROR: $who_am_i Unable to load config file copy '$config_file': " .
             $@ . ' ' . Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
@@ -363,6 +378,7 @@ sub init {
 
     $result_file  = $workdir . "/result.txt";
     my $iso_ts = isoTimestamp();
+    $verdict_setup =~ s/^/$iso_ts /gm;
     # FIXME: Add printing the Combinator setup (parameters given to current sub)
     my $header =
 "$iso_ts Combinator init ================================================================================================\n" .
@@ -380,8 +396,11 @@ sub init {
 "$iso_ts number of sections to combine  : $comb_count\n"                                                                     .
 "$iso_ts max number of combinations     : $total\n"                                                                          .
 "$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
+"$iso_ts Verdict setup\n"                                                                                                    .
+$verdict_setup                                                                                                               .
+"$iso_ts ================================================================================================================\n" .
 "$iso_ts | " . Batch::RQG_NO_TITLE        . " | " . Verdict::RQG_VERDICT_TITLE . " | " . Batch::RQG_LOG_TITLE                .
-       " | " . Batch::RQG_ORDERID_TITLE   . " | " . "RunTime\n";
+       " | " . Batch::RQG_ORDERID_TITLE   . " | " . "RunTime"                  . " | " . "Extra info"         .         "\n" ;
 
     Batch::write_result($header);
 
@@ -716,9 +735,9 @@ sub register_result {
 # - ~ run emergency exit
 #
 
-    my ($order_id, $verdict, $saved_log_rel, $total_runtime) = @_;
+    my ($order_id, $verdict, $extra_info, $saved_log_rel, $total_runtime) = @_;
     say("DEBUG: Combinator::register_result : OrderID : $order_id, Verdict: $verdict, " .
-        "RQG log : '$saved_log_rel', total_runtime : $total_runtime")
+        "Extra info: $extra_info, RQG log : '$saved_log_rel', total_runtime : $total_runtime")
         if Auxiliary::script_debug("C4");
 
     if      ($verdict eq Verdict::RQG_VERDICT_IGNORE           or
@@ -744,11 +763,12 @@ sub register_result {
 
     my $iso_ts = isoTimestamp();
     my $line   = "$iso_ts | " .
-                 Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH) . " | " .
-                 Auxiliary::rfill($verdict,Verdict::RQG_VERDICT_LENGTH)  . " | " .
-                 Auxiliary::lfill($saved_log_rel, Batch::RQG_LOG_LENGTH) . " | " .
-                 Auxiliary::lfill($order_id, Batch::RQG_ORDERID_LENGTH)  . " | " .
-                 Auxiliary::lfill($total_runtime, Batch::RQG_ORDERID_LENGTH) . "\n";
+                 Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)     . " | " .
+                 Auxiliary::rfill($verdict,Verdict::RQG_VERDICT_LENGTH)      . " | " .
+                 Auxiliary::lfill($saved_log_rel, Batch::RQG_LOG_LENGTH)     . " | " .
+                 Auxiliary::lfill($order_id, Batch::RQG_ORDERID_LENGTH)      . " | " .
+                 Auxiliary::lfill($total_runtime, Batch::RQG_ORDERID_LENGTH) . " | " .
+                                  $extra_info                                . "\n";
     Batch::write_result($line);
 
     $arrival_number++;

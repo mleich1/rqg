@@ -108,6 +108,38 @@ our $verdict_ignore        = 0;
 our $stopped               = 0;
 our $verdict_collected     = 0;
 
+# There is per RQG run some verdict and a more or less informative reason for that.
+# Examples:
+# a) Verdict replay and "TBR-1"
+# b) Verdict ignore blacklist and "MDEV-1234"
+# c) Verdict ignore_status_ok and "<undef*>"
+our %extra_info_hash;
+sub update_extra_info_hash {
+    my ($extra_info) = @_;
+    # say("DEBUG: update_extra_info_hash with '" . $extra_info . "'");
+    if (not exists $extra_info_hash{$extra_info}) {
+        $extra_info_hash{$extra_info} = 1;
+    } else {
+        $extra_info_hash{$extra_info}++;
+    }
+}
+sub get_extra_info_hash {
+# Call it like
+# my $fat_string = get_extra_info_hash("DEBUG:");
+# say($fat_string);
+# Current use is in the statistics at end of the rqg_batch.pl run.
+#
+    my ($prefix) = @_;
+    my @extra_info_list = sort keys %extra_info_hash;
+    my $fat_message =   $prefix . " Frequency -- extra_info\n";
+    foreach my $extra_info (@extra_info_list) {
+        $fat_message .= $prefix . " " . Auxiliary::lfill($extra_info_hash{$extra_info}, 9) .
+                        " -- '" . $extra_info . "'\n";
+    }
+    return $fat_message;
+}
+
+
 my $discard_logs;
 sub check_and_set_discard_logs {
     ($discard_logs) = @_;
@@ -201,13 +233,14 @@ use constant WORKER_ORDER_ID  => 2;
 #     grammars which are capable to replay have replayed.
 #     So in some sense this runtime defines what some sufficient long run is and the size changes
 #     during the simplification process.
-use constant WORKER_EXTRA1      => 3; # child grammar == grammar used if Simplifier
-use constant WORKER_EXTRA2      => 4; # parent grammar if Simplifier
-use constant WORKER_EXTRA3      => 5; # adapted duration if Simplifier
-use constant WORKER_END         => 6;
-use constant WORKER_VERDICT     => 7;
-use constant WORKER_LOG         => 8;
-use constant WORKER_STOP_REASON => 9; # in case the run was stopped than the reason
+use constant WORKER_EXTRA1      =>  3; # child grammar == grammar used if Simplifier
+use constant WORKER_EXTRA2      =>  4; # parent grammar if Simplifier
+use constant WORKER_EXTRA3      =>  5; # adapted duration if Simplifier
+use constant WORKER_END         =>  6;
+use constant WORKER_VERDICT     =>  7;
+use constant WORKER_LOG         =>  8;
+use constant WORKER_STOP_REASON =>  9; # in case the run was stopped than the reason
+use constant WORKER_V_INFO      => 10; # Additional info around the verdict
 # In case a 'stop_worker' had to be performed because of
 # - STOP_REASON_WORK_FLOW
 #   Simplifier/Combinator has given REGISTER_END
@@ -353,6 +386,7 @@ sub worker_reset {
     $worker_array[$worker_num][WORKER_VERDICT]     = undef;
     $worker_array[$worker_num][WORKER_LOG]         = undef;
     $worker_array[$worker_num][WORKER_STOP_REASON] = undef;
+    $worker_array[$worker_num][WORKER_V_INFO]      = undef;
 }
 
 sub get_free_worker {
@@ -510,7 +544,9 @@ sub stop_worker_on_order_except {
 }
 
 sub stop_worker_on_order_replayer {
-# To be used in Simplifier::register_result only.
+    # The use is safe (mean no risk to stop some valuable RQG worker) in
+    # - Simplifier::register_result all time because there the valuable worker has finished.
+    # - Simplifier::report_replay if omitting the order_id of the replayer inspected.
     my ($order_id) = @_;
 
     check_order_id($order_id);
@@ -713,7 +749,7 @@ sub check_resources {
         if ($first_load_up) {
             $delay = $worker_share1 * 60;
             if ($finished_runs > $workers_min) {
-                # FIXME
+                # FIXME maybe
                 # Find some better criterion for the point of some first load stabilization.
                 $delay += 3;
             } else {
@@ -765,7 +801,7 @@ sub check_resources {
             } else {
                 if ($active_workers + 1 <= $workers_mid) {
                     # This should be non critical.
-                    $no_raise_before = $current_time + $delay / 2; # FIXME: Is that good?
+                    $no_raise_before = $current_time + $delay / 2; # FIXME maybe: Is that good?
                     $return_status   = STATUS_OK;
                 } else {
                     # Should we raise $workers_mid by 1?
@@ -785,7 +821,7 @@ sub check_resources {
             # One worker started and more than one have finished    or
             # no worker started and one or more have finished.
             # This should be non critical.
-            $no_raise_before = $current_time + 0; # FIXME: Is that good?
+            $no_raise_before = $current_time + 0; # FIXME maybe: Is that good?
             $return_status   = STATUS_OK;
         }
 
@@ -892,7 +928,27 @@ sub check_resources {
 
     return STATUS_FAILURE;
 
-}
+} # End of sub check_resources
+
+
+# FIXME: Rename and describe
+# 1. It is some
+#    - init regarding $first_load_up
+#    - reset when called the non first time reagrding $last_load_* and $no_raise_before
+# 2. Its called
+#    - once in lib/Combinator.pm
+#    - several times (like per phase and campaign) in lib/Simplifier.pm
+#      Reason for reset:
+#      The load (no of concurrent RQG Worker) decreases dramatic towards campaign end.
+#      There will be a more or less long lasting period at campaign start.
+#      The simplifier checks grammars or generates orders in that period.
+#      This all together means that we had most probably some longer lasting trouble free period.
+#      And that should not encourage to raise the load too fast.
+#      FIXME:
+#      Does that fit to the implementation?
+#         Reset to $last_load_* = $current_time even though $workers_m* have already matured.
+#    only and nowhere else.
+#
 sub init_load_control {
     my $current_time    = Time::HiRes::time();
     if (not defined $first_load_up) {
@@ -971,6 +1027,7 @@ sub reap_workers {
                 my $rqg_arc       = "$rqg_workdir" . "/archive.tgz";
 
                 my $verdict;
+                my $extra_info;
                 $worker_array[$worker_num][WORKER_END] = time();
                 if (-1 == $worker_array[$worker_num][WORKER_START]) {
                     # The parent (rqg_batch.pl) has never detected that the child (rqg.pl) started
@@ -1002,10 +1059,11 @@ sub reap_workers {
                                                            "# $iso_ts Verdict: $verdict\n");
                 } else {
                     ####### $worker_array[$worker_num][WORKER_END] = time();
-                    $verdict       = Verdict::get_rqg_verdict($rqg_workdir);
+                    ($verdict, $extra_info) = Verdict::get_rqg_verdict($rqg_workdir);
                 }
 
                 $worker_array[$worker_num][WORKER_VERDICT] = $verdict;
+                $worker_array[$worker_num][WORKER_V_INFO]  = $extra_info;
                 say("DEBUG: Worker [$worker_num] with (process) exit status " .
                     "'$exit_status' and verdict '$verdict' reaped.") if Auxiliary::script_debug("T4");
 
@@ -1125,7 +1183,7 @@ sub reap_workers {
                 #    the remainings of the 'replayer'.
                 #
                 if ($batch_type eq BATCH_TYPE_RQG_SIMPLIFIER) {
-                    my $verdict = Verdict::get_rqg_verdict($rqg_workdir);
+                    my ($verdict, $extra_info) = Verdict::get_rqg_verdict($rqg_workdir);
                     if ($verdict eq Verdict::RQG_VERDICT_REPLAY) {
                         my $grammar_used   = $worker_array[$worker_num][WORKER_EXTRA1];
                         my $grammar_parent = $worker_array[$worker_num][WORKER_EXTRA2];
@@ -1368,7 +1426,6 @@ sub make_multi_runner_infrastructure {
 
 
 #---------------------------------------------------------------------------------------------------
-# FIXME: Explain better
 # The parent inits some routine and configures hereby what the goal of the current rqg_batch run is
 # - "free" bug hunting by executing a crowd of jobs generated
 #   - from combinations config file
@@ -1397,7 +1454,7 @@ sub make_multi_runner_infrastructure {
 #      m - 1 (executed), m (stopped=not covered), m + 1 (executed), ...
 #    So its recommended to execute that job again as soon as possible.
 #    Note: Some sophisticated resource control is more than just preventing disasters at runtime.
-#          It adusts the load dynamic to any hardware and setup of tests met.
+#          It also adjusts the load dynamic to any hardware and setup of tests met.
 #
 my @order_array = ();
 # ORDER_EFFORTS_INVESTED
@@ -1571,24 +1628,10 @@ sub init_order_management {
 sub get_out_of_ideas {
     return $out_of_ideas;
 }
-# sub check_queues {
-#     return;
-#     my %check_hash;
-#     for my $order_id (@try_run_queue, @try_first_queue, @try_queue, @try_later_queue,
-#                       @try_last_queue, @try_over_bl_queue, @try_over_queue, @try_never_queue) {
-#         if (exists($check_hash{$order_id})) {
-#             Carp:cluck("INTERNAL ERROR: The Order Id occurs more than once in the queues.");
-#             dump_queues();
-#             my $status = STATUS_INTERNAL_ERROR;
-#             emergency_exit($status);
-#         } else {
-#             $check_hash{$order_id} = 1;
-#         }
-#     }
-#     say("DEBUG: The queues are consistent.") if Auxiliary::script_debug("T6");
-# }
+
+
 sub known_orders_waiting {
-# FIXME: Correct the description
+# Currently not used but maybe somewhere in future.
 # Purpose:
 # Detect the following state of grammar simplification.
 # 0. All possible orders were generated ($out_of_ideas>=1), which is not checked here.
@@ -1978,14 +2021,21 @@ sub process_finished_runs {
                 # I edited rqg.pl and made there a mistake in perl syntax.
                 $total_runtime = 0;
             }
+            my $extra_info = $worker_array[$worker_num][WORKER_V_INFO];
+            if (defined $worker_array[$worker_num][WORKER_STOP_REASON]) {
+                $extra_info = $worker_array[$worker_num][WORKER_STOP_REASON];
+                say("DEBUG: order_id $order_id Reporting WORKER_STOP_REASON instead of WORKER_V_INFO.")
+                    if Auxiliary::script_debug("B4");
+            }
             my @result_record = (
                     $worker_array[$worker_num][WORKER_ORDER_ID],
                     $worker_array[$worker_num][WORKER_VERDICT],
+                    $extra_info,
                     $worker_array[$worker_num][WORKER_LOG],
                     $total_runtime,
                     $worker_array[$worker_num][WORKER_EXTRA1],
                     $worker_array[$worker_num][WORKER_EXTRA2],
-                    $worker_array[$worker_num][WORKER_EXTRA3]
+                    $worker_array[$worker_num][WORKER_EXTRA3],
             );
             if      ($batch_type eq BATCH_TYPE_COMBINATOR) {
                 $action = Combinator::register_result(@result_record);
@@ -1994,6 +2044,12 @@ sub process_finished_runs {
             } else {
                 emergency_exit(STATUS_CRITICAL_FAILURE,
                     "INTERNAL ERROR: The batch type '$batch_type' is unknown. ");
+            }
+            update_extra_info_hash($extra_info);
+            # For debugging
+            if (0) {
+                my $fat_string = get_extra_info_hash("DEBUG:");
+                say($fat_string);
             }
 
             if ( not defined $action or $action eq '' ) {

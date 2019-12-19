@@ -107,9 +107,17 @@ sub init {
         return undef;
     }
 
-    my $status = load_grammar_from_files($grammar_file);
-    if (STATUS_OK != $status) {
+    if (STATUS_OK != load_grammar_from_files($grammar_file)) {
         say("INTERNAL ERROR: $snip load_grammar_from_files failed. Will return undef.");
+        return undef;
+    }
+
+    my $extended_grammar = "thread: " . SIMP_WAIT_QUERY . " ;\n" .
+                           "thread_init: "   . SIMP_EMPTY_QUERY . " ;\n" .
+                           "thread_connect:" . SIMP_EMPTY_QUERY . " ;\n" .
+                           $grammar_obj->toString();
+    if (STATUS_OK != load_grammar_from_string($extended_grammar)) {
+        say("INTERNAL ERROR: $snip load_grammar_from_string failed. Will return undef.");
         return undef;
     }
 
@@ -118,11 +126,6 @@ sub init {
     # --> This init sets RULE_JOBS_GENERATED to 0 !!!
     fill_rule_hash();
     # print_rule_hash();
-    if (STATUS_OK != set_default_rules_for_threads()) {
-        say("INTERNAL ERROR: $snip set_default_rules_for_threads failed. Will return undef.");
-        return undef;
-    }
-    # print("\n# Grammar after set_default_rules_for_threads ----------\n");
     # print($grammar_obj->toString() . "\n");
     # print("----------------------------------\n");
 
@@ -675,25 +678,55 @@ sub analyze_all_rules {
             say("ERROR: $snip \@top_rule_list is empty. Will return STATUS_INTERNAL_ERROR.");
             return STATUS_INTERNAL_ERROR;
         }
-        # FIXME: Check if @top_rule_list empty
-        say("DEBUG: top_rule_list found : " . join(" ", @top_rule_list)) if $script_debug;
-        foreach my $rule_name (@top_rule_list) {
-            if (   $rule_name eq 'query'
-                or $rule_name eq 'thread'
-                or $rule_name eq 'query_init'
-                or $rule_name eq 'thread_init'
-                or $rule_name eq 'query_connect'
-                or $rule_name eq 'thread_connect' ) {
-                next;
+
+        foreach my $i (1..$threads) {
+            if (not exists $rule_hash{"thread" . $i}) {
+                if      (exists $rule_hash{"query"}) {
+                    $rule_hash{"query"}->[RULE_IS_TOP_LEVEL] = 1;
+                    $rule_hash{"query"}->[RULE_REFERENCED]++;
+                } elsif (exists $rule_hash{"thread"}) {
+                    $rule_hash{"thread"}->[RULE_IS_TOP_LEVEL] = 1;
+                    $rule_hash{"thread"}->[RULE_REFERENCED]++;
+                } else {
+                    say("WARN: top level rule for (query) thread" . "$i is missing");
+                    exit(100);
+                }
             } else {
-                # Never do something like the following now
-                #     We run with only 8 threads so delete the rule 'thread13'.
-                # because 'thread13' might be used in a component of some really used rule.
-                # In the current stage we do not know if 'thread13' is referenced.
-                say("DEBUG: Marking rule '$rule_name' is top level.") if $script_debug;
-                $rule_hash{$rule_name}->[RULE_IS_TOP_LEVEL] = 1;
+                $rule_hash{"thread" . $i}->[RULE_IS_TOP_LEVEL] = 1;
+                $rule_hash{"thread" . $i}->[RULE_REFERENCED]++;
+            }
+            if (not exists $rule_hash{"thread" . $i . "_init"}) {
+                if      (exists $rule_hash{"query_init"}) {
+                    $rule_hash{"query_init"}->[RULE_IS_TOP_LEVEL] = 1;
+                    $rule_hash{"query_init"}->[RULE_REFERENCED]++;
+                } elsif (exists $rule_hash{"thread_init"}) {
+                    $rule_hash{"thread_init"}->[RULE_IS_TOP_LEVEL] = 1;
+                    $rule_hash{"thread_init"}->[RULE_REFERENCED]++;
+                } else {
+                    say("WARN: top level rule for (init) thread" . "$i is missing");
+                    exit(100);
+                }
+            } else {
+                $rule_hash{"thread" . $i . "_init"}->[RULE_IS_TOP_LEVEL] = 1;
+              # $rule_hash{"thread" . $i . "_init"}->[RULE_REFERENCED]++;
+            }
+            if (not exists $rule_hash{"thread" . $i . "_connect"}) {
+                if      (exists $rule_hash{"query_connect"}) {
+                    $rule_hash{"query_connect"}->[RULE_IS_TOP_LEVEL] = 1;
+                    $rule_hash{"query_connect"}->[RULE_REFERENCED]++;
+                } elsif (exists $rule_hash{"thread_connect"}) {
+                    $rule_hash{"thread_connect"}->[RULE_IS_TOP_LEVEL] = 1;
+                    $rule_hash{"thread_connect"}->[RULE_REFERENCED]++;
+                } else {
+                    say("WARN: top level rule for (connect) thread" . "$i is missing");
+                    exit(100);
+                }
+            } else {
+                $rule_hash{"thread" . $i . "_connect"}->[RULE_IS_TOP_LEVEL] = 1;
+                $rule_hash{"thread" . $i . "_connect"}->[RULE_REFERENCED]++;
             }
         }
+
 
         my $more_to_process = 1;
         while ($more_to_process) {
@@ -713,7 +746,8 @@ sub analyze_all_rules {
                 # they will be used at all. So process the other rules first.
 
                 my $rule_obj = $grammar_obj->rule($rule_name);
-                $rule_hash{$rule_name}->[RULE_UNIQUE_COMPONENTS] = scalar $rule_obj->unique_components;
+                $rule_hash{$rule_name}->[RULE_UNIQUE_COMPONENTS] =
+                                         scalar $rule_obj->unique_components;
                 if (1 > scalar $rule_obj->unique_components) {
                     say("INTERNAL ERROR: Rule '$rule_name' : 1 > number of unique components.");
                     return STATUS_INTERNAL_ERROR;
@@ -735,8 +769,8 @@ sub analyze_all_rules {
                             say("DEBUG: '$rule_name' part_id $part_id component_part " .
                                 "->$component_part<- is a rule.") if $script_debug;
                             if ($component_part eq $rule_name) {
-                                say("DEBUG: The rule 'rule_name' is recursive because a component of it " .
-                                    "contains '$rule_name'.") if $script_debug;
+                                say("DEBUG: The rule 'rule_name' is recursive because a " .
+                                    "component of it contains '$rule_name'.") if $script_debug;
                                 $rule_hash{$rule_name}->[RULE_RECURSIVE] = 1;
                             } else {
                                 $rule_hash{$rule_name}->[RULE_REFERENCING]++;
@@ -774,8 +808,8 @@ sub analyze_all_rules {
                 return STATUS_INTERNAL_ERROR;
             }
             if ($threads < $val) {
-                say("DEBUG: threads is $threads and therefore the rule '$rule_name' will be never " .
-                    "used as toplevel rule.") if $script_debug;
+                say("DEBUG: threads is $threads and therefore the rule '$rule_name' will be " .
+                    "never used as toplevel rule.") if $script_debug;
                 if(0 < $rule_hash{$rule_name}->[RULE_REFERENCED]) {
                     say("DEBUG: But the rule '$rule_name' is referenced by other rules. " .
                         "So we need to keep it.") if $script_debug;
@@ -809,7 +843,7 @@ sub analyze_all_rules {
                     $rule_hash{$del_rule_name}->[RULE_IS_TOP_LEVEL] = 1;
                 } else {
                     if (0 < $rule_hash{$del_rule_name}->[RULE_REFERENCED]) {
-                        # We cannot delete ithe rule because its used by other rules.
+                        # We cannot delete the rule because its used by other rules.
                         $rule_hash{$del_rule_name}->[RULE_IS_TOP_LEVEL] = 0;
                     } else {
                         $grammar_obj->deleteRule($del_rule_name);
@@ -931,7 +965,7 @@ sub collapseComponents {
 # lib/GenTest/Grammar/Rule.pm.
 #
     my ($rule_name) = @_;
-    my $snip        = "GenTest::Simplifier::Grammar_advanced::collapseComponents for rule '$rule_name':";
+    my $snip = "GenTest::Simplifier::Grammar_advanced::collapseComponents for rule '$rule_name':";
     my $rule_obj    = $grammar_obj->rule($rule_name);
     if (not defined $rule_obj) {
         Carp::cluck("INTERNAL ERROR: Rule '$rule_name' : Undef rule object got.");
@@ -1423,16 +1457,16 @@ sub shrink_grammar {
     my ($rule_name, $component_string, $dtd_protection) = @_;
 
     # INTERNAL ERROR in case a parameter is undef.
+    # Carp::confess is rude and will ongoing RQG runs will be not stopped.
+    # But that should be ok and after extreme short time fixed nearly for ever.
+    # Alternative: Carp::cluck + return $status, $rule_string
     if (not defined $rule_name) {
-        # FIXME: Return a status
         Carp::confess("INTERNAL ERROR: parameter rule_name is undef.");
     }
     if (not defined $component_string) {
-        # FIXME: Return a status
         Carp::confess("INTERNAL ERROR: parameter component_string is undef.");
     }
     if (not defined $dtd_protection) {
-        # FIXME: Return a status
         Carp::confess("INTERNAL ERROR: parameter dtd_protection is undef.");
     }
 
@@ -1646,6 +1680,11 @@ sub use_clones_in_rule {
                         "contains '$rule_name'.") if $script_debug;
                     next;
                 } else {
+                    # FIXME if relevant and sufficient paining:
+                    # rule1: dml | dml | ddl ; --> rule1: clone1 | clone2 | ddl ;
+                    #                                     ############### is non sense
+                    # rule2: dml | abc ;       --> rule2: clone3 | abc ;
+                    #
                     if ($rule_hash{$component_part}->[RULE_REFERENCED] > 1 and
                         $rule_hash{$component_part}->[RULE_UNIQUE_COMPONENTS] > 1) {
                         my $clone_name = "__clone__" . ++$clone_number;
@@ -1671,15 +1710,18 @@ sub use_clones_in_rule {
 
 
 sub use_clones_in_grammar_top {
-# FIXME:
-# Add checks for mistakes and test
-#
 # We just make the cloning along the top level rules.
 # In order to avoid multiple processing of rules we mark processed rules by setting
 # RULE_JOBS_GENERATED. This field will be not touched when resetting rule_hash.
 #
 # In case of error return undef.
 #
+
+    if (STATUS_OK != set_default_rules_for_threads()) {
+        say("INTERNAL ERROR: set_default_rules_for_threads failed. Will return undef.");
+        return undef;
+    }
+
     my $clone_start = $clone_number;
 
     say("DEBUG: use_clones_in_grammar_top begin") if $script_debug;

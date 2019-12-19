@@ -23,9 +23,13 @@ use GenTest;
 use File::Copy;
 use Cwd;
 
-# use constant STATUS_OK       => 0;
-use constant STATUS_FAILURE    => 1; # Just the opposite of STATUS_OK
+# use constant STATUS_OK           => 0;
+use constant STATUS_FAILURE        => 1; # Just the opposite of STATUS_OK
 
+use constant SEARCH_PATTERN        => 1;
+use constant EXTRA_INFO            => 0;
+
+use constant VERDICT_CONFIG_FILE   => 'Verdict.cfg';
 
 # *_verdict_infrastructure
 #
@@ -113,357 +117,271 @@ my @whitelist_statuses;
 my @whitelist_patterns;
 my $bw_lists_set = 0;
 
-sub check_normalize_set_black_white_lists {
-#
-# Purpose
-# -------
-# Check, normalize (make lists) and set the variables which might be later used for checking if
-# certain content matches (black and white) list (statuses and patterns).
-# Input variables:
-# $status_prefix          -- Some text pattern defining what a line informing about an status needs
-#                            to contain. This line is probably RQG runner specific.
-#                            rqg.pl writes 'RESULT: The RQG run ended with status ...'
-#                            The usual 'GenTest returned status ...' might be not sufficient
-#                            because some advanced RQG runner might perform multiple YY grammar
-#                            processing rounds.
-# $blacklist_statuses_ref -- reference to the list (*) with blacklist statuses
-# $blacklist_patterns_ref -- reference to the list (*) with blacklist text patterns
-# $whitelist_statuses_ref -- reference to the list (*) with whitelist statuses
-# $whitelist_patterns_ref -- reference to the list (*) with whitelist text patterns
-#
-#
-# Return values:
-# - STATUS_OK      success
-# - STATUS_FAILURE no success
-#
+# sub report_setup {
 
-    my ($xstatus_prefix,
-        $blacklist_statuses_ref, $blacklist_patterns_ref,
-        $whitelist_statuses_ref, $whitelist_patterns_ref) = @_;
+sub get_verdict_config_file {
+    my ($workdir, $config_file_copy) = @_;
 
-        # The $<black|white>list_<statuses|patterns> need to be references to the
-        # corresponding lists.
+    my $who_am_i = 'Verdict::get_verdict_config_file:';
 
-    if (5 != scalar @_) {
-        Carp::confess("INTERNAL ERROR: check_normalize_set_black_white_lists : " .
-                      "five parameters are required.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
+    if (2 != scalar @_) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: $who_am_i Two parameters " .
+                    "(workdir, config_file_copy) are required.");
+        safe_exit($status);
     }
-    if (not defined $xstatus_prefix) {
-        Carp::confess("INTERNAL ERROR: check_normalize_set_black_white_lists : ".
-                      "The first parameter (status_prefix) is undef.");
+    if (not defined $workdir) {
+        my $status = STATUS_INTERNAL_ERROR;
+        say("INTERNAL ERROR: $who_am_i workdir is not defined.");
+        safe_exit($status);
+    } else {
+        if (not -d $workdir) {
+            my $status = STATUS_INTERNAL_ERROR;
+            say("INTERNAL ERROR: $who_am_i The workdir '$workdir' does not exist or " .
+                "is not a directory.");
+            safe_exit($status);
+        }
     }
-    $status_prefix = $xstatus_prefix;
-    @whitelist_statuses = @{$whitelist_statuses_ref} if defined $whitelist_statuses_ref;
-    @whitelist_patterns = @{$whitelist_patterns_ref} if defined $whitelist_patterns_ref;
-    @blacklist_statuses = @{$blacklist_statuses_ref} if defined $blacklist_statuses_ref;
-    @blacklist_patterns = @{$blacklist_patterns_ref} if defined $blacklist_patterns_ref;
+    if (not defined $config_file_copy) {
+        my $status = STATUS_INTERNAL_ERROR;
+        say("INTERNAL ERROR: $who_am_i config_file_copy is not defined.");
+        safe_exit($status);
+    } else {
+        if (not -f $config_file_copy) {
+            my $status = STATUS_INTERNAL_ERROR;
+            say("INTERNAL ERROR: $who_am_i The config_file_copy '$config_file_copy' does not " .
+                "exist or is not a plain file.");
+            safe_exit($status);
+        }
+    }
 
-    # Memorize if a failure met but return with STATUS_FAILURE only after the last list was checked.
+    my $verdict_config_file;
+    say("DEBUG: workdir is '$workdir'");
+    if ($workdir eq Cwd::getcwd()) {
+        # Verdict.pl called on command line
+        $verdict_config_file = $workdir . "/Verdict_tmp.cfg";
+        unlink $verdict_config_file;
+    } else {
+        $verdict_config_file = $workdir . "/" . VERDICT_CONFIG_FILE;
+    }
+
+    say("$verdict_config_file -- $config_file_copy");
+
+    # FIXME maybe
+    if ($config_file_copy =~ m{/Verdict\.cfg$}) {
+        say("INFO: Setting verdict_config_file = config_file_copy '$config_file_copy'");
+        $verdict_config_file = $config_file_copy;
+    } else {
+        if (-e $verdict_config_file) {
+            # Do nothing
+        } else {
+            my $verdict_code = Auxiliary::getFileSection($config_file_copy, 'Verdict setup');
+            if (not defined $verdict_code) {
+                # say("DEBUG: verdict_code is undef");
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                say("ERROR: $who_am_i Extracting \$verdict_code out of '$config_file_copy' failed. " .
+                    Auxiliary::exit_status_text($status));
+                safe_exit($status);
+            } elsif ('' eq $verdict_code) {
+                # Extracting worked but no verdict definition found.
+                # say("DEBUG: '$config_file_copy' does not contain verdict_code.");
+                my $default_verdict_config_file = 'verdict_for_combinations.cfg';
+                say("INFO: Extracting verdict config out of '$config_file_copy' impossible.");
+                if (not File::Copy::copy($default_verdict_config_file, $verdict_config_file)) {
+                    my $status = STATUS_ENVIRONMENT_FAILURE;
+                    say("ERROR: Copying '$default_verdict_config_file' to '$verdict_config_file' failed : $!. " .
+                        Auxiliary::exit_status_text($status));
+                    safe_exit($status);
+                }
+                say("INFO: Created verdict_config_file '$verdict_config_file' as copy of the " .
+                    "default '$verdict_config_file'.");
+            } else {
+                if (Auxiliary::make_file($verdict_config_file, $verdict_code) != STATUS_OK) {
+                    my $status = STATUS_ENVIRONMENT_FAILURE;
+                    say("ERROR: $who_am_i Creating the verdict config file '$verdict_config_file' failed. " .
+                        Auxiliary::exit_status_text($status));
+                    safe_exit($status);
+                } else {
+                    say("DEBUG: Created the verdict config file '$verdict_config_file' by extracting data out of '$config_file_copy'.");
+                }
+            }
+        }
+    }
+    return $verdict_config_file;
+
+} # End of sub get_verdict_config_file
+
+
+sub load_verdict_config_file {
+# Input: Verdict config file (neither a Combinator cc nor a Simplifier cfg file!)
+# Return:
+# undef -- error around or in config file
+# printable description
+    my ($verdict_config_file) = @_;
+
+    my $who_am_i = 'Verdict::load_verdict_config_file:';
+
+    if (1 != scalar @_) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: $who_am_i One parameter " .
+                    "(verdict_config_file) is required.");
+        safe_exit($status);
+    }
+    if (not defined $verdict_config_file) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: $who_am_i verdict_config_file is not defined.");
+        safe_exit($status);
+    } else {
+        if (not -f $verdict_config_file) {
+            my $status = STATUS_INTERNAL_ERROR;
+            say("INTERNAL ERROR: $who_am_i The verdict config file '$verdict_config_file' " .
+                "does not exist or is not a plain file.");
+            safe_exit($status);
+        }
+    }
+
+    my $options = {};
+    $options->{'config'} = $verdict_config_file;
+    # FIXME: Check what happens in case of error. Show help_verdict?
+    my $config = GenTest::Properties->new(
+        options     => $options,
+        legal       => [
+        ],
+        required    => [
+                    'search_var_size',
+                    'whitelist_statuses',
+                    'whitelist_patterns',
+                    'blacklist_statuses',
+                    'blacklist_patterns',
+        ],
+        defaults    => {
+        }
+    );
+    say("DEBUG: $who_am_i Verdict config file '$verdict_config_file' loaded.")
+            if Auxiliary::script_debug("V2");
+
     my $failure_met = 0;
+    my $num;
 
-    my $list_ref;
-    Auxiliary::print_list("DEBUG: Initial RQG whitelist_statuses ",
-                          @whitelist_statuses) if Auxiliary::script_debug("V2");
-    if (not defined $whitelist_statuses[0]) {
-        $whitelist_statuses[0] = 'STATUS_ANY_ERROR';
-        say("INFO: whitelist_statuses[0] was not defined. Setting whitelist_statuses[0] " .
-            "to STATUS_ANY_ERROR (== default).");
-    } elsif (defined $whitelist_statuses[1]) {
-        # No treatment because we have more than just the first value.
-        # So do nothing.
-   } else {
-        my $result = Auxiliary::surround_quote_check($whitelist_statuses[0]);
-        say("Result of surround_quote_check for whitelist_statuses[0]")
-            if Auxiliary::script_debug("V3");
-        if (     'bad quotes' eq $result) {
-            $failure_met = 1;
-        } elsif ('single quote protection' eq $result or
-                 'double quote protection' eq $result or
-                 'no quote protection'     eq $result) {
-            # The value is well formed and comes from a command line?
-            $list_ref = Auxiliary::input_to_list(@whitelist_statuses);
-            if(defined $list_ref) {
-                @whitelist_statuses = @$list_ref;
-            } else {
-                say("ERROR: Auxiliary::input_to_list hit problems we cannot handle.");
-                $failure_met = 1;
-            }
-        } else {
-            say("INTERNAL ERROR: surround_quote_check returned '$result' which is not supported.");
-            $failure_met = 1;
-        }
-    }
-    foreach my $status ( @whitelist_statuses ) {
-        if (not $status =~ m{^STATUS_}) {
-            say("ERROR: The element '$status' within whitelist_statuses does not begin with " .
-                "'STATUS_'.");
-            $failure_met = 1;
-        }
-        # FIXME: How to check if the STATUS constant is defined?
-    }
-    Auxiliary::print_list("DEBUG: Final RQG whitelist_statuses ",
-                          @whitelist_statuses) if Auxiliary::script_debug("V2");
+    my $verdict_setup   = '';
+    my $value_separator = "' -- '";
 
-    Auxiliary::print_list("DEBUG: Initial RQG whitelist_patterns ",
-                          @whitelist_patterns) if Auxiliary::script_debug("V2");
-    if (not defined $whitelist_patterns[0]) {
-        $whitelist_patterns[0] = undef;
-        say("INFO: whitelist_patterns[0] was not defined. Setting whitelist_patterns[0] " .
-            "to undef (== default).");
-    } elsif (defined $whitelist_patterns[1]) {
-        # Optional splitting of first value is not supported if having more than one value.
-        # So do nothing.
-    } else {
-        my $result = Auxiliary::surround_quote_check($whitelist_patterns[0]);
-        if      ('no quote protection' eq $result) {
-            # The value comes most probably from a config file.
-            # So nothing to do.
-        } elsif ('bad quotes' eq $result) {
-            $failure_met = 1;
-        } elsif ('single quote protection' eq $result or 'double quote protection' eq $result) {
-            # The value is well formed and comes from a command line?
-            $list_ref = Auxiliary::input_to_list(@whitelist_patterns);
-            if(defined $list_ref) {
-                @whitelist_patterns = @$list_ref;
-            } else {
-                say("ERROR: Auxiliary::input_to_list hit problems we cannot handle.");
-                $failure_met = 1;
-            }
-        } else {
-            say("INTERNAL ERROR: surround_quote_check returned '$result' which is not supported.");
-        }
-    }
-    Auxiliary::print_list("DEBUG: Final RQG whitelist_patterns ",
-                          @whitelist_patterns) if Auxiliary::script_debug("V2");
-
-
-    Auxiliary::print_list("DEBUG: Initial RQG blacklist_statuses ",
-                          @blacklist_statuses) if Auxiliary::script_debug("V2");
-    if (not defined $blacklist_statuses[0]) {
-        $blacklist_statuses[0] = 'STATUS_OK';
-        say("INFO: blacklist_statuses[0] was not defined. Setting blacklist_statuses[0] " .
-            "to STATUS_OK (== default).");
-    } elsif (defined $blacklist_statuses[1]) {
-        # No treatment because we have more than just the first value.
-        # So do nothing.
-    } else {
-        my $result = Auxiliary::surround_quote_check($blacklist_statuses[0]);
-        if      ('bad quotes' eq $result) {
-            $failure_met = 1;
-        } elsif ('single quote protection' eq $result or
-                 'double quote protection' eq $result or
-                 'no quote protection' eq $result) {
-            # The value is well formed and comes from a command line?
-            $list_ref = Auxiliary::input_to_list(@blacklist_statuses);
-            if(defined $list_ref) {
-                @blacklist_statuses = @$list_ref;
-            } else {
-                say("ERROR: Auxiliary::input_to_list hit problems we cannot handle.");
-                $failure_met = 1;
-            }
-        } else {
-            say("INTERNAL ERROR: surround_quote_check returned '$result' which is not supported.");
-            $failure_met = 1;
-        }
+    @blacklist_statuses = @{$config->blacklist_statuses};
+    if (0 == scalar @blacklist_statuses) {
+        say("ERROR: $who_am_i 0 blacklist_statuses defined. Will return undef later.");
+        $failure_met = 1;
     }
     foreach my $status ( @blacklist_statuses ) {
         if (not $status =~ m{^STATUS_}) {
-            say("ERROR: The element '$status' within blacklist_statuses does not begin with " .
-                "'STATUS_'.");
+            say("ERROR: $who_am_i The element '$status' within blacklist_statuses does not " .
+                "begin with 'STATUS_'. Will return undef later.");
             $failure_met = 1;
         }
         # FIXME: How to check if the STATUS constant is defined?
     }
-    Auxiliary::print_list("DEBUG: Final RQG blacklist_statuses ",
-                          @blacklist_statuses) if Auxiliary::script_debug("V2");
 
+    $verdict_setup .= "blacklist_statuses:       '" .
+                      join($value_separator, @blacklist_statuses) . "'\n";
 
-    Auxiliary::print_list("DEBUG: Initial RQG blacklist_patterns ",
-                          @blacklist_patterns) if Auxiliary::script_debug("V2");
-    if (not defined $blacklist_patterns[0]) {
-        $blacklist_patterns[0] = undef;
-        say("INFO: blacklist_patterns[0] was not defined. Setting blacklist_patterns[0] " .
-            "to undef (== default).");
-    } elsif (defined $blacklist_patterns[1]) {
-        # Optional splitting of first value is not supported if having more than one value.
-        # So do nothing.
-    } else {
-        my $result = Auxiliary::surround_quote_check($blacklist_patterns[0]);
-        say("Result of surround_quote_check : $result") if Auxiliary::script_debug("V3");
-        if      ('no quote protection' eq $result) {
-            # The value comes most probably from a config file.
-            # So nothing to do.
-        } elsif ('bad quotes' eq $result) {
+    @blacklist_patterns = @{$config->blacklist_patterns};
+    $num = 0;
+    foreach my $blacklist_pattern (@blacklist_patterns) {
+        $num++;
+        my @blacklist_pattern = @{$blacklist_pattern};
+        if (not defined $blacklist_pattern[SEARCH_PATTERN]) {
+            say("ERROR in blacklist_pattern pair $num: '" .
+                join($value_separator, @blacklist_pattern) . "'");
+            say("ERROR: $who_am_i Undef search_pattern between blacklist_patterns found. " .
+                "Will return undef later.");
             $failure_met = 1;
-        } elsif ('single quote protection' eq $result or 'double quote protection' eq $result) {
-            # The value is well formed and comes from a command line?
-            say("Sending blacklist_patterns to input_to_list.") if Auxiliary::script_debug("V3");
-            $list_ref = Auxiliary::input_to_list(@blacklist_patterns);
-            if(defined $list_ref) {
-                @blacklist_patterns = @$list_ref;
-            } else {
-                say("ERROR: Auxiliary::input_to_list hit problems we cannot handle.");
-                $failure_met = 1;
-            }
-        } else {
-            say("INTERNAL ERROR: surround_quote_check returned '$result' which is not supported.");
+        }
+        if (not defined $blacklist_pattern[EXTRA_INFO]) {
+            say("ERROR in blacklist_pattern pair $num: '" .
+                join($value_separator, @blacklist_pattern) . "'");
+            say("ERROR: $who_am_i Undef extra_info between blacklist_patterns found. " .
+                "Will return undef later.");
+            $failure_met = 1;
+        }
+        if ($blacklist_pattern[EXTRA_INFO] =~ m{\s}) {
+            say("ERROR in blacklist_pattern pair $num: '" .
+                join($value_separator, @blacklist_pattern) . "'");
+            say("ERROR: $who_am_i extra_info must not contain white spaces. " .
+                "Will return undef later.");
+            $failure_met = 1;
+        }
+        $verdict_setup .= "blacklist_pattern pair $num: '" .
+                          join($value_separator, @blacklist_pattern) . "'\n";
+        if (0) {
+            say("DEBUG: blacklist_pattern pair $num SEARCH_PATTERN: " .
+                $blacklist_pattern[SEARCH_PATTERN]);
+            say("DEBUG: blacklist_pattern pair $num EXTRA_INFO:     " .
+                $blacklist_pattern[EXTRA_INFO]);
         }
     }
-    Auxiliary::print_list("DEBUG: Final RQG blacklist_patterns ",
-                          @blacklist_patterns) if Auxiliary::script_debug("V2");
+    if (0 == scalar @blacklist_patterns) {
+        $verdict_setup .= "blacklist_pattern pairs:  none\n";
+    }
+
+    @whitelist_statuses = @{$config->whitelist_statuses};
+    if (0 == scalar @whitelist_statuses) {
+        say("ERROR: $who_am_i 0 whitelist_statuses defined. Will return undef later.");
+        $failure_met = 1;
+    }
+    foreach my $status ( @whitelist_statuses ) {
+        if (not $status =~ m{^STATUS_}) {
+            say("ERROR: $who_am_i The element '$status' within whitelist_statuses does not " .
+                "begin with 'STATUS_'. Will return undef later.");
+            $failure_met = 1;
+        }
+        # FIXME: How to check if the STATUS constant is defined?
+    }
+
+    $verdict_setup .= "whitelist_statuses:       '" .
+                      join($value_separator, @whitelist_statuses) . "'\n";
+
+    @whitelist_patterns = @{$config->whitelist_patterns};
+    $num = 0;
+    foreach my $whitelist_pattern (@whitelist_patterns) {
+        $num++;
+        my @whitelist_pattern = @{$whitelist_pattern};
+        if (not defined $whitelist_pattern[SEARCH_PATTERN]) {
+            say("ERROR in whitelist_pattern pair $num: '" .
+                join($value_separator, @whitelist_pattern) . "'");
+            say("ERROR: $who_am_i Undef search_pattern between whitelist_patterns found. " .
+                "Will return undef later.");
+            $failure_met = 1;
+        }
+        if (not defined $whitelist_pattern[EXTRA_INFO]) {
+            say("ERROR in whitelist_pattern pair $num: '" .
+                join($value_separator, @whitelist_pattern) . "'");
+            say("ERROR: $who_am_i Undef extra_info between whitelist_patterns found. " .
+                "Will return undef later.");
+            $failure_met = 1;
+        }
+        if ($whitelist_pattern[EXTRA_INFO] =~ m{\s}) {
+            say("ERROR in whitelist_pattern pair $num: '" .
+                join($value_separator, @whitelist_pattern) . "'");
+            say("ERROR: $who_am_i extra_info must not contain white spaces. " .
+                "Will return undef later.");
+            $failure_met = 1;
+        }
+        $verdict_setup .= "whitelist_pattern pair $num: '" .
+                          join($value_separator, @whitelist_pattern) . "'\n";
+    }
+    if (0 == scalar @whitelist_patterns) {
+        $verdict_setup .= "whitelist_pattern pairs:  none\n";
+    }
 
     if ($failure_met) {
-        bw_lists_help();
-        return STATUS_FAILURE;
+        say("INFO: Verdict setup ---- begin");
+        say("$verdict_setup");
+        say("INFO: Verdict setup ---- end");
+        return undef;
     } else {
         $bw_lists_set = 1;
-        return STATUS_OK;
+        return $verdict_setup;
     }
-} # End of sub check_normalize_set_black_white_lists
-
-
-sub black_white_lists_to_config_snip {
-#
-# Purpose
-# -------
-# After check_normalize_set_black_white_lists all lists are in arrays.
-# But certain RQG tools to be started with 'system' need this stuff in command line with heavy
-# single quoting because otherwise RQG could split strings wrong.
-#
-# Real life example
-# -----------------
-# We have exact one blacklist_patterns element and that is:
-# ->Sentence is now longer than .{1,10} symbols. Possible endless loop in grammar. Aborting.<-
-# Caused by having only that single element RQG fears that this might be a string in the style
-#    <value1>,<value2>,value3>
-# and wants to split at the comma.
-# This would be plain wrong in the current case because than the perl code would become "ill" like
-#   first element:  ->Sentence is now longer than .{1<-
-#   second element: ->} symbols. Possible endless loop in grammar. Aborting<-
-# So any value which could become the victim of some fatal split like these search patterns need
-# to be surrounded by begin+end of value markers.
-# These markers should be
-# - not special characters inside perl
-# - available on command line too -> easy typing on keyboard, trouble free on shell and WIN ...
-# - not require to rewrite RQG code which interprets config files
-# So I decided to use single quotes.
-#   Accept and also generate command lines like
-#   --blacklist_patterns="'Sentence is now longer than .{1,10} symbols.
-# The next problem came when being faced
-#   Certain tools have taken the values from command line or config file, filled them into
-#   the arrays managed here but need to hand the over to other tools called.
-#   In case that has to happen via generation of config file and than calling this tool
-#   than some additional protection of the single quotes via '\' is required.
-# I am searching for some better solution.
-#
-
-    my ($config_type) = @_;
-    if (1 != scalar @_) {
-        Carp::confess("INTERNAL ERROR: black_white_lists_to_config_snip : " .
-                      "one parameter (config_type) is required.");
-        # This accident could roughly only happen when coding RQG or its tools.
-        # Already started servers need to be killed manually!
-    }
-    if (not defined $config_type) {
-        Carp::confess("INTERNAL ERROR: black_white_lists_to_config_snip : ".
-                      "The parameter (config_type) is undef.");
-    }
-    my $extra1; # Used for protecting single quotes if required.
-    my $extra2; # Used for the extra '--' if required.
-    my $extra3; # Used for the extra '=' or '    =>   [' if required.
-    my $extra4; # Used for the extra '],' if required.
-    my $extra5; # Used for the extra '],' if required.
-                # A superfluous ',' makes no trouble.
-    my $extra6; # Used for space at begin if readability required
-    my $extra7; # "\n" after any parameter definition or other.
-    if      ($config_type eq 'cc') {
-        $extra6 = '    ';
-        $extra5 = '';
-        $extra1 = '\\';
-        $extra2 = $extra6 . '--';
-        $extra3 = '="';
-        $extra4 = '"';
-        $extra7 = "\n";
-    } elsif ($config_type eq 'cfg') {
-        $extra6 = '    ';
-        $extra5 = "\n" . $extra6 . $extra6;
-        $extra1 = '';
-        $extra2 = $extra6 . '';
-        $extra3 = '    =>   [' . $extra5;
-        $extra4 = "\n" . $extra6 . '],';
-        $extra7 = "\n";
-    } elsif ($config_type eq 'cl') {
-        # Prepare for use in for example     bash -c "$cl_snip"
-        $extra6 = ' ';
-        $extra5 = '';
-        $extra1 = '';
-        $extra2 = $extra6 . '--';
-        $extra3 = '=\\"';
-        $extra4 = '\\"';
-        $extra7 = "";
-    } else {
-        Carp::confess("INTERNAL ERROR: black_white_lists_to_config_snip : ".
-                      "config_type '$config_type' is unknown (neither 'cc' nor 'cfg')");
-    }
-
-    if (not $bw_lists_set) {
-        Carp::confess("INTERNAL ERROR: black_white_lists_to_config_snip was called before " .
-                      "the call of check_normalize_set_black_white_lists.");
-    }
-
-    sub give_value_list {
-        my ($extra1, $extra5, @input)      = @_;
-        my $has_elements = 0;
-        my $result;
-        foreach my $element (@input) {
-            if (defined $element) {
-                if ($has_elements) {
-                    $result = $result . "," . $extra5 . "$extra1" . "'$element" . "$extra1" . "'";
-                } else {
-                    $result = "$extra1" . "'$element" . "$extra1" . "'";
-                }
-            } else {
-                # Nothing initial assigned lands here.
-            }
-            $has_elements = 1;
-        }
-        if ($has_elements) {
-            return $result;
-        } else {
-            return undef;
-        }
-    }
-    my $content = '';
-    my $result;
-    my $config_snip = '';
-    $result = give_value_list ($extra1, $extra5, @whitelist_statuses) ;
-    if (defined $result) {
-        $config_snip = $config_snip . $extra2 . 'whitelist_statuses' . $extra3 . $result .
-                       $extra4 . $extra7;
-    }
-    $result = give_value_list ($extra1, $extra5, @whitelist_patterns) ;
-    if (defined $result) {
-        $config_snip = $config_snip . $extra2 . 'whitelist_patterns' . $extra3 . $result .
-                       $extra4 . $extra7;
-    }
-    $result = give_value_list ($extra1, $extra5, @blacklist_statuses) ;
-    if (defined $result) {
-        $config_snip = $config_snip . $extra2 . 'blacklist_statuses' . $extra3 . $result .
-                       $extra4 . $extra7;
-    }
-    $result = give_value_list ($extra1, $extra5, @blacklist_patterns) ;
-    if (defined $result) {
-        $config_snip = $config_snip . $extra2 . 'blacklist_patterns' . $extra3 . $result .
-                       $extra4 . $extra7;
-    }
-    if (not defined $config_snip or '' eq $config_snip) {
-        Carp::confess("INTERNAL ERROR: black_white_lists_to_config_snip : The final config_snip" .
-                      "is either undef or ''.");
-    }
-    return $config_snip;
-} # End of sub black_white_lists_to_config_snip
+}
 
 
 # RQG_VERDICT_INIT
@@ -517,8 +435,11 @@ sub calculate_verdict {
 #
 # Return values
 # -------------
-# verdict -- If success in calculation.
-# undef   -- If failure in calculation.
+# If success in calculation
+#     verdict , (status + extra_info taken from relevant pattern)
+# If failure in calculation.
+#     undef, indef
+#
 
     my ($file_to_search_in) = @_;
 
@@ -533,9 +454,9 @@ sub calculate_verdict {
     # RQG logs could be huge and even the memory on testing boxes is limited.
     # So we push in maximum the last 100000000 bytes of the log into $content.
     my $content = Auxiliary::getFileSlice($file_to_search_in, 100000000);
-    if (not defined $content) {
-        say("ERROR: calculate_verdict: No RQG log content got. Will return undef.");
-        return undef;
+    if (not defined $content or '' eq $content) {
+        say("FATAL ERROR: calculate_verdict: No RQG log content got. Will return undef.");
+        return undef, undef;
     } else {
         say("DEBUG: Auxiliary::getFileSlice got content : ->$content<-")
             if Auxiliary::script_debug("V4");
@@ -554,34 +475,52 @@ sub calculate_verdict {
         say("DEBUG: cut_position : $cut_position") if Auxiliary::script_debug("V3");
     }
 
+    if (not defined $content or $content eq '') {
+        say("INFO: No RQG log content left over after cutting. Will return undef.");
+        return undef, undef;
+    }
+
+    #############################################
+#   my $status_prefix;
+#   my @blacklist_statuses;
+#   my @blacklist_patterns;
+#   my @whitelist_statuses;
+#   my @whitelist_patterns;
+
     my $p_match;
+    my $p_info;
+    my $f_info         = 'undef_initial';
+    my $z_info         = 'undef_initial';
     my $maybe_match    = 1;
     my $maybe_interest = 1;
-    my $bw_match       = 0;
+    my $bl_match       = 0;
     my $ok_match       = 0;
     my $was_stopped    = 0;
 
     my $script_debug   = 1;
 
-    # FIXME:
-    # The INFO/DEBUG messages are not that good.
+    my $status_prefix = ' The RQG run ended with status ';
+
     my @list;
+    $list[0] = 'BATCH: Stop the run';
+    ($p_match, $p_info) = Auxiliary::content_matching($content, \@list,
+                                           'MATCHING: Stop the run', 1);
+    if ($p_match eq Auxiliary::MATCH_YES) {
+        $maybe_match    = 0;
+        $maybe_interest = 0;
+        $was_stopped    = 1;
+        return RQG_VERDICT_IGNORE_STOPPED , 'stopped';
+    }
+
     $list[0] = 'STATUS_OK';
-    $p_match = Auxiliary::status_matching($content, \@list, $status_prefix,
+    ($p_match, $p_info) = Auxiliary::status_matching($content, \@list, $status_prefix,
                                            'MATCHING: STATUS_OK', 1);
     if ($p_match eq Auxiliary::MATCH_YES) {
         $ok_match = 1;
     }
+    $f_info = $p_info; # Get the exit status into it
 
-    $list[0] = 'BATCH: Stop the run';
-    $p_match = Auxiliary::content_matching($content, \@list,
-                                           'MATCHING: Stop the run', 1);
-    if ($p_match eq Auxiliary::MATCH_YES) {
-        $maybe_interest = 0;
-        $was_stopped = 1;
-    }
-
-    $p_match = Auxiliary::status_matching($content, \@blacklist_statuses   ,
+    ($p_match, $p_info) = Auxiliary::status_matching($content, \@blacklist_statuses   ,
                                           $status_prefix, 'MATCHING: Blacklist statuses', 1);
     say("INFO: Blacklist status matching returned : $p_match");
     # Note: Hitting Auxiliary::MATCH_UNKNOWN would be not nice.
@@ -589,49 +528,68 @@ sub calculate_verdict {
     if ($p_match eq Auxiliary::MATCH_YES) {
         $maybe_match    = 0;
         $maybe_interest = 0;
+        $bl_match       = 1;
     }
-    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match")
+    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match, " .
+        "p_match : $p_match, f_info: $f_info")
         if Auxiliary::script_debug("V2");
 
-    $p_match = Auxiliary::content_matching ($content, \@blacklist_patterns ,
+    ($p_match, $p_info) = Auxiliary::content_matching2 ($content, \@blacklist_patterns ,
                                            'MATCHING: Blacklist text patterns', 1);
-    say("INFO: Blacklist pattern matching returned : $p_match");
+    $p_info = '<undef2>' if not defined $p_info;
+    say("INFO: Blacklist pattern matching returned : $p_match - $p_info");
     if ($p_match eq Auxiliary::MATCH_YES) {
         $maybe_match    = 0;
         $maybe_interest = 0;
-        $bw_match       = 1;
+        $bl_match       = 1;
+        $f_info         = $f_info . '--' . $p_info;
     }
-    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match")
+    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match, " .
+        "p_match : $p_match, f_info: $f_info")
         if Auxiliary::script_debug("V2");
 
     # At this point we could omit checking in case $maybe_match = 0.
     # But there might be some interest to know if the whitelist stuff was hit too.
     # So we run it here in any case too.
-    $p_match = Auxiliary::status_matching($content, \@whitelist_statuses   ,
+    ($p_match, $p_info) = Auxiliary::status_matching($content, \@whitelist_statuses   ,
                                           $status_prefix, 'MATCHING: Whitelist statuses', 1);
-    say("INFO: Whitelist status matching returned : $p_match");
-    # Note: Hitting Auxiliary::MATCH_UNKNOWN is not acceptable because it would
-    #       degenerate runs of the grammar simplifier.
-    if ($p_match ne Auxiliary::MATCH_YES) {
-        $maybe_match    = 0;
+    say("INFO: Whitelist status matching returned : $p_match , $p_info");
+    if (0 == $bl_match) {
+        # Note: Hitting Auxiliary::MATCH_UNKNOWN is not acceptable because it would
+        #       degenerate runs of the grammar simplifier.
+        if ($p_match ne Auxiliary::MATCH_YES) {
+            $maybe_match = 0;
+        }
     }
-    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match")
+    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match, " .
+        "p_match : $p_match, f_info: $f_info")
         if Auxiliary::script_debug("V2");
 
-    $p_match = Auxiliary::content_matching ($content, \@whitelist_patterns ,
+    ($p_match, $p_info) = Auxiliary::content_matching2 ($content, \@whitelist_patterns ,
                                             'MATCHING: Whitelist text patterns', 1);
-    say("INFO: Whitelist pattern matching returned : $p_match");
-    if ($p_match ne Auxiliary::MATCH_YES and $p_match ne Auxiliary::MATCH_NO_LIST_EMPTY) {
-        $maybe_match    = 0;
+    $p_info = '<undef4>' if not defined $p_info;
+    say("INFO: Whitelist pattern matching returned : $p_match - $p_info");
+    if (0 == $bl_match) {
+        if (1 == $maybe_match) { 
+            # We had a status match and now some pattern too. So refine $f_info.
+            if ($p_match eq Auxiliary::MATCH_YES) {
+                $f_info      = $f_info . '--' . $p_info;
+            } elsif ($p_match eq Auxiliary::MATCH_NO_LIST_EMPTY) {
+                # Do nothing
+            } else {
+                $maybe_match = 0;
+            }
+        }
     }
-    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match")
+    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match, " .
+        "p_match : $p_match, f_info: $f_info")
         if Auxiliary::script_debug("V2");
     my $verdict = RQG_VERDICT_INIT;
     if ($maybe_match) {
         $verdict = RQG_VERDICT_REPLAY;
     } elsif ($maybe_interest) {
         $verdict = RQG_VERDICT_INTEREST;
-    } elsif ($bw_match) {
+    } elsif ($bl_match) {
         $verdict = RQG_VERDICT_IGNORE_BLACKLIST;
     } elsif ($ok_match) {
         $verdict = RQG_VERDICT_IGNORE_STATUS_OK;
@@ -640,7 +598,7 @@ sub calculate_verdict {
     } else {
         $verdict = RQG_VERDICT_IGNORE;
     }
-    return $verdict;
+    return $verdict, $f_info;
 
 } # End of sub calculate_verdict
 
@@ -651,20 +609,36 @@ sub set_final_rqg_verdict {
 # -------
 # Signal via setting a file name the final verdict.
 #
+    my $who_am_i = "Verdict::set_final_rqg_verdict:";
 
-    my ($workdir, $verdict) = @_;
+    my ($workdir, $verdict, $extra_info) = @_;
+    if (3 != scalar @_) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: $who_am_i Three parameters (workdir, verdict, extra_info) " .
+                      "are required.");
+        return STATUS_FAILURE;
+    }
+
     if (not -d $workdir) {
-        say("ERROR: RQG workdir '$workdir' is missing or not a directory.");
+        say("ERROR: $who_am_i RQG workdir '$workdir' is missing or not a directory.");
         return STATUS_FAILURE;
     }
     if (not defined $verdict or $verdict eq '') {
-        Carp::cluck("ERROR: Auxiliary::get_set_verdict verdict is either not defined or ''.");
+        Carp::cluck("ERROR: $who_am_i verdict is either not defined or ''.");
         return STATUS_FAILURE;
     }
+    my $extra_text = "EXTRA_INFO: ";
+    if ((not defined $extra_info) or ('' eq $extra_info)) {
+        Carp::cluck("ERROR: $who_am_i \$extra_info is not defined or ''.");
+        $extra_text .= "<undef>";
+    } else {
+        $extra_text .= $extra_info;
+    }
+
     my $result = Auxiliary::check_value_supported ('verdict', RQG_VERDICT_ALLOWED_VALUE_LIST,
                                                   $verdict);
     if ($result != STATUS_OK) {
-        Carp::cluck("ERROR: Auxiliary::check_value_supported returned $result. " .
+        Carp::cluck("ERROR: $who_am_i Auxiliary::check_value_supported returned $result. " .
                     "Will return that too.");
         return $result;
     }
@@ -679,9 +653,15 @@ sub set_final_rqg_verdict {
         say("ERROR: set_rqg_verdict from '$initial_verdict' to '$verdict' failed.");
         return STATUS_FAILURE;
     } else {
-        say("DEBUG: set_rqg_verdict from '$initial_verdict' to " .
-            "'$verdict'.") if Auxiliary::script_debug("V2");
-        return STATUS_OK;
+        $result = Auxiliary::append_string_to_file($target_file, $extra_text . "\n");
+        if ($result) {
+            say("ERROR: set_rqg_verdict: Appending '$extra_text' to '$target_file' failed.");
+            return STATUS_FAILURE;
+        } else {
+            say("DEBUG: set_rqg_verdict from '$initial_verdict' to '$verdict' and '$extra_info'.")
+                if Auxiliary::script_debug("V2");
+            return STATUS_OK;
+        }
     }
 } # End sub set_final_rqg_verdict
 
@@ -695,19 +675,26 @@ sub get_rqg_verdict {
     my ($workdir) = @_;
     if (not -d $workdir) {
         say("ERROR: get_rqg_verdict : RQG workdir '$workdir' " .
-            " is missing or not a directory. Will return undef.");
-        return undef;
+            " is missing or not a directory. Will return undef, '<undef>'.");
+        system("ls -ld $workdir");
+        return undef, '<undef>';
     }
+    my $extra_info;
     foreach my $verdict_value (@{&RQG_VERDICT_ALLOWED_VALUE_LIST}) {
         my $file_to_try = $workdir . '/rqg_verdict.' . $verdict_value;
         if (-e $file_to_try) {
-            return $verdict_value;
+            if ($file_to_try ne $workdir . '/rqg_verdict.' . RQG_VERDICT_INIT) {
+                $extra_info = Auxiliary::get_string_after_pattern($file_to_try, 'EXTRA_INFO: ');
+                # say("DEBUG: verdict: $verdict_value, extra_info: $extra_info");
+            }
+            $extra_info = '<undef>' if not defined $extra_info;
+            return $verdict_value, $extra_info;
         }
     }
     # In case we reach this point than we have no verdict file found.
     say("ERROR: get_rqg_verdict : No RQG verdict file in directory '$workdir' found. " .
-        "Will return undef.");
-    return undef;
+        "Will return undef, '<undef>'.");
+    return undef, '<undef>';
 }
 
 
@@ -715,15 +702,15 @@ sub help {
 
 print <<EOF
 
-Help for Verdict and Black list/White list setup
-------------------------------------------------
+Help for Verdict and Blacklist/Whitelist setup
+----------------------------------------------
 In order to reach certain goals of RQG tools we need to have some mechanisms which
 - allow to define how desired and unwanted results look like
       black and white lists of RQG statuses and text patterns in RQG run protocols
 - inspect the results of some finished RQG run, give a verdict and inform the user.
 
 Verdicts:
-'ignore*'   -- STATUS_OK got or blacklist parameter match or stopped because of technical reason
+'ignore*'  -- STATUS_OK got or blacklist parameter match or stopped because of technical reason
 'init'     -- RQG run died prematurely
 'interest' -- No STATUS_OK got and no blacklist parameter match but also no whitelist
               parameter match
@@ -764,16 +751,6 @@ Comma has to be used as separator between different values.
 As soon as one value matches it counts as 'match' for that parameter.
 Also using single quotes around the values is highly recommended because
 otherwise mechanisms might split at the wrong position.
-
-Example for command line (shell will remove the surrounding '"'):
-    --blacklist_statuses="'STATUS_OK','STATUS_ENVIRONMENT_FAILURE'" ...
-Example for cc file (--> rqg_batch.pl)
-    --blacklist_statuses=\"'STATUS_OK','STATUS_ENVIRONMENT_FAILURE'\"
-Example for cfg file (--> new-simplify-grammar.pl)
-   whitelist_statuses => [
-       'STATUS_SERVER_CRASHED',
-       'STATUS_DATABASE_CORRUPTION',
-   ],
 
 EOF
 ;

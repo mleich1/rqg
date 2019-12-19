@@ -709,6 +709,106 @@ sub content_matching {
 } # End sub content_matching
 
 
+sub content_matching2 {
+#
+# Purpose
+# =======
+#
+# Search within $content for matches with elements within some list of
+# text patterns.
+#
+
+    my ($content, $pattern_list, $message_prefix, $debug) = @_;
+
+# Input parameters
+# ================
+#
+# Parameter               | Explanation
+# ------------------------+-------------------------------------------------------
+# $content                | Some text with multiple lines to be processed.
+#                         | Typical example: The protocol of a RQG run.
+# ------------------------+-------------------------------------------------------
+# $pattern_list           | List of pattern to search for within the text.
+# ------------------------+-------------------------------------------------------
+# $message_prefix         | Use it for making messages written by the current
+#                         | routine more informative.
+#                         | Some upper level caller routine knows more about the
+#                         | for calling content_matching on low level.
+# ------------------------+-------------------------------------------------------
+# $debug                  | If the value is > 0 than the routine is more verbose.
+#                         | Use it for debugging the curent routine, the caller
+#                         | routine, unit tests and similar.
+#
+# Return values
+# =============
+#
+# Return value            | state
+# ------------------------+---------------------------------------------
+# MATCH_NO                | There are elements defined but none matched.
+# ('match_no')            |
+# ------------------------+---------------------------------------------
+# MATCH_YES               | In minimum one element matched. This means
+# ('match_yes')           | all remaining elements will be checked too.
+# ------------------------+---------------------------------------------
+# MATCH_NO_LIST_EMPTY     | There are no elements defined.
+# ('match_no_list_empty') |
+# ------------------------+---------------------------------------------
+#
+# Hint:
+# The calling routines need frequent some rigorous Yes/No. Therefore they might
+# twist the return value MATCH_NO_LIST_EMPTY.
+# Example:
+#    Whitelist matching : MATCH_NO_LIST_EMPTY -> MATCH_YES
+#    Blacklist matching : MATCH_NO_LIST_EMPTY -> MATCH_NO
+#
+
+    my $no_pattern = 1;
+    my $match      = 0;
+    my @match_info;
+    use constant SEARCH_PATTERN => 1;
+    use constant EXTRA_INFO     => 0;
+
+    my @patterns = @{$pattern_list};
+    my $num = 0;
+    foreach my $pattern (@patterns) {
+        $num++;
+        my @pattern = @{$pattern};
+        my $search_pattern = $pattern[SEARCH_PATTERN];
+        my $extra_info     = $pattern[EXTRA_INFO];
+        # say("pattern pair $num SEARCH_PATTERN: " . $search_pattern);
+        # say("pattern pair $num EXTRA_INFO:     " . $extra_info);
+        # FIXME: last or next
+        last if not defined $search_pattern;
+        $no_pattern = 0;
+        my $message = "$message_prefix element '$search_pattern' :";
+        if ($content =~ m{$search_pattern}s) {
+            if ($debug) { say("$message match"); };
+            $match = 1;
+            if (defined $extra_info) {
+                push @match_info , $extra_info;
+            } else {
+                push @match_info , '<undef>';
+            }
+        } else {
+            if ($debug) { say("$message no match"); };
+        }
+    }
+
+    if ($no_pattern == 1) {
+        if ($debug) {
+           say("$message_prefix : No elements defined.");
+        }
+        return MATCH_NO_LIST_EMPTY, undef;
+    } else {
+        if ($match) {
+           return MATCH_YES, join(" , ", @match_info);
+        } else {
+           return MATCH_NO, undef;
+        }
+    }
+
+} # End sub content_matching2
+
 sub status_matching {
 
     if (5 != scalar @_) {
@@ -743,7 +843,7 @@ sub status_matching {
 # $message_prefix         | Use it for making messages written by the current
 #                         | routine more informative.
 #                         | Some upper level caller routine knows more about the
-#                         | for calling content_matching on low level.
+#                         | reason for calling content_matching on low level.
 # ------------------------+-------------------------------------------------------
 # $debug                  | If the value is > 0 than the routine is more verbose.
 #                         | Use it for debugging the curent routine, the caller
@@ -751,21 +851,32 @@ sub status_matching {
 #
 # Return values
 # =============
+# FIXME:
+# 1. Return some extra info (usually the status) as second parameter.
+#    Reason:
+#    Get finally (--> calculate_verdict) some more informative extra_info in case there
+#    is no additional pattern match or the pattern list is empty.
+# 2. Maybe change the wording
+#    $pattern_list, $pattern_prefix and to some small extend how content was obtained
+#    determine if we are fiddling with a status or something else.
+#    ?? There is the extra handling of STATUS_ANY_ERROR.
+#    ?? Introduce a STATUS_ANY_STATUS (ignore status, RQG log pattern matching only)
 #
-# Return value            | state
-# ------------------------+---------------------------------------------
-# MATCH_NO                | There are elements defined but none matched.
-# ('match_no')            |
-# ------------------------+---------------------------------------------
-# MATCH_YES               | In minimum one element matched. This means
-# ('match_yes')           | all remaining elements will be checked too.
-# ------------------------+---------------------------------------------
-# MATCH_NO_LIST_EMPTY     | There are no elements defined.
-# ('match_no_list_empty') |
-# ------------------------+---------------------------------------------
-# MATCH_UNKNOWN           | $pattern_prefix was not found.
-# ('match_unknown)        |
-# ------------------------+---------------------------------------------
+#
+# Return value            | state                                        | extra_info
+# ------------------------+----------------------------------------------+----------------
+# MATCH_NO                | There are elements defined but none matched. | match_no ?
+# ('match_no')            |                                              |
+# ------------------------+----------------------------------------------+----------------
+# MATCH_YES               | In minimum one element matched. This means   | $status
+# ('match_yes')           | all remaining elements will be checked too.  |
+# ------------------------+----------------------------------------------+----------------
+# MATCH_NO_LIST_EMPTY     | There are no elements defined.               | list_empty
+# ('match_no_list_empty') |                                              |
+# ------------------------+----------------------------------------------+----------------
+# MATCH_UNKNOWN           | $pattern_prefix was not found.               | match_unknown ?
+# ('match_unknown)        |                                              |
+# ------------------------+----------------------------------------------+----------------
 #
 # Hint:
 # The calling routines need frequent some rigorous Yes/No. Therefore they might
@@ -774,6 +885,7 @@ sub status_matching {
 #    Whitelist matching : MATCH_NO_LIST_EMPTY -> MATCH_YES
 #    Blacklist matching : MATCH_NO_LIST_EMPTY -> MATCH_NO
 #
+
     say("DEBUG: pattern_prefix ->$pattern_prefix<-")
         if script_debug("A5");
 
@@ -811,6 +923,24 @@ sub status_matching {
             "found once.") if script_debug("A5");
     }
 
+    # FIXME: maybe just read $content line by line in order to save memory
+    my $line;
+    open my $handle, "<", \$content;
+    while( $line = <$handle> ) {
+        if ($line =~ m{$pattern_prefix}) {
+            last;
+        }
+    }
+
+    my $status_read  = $line;
+    if ($status_read =~ s|.*$pattern_prefix([a-zA-Z0-9_/\.\-<>]+).*|$1|s) {
+        say("DEBUG: status_matching: status_read ->$status_read<-") if script_debug("A2");
+    } else {
+        my $status = STATUS_INTERNAL_ERROR;
+        say("INTERNAL ERROR: status_matching: No status found.") if script_debug("A2");
+        safe_exit($status);
+    }
+
     my $no_pattern = 1;
     my $match      = 0;
     foreach my $pattern (@{$pattern_list}) {
@@ -829,7 +959,7 @@ sub status_matching {
             $search_pattern = $pattern_prefix . 'STATUS_OK';
             $message = "$message_prefix, element '" . $pattern_prefix .
                        "' followed by a status != STATUS_OK' :";
-            if ($content =~ m{$search_pattern}s) {
+            if ($status_read =~ m{STATUS_OK}s) {
                 if ($debug) { say("$message no match"); };
             } else {
                 if ($debug) { say("$message match"); };
@@ -838,7 +968,7 @@ sub status_matching {
         } else {
             $search_pattern = $pattern_prefix . $pattern;
             $message = "$message_prefix, element '$search_pattern' :";
-            if ($content =~ m{$search_pattern}s) {
+            if ($status_read =~ m{$pattern}s) {
                 if ($debug) { say("$message match"); };
                 $match   = 1;
             } else {
@@ -850,12 +980,12 @@ sub status_matching {
         if ($debug) {
             say("$message_prefix , no element defined.");
         }
-        return MATCH_NO_LIST_EMPTY;
+        return MATCH_NO_LIST_EMPTY, $status_read;
     } else {
         if ($match) {
-            return MATCH_YES;
+            return MATCH_YES, $status_read;
         } else {
-            return MATCH_NO;
+            return MATCH_NO, $status_read;
         }
     }
 
@@ -1057,6 +1187,78 @@ sub getFileSlice {
     return $content_slice;
 
 } # End sub getFileSlice
+
+
+sub getFileSection {
+#
+# Return
+# ------
+# - up to $search_var_size bytes read from the end of the file $file_to_read
+# - '' if nothing found
+# - undef if there is whatever trouble with the file (existence, type etc.)
+# or Carp::cluck and abort if the routine is used wrong.
+#
+# Expected format
+# BOL                                                                         EOL
+# --># Section section_name -------<only '-' here> ----------------------- end<--
+
+    my ($file_to_read, $section_name) = @_;
+    if (@_ != 2) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: Auxiliary::getFileSection : 2 Parameters (file_to_read, " .
+                    "section_name) are required.");
+        safe_exit($status);
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    }
+
+    if (not defined $file_to_read) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: \$file_to_read is not defined.");
+        safe_exit($status);
+    }
+
+    if (not -e $file_to_read) {
+        say("ERROR: The file '$file_to_read' does not exist. Will return undef.");
+        return undef;
+    }
+    if (not -f $file_to_read) {
+        say("ERROR: The file '$file_to_read' is not a plain file. Will return undef.");
+        return undef;
+    }
+
+    my $begin_marker = '^# Section ' . $section_name . ' -+ start$';
+    my $end_marker   = '^# Section ' . $section_name . ' -+ end$';
+    # say("begin_marker: ->" . $begin_marker . "<-");
+    # say("end_marker:   ->" . $end_marker   . "<-");
+
+    my $file_handle;
+    if (not open ($file_handle, '<', $file_to_read)) {
+        say("ERROR: Open '$file_to_read' failed : $!. Will return undef.");
+        return undef;
+    }
+
+    my $content_slice = '';
+    while (my $line = <$file_handle>) {
+        last if $line =~ m{$begin_marker};
+    }
+    while (my $line = <$file_handle>) {
+        last if $line =~ m{$end_marker};
+        # No 'chomp $line;' because we will need the \n at line end.
+        $line =~ s/^# ?//;
+        $content_slice .= $line;
+        if (1000000 < length($content_slice)) {
+            Carp::cluck("ERROR: Already more than 1000000 chars read. Will return undef.");
+            close ($file_handle);
+            return undef;
+        }
+    }
+
+    # say("$content_slice");
+    close ($file_handle);
+    return $content_slice;
+
+} # End sub getFileSection
 
 # -----------------------------------------------------------------------------------
 
@@ -1430,13 +1632,12 @@ sub get_string_after_pattern {
         return undef;
     }
 
-    # FIXME: The ([a-zA-Z0-9_/\.]+).* is questionable.
-    if ($content=~ s|.*$pattern([a-zA-Z0-9_/\.]+).*|$1|s) {
+    # FIXME: The ([a-zA-Z0-9_/\.]+).*.... is questionable.
+    if ($content=~ s|.*$pattern([a-zA-Z0-9_/\.\-<>]+).*|$1|s) {
         return $content;
     } else {
         return '';
     }
-
 }
 
 # -----------------------------------------------------------------------------------
@@ -2041,6 +2242,15 @@ sub egalise_dump {
         return STATUS_FAILURE;
     }
     return STATUS_OK; # 0
+}
+
+sub prepare_command_for_system {
+    my ($command) = @_;
+    unless (osWindows())
+    {
+        $command = 'bash -c "set -o pipefail; nice -19 ' . $command . '"';
+    }
+    return $command;
 }
 
 
