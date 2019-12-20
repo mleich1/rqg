@@ -194,7 +194,7 @@ sub get_verdict_config_file {
                     safe_exit($status);
                 }
                 say("INFO: Created verdict_config_file '$verdict_config_file' as copy of the " .
-                    "default '$verdict_config_file'.");
+                    "default '$default_verdict_config_file'.");
             } else {
                 if (Auxiliary::make_file($verdict_config_file, $verdict_code) != STATUS_OK) {
                     my $status = STATUS_ENVIRONMENT_FAILURE;
