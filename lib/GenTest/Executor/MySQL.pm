@@ -1,6 +1,6 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018,2019 MariaDB Corporation Ab.
+# Copyright (c) 2018,2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -102,7 +102,10 @@ my @errors = (
     "Duplicate condition information item '.*?'",
     "Undefined CONDITION: .*?",
     "Incorrect .*? value '.*?'",
-    "Recursive limit \d+ (as set by the max_sp_recursion_depth variable) was exceeded for routine .*?",
+    # Perl warns
+    # Unrecognized escape \d passed through at lib/GenTest/Executor/MySQL.pm ...
+    # "Recursive limit \d+ (as set by the max_sp_recursion_depth variable) was exceeded for routine .*?",
+    "Recursive limit \\d+ (as set by the max_sp_recursion_depth variable) was exceeded for routine .*?",
         "There is no such grant defined for user '.*?' on host '.*?' on table '.*?'",
     "There is no such grant defined for user '.*?' on host '.*?'",
     "'.*?' is not a .*?",
@@ -111,10 +114,6 @@ my @errors = (
     "Trigger's '.*?' is view or temporary table",
     "Column '.*?' is not updatable"
 );
-
-# FIXME:
-# Perl warns
-# Unrecognized escape \d passed through at lib/GenTest/Executor/MySQL.pm line 92.
 
 my @patterns = map { qr{$_}i } @errors;
 

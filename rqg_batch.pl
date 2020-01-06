@@ -610,13 +610,9 @@ my $result_file  = $workdir . "/result.txt";
 
 my $total_status = STATUS_OK;
 
-my $trial_num    = 1; # This is the number of the next trial if started at all.
-                   # That also implies that incrementing must be after getting a valid command.
-
-
-
-
-
+# Number of the next trial if started at all.
+# This also implies that incrementing must be after getting a valid command.
+my $trial_num    = 1;
 
 
 
@@ -953,7 +949,6 @@ while($Batch::give_up <= 1) {
                     say("DEBUG: $who_am_i verdict: $verdict, extra_info: $extra_info")
                         if Auxiliary::script_debug("W2");
 
-                    my $return;
                     if ($verdict ne Verdict::RQG_VERDICT_IGNORE           and
                         $verdict ne Verdict::RQG_VERDICT_IGNORE_STATUS_OK and
                         $verdict ne Verdict::RQG_VERDICT_IGNORE_BLACKLIST and
@@ -984,7 +979,7 @@ while($Batch::give_up <= 1) {
                                                     Auxiliary::RQG_PHASE_COMPLETE)) {
                         safe_exit(STATUS_ENVIRONMENT_FAILURE);
                     }
-                    exit(STATUS_OK);
+                    safe_exit(STATUS_OK);
                 }
 
             } else {
@@ -1019,22 +1014,22 @@ while($Batch::give_up <= 1) {
                         $phase = Auxiliary::get_rqg_phase($rqg_workdir);
                         last if $phase ne Auxiliary::RQG_PHASE_INIT;
 
-                        # 1. The user created $exit_file for signalling rqg_batch.pl it should stop.
+                        # 1. The user created $exit_file might exist.
                         Batch::check_exit_file($exit_file);
                         last if $Batch::give_up > 1;
-                        # 2. The assigned max_runtime is exceeded.
+                        # 2. The assigned max_runtime might be exceeded.
                         Batch::check_runtime_exceeded($batch_end_time);
                         last if $Batch::give_up > 1;
 
+                        # 3. A resource problem might be ahead.
                         if (Time::HiRes::time() > $measure_time) {
-                        # 3. Resource problem is ahead.
-                        my $delay_start = Batch::check_resources();
-                        last if $Batch::give_up > 1;
+                            my $delay_start = Batch::check_resources();
+                            last if $Batch::give_up > 1;
                             # Note: We might have to stop the just started worker.
                             $measure_time  = Time::HiRes::time() + 2;
                         } else {
-                        Time::HiRes::sleep($waittime_unit);
-                    }
+                            Time::HiRes::sleep($waittime_unit);
+                        }
                     }
                     # last if $Batch::give_up > 1 above might have send us to here.
                     last if $Batch::give_up > 1;

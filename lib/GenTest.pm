@@ -189,6 +189,9 @@ sub settmpdir {
 
 sub safe_exit {
 	my $exit_status = shift;
+    # From perl docu:
+    # POSIX::_exit($status) avoids END and destructor processing which could
+    # change the exit status.
 	POSIX::_exit($exit_status);
 }
 

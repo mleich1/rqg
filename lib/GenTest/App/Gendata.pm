@@ -1,6 +1,6 @@
 # Copyright (C) 2009, 2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -674,7 +674,7 @@ sub run {
                 # causing wrong syntax.
                 # Original code:
                 # my $insert_result = $executor->execute("INSERT /*! IGNORE */ INTO $table->[TABLE_NAME] VALUES ".join(', ', @row_buffer));
-                my $insert_result = $executor->execute("INSERT /*! IGNORE */ INTO $table->[TABLE_NAME] VALUES ".join(",\n", @row_buffer));
+                my $insert_result = $executor->execute("INSERT /*! IGNORE */ INTO $table->[TABLE_NAME] VALUES \n".join(",\n", @row_buffer));
                 return $insert_result->status() if $insert_result->status() >= STATUS_CRITICAL_FAILURE;
                 @row_buffer = ();
             }

@@ -112,7 +112,9 @@ sub init {
         return undef;
     }
 
-    my $extended_grammar = "thread: " . SIMP_WAIT_QUERY . " ;\n" .
+    # The extension gets placed on top so that any definitions of rules with the same names
+    # of the non extendded grammar win.
+    my $extended_grammar = "thread: "        . SIMP_WAIT_QUERY  . " ;\n" .
                            "thread_init: "   . SIMP_EMPTY_QUERY . " ;\n" .
                            "thread_connect:" . SIMP_EMPTY_QUERY . " ;\n" .
                            $grammar_obj->toString();
@@ -269,16 +271,19 @@ sub get_unique_component_list {
 }
 
 sub estimate_cut_steps {
+# Estimate the number of orders to be generated if going with non destructive simplification.
 
     my $count = 0;
 
     foreach my $rule_name (sort keys %rule_hash ) {
-        my $rule_obj = $grammar_obj->rule($rule_name);
-        my @rule_unique_component_list  = $rule_obj->unique_components();
-        my $rule_unique_component_count = scalar @rule_unique_component_list;
-        my $count_add = scalar @rule_unique_component_list -1;
+        my $rule_obj                   = $grammar_obj->rule($rule_name);
+        my @rule_unique_component_list = $rule_obj->unique_components();
+        my $count_add                  = scalar @rule_unique_component_list - 1;
         $count += $count_add;
-        # say("DEBUG: estimate_cut_steps: rule_name '$rule_name', count_add $count_add, count_total $count");
+        if (0) {
+            say("DEBUG: estimate_cut_steps: rule_name '$rule_name', count_add $count_add, " .
+                "count_total $count");
+        }
     }
     return $count;
 }
@@ -321,8 +326,8 @@ sub load_grammar_from_string {
 }
 
 
-# %rule_hash for keeping more orless actual properties of grammar rules
-# ---------------------------------------------------------------------
+# %rule_hash for keeping more or less actual properties of grammar rules
+# ----------------------------------------------------------------------
 # Key is rule_name
 #
 # Please see the amount of variables as experimental.
@@ -408,12 +413,14 @@ use constant RULE_UNIQUE_COMPONENTS      => 6;
 # - query , thread<number>
 # - query_init , thread<number>_init
 # - query_connect , thread_connect, thread<number>_connect
-# could be used for such a purpose. But if will be later really used for that depends on
+# could be used for such a purpose. But if they will be later really used for that depends on
 # the number of threads assigned.
 # Example with $threads=3:
-#    A rule 'thread4' will never act for some thread as top level rule.
-#    But it could be used in components of other rules.
-#    Example: thread2: thread4 | ddl ;
+#    A rule 'thread4' will never act for some thread as top level rule except there is a
+#        query_*/thread<1 till 3>*: thread4 ;
+#    It could be also used in components of other rules like
+#        thread2: thread4 | ddl ;
+#    and even become top level in case 'ddl' could get shrinked away.
 use constant RULE_IS_TOP_LEVEL           => 7;
 #
 
@@ -523,6 +530,18 @@ sub grammar_rule_hash_consistency {
 
 
 sub set_default_rules_for_threads {
+# 0. Do that
+#    - after phase PHASE_REDUCE_THREADS (if assigned) because otherwise we offer too early too
+#      many rules as target for simplification which than maybe leads to inability to reduce
+#      the number of threads efficient.
+#      Artificial example:
+#      Start with $threads = 48, it is not a concurrency problem, phase PHASE_THREAD1_REPLAY is
+#      not assigned or had just no luck
+#      n simplifications lead to
+#      - thread47 = <crashing SQL> and remaining thread*: SIMP_WAIT_QUERY ;
+#    - before PHASE_GRAMMAR_CLONE (if assigned) because there we try to simplify further like
+#      Assume two threads assigned --> if replaying --> thread1: ddl;
+#      query: ddl | dml ;                               thread2: dml;
 # 1. Do that after
 #    1.1 loading the grammar including redefines
 #    1.2 filling rule_hash
@@ -619,9 +638,9 @@ sub set_default_rules_for_threads {
     if (not defined $grammar_obj) {
         # Thinkable example: $grammar_string_addition contains garbage.
         say("ERROR: Filling the grammar_obj failed. Will return STATUS_INTERNAL_ERROR later.");
-        say("ERROR: Extended grammar ======================== BEGIN\n" .
-        $grammar_string_extended . "\n" .
-        "ERROR: Extended grammar ======================== END");
+        say("ERROR: Extended grammar ======================== BEGIN" . "\n" .
+            $grammar_string_extended                                 . "\n" .
+            "ERROR: Extended grammar ======================== END");
         return STATUS_INTERNAL_ERROR;
     }
     # Replace some maybe filled %rule_hash by some new one.
@@ -1448,16 +1467,16 @@ sub shrink_grammar {
 #     FIXME: Does this work well in destructive simplification mode too?
 #   - exists but has no more a component leading to $component_string.
 #   - exists has more than one !unique! component and one leads to $component_string
-#     but the final grammar contains less less DROP/TRUNCATE/DELETE than the parent
+#     but the final grammar contains less DROP/TRUNCATE/DELETE than the parent
 #     and $dtd_protection == 1
 # - the shrinked ($component_string removed from rule $rule_name) grammar as string.
-#   The caller just wants to dump that string afterwards into some yy grammar file.
+#   The caller just wants to append that string afterwards to the current parent grammar.
 #
 
     my ($rule_name, $component_string, $dtd_protection) = @_;
 
     # INTERNAL ERROR in case a parameter is undef.
-    # Carp::confess is rude and will ongoing RQG runs will be not stopped.
+    # Carp::confess is rude and ongoing RQG runs will be not stopped.
     # But that should be ok and after extreme short time fixed nearly for ever.
     # Alternative: Carp::cluck + return $status, $rule_string
     if (not defined $rule_name) {
@@ -1473,7 +1492,6 @@ sub shrink_grammar {
     say("DEBUG: shrink_grammar: rule_name '$rule_name', component_string ->$component_string<-, " .
         "dtd_protection : $dtd_protection") if $script_debug;
 
-    # FIXME: Replace by working on grammar?
     if (not exists $rule_hash{$rule_name}) {
         say("DEBUG: shrink_grammar: The rule '$rule_name' does no more exist.") if $script_debug;
         return undef;
@@ -1510,7 +1528,7 @@ sub shrink_grammar {
 
         # Avoid simple recursion
         # ----------------------
-        # What would happen in case we do not avoid such a evil simplification?
+        # What would happen in case we do not avoid such an evil simplification?
         # a) In the most likely case lib/GenTest/Generator/FromGrammar.pm detects during RQG
         #    runtime recursion than it returns undef --> STATUS_ENVIRONMENT_FAILURE.
         #    A simplifier with good setup
@@ -1529,7 +1547,7 @@ sub shrink_grammar {
         #    to replay but needs many attempts.
         # Example grammar
         # query:
-        #     SELECT recursive_rule ;
+        #    SELECT recursive_rule ;
         # recursive_rule:
         #     13                   | <-- harmless
         #     13, recursive_rule   | <-- is dangerous if only dangerous are left over
@@ -1646,8 +1664,6 @@ sub shrink_grammar {
 
 } # End of sub shrink_grammar
 
-
-#----------------------------------------------------
 
 my $clone_number = 0;
 my $clone_limit = 100;
