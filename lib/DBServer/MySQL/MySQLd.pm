@@ -1,5 +1,5 @@
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2013, 2019, MariaDB Corporation Ab
+# Copyright (c) 2013, 2020, MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -68,6 +68,7 @@ use constant MYSQLD_MAJOR_VERSION                => 29;
 use constant MYSQLD_CLIENT_BINDIR                => 30;
 use constant MYSQLD_SERVER_VARIABLES             => 31;
 use constant MYSQLD_SQL_RUNNER                   => 32;
+use constant MYSQLD_RR                           => 33;
 
 use constant MYSQLD_PID_FILE                     => "mysql.pid";
 use constant MYSQLD_ERRORLOG_FILE                => "mysql.err";
@@ -93,9 +94,12 @@ sub new {
                                    'valgrind' => MYSQLD_VALGRIND,
                                    'valgrind_options' => MYSQLD_VALGRIND_OPTIONS,
                                    'config' => MYSQLD_CONFIG_CONTENTS,
-                                   'user' => MYSQLD_USER},@_);
+                                   'user' => MYSQLD_USER,
+                                   'rr' => MYSQLD_RR},@_);
 
     croak "No valgrind support on windows" if osWindows() and $self->[MYSQLD_VALGRIND];
+    croak "No rr support on OS <> Linux"   if $self->[MYSQLD_RR] and not osLinux() and $self->[MYSQLD_RR];
+    croak "No support for using rr and valgrind together" if $self->[MYSQLD_RR] and $self->[MYSQLD_VALGRIND];
 
     if (not defined $self->[MYSQLD_VARDIR]) {
         $self->[MYSQLD_VARDIR] = "mysql-test/var";
@@ -568,6 +572,42 @@ sub startServer {
          $command = "valgrind --time-stamp=yes --leak-check=yes --suppressions=" .
                     $self->valgrind_suppressionfile . " " . $val_opt . " " . $command;
       }
+
+      if ($self->[MYSQLD_RR]) {
+         $start_wait_timeout = 45;   # Maximum wait time for an error log update or
+                                     # pid_file existence..
+         $startup_timeout    = 900;
+
+         my $rr_trace_dir = $self->vardir . "/rr_trace";
+         # Remove any remainings of some previous rr use
+         # - bootstrap (currently not supported but maybe in future)
+         # - start server, shutdown, start server again
+         # in order to keep the space consumption as small as possible.
+         # Important:
+         # We should not be never here in case some previous step hit a serious error
+         # because otherwise we would just now destroy valuable data.
+         if (-d $rr_trace_dir) {
+            if (not File::Path::rmtree($rr_trace_dir)) {
+               my $status = DBSTATUS_FAILURE;
+               say("ERROR: startserver: Removal of the tree '$rr_trace_dir' failed. : $!. " .
+                   "Will return status DBSTATUS_FAILURE" . "($status)");
+               return $status;
+            }
+         }
+         # Experiments showed that the rr trace directory must exist in advance.
+         if (not mkdir $rr_trace_dir) {
+            my $status = DBSTATUS_FAILURE;
+            say("ERROR: Creating the 'rr' trace directory '$rr_trace_dir' failed : $!. " .
+                "Will return status DBSTATUS_FAILURE" . "($status)");
+            return $status;
+         }
+         $command = "_RR_TRACE_DIR=$rr_trace_dir rr record --mark-stdio $command";
+         # The rqg runner has to check in advance that 'rr' is installed on the current box.
+         # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
+         # in the DB server error log.
+
+      }
+
       # This is too early. printInfo needs the pid which is currently unknown!
       # $self->printInfo;
 
@@ -679,25 +719,37 @@ sub startServer {
                         $_       = readline $errlog_fh;
                         $cur_pos = tell $errlog_fh;
                         # say("DEBUG: old_pos : $old_pos , cur_pos : $cur_pos");
-                        # [Note] /work/Server/10.3//sql/mysqld (mysqld 10.3.7-MariaDB-debug-log) starting as process 14533 ...
-                        # [Note] /home/mleich/Server/mariadb-enterprise/bld_debug/sql/mysqld (mysqld 10.4.6-1-MariaDB-debug-log) starting as process 7719 ...
-                        if      (/\[Note\]\s+\S+?\/mysqld\s+\(mysqld.*?\)\s+starting as process (\d+)\s+\.\./) {
-                            $pid= $1;
-                            last TAIL;
-                        } elsif (/^$/) {
-                            # say("DEBUG: Empty error log line read");
-                            # The line is empty == We came somehow a bit too early.
+                        # if (not defined $_) {
+                        #     say('DEBUG: $_ is not defined.');
+                        # }
+                        if      (not defined $_ or /^$/) {
+                            # say("DEBUG: Error log empty or empty error log line read");
+                            # == We came somehow a bit too early.
                             # So seek back to the old position and wait a bit.
-                            seek ERRLOG, $old_pos, 0;
+                            # FIXME
+                            # Observation 2020-01
+                            # seek() on unopened filehandle ERRLOG at lib/DBServer/MySQL/MySQLd.pm line 695.
+                            # Original code was
+                            # seek ERRLOG, $old_pos, 0;
+                            # Experiment:
+                            seek $errlog_fh, $old_pos, 0;
                             sleep 1;
-                        } elsif (! /^== /) {
+                        } elsif (/\[Note\]\s+\S+?\/mysqld\s+\(mysqld.*?\)\s+starting as process (\d+)\s+\.\./) {
+                            # [Note] <whatever1>/mysqld (<whatever2>) starting as process 14533 ...
+                            $pid= $1;
+                            say("DEBUG: Server pid found in error log: $pid");
+                            last TAIL;
+                        } elsif ($self->[MYSQLD_VALGRIND] and ! /^== /) {
                             last TAIL;
                         }
                     } until (eof($errlog_fh));
 
                     # say("DEBUG: Error log reading EOF reached: ->$_<-");
                     sleep 1;
-                    seek ERRLOG, 0, 1;    # this clears the EOF flag
+                    # Original code:
+                    # seek ERRLOG, 0, 1;    # this clears the EOF flag
+                    # Experiment:
+                    seek $errlog_fh, 0, 1;    # this clears the EOF flag
                 }
          }
          close($errlog_fh) if $errlog_fh;
@@ -746,7 +798,7 @@ sub startServer {
          # - allow some very precise detection if some server is dead (process disappeared or zombie)
       } else {
          # Here is the child process who tries to become a running server
-         # FIXME: Replace Carp::cluck by returning something appropriate.
+         # FIXME maybe: Replace Carp::cluck by returning something appropriate.
          exec("$command >> \"$errorlog\"  2>&1") || Carp::cluck("ERROR: Could not start mysql server");
       }
    }
@@ -1056,8 +1108,12 @@ sub stopServer {
     my $res;
 
     if (not $self->running) {
+        # Observation 2020-01 after replacing croak/exit in startServer by return DBSTATUS_FAILURE
+        # Use of uninitialized value in concatenation (.) or string at lib/DBServer/MySQL/MySQLd.pm ...
+        my $message_part = $self->serverpid;
+        $message_part = '<never known or now already unknown pid>' if not defined $message_part;
         say("DEBUG: DBServer::MySQL::MySQLd::stopServer: The server with process [" .
-            $self->serverpid . "] is already no more running.");
+            $message_part . "] is already no more running.");
         say("DEBUG: Omitting shutdown attempt, but will clean up and return DBSTATUS_OK.");
         # clean up when server is not alive.
         unlink $self->socketfile if -e $self->socketfile;
