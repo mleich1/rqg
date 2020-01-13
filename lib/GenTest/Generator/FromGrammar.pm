@@ -1,6 +1,6 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
+# Copyright (c) 2018-2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -147,18 +147,51 @@ sub next {
     # - users should be made aware of the defect in case its some non simplified grammar
     # I tended to let the RQG worker thread exit with STATUS_ENVIRONMENT_FAILURE.
     # And usually after a short time span the RQG runner exits with STATUS_ENVIRONMENT_FAILURE too.
-    # Serious disadvantage:
-    # Grammar simplification and also "masking" lead quite often to such defects in grammars.
-    # An end with STATUS_ENVIRONMENT_FAILURE does not provide any progress for simplification.
-    # Serious more efficient would be to avoid any possible trouble and going on with the test.
+    # And if "Possible endless loop in grammar." gets blacklisted than the corresponding grammar/
+    # RQG result gets ignored.
+    # The mountain of problems:
+    # 1. Grammar simplification but also "masking" lead quite often to such defects in grammars.
+    # 2. During grammar simplification such a grammar might replay the desired effect before
+    #    one of the threads hits "Possible endless loop in grammar." etc.
+    # 3. In case this "replay" is based on the current (most probably non defect) parent grammar
+    #    than the grammar used during that run will be loaded for generating the next parent
+    #    grammar. Caused by that we have now the defect for some rather more than less long time
+    #    within parent grammars.
+    # 4. Thinkable ways of handling that
+    #    A) Print "Possible endless loop in grammar." + let the thread exit with
+    #       STATUS_ENVIRONMENT_FAILURE.
+    #       --> The RQG run aborts because STATUS_ENVIRONMENT_FAILURE >= STATUS_CRITICAL_FAILURE.
+    #           Any already made investment (especially GenData) in resources for the run are lost.
+    #    B) Print "Possible endless loop in grammar." + let the thread exit with a status
+    #       < STATUS_CRITICAL_FAILURE.
+    #       --> There is at least some chance that one of the remaining threads replays the
+    #           desired out come.
+    #           In case "Possible endless loop in grammar." is
+    #           - blacklisted than again all already made (bigger than in A) investments are lost.
+    #           - not blacklisted than already made investments are not lost.
+    #             But most probably many if not all threads will exit because of the same reason
+    #             soon. So B) is not far way better than A).
+    #    C) Print "Possible endless loop in grammar." and let the thread go on with working.
+    #       Free (reused by perl!) memory as much and as early as possible.
+    #       Do not blacklist "Possible endless loop in grammar." and let threads finally exit with
+    #       a status < STATUS_CRITICAL_FAILURE except something eval happened.
     # Half experimental solution:
     # Try to detect that problem as early as possible and react immediate with
     # 1. Warn about the possible endless loop in grammar
     # 2. Try to free as much memory (-> @sentence, @expansion) as possible
     # 3. Return undef which does not get interpreted as statement to be executed.
+    # 4. Go on with the test and do not set a status because of the problem.
     #
 
 	sub expand {
+    # Warning:
+    # Expand returns on
+    # - success some not empty array
+    # - failure some empty array
+    #   The old solution was exiting with die or returning undef.
+    #   The latter leads to
+    #       @blabla = undef --> @blabla has one element and that is undef
+    #
 		my ($rule_counters, $rule_invariants, @sentence) = @_;
 
         # Comment (mleich1)
@@ -168,19 +201,21 @@ sub next {
 		my $item_nodash;
 		my $orig_item;
 
-#       foreach my $sentence_part (@sentence) {
-#           say("DEBUG: sentence_part ->$sentence_part<-");
-#       }
-#       say("DEBUG: sentence_end -------");
+        if (0) {
+            foreach my $sentence_part (@sentence) {
+                say("DEBUG: sentence_part ->$sentence_part<-");
+            }
+            say("DEBUG: sentence_end -------");
+        }
 
         # Define some standard message because blacklist_patterns matching needs it.
-        my $warn_message_part = "WARN: Possible endless loop in grammar. Will return undef.";
+        my $warn_message_part = "WARN: Possible endless loop in grammar. Will return an empty array.";
 
 		if ($#sentence > GENERATOR_MAX_LENGTH) {
 			say("WARN: GenTest::Generator::FromGrammar : Sentence is now longer than " .
                 GENERATOR_MAX_LENGTH() . " symbols.\n" . $warn_message_part);
             @sentence = ();
-			return undef;
+            return ();
 		}
 		
 		for (my $pos = 0; $pos <= $#sentence; $pos++) {
@@ -203,26 +238,35 @@ sub next {
 				if (++($rule_counters->{$orig_item}) > GENERATOR_MAX_OCCURRENCES) {
 			        say("WARN: GenTest::Generator::FromGrammar : Rule '$orig_item' occured more " .
                         "than ".GENERATOR_MAX_OCCURRENCES()." times.\n" . $warn_message_part);
-                    @sentence = ();
-                    @expansion = ();
-					return undef;
+                    @sentence  = ();
+                    return ();
 				}
 
 				if ($invariant) {
 					@{$rule_invariants->{$item}} = expand($rule_counters,$rule_invariants,($item)) unless defined $rule_invariants->{$item};
 					@expansion = @{$rule_invariants->{$item}};
+                    if ( 0 == scalar @expansion ) {
+                        # say("DEBUG: Empty array got 1.");
+                        @sentence  = ();
+                        return ();
+                    }
 				} else {
-					@expansion = expand($rule_counters,$rule_invariants,@{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]->[
-					   	$prng->uint16(0, $#{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]})
-					]});
-
+                    @expansion = expand($rule_counters,$rule_invariants,@{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]->[
+                        $prng->uint16(0, $#{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]})
+                    ]});
+                    if ( 0 == scalar @expansion ) {
+                        # Original was only:   (Array1 == Array2) like above.
+                        # say("DEBUG: Empty array got 2.");
+                        @sentence  = ();
+                        return ();
+                    }
 				}
 				if ($generator->[GENERATOR_ANNOTATE_RULES]) {
 					@expansion = ("/* rule: $item */ ", @expansion);
 				}
 			} else {
 				if (
-					(substr($item, 0, 1) eq '{') &&
+					(substr($item,  0, 1) eq '{') &&
 					(substr($item, -1, 1) eq '}')
 				) {
 					$item = eval("no strict;\n".$item);		# Code
@@ -230,14 +274,16 @@ sub next {
 					if ($@ ne '') {
 						if ($@ =~ m{at .*? line}o) {
 							say("Internal grammar error: $@");
-                            @sentence = ();
+                            @sentence  = ();
                             @expansion = ();
-							return undef;    # the original code called die()
+							# the original code called here die()
+                            return ();
 						} else {
-							warn("Syntax error in Perl snippet $orig_item : $@");
-                            @sentence = ();
+			                say("WARN: GenTest::Generator::FromGrammar : Syntax error in Perl snippet rule '$orig_item': $@");
+			                say("WARN: GenTest::Generator::FromGrammar : Will return an empty array.");
+                            @sentence  = ();
                             @expansion = ();
-							return undef;
+                            return ();
 						}
 					}
 				} elsif (substr($item, 0, 1) eq '$') {
@@ -489,6 +535,9 @@ sub next {
 	}
 
 	my @sentence = expand(\%rule_counters,\%rule_invariants,($starting_rule));
+    # if ( 0 == scalar @sentence ) {
+    #   say("DEBUG: Empty array got 3.");
+    # }
 
 	$generator->[GENERATOR_SEQ_ID]++;
 
