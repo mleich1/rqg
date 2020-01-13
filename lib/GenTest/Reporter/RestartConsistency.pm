@@ -1,4 +1,4 @@
-# Copyright (C) 2016, 2019 MariaDB Corporation Ab.
+# Copyright (C) 2016, 2020 MariaDB Corporation Ab.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -184,7 +184,7 @@ sub report {
 
     my $databases = $dbh->selectcol_arrayref("SHOW DATABASES");
     foreach my $database (@$databases) {
-        next if $database =~ m{^(mysql|information_schema|pbxt|performance_schema)$}sio;
+        next if $database =~ m{^(rqg|mysql|information_schema|pbxt|performance_schema)$}sio;
         $dbh->do("USE $database");
         my $tabl_ref = $dbh->selectcol_arrayref("SHOW FULL TABLES", { Columns=>[1,2] });
         my %tables = @$tabl_ref;
@@ -229,7 +229,7 @@ sub dump_database {
     $vardir = $reporter->properties->servers->[0]->vardir() unless defined $vardir;
 
 	my @all_databases = @{$dbh->selectcol_arrayref("SHOW DATABASES")};
-	my $databases_string = join(' ', grep { $_ !~ m{^(mysql|information_schema|performance_schema)$}sgio } @all_databases );
+	my $databases_string = join(' ', grep { $_ !~ m{^(rqg|mysql|information_schema|performance_schema)$}sgio } @all_databases );
 	
     say("INFO: $who_am_i Dumping the server $suffix restart");
     # From the manual https://mariadb.com/kb/en/library/mysqldump
@@ -277,17 +277,29 @@ sub compare_dumps {
     #   master and slave in "full" replication like
     #   - event if enabled or disabled
     #   - the number after AUTO_INCREMENT
-	my $diff_result = system("diff -U 50 $vardir/server_before.dump $vardir/server_after.dump");
+    my $dump_before = $vardir . '/server_before.dump';
+    my $dump_after  = $vardir . '/server_after.dump';
+	my $diff_result = system("diff -U 50 $dump_before $dump_after");
 	$diff_result = $diff_result >> 8;
 
 	if ($diff_result == 0) {
-		say("INFO: $who_am_i No differences were found between server contents before and after restart.");
+		say("INFO: $who_am_i No differences between server contents before and after restart.");
 		return STATUS_OK;
 	} else {
-		say("ERROR: $who_am_i Server content has changed after shutdown+restart");
-        sayFile($errorlog_before);
-        sayFile($errorlog_after);
-		return STATUS_DATABASE_CORRUPTION;
+		say("WARN: $who_am_i Dumps before and after shutdown+restart differ.");
+        my $dump_before_egalized = $dump_before . "_e";
+        my $dump_after_egalized =  $dump_after  . "_e";
+        Auxiliary::egalise_dump ($dump_before, $dump_before_egalized);
+        Auxiliary::egalise_dump ($dump_after,  $dump_after_egalized);
+	    my $diff_result_egalized = system("diff -U 50 $dump_before_egalized $dump_after_egalized");
+	    $diff_result_egalized = $diff_result_egalized >> 8;
+        if ($diff_result_egalized == 0) {
+            say("INFO: $who_am_i After egalizing: No differences between server contents before and after restart.");
+            return STATUS_OK;
+        } else {
+            say("ERROR: $who_am_i After egalizing: Server content has changed after shutdown+restart.");
+		    return STATUS_DATABASE_CORRUPTION;
+        }
 	}
 }
 
