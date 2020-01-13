@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, 2019 MariaDB Corporation Ab.
+#  Copyright (c) 2018, 2020 MariaDB Corporation Ab.
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -215,7 +215,7 @@ sub make_file {
 #
 # Purpose
 # -------
-# Make an plain file.
+# Make a plain file.
 #
 # Return values
 # -------------
@@ -2253,6 +2253,19 @@ sub prepare_command_for_system {
     return $command;
 }
 
+sub find_external_command {
+    my ($command) = @_;
+    my $return = `which $command`;
+    # FIXME: Replace by using a routine with fine grained checking of responses.
+    # See get_git_info
+    chomp $return; # Remove the '\n' at end.
+    if (not defined $return or $return eq '') {
+        say("ERROR: which $command failed. Will return STATUS_FAILURE.");
+    } else {
+        say("DEBUG: which $command returned ->" . $return . "<-");
+        return STATUS_OK;
+    }
+}
 
 
 # FIXME: Maybe move from the Simplifier to here.
