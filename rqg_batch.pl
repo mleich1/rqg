@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -22,8 +22,10 @@
 # ---------------------------------------------
 # The concept and code here is only in small portions based on
 # - util/bughunt.pl
-#   - Per just finished RQG run immediate judging based on status + text patterns
-#     and creation of archives + first cleanup (all moved to rqg.pl)
+#   - Per just finished RQG run
+#     1. immediate judging based on status + text patterns (done by calling Verdict.pl)
+#     2. creation of archives if necessary (done by calling Auxiliary::archive_results)
+#     3. first cleanup
 #   - unification regarding storage places
 # - combinations.pl
 #   Parallelization + combinations mechanism
@@ -63,9 +65,9 @@ use ResourceControl;
 # ---------------------------------------------------
 # RQG Worker 'life'
 # 0. Get forked by the parent (rqg_batch.pl) process and "know" already at begin of life detailed
-#    which RQG run to initiate later.
+#    which RQG run to initiate later, where to store data etc.
 # 1. Make some basic preparations of the "play ground".
-# 2. Switch to the RQG runner (usually rqg.pl) via Perl 'exec'.
+# 2. Start to the RQG runner (usually rqg.pl) via Perl 'system'.
 # -- What follows is some brief description what this RQG runner does --
 # 3. Analyze the parameters/options provided via command line. In future maybe also config files.
 # 4. Compute all values which distinct him from other RQG workers (workdir, vardir, build thread)
@@ -214,7 +216,7 @@ my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar
     $seed, $testname, $xml_output, $report_xml_tt, $report_xml_tt_type, $max_runtime,
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
     $parallel, $servers, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
-    $help, $help_simplifier, $help_combinator, $help_verdict, $runner, $noarchiving,
+    $help, $help_simplifier, $help_combinator, $help_verdict, $runner, $noarchiving, $rr,
     $stop_on_replay, $script_debug_value, $runid, $threads, $type, $algorithm, $resource_control);
 
 $max_rqg_runtime = 1800;
@@ -341,11 +343,12 @@ if (not GetOptions(
            'runner=s'                  => \$runner,                 # Swallowed and handled by rqg_batch
            'stop_on_replay'            => \$stop_on_replay,         # Swallowed and handled by rqg_batch
            'noarchiving'               => \$noarchiving,            # Swallowed and handled by rqg_batch
+           'rr'                        => \$rr,                     # Swallowed and handled by rqg_batch
            'servers=i'                 => \$servers,                # Swallowed and handled by rqg_batch
 #          'threads=i'                 => \$threads,                # Pass through (@ARGV).
            'discard_logs'              => \$discard_logs,           # Swallowed and handled by rqg_batch
            'discard-logs'              => \$discard_logs,
-           'resource_control=s'        => \$resource_control,   # Swallowed and handled by rqg_batch
+           'resource_control=s'        => \$resource_control,       # Swallowed and handled by rqg_batch
            'script_debug=s'            => \$script_debug_value,     # Swallowed and handled by rqg_batch
            'runid:i'                   => \$runid,                  # Swallowed and handled by rqg_batch
                                                    )) {
@@ -409,6 +412,12 @@ if (defined $help) {
 # For testing
 # $type='omo';
 Batch::check_and_set_batch_type($type);
+
+if (defined $rr and STATUS_OK != Auxiliary::find_external_command("rr")) {
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    say("ERROR: rr is required but was not found.");
+    safe_exit($status);
+}
 
 # FIXME:
 # Make this parameter configurable.
@@ -484,8 +493,9 @@ $cl_end .= " --report-xml-tt-type=$report_xml_tt_type "
     if defined $report_xml_tt_type and $report_xml_tt_type ne '';
 $cl_end .= " --report-xml-tt-dest=$report_xml_tt_dest "
     if defined $report_xml_tt_dest and $report_xml_tt_dest ne '';
-$cl_end .= "--script_debug=" . $script_debug_value
+$cl_end .= " --script_debug=" . $script_debug_value
     if $script_debug_value ne '';
+$cl_end .= " --rr" if defined $rr;
 
 if (defined $runner) {
     if (File::Basename::basename($runner) ne $runner) {
@@ -1011,7 +1021,6 @@ while($Batch::give_up <= 1) {
                                "the just started $workerspec.";
                 } else {
                     while(time() < $end_waittime) {
-                        $phase = Auxiliary::get_rqg_phase($rqg_workdir);
                         last if $phase ne Auxiliary::RQG_PHASE_INIT;
 
                         # 1. The user created $exit_file might exist.
@@ -1025,14 +1034,21 @@ while($Batch::give_up <= 1) {
                         if (Time::HiRes::time() > $measure_time) {
                             my $delay_start = Batch::check_resources();
                             last if $Batch::give_up > 1;
-                            # Note: We might have to stop the just started worker.
-                            $measure_time  = Time::HiRes::time() + 2;
+                            # Batch::check_resources can stop some worker.
+                            # We might have stopped the just started worker (observed 2020-10).
+                            # Than the Auxiliary::get_rqg_phase at end of while loop would
+                            # cause error messages and return undef.
+                            last if $Batch::worker_array[$free_worker][Batch::WORKER_PID] == -1;
+                            $measure_time = Time::HiRes::time() + 2;
                         } else {
                             Time::HiRes::sleep($waittime_unit);
                         }
+                        $phase = Auxiliary::get_rqg_phase($rqg_workdir);
                     }
                     # last if $Batch::give_up > 1 above might have send us to here.
                     last if $Batch::give_up > 1;
+                    # last if .....[Batch::WORKER_PID] == -1 above might have send us to here.
+                    last if $Batch::worker_array[$free_worker][Batch::WORKER_PID] == -1;
                     if (Time::HiRes::time() > $end_waittime) {
                         $message = "Waitet >= $max_waittime" . "s for the just started " .
                                    "$workerspec to start his work. But no success.";
@@ -1159,7 +1175,7 @@ Batch::dump_try_hashes() if Auxiliary::script_debug("T3");
 # dump_orders();
 
 if ($Batch::give_up < 2) {
-    my $summary_cmd = "$rqg_home/util/issue_grep.sh $workdir";
+    my $summary_cmd = "$rqg_home/util/issue_grep.sh $workdir batch";
     # I do not care if creating or filling the summary files fails because the main
     # - work is already done with success
     # - share of information given from now on does not require a proper working

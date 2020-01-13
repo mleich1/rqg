@@ -2,7 +2,7 @@
 
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab
-# Copyright (C) 2016, 2018, 2019 MariaDB Corporation Ab
+# Copyright (C) 2016, 2020 MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -245,7 +245,7 @@ my (@basedirs, @mysqld_options, @vardirs, $rpl_mode,
     $restart_timeout, $gendata_advanced, $scenario, $upgrade_test, $store_binaries,
     $ps_protocol, @gendata_sql_files, $config_file,
     @whitelist_statuses, @whitelist_patterns, @blacklist_statuses, @blacklist_patterns,
-    $workdir, $queries, $script_debug_value,
+    $workdir, $queries, $script_debug_value, $rr,
     $options);
 
 my $gendata   = ''; ## default simple gendata
@@ -349,6 +349,7 @@ if (not GetOptions(
     'testname=s'                  => \$testname,
     'valgrind!'                   => \$valgrind,
     'valgrind_options=s@'         => \@valgrind_options,
+    'rr!'                         => \$rr,
     'vcols:s'                     => \$vcols[0],
     'vcols1:s'                    => \$vcols[1],
     'vcols2:s'                    => \$vcols[2],
@@ -413,6 +414,17 @@ if ( defined $help ) {
     exit STATUS_OK;
 }
 
+if (defined $rr and STATUS_OK != Auxiliary::find_external_command("rr")) {
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    say("ERROR: rr is required but was not found.");
+    safe_exit($status);
+}
+if (defined $valgrind and STATUS_OK != Auxiliary::find_external_command("valgrind")) {
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    say("ERROR: valgrind is required but was not found.");
+    safe_exit($status);
+}
+
 # FIXME: Make $workdir mandatory??
 if (not defined $workdir) {
     $workdir = Cwd::getcwd() . "/workdir_" . $$;
@@ -442,15 +454,15 @@ if (not defined $workdir) {
         say("$0 will exit with exit status " . status2text($status) . "($status)");
         safe_exit($status);
     }
-} else {
-    my $result = Auxiliary::check_rqg_infrastructure($workdir);
-    if ($result) {
-        say("ERROR: Auxiliary::check_rqg_infrastructure failed with $result.");
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("$0 will exit with exit status " . status2text($status) . "($status)");
-        safe_exit($status);
-    }
 }
+my $result = Auxiliary::check_rqg_infrastructure($workdir);
+if ($result) {
+    say("ERROR: Auxiliary::check_rqg_infrastructure failed with $result.");
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    say("$0 will exit with exit status " . status2text($status) . "($status)");
+    safe_exit($status);
+}
+
 $job_file = $workdir . "/rqg.job";
 
 say("INFO: RQG workdir : '$workdir' and infrastructure is prepared.");
@@ -1252,6 +1264,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                  server_options      => $mysqld_options[1],
                  valgrind            => $valgrind,
                  valgrind_options    => \@valgrind_options,
+                 rr                  => $rr,
                  general_log         => 1,
                  start_dirty         => $start_dirty, # This will not work for the first start. (vardir is empty)
                  use_gtid            => $use_gtid,
@@ -1300,6 +1313,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         server_options     => $mysqld_options[1],
         valgrind           => $valgrind,
         valgrind_options   => \@valgrind_options,
+        rr                 => $rr,
         general_log        => 1,
         start_dirty        => $start_dirty,
         node_count         => length($galera),
@@ -1367,6 +1381,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                                               start_dirty      => $start_dirty,
                                               valgrind         => $valgrind,
                                               valgrind_options => \@valgrind_options,
+                                              rr               => $rr,
                                               server_options   => $mysqld_options[0],
                                               general_log      => 1,
                                               config           => $cnf_array_ref,
@@ -1404,6 +1419,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                    start_dirty       => 1,
                    valgrind          => $valgrind,
                    valgrind_options  => \@valgrind_options,
+                   rr                => $rr,
                    server_options    => $mysqld_options[1],
                    general_log       => 1,
                    config            => $cnf_array_ref,
@@ -1438,6 +1454,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                             start_dirty        => $start_dirty,
                             valgrind           => $valgrind,
                             valgrind_options   => \@valgrind_options,
+                            rr                 => $rr,
                             server_options     => $mysqld_options[$server_id],
                             general_log        => 1,
                             config             => $cnf_array_ref,
@@ -1538,6 +1555,7 @@ my $gentestProps = GenTest::Properties->new(
               'freeze_time',
               'valgrind',
               'valgrind-xml',
+              'rr',
               'testname',
               'sqltrace',
               'querytimeout',
@@ -1564,7 +1582,7 @@ if ($#validators == 0 and $validators[0] =~ m/,/) {
     @validators = split(/,/,$validators[0]);
 }
 
-## For backward compatability
+## For backward compatibility
 if ($#reporters == 0 and $reporters[0] =~ m/,/) {
     @reporters = split(/,/,$reporters[0]);
 }
@@ -1611,6 +1629,7 @@ $gentestProps->short_column_names($short_column_names) if defined $short_column_
 $gentestProps->strict_fields($strict_fields) if defined $strict_fields;
 $gentestProps->freeze_time($freeze_time) if defined $freeze_time;
 $gentestProps->valgrind(1) if $valgrind;
+$gentestProps->rr(1) if $rr;
 $gentestProps->property('ps-protocol',1) if $ps_protocol;
 $gentestProps->sqltrace($sqltrace) if $sqltrace;
 $gentestProps->querytimeout($querytimeout) if defined $querytimeout;
@@ -1945,6 +1964,7 @@ $0 - Run a complete random query generation test, including server start with re
     --views        : Generate views. Optionally specify view type (algorithm) as option value. Passed to gentest.pl.
                      Different values can be provided to servers through --views1 | --views2 | --views3
     --valgrind     : Passed to gentest.pl
+    --rr           : Passed to gentest.pl (start the DB server with rr)
     --filter       : Passed to gentest.pl
     --mtr-build-thread:  Value used for MTR_BUILD_THREAD when servers are started and accessed
     --debug        : Debug mode

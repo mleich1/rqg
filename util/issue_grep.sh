@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -39,7 +39,13 @@ then
         echo "No symlinks 'last_batch_workdir' or ' last_simp_workdir' found."
         echo "Please call the script like"
         echo ""
-        echo "       $0 <directory to be inspected>"
+        echo "       $0 <directory to be inspected> [<something>]"
+        echo ""
+        echo "       $0 <directory to be inspected>              "
+        echo "          Generate the three result files and show them in vi"
+        echo ""
+        echo "       $0 <directory to be inspected> <something>"
+        echo "          Generate the three result files only."
         exit
     fi
 else
@@ -48,6 +54,14 @@ else
         echo "($0) ERROR: The assigned WORKDIR '$WORKDIR' does not exist."
         exit
     fi
+fi
+
+BATCH="$2"
+if [ "$BATCH" = "" ]
+then
+   BATCH=0
+else
+   BATCH=1
 fi
 
 OLD_PWD=`pwd`
@@ -110,4 +124,7 @@ MyCmd="sort -u issue_frequency.txt > issue_unique.txt"
 eval "$MyCmd"
 
 cd "$OLD_PWD"
-vi "$WORKDIR"/issue_*
+if [ 0 -eq $BATCH ]
+then
+   vi "$WORKDIR"/issue_*
+fi
