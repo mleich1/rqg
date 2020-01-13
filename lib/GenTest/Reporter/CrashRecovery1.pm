@@ -1,5 +1,5 @@
 # Copyright (C) 2013 Monty Program Ab
-# Copyright (C) 2019 MariaDB Corporation Ab.
+# Copyright (C) 2019, 2020  MariaDB Corporation Ab.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -318,6 +318,7 @@ sub report {
                 "ANALYZE TABLE $table_to_check",
                 "OPTIMIZE TABLE $table_to_check",
                 "REPAIR TABLE $table_to_check EXTENDED",
+                # In case of InnoDB: OPTIMIZE is not supported and gets translated to recreate + analyze
                 # mleich 2019-05
                 # $engine is set above to the server default storage engine.
                 # Given the fact that
@@ -400,6 +401,26 @@ sub report {
                         # ]
                         #       ];
                         next if (($result =~ m{error'}sio) and ($result =~ m{Query execution was interrupted}sio));
+                        # OPTIMIZE might be not supported and than mapped to ....
+                        # And that could become victim of 'Row size too large. ...
+                        # [
+                        #   'test.t3',
+                        #   'optimize',
+                        #   'note',
+                        #   'Table does not support optimize, doing recreate + analyze instead'
+                        # ],
+                        # [
+                        #   'test.t3',
+                        #   'optimize',
+                        #   'error',
+                        #   'Row size too large. The maximum row size for the used table type, not counting BLOBs, is 1982. This includes storage overhead, check the manual. You have to change some columns to TEXT or BLOBs'
+                        # ],
+                        # [
+                        #   'test.t3',
+                        #   'optimize',
+                        #   'status',
+                        #   'Operation failed'
+                        # ]
                         # 2019-11 Masses of
                         # Executing REPAIR TABLE `test`.`table1_innodb_key_pk_parts_2_int_autoinc` EXTENDED.
                         # $VAR1 = [
