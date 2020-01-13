@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, 2019 MariaDB Corporation Ab.
+#  Copyright (c) 2018 - 2020 MariaDB Corporation Ab.
 #  Use is subject to license terms.
 #
 #  This program is free software; you can redistribute it and/or modify
@@ -52,8 +52,15 @@ use constant SPACE_REMAIN   => 100;
 use constant SPACE_FREE     => 10000;
 #
 # Maximum storage space in MB required in vardir by one ongoing RQG run without core.
+# FIXME: measure
+# average run          ~  300 MB
+# rr for all processes ~ 2000 MB
 use constant SPACE_USED     => 300;   # <-- FIXME: measure
+                                      # Problem: We could have temporary doubling or similar.
 # Maximum storage space in MB required in vardir by a core (ASAN Build).
+# AFAIR seen
+# ASAN build   core ~ 2000 MB
+# debug build  core ~  900 MB but rare also 1800 MB observed.
 use constant SPACE_CORE     => 3000;  # <-- FIXME: measure
 # Maximum share of RQG runs where an end with core is assumed.
 use constant SHARE_CORE     => 0.1;
@@ -75,6 +82,28 @@ BEGIN {
     }
 }
 
+# Experiences
+# -----------
+# mem_total ~ Amount of RAM
+# Generate/add a file of 1 GB size in /dev/shm   Changes in output of GNU free
+# mem-free      - 1 GB
+# mem-used      ~ no change
+# buff/cache    + 1 GB
+# mem_available - 1 GB
+#
+# Sysinfo ....
+# memfree       - 1 GB
+# buffers       + 1 GB
+# cached        ~ no change
+# realfree      ~ no change (Total size of memory is real free (memfree + buffers + cached).)
+#               Hence realfree is not useful for the ResourceControl here because
+#               1. It contains the data in vardir which was not moved to swap.
+#               2. Given the fact that paging must be prevented in order to safe SSD lifetime
+#                  - we need to estimate with all vardir content in real memory
+#                  - ensure that paging does not happen.
+#                    This is tried by disallowing the used swap space to grow.
+#
+
 # Frequent used variables
 # -----------------------
 # <what_ever>          -- actual value
@@ -83,8 +112,8 @@ BEGIN {
 #    <what_ever>_consumed = <what_ever>_free_init - <what_ever>_free
 #    <what_ever>_consumed = <what_ever>_used - <what_ever>_used_init
 my $mem_total;          # Amount of RAM in MB
-my $mem_real_free_init;
-my $mem_real_free;
+my $mem_est_free_init;
+my $mem_est_free;
 my $mem_consumed;
 
 my $vardir;             # Path to that directory
@@ -114,14 +143,15 @@ my $previous_estimation  = '';
 my $previous_line        = '';
 my $previous_worker      = 0;
 
-# Resource control types, bookkeeping types
+# Resource control protocol types/bookkeeping types
 use constant RC_NONE               => 'None';
 use constant RC_BAD                => 'rc_bad';
 use constant RC_CHANGE_1           => 'rc_change_1';
 use constant RC_CHANGE_2           => 'rc_change_2';
+use constant RC_CHANGE_3           => 'rc_change_3';
 use constant RC_ALL                => 'rc_all';
 use constant RC_DEFAULT            => RC_CHANGE_2;
-use constant RC_ALLOWED_VALUE_LIST => [ RC_NONE, RC_BAD, RC_CHANGE_1, RC_CHANGE_2, RC_ALL ];
+use constant RC_ALLOWED_VALUE_LIST => [ RC_NONE, RC_BAD, RC_CHANGE_1, RC_CHANGE_2, RC_CHANGE_3, RC_ALL ];
 my $rc_type;
 
 my $book_keeping_file;
@@ -200,6 +230,11 @@ sub init {
             "HINT:      the value assigned to 'parallel' slowly.");
     }
 
+    $book_keeping_file = $workdir . "/" . "resource.txt";
+    if ($rc_type) {
+        Batch::make_file($book_keeping_file, undef);
+    }
+
     # The description was mostly taken from CPAN.
     $lxs = Sys::Statistics::Linux->new(
         sysinfo   => 1,
@@ -222,12 +257,17 @@ sub init {
         # steal   -  Percentage of stolen CPU time, which is the time spent in other
         #            operating systems when running in a virtualized environment (>=2.6.11).
         memstats  => 1,
-        # realfree    -  Total size of memory is real free (memfree + buffers + cached).   <======
-        # swapused    -  Total size of swap space is used is kilobytes.                    <======
+        # memfree     -  Total size of free memory in kilobytes. Free RAM           <======
+        # realfree    -  Total size of memory is real free (memfree + buffers + cached).
+        #                This is not useful because space consumption in tmpfs is in cached as far
+        #                as not already in swap.
+        # cached      -  Total size of cached memory in kilobytes.                  <======
+        # buffers     -  Total size of buffers used from memory in kilobytes.
+        # swapused    -  Total size of swap space is used is kilobytes.             <======
         # swapusedper -  Total size of swap space is used in percent
         pgswstats => 0,
         # Not that important but maybe used later
-        # FIXME: Heavy paging seen + bad for the SSD
+        # FIXME maybe: Heavy paging seen in 2018 + most probably bad if towards SSD
         # pgpgin      -  Number of pages the system has paged in from disk per second.
         # pgpgout     -  Number of pages the system has paged out to disk per second.
         # pswpin      -  Number of pages the system has swapped in from disk per second.
@@ -246,15 +286,10 @@ sub init {
 #   }
 #   chomp $nproc; # Remove the '\n'
 
-    $book_keeping_file = $workdir . "/" . "resource.txt";
-    if ($rc_type) {
-        Batch::make_file($book_keeping_file, undef);
-    }
-
 
     $vardir_free_init   = $vardir_free;
     $workdir_free_init  = $workdir_free;
-    $mem_real_free_init = $mem_real_free;
+    $mem_est_free_init  = $mem_est_free;
     $swap_used_init     = $swap_used;
 
     $print = 0; # Only now 'report' should not write into the bookkeeping file.
@@ -278,11 +313,12 @@ sub init {
     my $val;
     my $workers_min;
     my $workers_mid;
-    # Worst case estimations
+    # Bad case estimations
+    # - The tests run temporary or permanent with two DB servers.
+    # - The estimated share of workers produce a core.
+    # - One worker cores anyway.
     # Lower the value if its too big.
-    # RAM - 12000 = $workers * (2 * (MEM_USED + SPACE_USED) + SHARE_CORE * SPACE_CORE)
-    #               - SHARE_CORE * SPACE_CORE + SPACE_CORE;
-    $val = int(($mem_total - 12000 + SHARE_CORE * SPACE_CORE - SPACE_CORE) /
+    $val = int(($mem_est_free - SHARE_CORE * SPACE_CORE - SPACE_CORE) /
            (2 * (MEM_USED + SPACE_USED) + SHARE_CORE * SPACE_CORE));
     say("DEBUG: workers_min 1: $val");
     $workers_min = $val;
@@ -298,13 +334,13 @@ sub init {
 
     # --------------
     # Average case estimations
-    # RAM - 10 GB = $workers * (MEM_USED + SPACE_USED + SHARE_CORE * SPACE_CORE);
-    #               - SHARE_CORE * SPACE_CORE + SPACE_CORE;
-    $val = int(($mem_total - 10000 + SHARE_CORE * SPACE_CORE - SPACE_CORE) /
+    # - The tests run all time with one DB server only.
+    # - The estimated share of workers produce a core.
+    # - One worker cores anyway.
+    $val = int(($mem_est_free + SHARE_CORE * SPACE_CORE - SPACE_CORE) /
            (MEM_USED + SPACE_USED + SHARE_CORE * SPACE_CORE));
     say("DEBUG: workers_mid 1: $val");
     $workers_mid = $val;
-    # vardir_free > $workers * (SHARE_CORE * SPACE_CORE + SPACE_USED);
     $val = int(($vardir_free + SHARE_CORE * SPACE_CORE - SPACE_CORE ) /
            (SPACE_USED + SHARE_CORE * SPACE_CORE));
     say("DEBUG: workers_mid 2: $val");
@@ -315,36 +351,29 @@ sub init {
 
     if ($rc_type) {
         my $iso_ts = isoTimestamp();
-        my $line = "$iso_ts ResourceControl type    : $rc_type\n"                                  .
-                   "$iso_ts vardir  '$vardir'  free : $vardir_free_init\n"                         .
-                   "$iso_ts workdir '$workdir' free : $workdir_free_init\n"                        .
-                   "$iso_ts memory total            : $mem_total\n"                                .
-                   "$iso_ts memory real free        : $mem_real_free_init\n"                       .
-                   "$iso_ts swap space total        : $swap_total\n"                               .
-                   "$iso_ts swap space used         : $swap_used_init\n"                           .
-                   "$iso_ts cpu cores (HT included) : $tcpu_count\n"                               .
-                   "$iso_ts parallel (est. min)     : $workers_min\n"                              .
-                   "$iso_ts parallel (est. mid)     : $workers_mid\n"                              .
-                   "$iso_ts return (to rqg_batch)   : $load_status, $workers_mid, $workers_min\n"  .
-                   "---------------------------------------------------------------------------\n" .
-                   "$iso_ts     *_consumed means amount lost since start of our rqg_batch run\n"   .
-                   "$iso_ts worker , vardir_consumed - vardir_free , "                             .
-                                    "workdir_consumed - workdir_free , "                           .
-                                    "mem_consumed - mem_real_free , "                              .
-                                    "swap_consumed - swap_free = load_status\n";
+        my $line =
+            "$iso_ts ResourceControl type    : $rc_type\n"                                  .
+            "$iso_ts vardir  '$vardir'  free : $vardir_free_init\n"                         .
+            "$iso_ts workdir '$workdir' free : $workdir_free_init\n"                        .
+            "$iso_ts memory total            : $mem_total\n"                                .
+            "$iso_ts memory real free        : $mem_est_free_init\n"                       .
+            "$iso_ts swap space total        : $swap_total\n"                               .
+            "$iso_ts swap space used         : $swap_used_init\n"                           .
+            "$iso_ts cpu cores (HT included) : $tcpu_count\n"                               .
+            "$iso_ts parallel (est. min)     : $workers_min\n"                              .
+            "$iso_ts parallel (est. mid)     : $workers_mid\n"                              .
+            "$iso_ts return (to rqg_batch)   : $load_status, $workers_mid, $workers_min\n"  .
+            "---------------------------------------------------------------------------\n" .
+            "$iso_ts Unit for memory and storage space is MB\n"                             .
+            "$iso_ts     *_consumed means amount lost since start of our rqg_batch run\n"   .
+            "$iso_ts worker , vardir_consumed - vardir_free , "                             .
+                     "workdir_consumed - workdir_free , "                                   .
+                     "mem_consumed - mem_est_free , "                                      .
+                     "swap_consumed - swap_free = load_status\n";
         if ($rqg_batch_debug) {
             $line .= "$iso_ts     vsz - rsz - sz - size #### rqg_batch process\n";
         }
-        $line .=   "---------------------------------------------------------------------------\n" .
-                   "$iso_ts $worker_active, " .  # There is in the moment no active worker.
-                       $vardir_used   . " - " . $vardir_free   . " - " .
-                       $workdir_used  . " - " . $workdir_free  . " - " .
-                       $mem_real_free . " - " . $swap_used . " - " .
-                       $load_status       . "\n";
-        if ($rqg_batch_debug) {
-            my $val  = mem_usage();
-            $line .= "$iso_ts  $val";
-        }
+        $line .=   "---------------------------------------------------------------------------\n";
         Batch::append_string_to_file($book_keeping_file, $line);
     }
     return $load_status, $workers_mid, $workers_min;
@@ -372,9 +401,14 @@ sub report {
 
     $vardir_consumed   = $vardir_free_init   - $vardir_free;
     $workdir_consumed  = $workdir_free_init  - $workdir_free;
-    $mem_consumed      = $mem_real_free_init - $mem_real_free;
+    $mem_consumed      = $mem_est_free_init - $mem_est_free;
     $swap_consumed     = $swap_used          - $swap_used_init;
     $swap_free         = $swap_total         - $swap_used;
+
+    if ($swap_consumed > $swap_total / 100) {
+        say("WARN: swap_consumed : $swap_consumed , giving up.");
+        return LOAD_GIVE_UP;
+    }
 
     # Setting $load_status = LOAD_GIVE_UP serves basically three purposes
     # a) prevent that one possible bad event (one RQG test dies with core) leads to losing the
@@ -397,9 +431,10 @@ sub report {
     # One worker dies with core which has to be placed in tmpfs. The current virtual memory
     # usage forces to put stuff (parts of running programs and/or parts of vardir occupied
     # by files) with a size like that core into the swap. And there is not enough free.
-    $sr_U = $swap_free - SPACE_CORE;
-    $sr_U = 0 if 0 == $swap_free;
-    $mr_U = $mem_real_free - 0; # Basically no idea
+    # $sr_U = $swap_free - SPACE_CORE;
+    $sr_U = $mem_est_free + $swap_free - SPACE_CORE;
+    # $sr_U = 0 if 0 == $swap_free;
+    $mr_U = $mem_est_free - 0; # Basically no idea
     # 8000 MB is a guess based on
     #     RQG on skylake01, swap space use started to grow and
     #     192 GB - ($vardir_consumed + $mem_consumed) = 8000 MB.
@@ -424,15 +459,22 @@ sub report {
     my $vd_D;
     my $rd_D;
     my $sd_D;
-    # The estimated fraction of workers or at least one dies with core at the same point of time.
-    $vd_D = $worker_active * SHARE_CORE * SPACE_CORE;
-    if ($vd_D < SPACE_CORE) {
-        $vd_D = SPACE_CORE;
-    }
+    # One worker and the estimated fraction of the remaining worker dies with core at the same
+    # point of time.
+    # Important:
+    # We must compute more than in the "give up" case (SPACE_CORE). Because otherwise we could get
+    # $vardir_free < SPACE_CORE
+    #     --> give_up criterion fulfilled
+    # $vardir_free < SPACE_CORE
+    #     $worker_active * SHARE_CORE < 1 and therefore rounded up to 1
+    #     --> decrease criterion fulfilled
+    # Checks of criterions is ordered give_up? --if no--> decrease? --if no--> keep? --> ...
+    $vd_D = (1 + ($worker_active - 1) * SHARE_CORE)  * SPACE_CORE;
     $vr_D = $vardir_free - $vd_D;
     $sd_D = $vd_D;
-    $sr_D = $swap_free - $sd_D;
-    $sr_D = 0 if 0 == $swap_free;
+    # $sr_D = $swap_free - $sd_D;
+    $sr_D = $mem_est_free + $swap_free - $sd_D;
+    # $sr_D = 0 if 0 == $swap_free;
     # All active workers finish with fail + archiving etc. and we would fall below the free space
     # threshold for the workdir. Some moderate decrease of activity till stop would be good.
     $wr_D = $workdir_free - $worker_active * SPACE_REMAIN + SPACE_FREE;
@@ -441,7 +483,7 @@ sub report {
     # ($mem_total) than the OS will be forced to use more swap space that we do not want.
     $rd_D = $vd_D + $vardir_consumed + $mem_consumed + 8000 + 1000;
     $rr_D = $mem_total - $rd_D;
-    $mr_D = $mem_real_free - 0; # Basically no idea
+    $mr_D = $mem_est_free - 0; # Basically no idea
 
 #----------------------
 
@@ -475,10 +517,10 @@ sub report {
     } else {
         $md_K = MEM_USED;
     }
-    $mr_K = $mem_real_free - $md_K;
+    $mr_K = $mem_est_free - $md_K;
 
     $sr_K = $sr_D; # Have no good idea.
-    $sr_K = 0 if 0 == $swap_free;
+    # $sr_K = 0 if 0 == $swap_free;
 
     # In case the estimated space consumed in memory ($md_K) and the estimated space in vardir
     # ($vd_K) exceeds the total amount of RAM ($mem_total) than we will maybe
@@ -513,12 +555,12 @@ sub report {
             $load_status = LOAD_GIVE_UP;
         } elsif (0 > $mr_U) {
             $info_m = "G2";
-            $info = "INFO: $info_m The free memory ($mem_real_free MB) $end_part";
+            $info = "INFO: $info_m The free memory ($mem_est_free MB) $end_part";
             $load_status = LOAD_GIVE_UP;
-        } elsif (0 > $rr_U) {
-            $info_m = "G3";
-            $info = "INFO: $info_m The space consumption for the RAM ($mem_total MB) $end_part";
-            $load_status = LOAD_GIVE_UP;
+#       } elsif (0 > $rr_U) {
+#           $info_m = "G3";
+#           $info = "INFO: $info_m The space consumption for the RAM ($mem_total MB) $end_part";
+#           $load_status = LOAD_GIVE_UP;
         } elsif (0 > $sr_U) {
             $info_m = "G4";
             $info = "INFO: $info_m The free swap ($swap_free MB) $end_part";
@@ -538,12 +580,12 @@ sub report {
             $load_status = LOAD_DECREASE;
         } elsif (0 > $mr_D) {
             $info_m = "D2";
-            $info = "INFO: $info_m The free memory ($mem_real_free MB) $end_part";
+            $info = "INFO: $info_m The free memory ($mem_est_free MB) $end_part";
             $load_status = LOAD_DECREASE;
-        } elsif (0 > $rr_D) {
-            $info_m = "D3";
-            $info = "INFO: $info_m The space consumption for the RAM ($mem_total MB) $end_part";
-            $load_status = LOAD_DECREASE;
+#       } elsif (0 > $rr_D) {
+#           $info_m = "D3";
+#           $info = "INFO: $info_m The space consumption for the RAM ($mem_total MB) $end_part";
+#           $load_status = LOAD_DECREASE;
         } elsif (0 > $sr_D) {
             $info_m = "D4";
             $info = "INFO: $info_m The free swap ($swap_free MB) $end_part";
@@ -563,12 +605,12 @@ sub report {
             $load_status = LOAD_KEEP;
         } elsif (0 > $mr_K) {
             $info_m = "K2";
-            $info = "INFO: $info_m The free memory ($mem_real_free MB) $end_part";
+            $info = "INFO: $info_m The free memory ($mem_est_free MB) $end_part";
             $load_status = LOAD_KEEP;
-        } elsif (0 > $rr_K) {
-            $info_m = "K3";
-            $info = "INFO: $info_m The space consumption for the RAM ($mem_total MB) $end_part";
-            $load_status = LOAD_KEEP;
+#       } elsif (0 > $rr_K) {
+#           $info_m = "K3";
+#           $info = "INFO: $info_m The space consumption for the RAM ($mem_total MB) $end_part";
+#           $load_status = LOAD_KEEP;
         } elsif (0 > $sr_K) {
             $info_m = "K4";
             $info = "INFO: $info_m The free swap ($swap_free MB) $end_part";
@@ -594,7 +636,7 @@ sub report {
     my $line = "$iso_ts $worker_active , " .
                    $vardir_consumed   . " - " . $vardir_free   . " , " .
                    $workdir_consumed  . " - " . $workdir_free  . " , " .
-                   $mem_consumed      . " - " . $mem_real_free . " , " .
+                   $mem_consumed      . " - " . $mem_est_free . " , " .
                    $swap_consumed     . " - " . $swap_free     . " = " .
                    $load_status       . " $info_m\n";
     if ($rqg_batch_debug) {
@@ -617,6 +659,14 @@ sub report {
                 if ($resource_control_debug) {
                     Batch::append_string_to_file($book_keeping_file, $estimation);
                 }
+        } elsif (RC_CHANGE_3 eq $rc_type and
+                 ($previous_load_status ne $load_status or $previous_worker != $worker_active or
+                  LOAD_GIVE_UP          eq $load_status or LOAD_DECREASE eq $load_status))      {
+                Batch::append_string_to_file($book_keeping_file, $previous_line);
+                Batch::append_string_to_file($book_keeping_file, $line);
+                if ($resource_control_debug) {
+                    Batch::append_string_to_file($book_keeping_file, $estimation);
+                }
         } elsif (RC_BAD eq $rc_type and
                  (LOAD_GIVE_UP eq $load_status or LOAD_DECREASE eq $load_status)) {
                 Batch::append_string_to_file($book_keeping_file, $line);
@@ -632,6 +682,8 @@ sub report {
                 # Print nothing
         }
         if (LOAD_GIVE_UP eq $load_status) {
+            Batch::append_string_to_file($book_keeping_file,
+                "The overall state is bad. Some details -------------");
             ask_tool();
         }
     }
@@ -644,53 +696,53 @@ sub report {
 
 sub measure {
 
-        my $ref;
-        $ref = Filesys::Df::df($vardir, SPACE_UNIT);  # Default output is 1M blocks
-        if(defined($ref)) {
-            # bavail == Free space which the current user would be allowed to occupy.
-            $vardir_free = int($ref->{bavail});
-        } else {
-            say("ERROR: df for '$vardir' failed.");
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            Batch::emergency_exit($status);
-        }
-        $ref = Filesys::Df::df($workdir, SPACE_UNIT);
-        if(defined($ref)) {
-            $workdir_free = int($ref->{bavail});
-        } else {
-            say("ERROR: df for '$workdir' failed.");
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            Batch::emergency_exit($status);
-        }
-        my $stat = $lxs->get();
-        # my $sysinfo   = $stat->sysinfo;
-        # 32817156 kB
-        $mem_total = $stat->sysinfo->{memtotal};
-        # Cut the appended " kB" away.
-        $mem_total =~ s{ kB$}{}mi;
-        if (not defined (eval "$mem_total + 1")) {
-            Carp::cluck("INTERNAL ERROR: mem_total($mem_total) is not numeric.");
-            my $status = STATUS_INTERNAL_ERROR;
-            Batch::emergency_exit($status);
-        }
-        $mem_total  = int($mem_total  / 1024);
+    my $ref;
+    $ref = Filesys::Df::df($vardir, SPACE_UNIT);  # Default output is 1M blocks
+    if(defined($ref)) {
+        # bavail == Free space which the current user would be allowed to occupy.
+        $vardir_free = int($ref->{bavail});
+    } else {
+        say("ERROR: df for '$vardir' failed.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        Batch::emergency_exit($status);
+    }
+    $ref = Filesys::Df::df($workdir, SPACE_UNIT);
+    if(defined($ref)) {
+        $workdir_free = int($ref->{bavail});
+    } else {
+        say("ERROR: df for '$workdir' failed.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        Batch::emergency_exit($status);
+    }
+    my $stat = $lxs->get();
+    # my $sysinfo   = $stat->sysinfo;
+    # 32817156 kB
+    $mem_total = $stat->sysinfo->{memtotal};
+    # Cut the appended " kB" away.
+    $mem_total =~ s{ kB$}{}mi;
+    if (not defined (eval "$mem_total + 1")) {
+        Carp::cluck("INTERNAL ERROR: mem_total($mem_total) is not numeric.");
+        my $status = STATUS_INTERNAL_ERROR;
+        Batch::emergency_exit($status);
+    }
+    $mem_total  = int($mem_total  / 1024);
 
-        $swap_total = $stat->sysinfo->{swaptotal};
-        # Cut the appended " kB" away.
-        $swap_total =~ s{ kB$}{}mi;
-        if (not defined (eval "$swap_total + 1")) {
-            Carp::cluck("INTERNAL ERROR: swap_total($swap_total) is not numeric.");
-            my $status = STATUS_INTERNAL_ERROR;
-            Batch::emergency_exit($status);
-        }
-        $swap_total = int($swap_total / 1024);
 
-        $pcpu_count = $stat->sysinfo->{pcpucount};
-        $tcpu_count = $stat->sysinfo->{tcpucount};
+    $swap_total = $stat->sysinfo->{swaptotal};
+    # Cut the appended " kB" away.
+    $swap_total =~ s{ kB$}{}mi;
+    if (not defined (eval "$swap_total + 1")) {
+        Carp::cluck("INTERNAL ERROR: swap_total($swap_total) is not numeric.");
+        my $status = STATUS_INTERNAL_ERROR;
+        Batch::emergency_exit($status);
+    }
+    $swap_total = int($swap_total / 1024);
 
-        # my $memstats  = $stat->memstats;
-        $mem_real_free = int($stat->memstats->{realfree} / 1024);
-        $swap_used     = int($stat->memstats->{swapused} / 1024);
+    $pcpu_count = $stat->sysinfo->{pcpucount};
+    $tcpu_count = $stat->sysinfo->{tcpucount};
+
+    $swap_used    = int($stat->memstats->{swapused} / 1024);
+    $mem_est_free = int(($stat->memstats->{memfree} + $stat->memstats->{cached}) / 1024);
 
 }
 
