@@ -241,7 +241,9 @@ sub nativeReport {
     say("INFO: The core file name computed is '$core'.");
     $core = File::Spec->rel2abs($core);
     if (-f $core) {
-        say("INFO: The core file '$core' exists.")
+        my @filestats = stat($core);
+        my $filesize  = $filestats[7] / 1024;
+        say("INFO: Core file '$core' size in KB: $filesize");
     } else {
         say("WARNING: Core file not found!");
         # AFAIR:
