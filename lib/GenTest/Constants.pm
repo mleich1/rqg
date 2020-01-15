@@ -1,6 +1,6 @@
 # Copyright (c) 2008,2011 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013 Monty Program Ab.
-# Copyright (c) 2018,2019 MariaDB Corporation Ab.
+# Copyright (c) 2018,2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -74,6 +74,8 @@ require Exporter;
    STATUS_VALGRIND_FAILURE
    STATUS_ALARM
 
+   STATUS_RSS_DOUBLED
+
    ORACLE_ISSUE_STILL_REPEATABLE
    ORACLE_ISSUE_NO_LONGER_REPEATABLE
    ORACLE_ISSUE_STATUS_UNKNOWN
@@ -107,7 +109,7 @@ use constant STATUS_SKIP                       => 6;    # A Filter specifies tha
 use constant STATUS_SKIP_RELOOP                => 7;    # The Executor detected that the connection was lost but connect is possible.
                                                         # Assume: Loss of connection from natural reason.
 
-use constant STATUS_UNSUPPORTED         => 20; # Error codes caused by certain functionality recognized as unsupported (NOT syntax errors)
+use constant STATUS_UNSUPPORTED                => 20; # Error codes caused by certain functionality recognized as unsupported (NOT syntax errors)
 use constant STATUS_SYNTAX_ERROR               => 21;
 use constant STATUS_SEMANTIC_ERROR             => 22;   # Errors caused by the randomness of the test, e.g. dropping a non-existing table
 use constant STATUS_TRANSACTION_ERROR          => 23;   # Lock wait timeouts, deadlocks, duplicate keys, etc.
@@ -150,6 +152,10 @@ use constant STATUS_BACKUP_FAILURE             => 108;
 use constant STATUS_VALGRIND_FAILURE           => 109;
 use constant STATUS_ALARM                      => 110; # A module, e.g. a Reporter, raises an alarm with critical severity
 
+use constant STATUS_RSS_DOUBLED                => 120; # Reporter ServerMem raises an alarm with critical severity
+                                                       # The existence and also the name of this status is not yet decided.
+                                                       # So it might get renamed or disappear in some later RQG version.
+
 use constant ORACLE_ISSUE_STILL_REPEATABLE     => 2;
 use constant ORACLE_ISSUE_NO_LONGER_REPEATABLE => 3;
 use constant ORACLE_ISSUE_STATUS_UNKNOWN       => 4;
@@ -161,7 +167,13 @@ use constant DB_POSTGRES                       => 3;
 use constant DB_JAVADB                         => 4;
 use constant DB_DRIZZLE                        => 5;
 
-use constant DEFAULT_MTR_BUILD_THREAD          => 930; ## Legacy...
+# Original code
+# use constant DEFAULT_MTR_BUILD_THREAD          => 930; ## Legacy...
+# On extreme testing boxes (temporary more than 200 RQG runner) ports > 32000 get computed
+# and they tend to be sometimes already occupied.
+# Experiment:
+use constant DEFAULT_MTR_BUILD_THREAD          => 830;
+
 
 #
 # The part below deals with constant value to constant name conversions

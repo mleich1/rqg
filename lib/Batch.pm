@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, 2019 MariaDB Corporation Ab.
+#  Copyright (c) 2018, 2020 MariaDB Corporation Ab.
 #  Use is subject to license terms.
 #
 #  This program is free software; you can redistribute it and/or modify
@@ -58,6 +58,8 @@ use constant STATUS_FAILURE    => 1; # Just the opposite of STATUS_OK
 # -------------------------------------------------------------------------
 use constant RQG_NO_TITLE        => 'Number';
 use constant RQG_NO_LENGTH       => 6;              # Maximum is 999999
+use constant RQG_WNO_TITLE       => 'Worker';
+use constant RQG_WNO_LENGTH      => 6;              # practical Maximum is 1000
 
 use constant RQG_LOG_TITLE       => 'RQG log   ';   # 999999.log or <deleted>
 use constant RQG_LOG_LENGTH      => 10;             # 999999.log or <deleted>
@@ -461,6 +463,14 @@ use constant WORKER_ORDER_LENGTH =>  8;
     say ($message . "worker_array_dump end   --------") if Auxiliary::script_debug("T6");
 }
 
+
+# stop_worker* routines
+# ---------------------
+# Important:
+# These routines
+# - send KILL to the processgroups of the RQG workers picked
+# - maybe set $worker_array[$worker_num][WORKER_STOP_REASON]
+# but they do NOT wait for any impact!
 sub stop_worker {
     my ($worker_num, $stop_reason) = @_;
     my $pid = $worker_array[$worker_num][WORKER_PID];
@@ -2028,6 +2038,7 @@ sub process_finished_runs {
                     if Auxiliary::script_debug("B4");
             }
             my @result_record = (
+                    $worker_num,
                     $worker_array[$worker_num][WORKER_ORDER_ID],
                     $worker_array[$worker_num][WORKER_VERDICT],
                     $extra_info,

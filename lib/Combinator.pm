@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -399,7 +399,8 @@ sub init {
 "$iso_ts Verdict setup\n"                                                                                                    .
 $verdict_setup                                                                                                               .
 "$iso_ts ================================================================================================================\n" .
-"$iso_ts | " . Batch::RQG_NO_TITLE        . " | " . Verdict::RQG_VERDICT_TITLE . " | " . Batch::RQG_LOG_TITLE                .
+"$iso_ts | " . Batch::RQG_NO_TITLE        . " | " . Batch::RQG_WNO_TITLE       . " | " . Verdict::RQG_VERDICT_TITLE          .
+       " | " . Batch::RQG_LOG_TITLE       .
        " | " . Batch::RQG_ORDERID_TITLE   . " | " . "RunTime"                  . " | " . "Extra info"         .         "\n" ;
 
     Batch::write_result($header);
@@ -735,7 +736,7 @@ sub register_result {
 # - ~ run emergency exit
 #
 
-    my ($order_id, $verdict, $extra_info, $saved_log_rel, $total_runtime) = @_;
+    my ($worker_number, $order_id, $verdict, $extra_info, $saved_log_rel, $total_runtime) = @_;
     say("DEBUG: Combinator::register_result : OrderID : $order_id, Verdict: $verdict, " .
         "Extra info: $extra_info, RQG log : '$saved_log_rel', total_runtime : $total_runtime")
         if Auxiliary::script_debug("C4");
@@ -764,6 +765,7 @@ sub register_result {
     my $iso_ts = isoTimestamp();
     my $line   = "$iso_ts | " .
                  Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)     . " | " .
+                 Auxiliary::lfill($worker_number, Batch::RQG_WNO_LENGTH)     . " | " .
                  Auxiliary::rfill($verdict,Verdict::RQG_VERDICT_LENGTH)      . " | " .
                  Auxiliary::lfill($saved_log_rel, Batch::RQG_LOG_LENGTH)     . " | " .
                  Auxiliary::lfill($order_id, Batch::RQG_ORDERID_LENGTH)      . " | " .

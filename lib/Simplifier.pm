@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -293,7 +293,8 @@ use constant RQG_DERIVATE_TITLE    => 'Derivate used     ';
 use constant RQG_PARENT_TITLE      => 'Parent of derivate';
 use constant RQG_SPECIALITY_LENGTH => 18;             # Maximum is Title
 my $title_line_part =
-       " | " . Batch::RQG_NO_TITLE        . " | " . Verdict::RQG_VERDICT_TITLE .
+       " | " . Batch::RQG_NO_TITLE        . " | " . Batch::RQG_WNO_TITLE       .
+       " | " . Verdict::RQG_VERDICT_TITLE .
        " | " . Batch::RQG_LOG_TITLE       . " | " . Batch::RQG_ORDERID_TITLE   .
        " | " . "RunTime"                  . " | " . RQG_DERIVATE_TITLE         .
        " | " . RQG_PARENT_TITLE           . " | " . "Extra_info" . "\n";
@@ -1746,22 +1747,22 @@ sub register_result {
 #
 
     our $arrival_number;
-    my ($order_id, $verdict, $extra_info, $saved_log_rel, $total_runtime,
+    my ($worker_num, $order_id, $verdict, $extra_info, $saved_log_rel, $total_runtime,
         $grammar_used, $grammar_parent, $adapted_duration) = @_;
 
-    if (@_ != 8) {
+    if (@_ != 9) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: register_result : 8 Parameters (order_id, verdict, " .
-                    "extra_info, saved_log_rel, total_runtime, grammar_used, grammar_parent, " .
-                    "adapted_duration) are required.");
+        Carp::cluck("INTERNAL ERROR: register_result : 9 Parameters (worker_num, order_id, " .
+                    "verdict, extra_info, saved_log_rel, total_runtime, grammar_used, "      .
+                    "grammar_parent, adapted_duration) are required.");
         Batch::emergency_exit($status);
     }
-    if (not defined $order_id or not defined $verdict) {
+    if (not defined $worker_num or not defined $order_id or not defined $verdict) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: order_id or verdict is undef");
+        Carp::cluck("INTERNAL ERROR: worker_num or order_id or verdict is undef");
         Batch::emergency_exit($status);
     }
-    Carp::cluck("DEBUG: Simplifier::register_result(order_id, verdict, extra_info, " .
+    Carp::cluck("DEBUG: Simplifier::register_result(worker_num, order_id, verdict, extra_info, " .
                 "saved_log_rel, total_runtime, grammar_used, grammar_parent, adapted_duration)")
         if Auxiliary::script_debug("S4");
 
@@ -1820,6 +1821,7 @@ sub register_result {
     my $iso_ts = isoTimestamp();
     my $line   = "$iso_ts | " .
         Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
+        Auxiliary::lfill($worker_num,     Batch::RQG_WNO_LENGTH)       . " | " .
         Auxiliary::rfill($verdict,        Verdict::RQG_VERDICT_LENGTH) . " | " .
         Auxiliary::lfill($saved_log_rel,  Batch::RQG_LOG_LENGTH)       . " | " .
         Auxiliary::lfill($order_id,       Batch::RQG_ORDERID_LENGTH)   . " | " .
@@ -2389,8 +2391,8 @@ sub switch_phase {
         my $status = STATUS_INTERNAL_ERROR;
         Batch::emergency_exit($status);
     }
-    Batch::init_order_management();
-    Batch::init_load_control();
+    Batch::init_order_management();   # ??? Why here?
+    Batch::init_load_control();       # ??? Why here?
     say("DEBUG: Simplifier::switch_phase: Leaving routine. Current phase is '$phase'.")
         if Auxiliary::script_debug("S4");
     $campaign_success = 0;
