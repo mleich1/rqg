@@ -69,6 +69,7 @@ use constant MYSQLD_CLIENT_BINDIR                => 30;
 use constant MYSQLD_SERVER_VARIABLES             => 31;
 use constant MYSQLD_SQL_RUNNER                   => 32;
 use constant MYSQLD_RR                           => 33;
+use constant MYSQLD_RR_OPTIONS                   => 34;
 
 use constant MYSQLD_PID_FILE                     => "mysql.pid";
 use constant MYSQLD_ERRORLOG_FILE                => "mysql.err";
@@ -95,7 +96,8 @@ sub new {
                                    'valgrind_options' => MYSQLD_VALGRIND_OPTIONS,
                                    'config' => MYSQLD_CONFIG_CONTENTS,
                                    'user' => MYSQLD_USER,
-                                   'rr' => MYSQLD_RR},@_);
+                                   'rr' => MYSQLD_RR,
+                                   'rr_options' => MYSQLD_RR_OPTIONS},@_);
 
     croak "No valgrind support on windows" if osWindows() and $self->[MYSQLD_VALGRIND];
     croak "No rr support on OS <> Linux"   if $self->[MYSQLD_RR] and not osLinux() and $self->[MYSQLD_RR];
@@ -573,40 +575,48 @@ sub startServer {
                     $self->valgrind_suppressionfile . " " . $val_opt . " " . $command;
       }
 
-      if ($self->[MYSQLD_RR]) {
-         $start_wait_timeout = 45;   # Maximum wait time for an error log update or
-                                     # pid_file existence..
-         $startup_timeout    = 900;
+        if ($self->[MYSQLD_RR]) {
+            $start_wait_timeout = 45;   # Maximum wait time for an error log update or
+                                        # pid_file existence..
+            $startup_timeout    = 900;
 
-         my $rr_trace_dir = $self->vardir . "/rr_trace";
-         # Remove any remainings of some previous rr use
-         # - bootstrap (currently not supported but maybe in future)
-         # - start server, shutdown, start server again
-         # in order to keep the space consumption as small as possible.
-         # Important:
-         # We should not be never here in case some previous step hit a serious error
-         # because otherwise we would just now destroy valuable data.
-         if (-d $rr_trace_dir) {
-            if (not File::Path::rmtree($rr_trace_dir)) {
-               my $status = DBSTATUS_FAILURE;
-               say("ERROR: startserver: Removal of the tree '$rr_trace_dir' failed. : $!. " .
-                   "Will return status DBSTATUS_FAILURE" . "($status)");
-               return $status;
+            my $rr_options = '';
+            if (defined $self->[MYSQLD_RR_OPTIONS]) {
+                $rr_options = $self->[MYSQLD_RR_OPTIONS];
             }
-         }
-         # Experiments showed that the rr trace directory must exist in advance.
-         if (not mkdir $rr_trace_dir) {
-            my $status = DBSTATUS_FAILURE;
-            say("ERROR: Creating the 'rr' trace directory '$rr_trace_dir' failed : $!. " .
-                "Will return status DBSTATUS_FAILURE" . "($status)");
-            return $status;
-         }
-         $command = "_RR_TRACE_DIR=$rr_trace_dir rr record --mark-stdio $command";
-         # The rqg runner has to check in advance that 'rr' is installed on the current box.
-         # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
-         # in the DB server error log.
-
-      }
+            my $rr_trace_dir = $self->vardir . "/rr_trace";
+            # Remove any remainings of some previous rr use
+            # - bootstrap (currently not supported but maybe in future)
+            # - start server, shutdown, start server again
+            # in order to keep the space consumption as small as possible.
+            # Important:
+            # We should not be never here in case some previous step hit a serious error
+            # because otherwise we would just now destroy valuable data.
+            if (-d $rr_trace_dir) {
+                if (not File::Path::rmtree($rr_trace_dir)) {
+                    my $status = DBSTATUS_FAILURE;
+                    say("ERROR: startserver: Removal of the tree '$rr_trace_dir' failed. : $!. " .
+                        "Will return status DBSTATUS_FAILURE" . "($status)");
+                    return $status;
+                }
+            }
+            # Experiments showed that the rr trace directory must exist in advance.
+            if (not mkdir $rr_trace_dir) {
+                my $status = DBSTATUS_FAILURE;
+                say("ERROR: Creating the 'rr' trace directory '$rr_trace_dir' failed : $!. " .
+                    "Will return status DBSTATUS_FAILURE" . "($status)");
+                return $status;
+            }
+            # Core files
+            # - do not offer more information than already provided by "rr"
+            # - get often written even if the server option "--core-file" was not assigned
+            # - consume ~ 1 GB storage space in vardir (usually located in tmpfs) temporary
+            # So we try to prevent the writing of core files via ulimit.
+            $command = "ulimit -c 0; _RR_TRACE_DIR=$rr_trace_dir rr record --mark-stdio $rr_options $command";
+            # The rqg runner has to check in advance that 'rr' is installed on the current box.
+            # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
+            # in the DB server error log.
+        }
 
       # This is too early. printInfo needs the pid which is currently unknown!
       # $self->printInfo;

@@ -245,7 +245,7 @@ my (@basedirs, @mysqld_options, @vardirs, $rpl_mode,
     $restart_timeout, $gendata_advanced, $scenario, $upgrade_test, $store_binaries,
     $ps_protocol, @gendata_sql_files, $config_file,
     @whitelist_statuses, @whitelist_patterns, @blacklist_statuses, @blacklist_patterns,
-    $workdir, $queries, $script_debug_value, $rr,
+    $workdir, $queries, $script_debug_value, $rr, $rr_options,
     $options);
 
 my $gendata   = ''; ## default simple gendata
@@ -350,6 +350,7 @@ if (not GetOptions(
     'valgrind!'                   => \$valgrind,
     'valgrind_options=s@'         => \@valgrind_options,
     'rr!'                         => \$rr,
+    'rr_options=s'                => \$rr_options,
     'vcols:s'                     => \$vcols[0],
     'vcols1:s'                    => \$vcols[1],
     'vcols2:s'                    => \$vcols[2],
@@ -419,6 +420,8 @@ if (defined $rr and STATUS_OK != Auxiliary::find_external_command("rr")) {
     say("ERROR: rr is required but was not found.");
     safe_exit($status);
 }
+# FIXME
+# The reporter Backtrace + rr makes no sense because writing a core file is prevented.
 if (defined $valgrind and STATUS_OK != Auxiliary::find_external_command("valgrind")) {
     my $status = STATUS_ENVIRONMENT_FAILURE;
     say("ERROR: valgrind is required but was not found.");
@@ -1225,6 +1228,11 @@ if ($genconfig) {
     );
 }
 
+if (defined $rr) {
+    if (defined $rr_options) {
+        $rr_options = '"' . $rr_options . '"';
+    }
+}
 
 say(Verdict::MATCHING_START);
 
@@ -1265,6 +1273,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                  valgrind            => $valgrind,
                  valgrind_options    => \@valgrind_options,
                  rr                  => $rr,
+                 rr_options          => $rr_options,
                  general_log         => 1,
                  start_dirty         => $start_dirty, # This will not work for the first start. (vardir is empty)
                  use_gtid            => $use_gtid,
@@ -1314,6 +1323,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         valgrind           => $valgrind,
         valgrind_options   => \@valgrind_options,
         rr                 => $rr,
+        rr_options         => $rr_options,
         general_log        => 1,
         start_dirty        => $start_dirty,
         node_count         => length($galera),
@@ -1382,6 +1392,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                                               valgrind         => $valgrind,
                                               valgrind_options => \@valgrind_options,
                                               rr               => $rr,
+                                              rr_options       => $rr_options,
                                               server_options   => $mysqld_options[0],
                                               general_log      => 1,
                                               config           => $cnf_array_ref,
@@ -1420,6 +1431,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                    valgrind          => $valgrind,
                    valgrind_options  => \@valgrind_options,
                    rr                => $rr,
+                   rr_options        => $rr_options,
                    server_options    => $mysqld_options[1],
                    general_log       => 1,
                    config            => $cnf_array_ref,
@@ -1455,6 +1467,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                             valgrind           => $valgrind,
                             valgrind_options   => \@valgrind_options,
                             rr                 => $rr,
+                            rr_options         => $rr_options,
                             server_options     => $mysqld_options[$server_id],
                             general_log        => 1,
                             config             => $cnf_array_ref,
@@ -1556,6 +1569,7 @@ my $gentestProps = GenTest::Properties->new(
               'valgrind',
               'valgrind-xml',
               'rr',
+              'rr_options',
               'testname',
               'sqltrace',
               'querytimeout',
@@ -1630,6 +1644,7 @@ $gentestProps->strict_fields($strict_fields) if defined $strict_fields;
 $gentestProps->freeze_time($freeze_time) if defined $freeze_time;
 $gentestProps->valgrind(1) if $valgrind;
 $gentestProps->rr(1) if $rr;
+$gentestProps->rr_options($rr_options) if defined $rr_options;
 $gentestProps->property('ps-protocol',1) if $ps_protocol;
 $gentestProps->sqltrace($sqltrace) if $sqltrace;
 $gentestProps->querytimeout($querytimeout) if defined $querytimeout;

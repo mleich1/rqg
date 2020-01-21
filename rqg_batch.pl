@@ -216,7 +216,8 @@ my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar
     $seed, $testname, $xml_output, $report_xml_tt, $report_xml_tt_type, $max_runtime,
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
     $parallel, $servers, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
-    $help, $help_simplifier, $help_combinator, $help_verdict, $runner, $noarchiving, $rr,
+    $help, $help_simplifier, $help_combinator, $help_verdict, $runner, $noarchiving,
+    $rr, $rr_options,
     $stop_on_replay, $script_debug_value, $runid, $threads, $type, $algorithm, $resource_control);
 
 $max_rqg_runtime = 1800;
@@ -344,6 +345,7 @@ if (not GetOptions(
            'stop_on_replay'            => \$stop_on_replay,         # Swallowed and handled by rqg_batch
            'noarchiving'               => \$noarchiving,            # Swallowed and handled by rqg_batch
            'rr'                        => \$rr,                     # Swallowed and handled by rqg_batch
+           'rr_options=s'              => \$rr_options,             # Swallowed and handled by rqg_batch
            'servers=i'                 => \$servers,                # Swallowed and handled by rqg_batch
 #          'threads=i'                 => \$threads,                # Pass through (@ARGV).
            'discard_logs'              => \$discard_logs,           # Swallowed and handled by rqg_batch
@@ -495,7 +497,12 @@ $cl_end .= " --report-xml-tt-dest=$report_xml_tt_dest "
     if defined $report_xml_tt_dest and $report_xml_tt_dest ne '';
 $cl_end .= " --script_debug=" . $script_debug_value
     if $script_debug_value ne '';
-$cl_end .= " --rr" if defined $rr;
+if (defined $rr) {
+    $cl_end .= " --rr";
+    if (defined $rr_options) {
+        $cl_end .= " --rr_options=" . $rr_options;
+    }
+}
 
 if (defined $runner) {
     if (File::Basename::basename($runner) ne $runner) {

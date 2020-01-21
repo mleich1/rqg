@@ -264,7 +264,7 @@ DONE (incomplete and arbitrary sorted list):
     (--> lib/GenTest/Simplifier/Grammar_advanced.pm)
 13. Develop a program which is capable to check if the protocol of some RQG run matches the
     blacklist/whitelist statuses/patterns setting provided.
-    (--> checker.pl)
+    (--> verdict.pl)
 14. https://jira.mariadb.org/browse/MDEV-16863 Extend the RQG infrastructure for backup testing
     Reporter: Mariabackup
     1. Hot backup of data of running server 1
@@ -341,6 +341,17 @@ DONE (incomplete and arbitrary sorted list):
       But there are also up till today no experiences which show that GRAMMAR_FLAG_COMPACT_RULES can
       be serious bad.
       Feel free to experiment.
+18. Remove empty statements from grammars.
+    Example:   SELECT 13 ; ;
+19. Add some simple error tagging
+    Example:
+    whitelist pattern
+    [ 'MDEV-20775' , 'InnoDB: Failing assertion: \!page_zip \|\| page_zip_validate\(page_zip, page, index\)' ],
+    In case you hit a server crash + the RQG log contains the text pattern than the file
+    last_batch_workdir/result.txt will contain an entry like
+    2020-01-17T18:13:14 | Number | Worker | Verdict          | RQG log    | OrderId | RunTime | Derivate used      | Parent of derivate | Extra_info
+    ...
+    2020-01-17T18:25:00 |    284 |     67 | replay           | 000283.log |     178 |      72 | c00193.yy          | p00000.yy          | STATUS_SERVER_CRASHED--MDEV-20775
 
 
 TODO (incomplete list):
@@ -411,8 +422,6 @@ TODO (incomplete list):
    This might sound banal but per my experience many parts of RQG are the opposite of well prepared
    for meeting the rough conditions of tests invoking KILL QUERY up till KILL <session> and
    that even on some heavy loaded testing box.
--- Remove empty statements from grammars.
-   Example:   SELECT 13 ; ;
 -- Ugly observation (2018-08)
    During grammar simplification range_access.yy shows some disastrous runtime behaviour.
    After quite short runtime the perl processes for the threads consumed more memory than
@@ -543,7 +552,7 @@ rg_batch.pl
    does not clash with his resources (vardir, workdir, ports, files) with other RQG runners
    in parallel.
 4. forks some corresponding RQG Worker
-   This Worker does some preparations and switches via "exec" to making the RQG run.
+   This Worker does some preparations and makes the RQG run, getting the verdict etc. via "system".
 5. "reports" the outcome of any finished job to the Combinator or Simplifier so that they
    can update their bookkeeping and adjust their responses (see 2.) according to the
    progress currently achieved.
@@ -553,7 +562,7 @@ rg_batch.pl
                So a filesystem full is some real risk.
    and stops RQG runner in order to prevent them.
    The "stopped" run will get repeated if required and as soon as possible.
-   - The resource control has to be implemented.
+   - The resource control is implemented.
    - The repetition of stopped RQG runs is implemented.
 
 
@@ -579,7 +588,7 @@ Hints
 
 2. Typical errors in RQG YY grammars
 2.1 Rules must have a lower case name.
-    Otherwise the will not get valuated as the name of a rule.
+    Otherwise they will not get valuated as the name of a rule.
 2.2 Separating the components of a rule is intented but instead of the correct '|' a ';' is used.
     Negative example:
     rule1:
@@ -591,6 +600,240 @@ Hints
     a)  SELECT col1 FROM t3 ; <-- correct syntax
     b)  t4 ;                  <-- wrong syntax
 
+How to use "rr" (https://github.com/mozilla/rr) in combination with RQG
+-----------------------------------------------------------------------
+0. The current invocation of "rr" into RQG switches the generation of core files off.
+   All info required is in the "rr" traces + the core files occupy too much storage space.
+1. The OS needs to be a Linux.
+   Ubuntu:     sudo apt-get install rr
+   Depending on the version of your distribution you get some more or less actual "rr".
+2. Depending on actual setup/state of the testing box
+   sudo "echo 1 > /proc/sys/kernel/perf_event_paranoid" # --> temporary setting
+   or
+   Append to /etc/sysctl.conf                           # --> permanent setting
+        kernel.perf_event_paranoid = 1
 
-Matthias 2019-11
+   # Required on some server with Ubuntu 17.04 but not on my notebook with Ubuntu 17.10.
+   sudo apt-get install cpufrequtils
+   sudo cpufreq-set -g performance                      # --> temporary setting
+3. In case you know of a way that the server writes more messages into the server error log
+   than take care that its enabled. The goal is to get many entries with rr event number.
+   Unfortunately "--log-output=file" does not cause the nice to have positive impact.
+4. rqg_batch.pl call
+   - my notebook with Ubuntu 17.10 and rr version > 4
+     perl ./rqg_batch.pl ... --rr  <no assignment of rr_options> ....
+   - some server with Ubuntu 17.04 and rr version 4
+     The plain rr cannot figure out which type the CPU is.
+     - cat /proc/cpuinfo shows ...
+       vendor_id       : GenuineIntel
+       cpu family      : 6
+       model           : 85
+     - Page in web mentions that its a 'Intel Skylake'.
+     - strings -a /usr/bin/rr | grep -i Sky     shows a match
+     perl ./rqg_batch.pl ... --rr --rr_options="--microarch='Intel Skylake'"
+     worked well
+   Note:
+   - I have no experiences how good all this works on AMD or ARM CPU's.
+   - In case "rr" meets trouble than the server error log might contain an error message like
+     - # 2020-01-13T19:11:48 [45598] | [rr 46342 9202]2020-01-13 19:11:47 0 [Note] mysqld: O_TMPFILE is not supported on /dev/shm/vardir/1578939104/2/1/tmp (disabling future attempts)
+       # 2020-01-13T19:11:48 [45598] | [FATAL /build/rr-2h5IId/rr-4.4.0/src/record_syscall.cc:4180:rec_process_syscall_arch() errno: SUCCESS]
+       # 2020-01-13T19:11:48 [45598] |  (task 46342 (rec:46342) at time 9224)
+       # 2020-01-13T19:11:48 [45598] |  -> Assertion `t->regs().syscall_result_signed() == -syscall_state.expect_errno' failed to hold. Expected ENOSYS for 'io_setup' but got result 0 (errno SUCCESS); execution of syscall unsupported by rr
+       # 2020-01-13T19:11:48 [45598] | [FATAL /build/rr-2h5IId/rr-4.4.0/src/log.cc:283:emergency_debug() errno: SUCCESS] (session doesn't look interactive, aborting emergency debugging)
+       # 2020-01-13T19:11:48 [45598] | Aborted (core dumped)
+       loose_innodb_use_native_aio=0                 helped.
+     - # [FATAL /build/rr-2h5IId/rr-4.4.0/src/PerfCounters.cc:138:get_cpu_microarch() errno: ENOTTY] CPU 0x50650 unknown.
+       --rr_options="--microarch='Intel Skylake'"    helped.
+
+5. Get the archive and unpack what is needed
+   mleich@skylake01:/work/RQG_mleich_N$ grep replay last_batch_workdir/result.txt
+   2020-01-20T17:54:10 ---------- first_replay ---------- (c00000.yy)
+   2020-01-20T18:03:24 |    114 |     95 | replay           | 000113.log |      95 |     354 | <undef>            | <undef>            | STATUS_SERVER_CRASHED--MDEV-20775
+   STATISTICS:        1 -- 'replay'           -- Replay of desired effect (Whitelist match, no Blacklist match)
+   RESULT:     The best verdict reached was : 'replay'
+
+   "rr" memorizes where which file (mariadb source+binaries) was located.
+   There is some sophisticated functionality which allows to export stuff to other
+   boxes for debugging. But RQG does not use that in the moment.
+   Also the tracing files <whatever1>/rr_trace/<whatever2> seems to memorize other required
+   tracing files via absolute paths.
+   So the content of the archive of the RQG run needs to get unpacked to its original place.
+
+   cd /
+   mleich@skylake01:/$ ls -ld /work/RQG_mleich_N/last_batch_workdir/000113.tgz
+   -rw-rw-r-- 1 mleich dev 119948549 Jan 20 18:03 /work/RQG_mleich_N/last_batch_workdir/000113.tgz # Just 12 MB !!
+
+   mleich@skylake01:/$ tar xvzf /work/RQG_mleich_N/last_batch_workdir/000113.tgz dev/shm/vardir
+   dev/shm/vardir/1579539250/95/
+   dev/shm/vardir/1579539250/95/1/
+   dev/shm/vardir/1579539250/95/1/mysql.log
+   dev/shm/vardir/1579539250/95/1/mysql.err
+   dev/shm/vardir/1579539250/95/1/rr_trace/
+   dev/shm/vardir/1579539250/95/1/rr_trace/latest-trace
+   dev/shm/vardir/1579539250/95/1/rr_trace/mysqld-0/
+   dev/shm/vardir/1579539250/95/1/rr_trace/mysqld-0/version
+   ....
+6. Debugging
+   export _RR_TRACE_DIR=dev/shm/vardir/1579539250/95/1/rr_trace
+
+   mleich@skylake01:/$ rr ps
+   PID     PPID    EXIT    CMD
+   325332  --      -6      /work/10.2/bld_debug/sql/mysqld <a lot stuff> --sql-mode=no_engine_substitution
+   334471  325332  0       addr2line -C -f -e /work/10.2/bld_debug/sql/mysqld
+   334517  325332  0       addr2line -C -f -e /lib/x86_64-linux-gnu/libpthread.so.0
+   334522  325332  0       addr2line -C -f -e /lib/x86_64-linux-gnu/libc.so.6
+   334555  325332  0       addr2line -C -f -e /work/10.2/bld_debug/sql/mysqld
+   334617  325332  0       addr2line -C -f -e /lib/x86_64-linux-gnu/libpthread.so.0
+   334622  325332  -9      addr2line -C -f -e /lib/x86_64-linux-gnu/libc.so.6
+   # Great it somehow works.
+   # Feel free to pick a pid.
+
+   mleich@skylake01:/$ rr replay --microarch='Intel Skylake' # The server used for testing
+   or
+   mleich@skylake01:/$ rr replay                             # My notebook
+   or in case you do not want to flip between pids during debugging
+   mleich@skylake01:/$ rr replay -p <pid you are interested in>
+
+   GNU gdb (Ubuntu 7.12.50.20170314-0ubuntu1.1) 7.12.50.20170314-git
+   Copyright (C) 2017 Free Software Foundation, Inc.
+   ...
+   Remote debugging using :50956
+   warning: unable to open /proc file '/proc/325332/task/325332/maps'
+   warning: remote target does not support file transfer, attempting to access files from local filesystem.
+   Reading symbols from /lib64/ld-linux-x86-64.so.2...Reading symbols from /usr/lib/debug//lib/x86_64-linux-gnu/ld-2.24.so...done.
+   done.
+   0x00007fda8c9e6c20 in _start () from /lib64/ld-linux-x86-64.so.2
+   (rr) when
+   Current event: 15     # We are currently on rr's event number 15
+   (rr) continue
+   Continuing.
+   2020-01-20 17:57:32 140576640939840 [Note] /work/10.2/bld_debug/sql/mysqld (mysqld 10.2.31-MariaDB-debug-log) starting as process 325332 ...
+   ....
+   2020-01-20 17:57:33 140576640939840 [Note] /work/10.2/bld_debug/sql/mysqld: ready for connections.
+   Version: '10.2.31-MariaDB-debug-log'  socket: '/dev/shm/vardir/1579539250/95/1/mysql.sock'  port: 28480  Source distribution
+   [New Thread 325332.325545]
+   2020-01-20 17:57:47 140575085319936 [Note] InnoDB: Sync to disk of `test`.`oltp2` started.
+   2020-01-20 17:57:47 140575085319936 [Note] InnoDB: Stopping purge
+   2020-01-20 17:57:50 140575085319936 [Note] InnoDB: Writing table metadata to './test/oltp2.cfg'
+   2020-01-20 17:57:50 140575085319936 [Note] InnoDB: Table `test`.`oltp2` flushed to disk
+   2020-01-20 17:57:52 140575085319936 [Note] InnoDB: Deleting the meta-data file './test/oltp2.cfg'
+   2020-01-20 17:57:52 140575085319936 [Note] InnoDB: Resuming purge
+   2020-01-20 17:58:38 0x7fda480ac700  InnoDB: page_zip_validate: page header
+   page_zip:
+   0000 0090a975da7f00006e00000091000160
+   ....
+   1fe0 0000000000000000000000000000000000000000007000630000000000000000
+   2020-01-20 17:58:39 0x7fda480ac700  InnoDB: Assertion failure in file /work/10.2/storage/innobase/btr/btr0cur.cc line 1429
+   InnoDB: Failing assertion: !page_zip || page_zip_validate(page_zip, page, index)
+   ....
+   [New Thread 325332.326638]
+
+   Thread 2 received signal SIGABRT, Aborted.
+   [Switching to Thread 325332.325545]
+   __GI_raise (sig=sig@entry=6) at ../sysdeps/unix/sysv/linux/raise.c:58
+   58      ../sysdeps/unix/sysv/linux/raise.c: No such file or directory
+   (rr) when
+   Current event: 295768    # <-- Highest event number of interest
+   (rr)
+   ###### Just for comparison the /dev/shm/vardir/1579539250/95/1/mysql.err shows
+       [rr 325332 6262]2020-01-20 17:57:32 140576640939840 [Note] /work/10.2/bld_debug/sql/mysqld (mysqld 10.2.31-MariaDB-debug-log) starting as process 325332 ...
+       ....
+       [rr 325332 14527]2020-01-20 17:57:33 140576640939840 [Note] /work/10.2/bld_debug/sql/mysqld: ready for connections.
+       ....
+       [rr 325332 167600]2020-01-20 17:57:52 140575085319936 [Note] InnoDB: Resuming purge
+       [rr 325332 269032]2020-01-20 17:58:38 0x7fda480ac700[rr 325332 269035]  InnoDB: [rr 325332 269037]page_zip_validate: page header
+       [rr 325332 269039]page_zip:
+       ....
+       [rr 325332 295745]2020-01-20 17:58:39 0x7fda480ac700[rr 325332 295748]  InnoDB: Assertion failure in file /work/10.2/storage/innobase/btr/btr0cur.cc line 1429
+       [rr 325332 295750]InnoDB: Failing assertion: !page_zip || page_zip_validate(page_zip, page, index)
+       # The prepended   rr <pid> <event number>   might be valuable
+       # for especially fast jumping short before the problem.
+       # Hence more messages into the server error log could help.
+       ....
+   ##### So the reason for the assert is somehow between event 14527 or rather 167600 and 295745?
+   (rr) run 167600
+   run 167600
+   The program being debugged has been started already.
+   Start it from the beginning? (y or n) y
+   Starting program: /home/mleich/work/10.2/bld_debug/sql/mysqld 167600
+   2020-01-20 17:57:32 140576640939840 [Note] /work/10.2/bld_debug/sql/mysqld (mysqld 10.2.31-MariaDB-debug-log) starting as process 325332 ...
+   ....
+   2020-01-20 17:57:52 140575085319936 [Note] InnoDB: Deleting the meta-data file './test/oltp2.cfg'
+
+   --------------------------------------------------
+    ---> Reached target process 325332 at event 167602.
+   --------------------------------------------------
+   warning: unable to open /proc file '/proc/325332/task/325332/maps'
+   [New Thread 325332.325332]
+   [New Thread 325332.325364]
+   ....
+   [New Thread 325332.326638]
+
+   Thread 1 stopped.
+   0x0000000070000002 in ?? ()
+   (rr) b mysql_execute_command    # Maybe     mysql_parse     is better
+   Breakpoint 1 at 0x561b803164d4: file /work/10.2/sql/sql_parse.cc, line 2990.
+   (rr) continue
+   Continuing.
+   2020-01-20 17:57:52 140575085319936 [Note] InnoDB: Resuming purge
+   [Switching to Thread 325332.326527]
+
+   Thread 40 hit Breakpoint 1, mysql_execute_command (thd=0x7fd9c8000a88) at /work/10.2/sql/sql_parse.cc:2990
+   2990    {
+   (rr) when
+   Current event: 167661
+   (rr) run 260000
+   The program being debugged has been started already.
+   Start it from the beginning? (y or n) y
+   Starting program: /home/mleich/work/10.2/bld_debug/sql/mysqld 26000
+   ....
+   Thread 1 stopped.
+   0x0000561b80d4d97d in my_timer_cycles () at /work/10.2/mysys/my_rdtsc.c:170
+   170       __asm__ __volatile__ ("rdtsc\n\t" \
+   (rr) b mysql_parse
+   Breakpoint 2 at 0x561b80325097: file /work/10.2/sql/sql_parse.cc, line 7661.
+   (rr) continue
+   Continuing.
+   [Switching to Thread 325332.326519]
+
+   Thread 36 hit Breakpoint 2, mysql_parse (thd=0x7fd9d8000a88, rawbuf=0x7fd9d8010550 "UPDATE `oltp3` SET `c` = 'b' WHERE `id` = 41905 /* E_R Thread4 QNO 609 CON_ID 20 */", length=83, parser_state=0x7fda300ae250, is_com_multi=false, is_next_command=false)
+       at /work/10.2/sql/sql_parse.cc:7661
+   7661      DBUG_ENTER("mysql_parse");
+   (rr)
+   #### In the current example
+   # mysql.err contains
+   #     [rr 325332 295750]InnoDB: Failing assertion: !page_zip || page_zip_validate(page_zip, page, index)
+   #     ....
+   #     | Connection ID (thread ID): 17
+   #     | [rr 325332 302293]Status: NOT_KILLED
+   #     |
+   #     ... non nice backtrace
+   # So the SQL statement is not known. But its Connection ID 17.
+   # The RQG log (sql tracing was enabled, printing happens when the server response or whatever similar arrives) contains
+   # ...
+   # [326513] [sqltrace] ERROR 1100: UPDATE IGNORE `oltp2` SET `k` = `id` + 1 WHERE `id` = 21606 /* E_R Thread6 QNO 716 CON_ID 22 */ ;
+   # [326513] [sqltrace] ERROR 1054: UPDATE `oltp3` SET `pad` = 'k' WHERE `id` = 24988 /* E_R Thread6 QNO 717 CON_ID 22 */ ;
+   # [326514] [sqltrace] ERROR 2013: SELECT `pad` FROM `oltp3` WHERE `id` = 57951 /* E_R Thread7 QNO 638 CON_ID 23 */ ;
+   # [326515] [sqltrace] ERROR 2013: FLUSH TABLES /* E_R Thread8 QNO 1416 CON_ID 24 */ ;
+   # [326513] [sqltrace] ERROR 2013: FLUSH TABLES /* E_R Thread6 QNO 718 CON_ID 22 */ ;
+   # [326510] [sqltrace] ERROR 2013: UPDATE `oltp3` SET `c` = 's' WHERE `id` = 11205 /* E_R Thread3 QNO 613 CON_ID 19 */ ;
+   # [326509] [sqltrace] ERROR 2013: INSERT IGNORE INTO `oltp3` ( `id` ) VALUES ( NULL ) /* E_R Thread2 QNO 668 CON_ID 18 */ ;
+   # [326512] [sqltrace] ERROR 2013: DELETE FROM `oltp3` WHERE `id` = 64960 /* E_R Thread5 QNO 1902 CON_ID 21 */ ;
+   #### Some internal stuff from RQG which repeats stuff from above from tracing.
+   # 2020-01-20T17:58:40 [326515] Executor::MySQL::execute: Query: FLUSH TABLES /* E_R Thread8 QNO 1416 CON_ID 24 */  failed: 2013 Lost connection to MySQL server during query
+   # ....
+   # [326511] [sqltrace] ERROR 2013: SELECT SUM(`id`) FROM `oltp3` WHERE `id` BETWEEN 42519 AND 55611 /* E_R Thread4 QNO 662 CON_ID 20 */ ;
+   # [326508] [sqltrace] ERROR 2013: UPDATE IGNORE `oltp3` SET `id` = `k` + 1 WHERE `id` = 8740 /* E_R Thread1 QNO 639 CON_ID 17 */ ; <=== Maybe its this statement?
+   # ....
+   # 2020-01-20T17:58:43 [326507] ERROR: Reporter 'Deadlock': The connect attempt to dsn dbi:mysql:host=127.0.0.1:port=28480:user=root:database=test:mysql_local_infile=1 failed: Can't connect to MySQL server on '127.0.0.1' (111)
+   # 2020-01-20T17:58:43 [326507] ERROR: Reporter 'Deadlock': Will return status 101.
+   #
+
+   Good luck
+
+
+
+
+
+Matthias 2020-01
 
