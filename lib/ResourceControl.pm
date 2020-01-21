@@ -401,14 +401,9 @@ sub report {
 
     $vardir_consumed   = $vardir_free_init   - $vardir_free;
     $workdir_consumed  = $workdir_free_init  - $workdir_free;
-    $mem_consumed      = $mem_est_free_init - $mem_est_free;
+    $mem_consumed      = $mem_est_free_init  - $mem_est_free;
     $swap_consumed     = $swap_used          - $swap_used_init;
     $swap_free         = $swap_total         - $swap_used;
-
-    if ($swap_consumed > $swap_total / 100) {
-        say("WARN: swap_consumed : $swap_consumed , giving up.");
-        return LOAD_GIVE_UP;
-    }
 
     # Setting $load_status = LOAD_GIVE_UP serves basically three purposes
     # a) prevent that one possible bad event (one RQG test dies with core) leads to losing the
@@ -499,28 +494,35 @@ sub report {
     my $wd_K;
     my $md_K;
     my $rd_K;
-    # An additional RQG worker has
-    # - his own space consumption even without crashing
-    # - similar risk to crash with core
+    # An additional RQG worker
+    # - has his own space consumption even without crashing   maximum of (average,SPACE_USED)
+    # - could crash with core
     # and all the other already active RQG workers could crash too.
     if ($worker_active > 0) {
+        my $space_estimation = $vardir_consumed / $worker_active;
+        $space_estimation = SPACE_USED if $space_estimation < SPACE_USED;
         $vd_K = $worker_active * SHARE_CORE * SPACE_CORE + SPACE_CORE
-                + $vardir_consumed / $worker_active;
+                + $space_estimation;
     } else {
         $vd_K = SPACE_CORE + SPACE_USED;
     }
     $vr_K = $vardir_free - $vd_K;
 
+    # FIXME maybe refine:
+    # Zero paging assumed $mem_consumed contains already the space consumption in tmpfs.
+    # So an additional RQG worker eats in unfortunte scenario:
+    #        ~ MEM_USED + $space_estimation + SPACE_CORE
     # An additional RQG worker needs some memory (tmpfs not counted).
     if ($worker_active > 0) {
-        $md_K = $mem_consumed / $worker_active;
+        my $space_estimation = $vardir_consumed / $worker_active;
+        $space_estimation = SPACE_USED if $space_estimation < SPACE_USED;
+        $md_K = $mem_consumed / $worker_active + $space_estimation + SPACE_CORE;
     } else {
-        $md_K = MEM_USED;
+        $md_K = MEM_USED + SPACE_USED + SPACE_CORE;
     }
     $mr_K = $mem_est_free - $md_K;
 
     $sr_K = $sr_D; # Have no good idea.
-    # $sr_K = 0 if 0 == $swap_free;
 
     # In case the estimated space consumed in memory ($md_K) and the estimated space in vardir
     # ($vd_K) exceeds the total amount of RAM ($mem_total) than we will maybe
@@ -569,6 +571,14 @@ sub report {
             $info_m = "G5";
             $info = "INFO: $info_m The free space in '$workdir' ($workdir_free MB) $end_part";
             $load_status = LOAD_GIVE_UP;
+        } elsif ($swap_consumed > $swap_total / 20) {
+            $info_m = "G6";
+            $info = "INFO: $info_m 5% of total swap space consumed for testing. This is bad.";
+            $load_status = LOAD_GIVE_UP;
+        } elsif ($swap_used > $swap_total / 10) {
+            $info_m = "G7";
+            $info = "INFO: $info_m 10% of total swap space used. This is bad.";
+            $load_status = LOAD_GIVE_UP;
         }
     }
 
@@ -593,6 +603,10 @@ sub report {
         } elsif (0 > $wr_D) {
             $info_m = "D5";
             $info = "INFO: $info_m The free space in '$workdir' ($workdir_free MB) $end_part";
+            $load_status = LOAD_DECREASE;
+        } elsif ($swap_consumed > $swap_total / 100) {
+            $info_m = "D6";
+            $info = "INFO: $info_m 1% of total swap space used consumed for testing. This $end_part";
             $load_status = LOAD_DECREASE;
         }
     }
