@@ -62,8 +62,8 @@ use constant SIMP_THREADS         => 3;
 
 my $component_indent = GenTest::Grammar::Rule::COMPONENT_INDENT;
 
-# Constants used in the phase PHASE_GRAMMAR_DEST
-# ----------------------------------------------
+# Constants used in phases when the YY grammar gets shrinked
+# ----------------------------------------------------------
 # SIMP_EMPTY_QUERY is for replacing the complete content of a non top level rule.
 use constant SIMP_EMPTY_QUERY     => '';
 # SIMP_WAIT_QUERY is for replacing the complete content of a top level rule like thread<n> and

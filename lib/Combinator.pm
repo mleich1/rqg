@@ -252,7 +252,7 @@ sub init {
         'duration=i'                => \$duration,              # Handled here
         'seed=s'                    => \$seed,                  # Handled here
     #   'force'                     => \$force,                 # Swallowed and handled by rqg_batch
-    #   'no-mask'                   => \$no_mask,               # Rather handle here
+        'no-mask'                   => \$no_mask,               # Rather handle here
         'grammar=s'                 => \$grammar_file,          # Handle here. Requirement caused by Simplifier
     #   'gendata=s'                 => \$gendata,               # Rather handle here
     #   'testname=s'                => \$testname,              # Swallowed and handled by rqg_batch

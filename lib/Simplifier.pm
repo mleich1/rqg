@@ -1978,6 +1978,8 @@ sub register_result {
             $campaign_duds_since_replay = 0;
             if ($grammar_parent eq $parent_grammar) {
                 # Its a first replayer == Winner based on the current parent grammar.
+                # Its replay was not already detected during RQG worker runtime because than
+                # report_replay --> get new parent grammar.
 
                 my $stop_count = Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA,
                                                                Batch::STOP_REASON_WORK_FLOW);

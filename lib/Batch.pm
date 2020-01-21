@@ -169,7 +169,7 @@ sub check_and_set_dryrun {
 # 0. Get forked by the parent (rqg_batch.pl) process and "know" already at begin of life detailed
 #    which RQG run to initiate later.
 # 1. Make some basic preparations of the "play ground".
-# 2. Switch to the RQG runner (usually rqg.pl) via Perl 'exec'.
+# 2. Make the RQG run (usually rqg.pl) via Perl 'system'.
 # -- What follows is some brief description what this RQG runner does --
 # 3. Analyze the parameters/options provided via command line. In future maybe also config files.
 # 4. Compute all values which distinct him from other RQG workers (workdir, vardir, build thread)
@@ -205,7 +205,7 @@ use constant WORKER_START     => 1;
 # - (grammar simplifier): Bookkeeping in order to optimize the grammar simplification process.
 use constant WORKER_ORDER_ID  => 2;
 # Three variables for stuff being
-# - not full and even not  half static like @order_array content
+# - not full and even not half static like @order_array content
 # - full dynamic (calculated/decided) direct before the fork of the RQG Worker. And we need to
 #   memorize that value when the worker finished for valuating his result.
 #   Example for to be developed advanced grammar simplification:
@@ -351,8 +351,8 @@ sub set_workers_range {
     for my $worker_num (1..$workers_max) {
         worker_reset($worker_num);
     }
-    say("DEBUG: Load range set : workers_max ($workers_max), workers_mid ($workers_mid), workers_min ($workers_min)")
-        if Auxiliary::script_debug("T6");
+    say("DEBUG: Load range set : workers_max ($workers_max), workers_mid ($workers_mid),
+        workers_min ($workers_min)") if Auxiliary::script_debug("T6");
 }
 sub adjust_workers_range {
     # Needed after getting LOAD_DECREASE, reducing the load till all is ok
@@ -362,8 +362,8 @@ sub adjust_workers_range {
     if ($workers_min > $max_min) {
         $workers_min = $max_min;
     }
-    say("DEBUG: Load range reduction : workers_max ($workers_max), workers_mid ($workers_mid), workers_min ($workers_min)")
-        if Auxiliary::script_debug("T6");
+    say("DEBUG: Load range reduction : workers_max ($workers_max), workers_mid ($workers_mid),
+        workers_min ($workers_min)") if Auxiliary::script_debug("T6");
 }
 sub raise_workers_range {
     $workers_mid++;
@@ -435,6 +435,31 @@ sub count_active_workers {
     return $active_workers;
 }
 
+sub count_active_not_stopped_workers {
+# Purpose:
+# --------
+# Return the number of active (== serious storage space consuming) RQG Workers.
+# == During the last reap_workers call we could not reap the main process.
+#    --> $worker_array[$worker_num][WORKER_PID] != -1
+#    Hence the vardir and the workdir of these processes could be not deleted.
+#
+# Attention
+# ---------
+# reap_workers returns logically also the number of active RQG Workers but
+# - more exact because based on some just performed bookkeeping
+# - needs more runtime
+#
+    my $active_workers = 0;
+    for my $worker_num (1..$workers_max) {
+        # Omit the not started at all.
+        next if -1 == $worker_array[$worker_num][WORKER_PID];
+        # Omit the started but stopped (SIGKILL might be not yet finished).
+        next if defined $worker_array[$worker_num][WORKER_STOP_REASON];
+        $active_workers++;
+    }
+    return $active_workers;
+}
+
 sub worker_array_dump {
 use constant WORKER_ID_LENGTH    =>  3;
 use constant WORKER_PID_LENGTH   =>  6;
@@ -496,26 +521,27 @@ sub stop_workers {
 
 # Several stop_worker variants used by the simplifier for optimization
 #
-# report_replay (archive if enabled has not yet arrived)
-# 1. A winner was found
-# 1.1 stop all worker with same order_id except verdict in (replay, interest) via
+# report_replay (RQG runner has not yet finished, archive if enabled has not yet arrived)
+# 1. Assuming that a winner was found
+# 1.1 stop all worker in a phase up till including some assigned early phase
+# 1.2 stop all worker with same order_id except verdict in (replay, interest) via
 #     stop_worker_on_order_except and mark the corresponding order_id invalid
-# 1.2 stop all worker with some order_id affecting some now disappeared rule except
+# 1.3 stop all worker with some order_id affecting some now disappeared rule except
 #     verdict in (interest) via stop_worker_on_order_except + stop_worker_on_order_replayer
 #     and mark the corresponding order_id invalid
-# 1.3 stop all worker in a phase up till including some assigned early phase
 # 2. Something else showed up
 #    Do nothing
 #
-# register_result (archive if enabled has arrived)
-# 1. A winner was found
-# 1.1 stop all worker with same order_id except verdict in (interest) via
+# register_result (RQG runner has finished, archive if enabled has arrived)
+# 1. Assuming that a winner was found
+# 1.1 stop all worker in a phase up till including some assigned early phase
+# 1.2 stop all worker with same order_id except verdict in (interest) via
 #     stop_worker_on_order_except + stop_worker_on_order_replayer
 #     and mark the corresponding order_id invalid
-# 1.2 stop all worker with some order_id affecting some now disappeared rule except
+# 1.3 stop all worker with some order_id affecting some now disappeared rule except
 #     verdict in (interest) via stop_worker_on_order_except + stop_worker_on_order_replayer
 #     and mark the corresponding order_id invalid
-# 2. Something else showed up
+# 2. Assuming that something else showed up
 # 2.1 stop all worker with some order_id and actual efforts invested >= $trials
 #     except verdict in (replay,interest) via stop_worker_on_order_except
 #     and ???drop the order_id???
@@ -581,10 +607,11 @@ sub stop_worker_on_order_replayer {
 
 sub stop_worker_oldest {
     # To be used only once.  Simplifier::report_replay
-    my $stop_count = 0;
+    my $stop_count            = 0;
     my $oldest_worker_num     = -1;
     my $oldest_worker_runtime = -1;
-    my $current_time = Time::HiRes::time();
+    my $current_time          = Time::HiRes::time();
+    my $active_not_stopped_workers = count_active_not_stopped_workers();
     for my $worker_num (1..$workers_max) {
         # Omit not running workers
         next if -1 == $worker_array[$worker_num][WORKER_PID];
@@ -594,6 +621,9 @@ sub stop_worker_oldest {
         # Omit any worker which reached something of interest and is maybe during archiving
         next if defined $worker_array[$worker_num][WORKER_VERDICT] and
                 Verdict::RQG_VERDICT_INTEREST eq $worker_array[$worker_num][WORKER_VERDICT];
+        # Omit any worker where stopping was already initiated.
+        next if defined $worker_array[$worker_num][WORKER_STOP_REASON];
+
         # FIXME: In case that warning showed never up than remove the next 3 lines.
         if (-1 == $worker_array[$worker_num][WORKER_START]) {
             say("WARN: stop_worker_oldest: -1 == worker_start seen.");
