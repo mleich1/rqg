@@ -1,5 +1,5 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2018-2019 MariaDB Coporation Ab.
+# Copyright (c) 2018-2020 MariaDB Coporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -47,6 +47,17 @@
 # that caused by other processes etc. the RQG run might end with STATUS_SERVER_CRASHED,
 # STATUS_ALARM or STATUS_ENVIRONMENT_FAILURE.
 #
+# Observation 2020-01 (30s CONNECT_TIMEOUT_THRESHOLD at that point of time)
+# In case CONNECT_TIMEOUT_THRESHOLD gets exceeded than something like
+#    ERROR: Reporter 'Deadlock': The connect attempt to dsn .... failed:
+#    Lost connection to MySQL server at 'waiting for initial communication packet',
+#    system error: 110 after 30.0861439704895 s.
+# shows up.
+# The reason was finally not known
+# - too much overloaded DB server/testing box
+# or
+# - server freeze ?
+#
 
 package GenTest::Reporter::Deadlock1;
 
@@ -75,7 +86,7 @@ use constant PROCESSLIST_PROCESS_TIME        => 5;
 use constant PROCESSLIST_PROCESS_INFO        => 7;
 
 # The time, in seconds, we will wait for a connect before we declare the server hanged.
-use constant CONNECT_TIMEOUT_THRESHOLD       => 30;   # Seconds
+use constant CONNECT_TIMEOUT_THRESHOLD       => 45;   # Seconds
 
 # Minimum lifetime of a query issued by some RQG worker thread/Validators before it is
 # considered suspicious.
@@ -163,6 +174,14 @@ sub monitor {
             "ACTUAL_TEST_DURATION_EXCEED(" . ACTUAL_TEST_DURATION_EXCEED  . "s) + the desired "    .
             "duration (" . $reporter->testDuration() . "s). Will kill the server so that we get "  .
             "a core and exit with STATUS_SERVER_DEADLOCKED.");
+        my $status;
+        if (osWindows()) {
+            $status = $reporter->monitor_threaded();
+        } else {
+            $status = $reporter->monitor_nonthreaded();
+        }
+        say("INFO: $who_am_i monitor... delivered status $status.");
+
         $reporter->kill_with_core;
         exit STATUS_SERVER_DEADLOCKED;
         # return STATUS_SERVER_DEADLOCKED;
@@ -204,6 +223,7 @@ sub monitor_nonthreaded {
         exit STATUS_SERVER_DEADLOCKED;
     } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
 
+    my $con_get_start = Time::HiRes::time();
     $alarm_timeout = CONNECT_TIMEOUT_THRESHOLD + OVERLOAD_ADD;
     $exit_msg      = "Got no connect to server within " . $alarm_timeout . "s.";
     alarm ($alarm_timeout);
@@ -212,8 +232,10 @@ sub monitor_nonthreaded {
                           PrintError            => 0,
                           RaiseError            => 0});
     alarm (0);
+    my $con_get_time = Time::HiRes::time() - $con_get_start;
     if (not defined $dbh) {
-        say("ERROR: $who_am_i The connect attempt to dsn $dsn failed: " . $DBI::errstr);
+        say("ERROR: $who_am_i The connect attempt to dsn $dsn failed: " . $DBI::errstr .
+            " after $con_get_time s.");
         my $return = GenTest::Executor::MySQL::errorType($DBI::err);
         if (not defined $return) {
             say("ERROR: $who_am_i The type of the error got is unknown. " .
