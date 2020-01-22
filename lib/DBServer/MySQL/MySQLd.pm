@@ -607,12 +607,16 @@ sub startServer {
                     "Will return status DBSTATUS_FAILURE" . "($status)");
                 return $status;
             }
+            # FIXME as soon as doable:
             # Core files
             # - do not offer more information than already provided by "rr"
             # - get often written even if the server option "--core-file" was not assigned
             # - consume ~ 1 GB storage space in vardir (usually located in tmpfs) temporary
-            # So we try to prevent the writing of core files via ulimit.
-            $command = "ulimit -c 0; _RR_TRACE_DIR=$rr_trace_dir rr record --mark-stdio $rr_options $command";
+            # So we could try to prevent the writing of core files via ulimit.
+            # $command = "ulimit -c 0; _RR_TRACE_DIR=$rr_trace_dir rr record --mark-stdio $rr_options $command";
+            # But as long as I do not know of a way how to extract the backtrace in batch mode
+            # from rr stuff we need core files.
+              $command = "_RR_TRACE_DIR=$rr_trace_dir rr record --mark-stdio $rr_options $command";
             # The rqg runner has to check in advance that 'rr' is installed on the current box.
             # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
             # in the DB server error log.
@@ -1112,7 +1116,15 @@ sub binary {
 
 sub stopServer {
     my ($self, $shutdown_timeout) = @_;
-    $shutdown_timeout = 60 unless defined $shutdown_timeout;
+    # Original code
+    # $shutdown_timeout = 60 unless defined $shutdown_timeout;
+    if (not defined $shutdown_timeout) {
+        if (defined $self->[MYSQLD_RR]) {
+            $shutdown_timeout = 90;
+        } else {
+            $shutdown_timeout = 60;
+        }
+    }
     my $errorlog = $self->errorlog;
     my $check_shutdown = 0;
     my $res;
@@ -1197,7 +1209,7 @@ sub stopServer {
         my $file_size_after = $filestats[7];
         # say("DEBUG: Server error log '$errorlog' size after shutdown attempt : $file_size_after");
         if ($file_size_after == $file_size_before) {
-            my $offset = 500;
+            my $offset = 5000;
             say("INFO: The shutdown attempt has not changed the size of '$file_to_read'. " .
                 "Therefore looking into the last $offset Bytes.");
             $file_size_before = $file_size_before - $offset;
