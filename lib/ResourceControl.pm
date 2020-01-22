@@ -131,6 +131,7 @@ my $swap_used_init;
 my $swap_used;
 my $swap_free;
 my $swap_consumed;
+my $pswpout;
 
 my $parallel;
 my $pcpu_count;
@@ -265,7 +266,7 @@ sub init {
         # buffers     -  Total size of buffers used from memory in kilobytes.
         # swapused    -  Total size of swap space is used is kilobytes.             <======
         # swapusedper -  Total size of swap space is used in percent
-        pgswstats => 0,
+        pgswstats => 1,
         # Not that important but maybe used later
         # FIXME maybe: Heavy paging seen in 2018 + most probably bad if towards SSD
         # pgpgin      -  Number of pages the system has paged in from disk per second.
@@ -604,9 +605,9 @@ sub report {
             $info_m = "D5";
             $info = "INFO: $info_m The free space in '$workdir' ($workdir_free MB) $end_part";
             $load_status = LOAD_DECREASE;
-        } elsif ($swap_consumed > $swap_total / 100) {
+        } elsif (0 != int($pswpout)) {
             $info_m = "D6";
-            $info = "INFO: $info_m 1% of total swap space used consumed for testing. This $end_part";
+            $info = "INFO: $info_m Paging ($pswpout) has been observed. This $end_part";
             $load_status = LOAD_DECREASE;
         }
     }
@@ -632,6 +633,10 @@ sub report {
         } elsif (0 > $wr_K) {
             $info_m = "K5";
             $info = "INFO: $info_m The free space in '$workdir' ($workdir_free MB) $end_part";
+            $load_status = LOAD_KEEP;
+        } elsif ($swap_consumed > $swap_total / 100) {
+            $info_m = "K6";
+            $info = "INFO: $info_m 1% of total swap space used consumed for testing. This $end_part";
             $load_status = LOAD_KEEP;
         }
     }
@@ -751,6 +756,8 @@ sub measure {
         Batch::emergency_exit($status);
     }
     $swap_total = int($swap_total / 1024);
+
+    $pswpout  = $stat->pgswstats->{pswpout};
 
     $pcpu_count = $stat->sysinfo->{pcpucount};
     $tcpu_count = $stat->sysinfo->{tcpucount};
