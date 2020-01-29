@@ -245,21 +245,16 @@ sub next {
 				if ($invariant) {
 					@{$rule_invariants->{$item}} = expand($rule_counters,$rule_invariants,($item)) unless defined $rule_invariants->{$item};
 					@expansion = @{$rule_invariants->{$item}};
-                    if ( 0 == scalar @expansion ) {
-                        # say("DEBUG: Empty array got 1.");
-                        @sentence  = ();
-                        return ();
-                    }
+                  # if ( 0 == scalar @expansion ) {
+                  #     say("DEBUG: Empty array got 1.");
+                  # }
 				} else {
                     @expansion = expand($rule_counters,$rule_invariants,@{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]->[
                         $prng->uint16(0, $#{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]})
                     ]});
-                    if ( 0 == scalar @expansion ) {
-                        # Original was only:   (Array1 == Array2) like above.
-                        # say("DEBUG: Empty array got 2.");
-                        @sentence  = ();
-                        return ();
-                    }
+                  # if ( 0 == scalar @expansion ) {
+                  #     say("DEBUG: Empty array got 2.");
+                  # }
 				}
 				if ($generator->[GENERATOR_ANNOTATE_RULES]) {
 					@expansion = ("/* rule: $item */ ", @expansion);
@@ -440,6 +435,7 @@ sub next {
 			splice(@sentence, $pos, 1, @expansion);
 
 		}
+
 		return @sentence;
 	} # end of sub expand
 
@@ -542,6 +538,7 @@ sub next {
 	$generator->[GENERATOR_SEQ_ID]++;
 
 	my $sentence = join ('', map { defined $_ ? $_ : '' } @sentence);
+
 	# Remove extra spaces while we are here
 	while ($sentence =~ s/\.\s/\./s) {};
 	while ($sentence =~ s/\s([\.,])/$1/s) {};
