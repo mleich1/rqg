@@ -81,13 +81,13 @@ query_init:
    start_delay ; create_table ; thread_connect ;
 
 thread_connect:
-   maintain_session_entry ; SET AUTOCOMMIT = 0; SET @fill_amount = (@@innodb_page_size / 2 ) + 1 ; set_timeouts ;
+   maintain_session_entry ; SET AUTOCOMMIT = 0; SET @fill_amount = (@@innodb_page_size / 2 ) + 1 ; set_small_timeouts ;
 
-set_timeouts:
+set_small_timeouts:
    SET SESSION lock_wait_timeout = 2 ; SET SESSION innodb_lock_wait_timeout = 1 ;
 
 maintain_session_entry:
-   REPLACE INTO test . rqg_sessions SET rqg_id = _thread_id , processlist_id = CONNECTION_ID(), pid = { my $x = $$ } , connect_time = UNIX_TIMESTAMP();  COMMIT ;
+   REPLACE INTO rqg . rqg_sessions SET rqg_id = _thread_id , processlist_id = CONNECTION_ID(), pid = { my $x = $$ } , connect_time = UNIX_TIMESTAMP();  COMMIT ;
 
 kill_query_or_session_or_release:
 # We are here interested on the impact of
@@ -124,15 +124,15 @@ kill_query_or_session_or_release:
 # 1. S1 kills S2
 # 2. S1 kills S1
 # 3. S1 tries to kill S3 which already does no more exist.
-# 4. S1 gives up with COMMIT ... RELEASE.
+# 4. S1 gives up with ROLLBACK ... RELEASE.
 #    It is assumed that RELEASE added to ROLLBACK will work as well as in combination with COMMIT.
 #    Hence this will be not generated.
 # 5. Various combinations of sessions running 1. till 5.
 #
-# (1) COMMIT before and after selecting in test . rqg_sessions in order to avoid effects caused by
+# (1) COMMIT before and after selecting in rqg . rqg_sessions in order to avoid effects caused by
 #     - a maybe open transaction before that select
 #     - the later statements of a transaction maybe opened by that select
-# (2) No COMMIT before and after selecting in test . rqg_sessions in order to have no freed locks
+# (2) No COMMIT before and after selecting in rqg . rqg_sessions in order to have no freed locks
 #     before the KILL affecting the own session is issued. This is only valid if AUTOCOMMIT=0.
 #
    COMMIT ; correct_rqg_sessions_table      ; COMMIT                                 | # (1)
@@ -143,16 +143,17 @@ kill_query_or_session_or_release:
             ROLLBACK RELEASE                                                         ;
 
 own_id_part:
-   SELECT     processlist_id  INTO @kill_id FROM test . rqg_sessions WHERE rqg_id  = _thread_id ;
+   SELECT     processlist_id  INTO @kill_id FROM rqg . rqg_sessions WHERE rqg_id  = _thread_id ;
 other_id_part:
-   SELECT MIN(processlist_id) INTO @kill_id FROM test . rqg_sessions WHERE rqg_id <> _thread_id AND processlist_id IS NOT NULL;
+   SELECT MIN(processlist_id) INTO @kill_id FROM rqg . rqg_sessions WHERE rqg_id <> _thread_id AND processlist_id IS NOT NULL;
 kill_50_cond:
    MOD(rqg_id,2) = 0;
 kill_age_cond:
    UNIX_TIMESTAMP() - connect_time > 10;
 
 correct_rqg_sessions_table:
-   UPDATE test . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
+   # UPDATE rqg . rqg_sessions SET processlist_id = NULL, connect_time = NULL WHERE processlist_id NOT IN (SELECT id FROM information_schema. processlist);
+   UPDATE rqg . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 create_table:
    c_t_begin t0 c_t_mid ENGINE = MyISAM ; c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic ; c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed ; c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact ; c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant ; c_t_begin t5 c_t_mid ENGINE = Aria ;
@@ -215,7 +216,7 @@ enforce_duplicate1:
    delete ; insert_part /* my_int */ some_record , some_record ;
 
 enforce_duplicate2:
-   UPDATE table_names SET column_name_int = my_int LIMIT 2 ;
+   UPDATE table_names SET column_name_int = my_int ORDER BY col1 DESC LIMIT 2 ;
 
 insert_part:
    INSERT INTO table_names (col1,col2,col_int_properties $col_name, col_string_properties $col_name, col_text_properties $col_name) VALUES ;
@@ -335,6 +336,7 @@ key_or_index:
    KEY   ;
 
 check_table:
+   # CHECK TABLE table_names EXTENDED ;
    CHECK TABLE table_names ;
 
 column_position:
@@ -650,7 +652,9 @@ col_float_g_properties:
    gcol_prop { $col_name= "col_float_g"  ; $col_type= "FLOAT        GENERATED ALWAYS AS (col_float)                 $gcol_prop" ; return undef } col_to_idx ;
 
 gcol_prop:
+# The higher share of VIRTUAL is intentional because users might prefer that and VIRTUAL is per experience more error prone.
    { $gcol_prop = "PERSISTENT"    ; return undef }   |
+   { $gcol_prop = "VIRTUAL"       ; return undef }   |
    { $gcol_prop = "VIRTUAL"       ; return undef }   ;
 
 ######
@@ -664,3 +668,4 @@ set_dbug:
 
 set_dbug_null:
    ;
+

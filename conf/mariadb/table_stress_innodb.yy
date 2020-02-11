@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2019 MariaDB Corporation
+# Copyright (c) 2018, 2020 MariaDB Corporation
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -71,21 +71,54 @@
 #
 # _digit --> Range 0 till 9
 
+fail_001:
+   { $fail = 'fail_001' ; return undef }; SELECT * FROM $fail ;
 
-# Create the tables we are working on.
-# Doing that in 'thread1_init' avoids clashes compared to trying it by every thread
-# if 'query_init' would be used.
+
+# thread1 manages CREATE/DROP of the tables.
+# Doing that by one thread only avoids clashes compared to trying it by every thread.
+# In addition thread1 goes with big timeouts. This makes the success of CREATES and DROPS more
+# likely and gives also some variation for the statements taken from the rule "query".
 thread1_init:
-   create_table ;
+   create_table { $c_refresh = time(); $b_refresh = time() + 30; $m1 = ''; $m2 = '' ; $m3 = ''; $m4 = '' ; return undef }; SET GLOBAL innodb_disable_resize_buffer_pool_debug = OFF;
+
+thread1:
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   { if ($c_refresh + 60 < time()) { $c_refresh = time(); $m1 = ''; $m2 = '' } else { $m1 = '/*'; $m2 = '*/' } ; return undef } recreate_cool_down ; move_to_cool_down ; create_table         |
+   { if ($b_refresh + 60 < time()) { $b_refresh = time(); $m3 = ''; $m4 = '' } else { $m3 = '/*'; $m4 = '*/' } ; return undef } $m3 SET GLOBAL innodb_buffer_pool_size = buffer_pool_size $m4 ;
+
+buffer_pool_size:
+   8388608   |
+   33554432  |
+   134217728 |
+   268435456 ;
+
+thread1_connect:
+   SET AUTOCOMMIT = 0; SET @fill_amount = (@@innodb_page_size / 2 ) + 1 ; set_big_timeouts ;
 
 thread_connect:
-   maintain_session_entry ; SET AUTOCOMMIT = 0; SET @fill_amount = (@@innodb_page_size / 2 ) + 1 ; set_timeouts ;
+   maintain_session_entry ; SET AUTOCOMMIT = 0; SET @fill_amount = (@@innodb_page_size / 2 ) + 1 ; set_small_timeouts ;
 
-set_timeouts:
+recreate_cool_down:
+   $m1 DROP SCHEMA cool_down $m2 ; $m1 CREATE SCHEMA cool_down $m2 ;
+move_to_cool_down:
+   $m1 RENAME TABLE t1 TO cool_down . t1 $m2 ; $m1 RENAME TABLE t2 TO cool_down . t2 $m2 ; $m1 RENAME TABLE t3 TO cool_down . t3 $m2 ; $m1 RENAME TABLE t4 TO cool_down . t4 $m2 ;
+
+set_small_timeouts:
    SET SESSION lock_wait_timeout = 2 ; SET SESSION innodb_lock_wait_timeout = 1 ;
+set_big_timeouts:
+   SET SESSION lock_wait_timeout = 60 ; SET SESSION innodb_lock_wait_timeout = 30 ;
 
 maintain_session_entry:
-   REPLACE INTO test . rqg_sessions SET rqg_id = _thread_id , processlist_id = CONNECTION_ID(), pid = { my $x = $$ } , connect_time = UNIX_TIMESTAMP();  COMMIT ;
+   REPLACE INTO rqg . rqg_sessions SET rqg_id = _thread_id , processlist_id = CONNECTION_ID(), pid = { my $x = $$ } , connect_time = UNIX_TIMESTAMP();  COMMIT ;
 
 kill_query_or_session_or_release:
 # We are here interested on the impact of
@@ -127,10 +160,10 @@ kill_query_or_session_or_release:
 #    Hence this will be not generated.
 # 5. Various combinations of sessions running 1. till 5.
 #
-# (1) COMMIT before and after selecting in test . rqg_sessions in order to avoid effects caused by
+# (1) COMMIT before and after selecting in rqg . rqg_sessions in order to avoid effects caused by
 #     - a maybe open transaction before that select
 #     - the later statements of a transaction maybe opened by that select
-# (2) No COMMIT before and after selecting in test . rqg_sessions in order to have no freed locks
+# (2) No COMMIT before and after selecting in rqg . rqg_sessions in order to have no freed locks
 #     before the KILL affecting the own session is issued. This is only valid if AUTOCOMMIT=0.
 #
    COMMIT ; correct_rqg_sessions_table      ; COMMIT                                 | # (1)
@@ -141,23 +174,24 @@ kill_query_or_session_or_release:
             ROLLBACK RELEASE                                                         ;
 
 own_id_part:
-   SELECT     processlist_id  INTO @kill_id FROM test . rqg_sessions WHERE rqg_id  = _thread_id ;
+   SELECT     processlist_id  INTO @kill_id FROM rqg . rqg_sessions WHERE rqg_id  = _thread_id ;
 other_id_part:
-   SELECT MIN(processlist_id) INTO @kill_id FROM test . rqg_sessions WHERE rqg_id <> _thread_id AND processlist_id IS NOT NULL;
+   SELECT MIN(processlist_id) INTO @kill_id FROM rqg . rqg_sessions WHERE rqg_id <> _thread_id AND processlist_id IS NOT NULL;
 kill_50_cond:
    MOD(rqg_id,2) = 0;
 kill_age_cond:
    UNIX_TIMESTAMP() - connect_time > 10;
 
 correct_rqg_sessions_table:
-   UPDATE test . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
+   # UPDATE rqg . rqg_sessions SET processlist_id = NULL, connect_time = NULL WHERE processlist_id NOT IN (SELECT id FROM information_schema. processlist);
+   UPDATE rqg . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 create_table:
-   # c_t_begin t0 c_t_mid ENGINE = MyISAM ; c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic ; c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed ; c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact ; c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant ; c_t_begin t5 c_t_mid ENGINE = Aria ;
-   c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic ; c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed ; c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact ; c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant ;
+   # c_t_begin t0 c_t_mid ENGINE = MyISAM $m2 ; c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic $m2 ; c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed $m2 ; c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact $m2 ; c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant $m2 ; c_t_begin t5 c_t_mid ENGINE = Aria $m2 ;
+   c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic $m2 ; c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed $m2 ; c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact $m2 ; c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant $m2 ;
 
 c_t_begin:
-   CREATE TABLE IF NOT EXISTS ;
+   $m1 CREATE TABLE IF NOT EXISTS ;
 c_t_mid:
    ( non_generated_cols generated_cols ) ;
 
@@ -338,6 +372,7 @@ key_or_index:
    KEY   ;
 
 check_table:
+   # CHECK TABLE table_names EXTENDED ;
    CHECK TABLE table_names ;
 
 column_position:
@@ -653,7 +688,7 @@ col_float_g_properties:
    gcol_prop { $col_name= "col_float_g"  ; $col_type= "FLOAT        GENERATED ALWAYS AS (col_float)                 $gcol_prop" ; return undef } col_to_idx ;
 
 gcol_prop:
-   # The higher share of VIRTUAL is intentional because users might prefer that and VIRTUAL is per experience more error prone.
+# The higher share of VIRTUAL is intentional because users might prefer that and VIRTUAL is per experience more error prone.
    { $gcol_prop = "PERSISTENT"    ; return undef }   |
    { $gcol_prop = "VIRTUAL"       ; return undef }   |
    { $gcol_prop = "VIRTUAL"       ; return undef }   ;

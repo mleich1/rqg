@@ -1,4 +1,4 @@
-# Copyright (c) 2019 MariaDB Corporation
+# Copyright (c) 2018, 2020 MariaDB Corporation
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
 # Derivate of table_stress_innodb.yy which
 # - focuses on DDL algorithm NOCOPY only
 # - avoids most table rebuilds which would be caused by manipulating col1
-#   or TRUNCATE TABLE, ADD DROP PRIMARY KEY
+#   or TRUNCATE TABLE, ADD/DROP PRIMARY KEY
 # - lets for DDL the server/InnoDB pick the algorithm they prefer 
 # - avoids BLOCK STAGE because of frequent trouble
 # - avoids virtual columns because of frequent trouble
@@ -79,6 +79,8 @@
 #
 # _digit --> Range 0 till 9
 
+fail_001:
+   { $fail = 'fail_001' ; return undef }; SELECT * FROM $fail ;
 
 # Create the tables we are working on.
 # Doing that in 'thread1_init' avoids clashes compared to trying it by every thread
@@ -86,14 +88,19 @@
 thread1_init:
    create_table ;
 
-thread_connect:
-   maintain_session_entry ; SET AUTOCOMMIT = 0; SET @fill_amount = (@@innodb_page_size / 2 ) + 1 ; set_timeouts ;
+thread1_connect:
+   SET AUTOCOMMIT = 0; SET @fill_amount = (@@innodb_page_size / 2 ) + 1 ; set_big_timeouts ;
 
-set_timeouts:
+thread_connect:
+   maintain_session_entry ; SET AUTOCOMMIT = 0; SET @fill_amount = (@@innodb_page_size / 2 ) + 1 ; set_small_timeouts ;
+
+set_small_timeouts:
    SET SESSION lock_wait_timeout = 2 ; SET SESSION innodb_lock_wait_timeout = 1 ;
+set_big_timeouts:
+   SET SESSION lock_wait_timeout = 60 ; SET SESSION innodb_lock_wait_timeout = 30 ;
 
 maintain_session_entry:
-   REPLACE INTO test . rqg_sessions SET rqg_id = _thread_id , processlist_id = CONNECTION_ID(), pid = { my $x = $$ } , connect_time = UNIX_TIMESTAMP();  COMMIT ;
+   REPLACE INTO rqg . rqg_sessions SET rqg_id = _thread_id , processlist_id = CONNECTION_ID(), pid = { my $x = $$ } , connect_time = UNIX_TIMESTAMP();  COMMIT ;
 
 kill_query_or_session_or_release:
 # We are here interested on the impact of
@@ -135,10 +142,10 @@ kill_query_or_session_or_release:
 #    Hence this will be not generated.
 # 5. Various combinations of sessions running 1. till 5.
 #
-# (1) COMMIT before and after selecting in test . rqg_sessions in order to avoid effects caused by
+# (1) COMMIT before and after selecting in rqg . rqg_sessions in order to avoid effects caused by
 #     - a maybe open transaction before that select
 #     - the later statements of a transaction maybe opened by that select
-# (2) No COMMIT before and after selecting in test . rqg_sessions in order to have no freed locks
+# (2) No COMMIT before and after selecting in rqg . rqg_sessions in order to have no freed locks
 #     before the KILL affecting the own session is issued. This is only valid if AUTOCOMMIT=0.
 #
    COMMIT ; correct_rqg_sessions_table      ; COMMIT                                 | # (1)
@@ -149,16 +156,17 @@ kill_query_or_session_or_release:
             ROLLBACK RELEASE                                                         ;
 
 own_id_part:
-   SELECT     processlist_id  INTO @kill_id FROM test . rqg_sessions WHERE rqg_id  = _thread_id ;
+   SELECT     processlist_id  INTO @kill_id FROM rqg . rqg_sessions WHERE rqg_id  = _thread_id ;
 other_id_part:
-   SELECT MIN(processlist_id) INTO @kill_id FROM test . rqg_sessions WHERE rqg_id <> _thread_id AND processlist_id IS NOT NULL;
+   SELECT MIN(processlist_id) INTO @kill_id FROM rqg . rqg_sessions WHERE rqg_id <> _thread_id AND processlist_id IS NOT NULL;
 kill_50_cond:
    MOD(rqg_id,2) = 0;
 kill_age_cond:
    UNIX_TIMESTAMP() - connect_time > 10;
 
 correct_rqg_sessions_table:
-   UPDATE test . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
+   # UPDATE rqg . rqg_sessions SET processlist_id = NULL, connect_time = NULL WHERE processlist_id NOT IN (SELECT id FROM information_schema. processlist);
+   UPDATE rqg . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 create_table:
    # c_t_begin t0 c_t_mid ENGINE = MyISAM ; c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic ; c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed ; c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact ; c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant ; c_t_begin t5 c_t_mid ENGINE = Aria ;
@@ -659,7 +667,7 @@ col_float_g_properties:
    gcol_prop { $col_name= "col_float_g"  ; $col_type= "FLOAT        GENERATED ALWAYS AS (col_float)                 $gcol_prop" ; return undef } col_to_idx ;
 
 gcol_prop:
-   # The higher share of VIRTUAL is intentional because users might prefer that and VIRTUAL is per experience more error prone.
+# The higher share of VIRTUAL is intentional because users might prefer that and VIRTUAL is per experience more error prone.
    { $gcol_prop = "PERSISTENT"    ; return undef }   ;
    # { $gcol_prop = "VIRTUAL"       ; return undef }   |
    # { $gcol_prop = "VIRTUAL"       ; return undef }   ;

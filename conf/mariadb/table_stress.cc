@@ -1,4 +1,4 @@
-# Copyright (C) 2018,2019 MariaDB Corporation Ab.
+# Copyright (C) 2018,2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -152,14 +152,14 @@
 # --reporters=Deadlock,ErrorLog,Backtrace,Recovery,Shutdown
 $combinations = [
    [
-      '
+         '
+         --mysqld=--innodb_adaptive_hash_index=OFF
          --mysqld=--loose-innodb_lock_schedule_algorithm=fcfs
          --grammar=conf/mariadb/table_stress.yy
          --gendata=conf/mariadb/table_stress.zz
          --gendata_sql=conf/mariadb/table_stress.sql
          --engine=Innodb
          --reporters=Deadlock1,ErrorLog,Backtrace
-         --mysqld=--loose_innodb_use_native_aio=1
          --mysqld=--connect_timeout=60
          --mysqld=--net_read_timeout=30
          --mysqld=--net_write_timeout=60
@@ -172,11 +172,13 @@ $combinations = [
          --mysqld=--loose-table_lock_wait_timeout=50
          --mysqld=--wait_timeout=28800
          --mysqld=--slave_net_timeout=60
+         --mysqld=--loose-max-statement-time=30
+         --mysqld=--innodb-buffer-pool-size=128M
          --mysqld=--log-output=none
          --duration=300
          --seed=random
          --sqltrace=MarkErrors
-      '
+         '
    ],
    [
          '--threads=4',
@@ -189,10 +191,16 @@ $combinations = [
          '--mysqld=--innodb-flush-log-at-trx-commit=1',
          '--mysqld=--innodb-flush-log-at-trx-commit=2',
          '--mysqld=--innodb-flush-log-at-trx-commit=3',
-   ], [
+   ],[
          '--mysqld=--transaction-isolation=READ-UNCOMMITTED',
          '--mysqld=--transaction-isolation=READ-COMMITTED',
          '--mysqld=--transaction-isolation=REPEATABLE-READ',
          '--mysqld=--transaction-isolation=SERIALIZABLE'
+   ],[
+         ' --mysqld=--innodb_page_size=4K ',
+         ' --mysqld=--innodb_page_size=8K ',
+         ' --mysqld=--innodb_page_size=16K ',
+         ' --mysqld=--innodb_page_size=32K ',
+         ' --mysqld=--innodb_page_size=64K ',
    ],
 ];

@@ -1,4 +1,4 @@
-# Copyright (C) 2016, 2018 MariaDB Corporation Ab.
+# Copyright (C) 2016, 2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -152,7 +152,7 @@ $combinations =
         --mysqld=--interactive_timeout=28800
         --mysqld=--log-output=none
         --mysqld=--loose-table_lock_wait_timeout=50
-        --mysqld=--loose_innodb_use_native_aio=0
+        --mysqld=--loose_innodb_use_native_aio=1
         --mysqld=--loose_innodb_lock_schedule_algorithm=fcfs
         --mysqld=--loose-idle_write_transaction_timeout=0
         --mysqld=--innodb_stats_persistent=off
@@ -163,9 +163,5 @@ $combinations =
         --sqltrace=MarkErrors
         --no-mask
         --seed=random
-        --whitelist_statuses="\'STATUS_SERVER_CRASHED\',\'STATUS_CRITICAL_FAILURE\'"
-        --whitelist_patterns="\'<signal handler called>\'"
-        --blacklist_statuses="\'STATUS_OK\'"
-        --blacklist_patterns="\'Sentence is now longer than .{1,10} symbols. Possible endless loop in grammar. Aborting.\',\'\[ERROR\] InnoDB: preallocating .{1,120} with error 28\',\'  is truncated: expected core file size \',\'mysqld.{1,50}ma_close.c.{1,30}maria_close: Assertion.{1,70}share..base.born_transactional.{1,20} failed\'"
      ' ] ];
 

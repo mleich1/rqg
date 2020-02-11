@@ -465,7 +465,8 @@ sub report {
 
 sub type {
     # return REPORTER_TYPE_ALWAYS | REPORTER_TYPE_PERIODIC;
-    return REPORTER_TYPE_ALWAYS | REPORTER_TYPE_PERIODIC;
+    # REPORTER_TYPE_ALWAYS would mean that it gets executed even after some previous server crash.
+    return REPORTER_TYPE_PERIODIC;
 }
 
 1;
