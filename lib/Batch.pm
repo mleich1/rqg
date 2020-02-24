@@ -502,7 +502,7 @@ sub stop_worker {
     if (-1 != $pid) {
         # Per last update of bookkeeping the RQG Woorker was alive.
         # We ask to kill the processgroup of the RQG Worker.
-        kill '-KILL', $pid;
+        kill '-9', $pid;
         if ($give_up < 3) {
             $worker_array[$worker_num][WORKER_STOP_REASON] = $stop_reason;
             my $order_id = $worker_array[$worker_num][WORKER_ORDER_ID];
@@ -1060,7 +1060,7 @@ sub reap_workers {
                 # Summary:
                 # We should rather assume the worst case, child processes are not already dead,
                 # and make some radical cleanup.
-                kill 'KILL', $worker_process_group;
+                kill '-9', $worker_process_group;
 
                 my $rqg_vardir    = "$vardir"  . $rqg_appendix;
                 my $rqg_log       = "$rqg_workdir" . "/rqg.log";
@@ -1122,7 +1122,7 @@ sub reap_workers {
                 $iso_ts = isoTimestamp();
 
                 # Note:
-                # The next two routines get used because the standard failure handling is to make
+                # The next routine is required because the standard failure handling is to make
                 # an emergency_exit and not just some simple exit.
                 sub drop_directory {
                     my ($directory) = @_;

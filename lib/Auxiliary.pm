@@ -1774,7 +1774,7 @@ sub unify_gendata_sql {
         safe_exit($status);
     } else {
         if (! -d $workdir) {
-        my $status = STATUS_INTERNAL_ERROR;
+            my $status = STATUS_INTERNAL_ERROR;
             Carp::cluck("INTERNAL ERROR: unify_gendata_sql : workdir '$workdir' does not exist " .
                         "or is not a directory.");
             safe_exit($status);
@@ -1786,7 +1786,7 @@ sub unify_gendata_sql {
         return $gendata_sql_ref;
     } else {
         # There might be several gendata_sql_files put into $gendata_sql_files[0]
-        Auxiliary::print_list("DEBUG: Initial gendata_sql_files files ", @gendata_sql_files);
+        # Auxiliary::print_list("DEBUG: Initial gendata_sql_files files ", @gendata_sql_files);
         my $list_ref = Auxiliary::input_to_list(@gendata_sql_files);
         if(defined $list_ref) {
             @gendata_sql_files = @$list_ref;
@@ -1869,7 +1869,7 @@ sub unify_redefine {
         return $redefine_ref;
     } else {
         # There might be several redefine_files put into $redefine_files[0]
-        Auxiliary::print_list("DEBUG: Initial redefine_files files ", @redefine_files);
+        # Auxiliary::print_list("DEBUG: Initial redefine_files files ", @redefine_files);
         my $list_ref = Auxiliary::input_to_list(@redefine_files);
         if(defined $list_ref) {
             @redefine_files = @$list_ref;

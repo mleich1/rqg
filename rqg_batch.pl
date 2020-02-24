@@ -939,7 +939,7 @@ while($Batch::give_up <= 1) {
                     # 1. 2>&1 at command end ensures that we do not pollute the output of
                     #    rqg_batch.pl with verdict output.
                     # 2. 'rqg_matching.log' is a file name starting with 'rqg'.
-                    #    Hence it will be archived if archicing not disabled.
+                    #    Hence it will be archived if archiving not disabled.
                     # 3. 'rqg_verdict.log' might sound better than 'rqg_matching.log' but the first
                     #    might be interpreted wrong like "The result of matching is 'log'".
                     $command = "perl $rqg_home/verdict.pl --workdir=$rqg_workdir > " .
