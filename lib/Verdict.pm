@@ -570,7 +570,7 @@ sub calculate_verdict {
     $p_info = '<undef4>' if not defined $p_info;
     say("INFO: Whitelist pattern matching returned : $p_match - $p_info");
     if (0 == $bl_match) {
-        if (1 == $maybe_match) { 
+        if (1 == $maybe_match) {
             # We had a status match and now some pattern too. So refine $f_info.
             if ($p_match eq Auxiliary::MATCH_YES) {
                 $f_info      = $f_info . '--' . $p_info;

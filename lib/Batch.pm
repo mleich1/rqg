@@ -243,6 +243,7 @@ use constant WORKER_VERDICT     =>  7;
 use constant WORKER_LOG         =>  8;
 use constant WORKER_STOP_REASON =>  9; # in case the run was stopped than the reason
 use constant WORKER_V_INFO      => 10; # Additional info around the verdict
+use constant WORKER_COMMAND     => 11; # Essentials of RQG call
 # In case a 'stop_worker' had to be performed because of
 # - STOP_REASON_WORK_FLOW
 #   Simplifier/Combinator has given REGISTER_END
@@ -389,6 +390,7 @@ sub worker_reset {
     $worker_array[$worker_num][WORKER_LOG]         = undef;
     $worker_array[$worker_num][WORKER_STOP_REASON] = undef;
     $worker_array[$worker_num][WORKER_V_INFO]      = undef;
+    $worker_array[$worker_num][WORKER_COMMAND]     = undef;
 }
 
 sub get_free_worker {
@@ -476,7 +478,7 @@ use constant WORKER_ORDER_LENGTH =>  8;
            " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_START],    WORKER_START_LENGTH) .
            " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_END],      WORKER_START_LENGTH) .
            " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_ORDER_ID], WORKER_ORDER_LENGTH) ;
-        foreach my $index (WORKER_EXTRA1, WORKER_EXTRA2, WORKER_EXTRA3,WORKER_VERDICT,WORKER_LOG) {
+        foreach my $index (WORKER_EXTRA1, WORKER_EXTRA2, WORKER_EXTRA3, WORKER_VERDICT, WORKER_LOG, WORKER_COMMAND) {
             my $val = $worker_array[$worker_num][$index];
             if (not defined $val) {
                 $val = "<undef>";
@@ -1064,10 +1066,10 @@ sub reap_workers {
 
                 my $rqg_vardir    = "$vardir"  . $rqg_appendix;
                 my $rqg_log       = "$rqg_workdir" . "/rqg.log";
+                my $rqg_job       = "$rqg_workdir" . "/rqg.job";
                 my $rqg_arc       = "$rqg_workdir" . "/archive.tgz";
 
-                my $verdict;
-                my $extra_info;
+                my ($verdict, $extra_info) = Verdict::get_rqg_verdict($rqg_workdir);
                 $worker_array[$worker_num][WORKER_END] = time();
                 if (-1 == $worker_array[$worker_num][WORKER_START]) {
                     # The parent (rqg_batch.pl) has never detected that the child (rqg.pl) started
@@ -1099,7 +1101,7 @@ sub reap_workers {
                                                            "# $iso_ts Verdict: $verdict\n");
                 } else {
                     ####### $worker_array[$worker_num][WORKER_END] = time();
-                    ($verdict, $extra_info) = Verdict::get_rqg_verdict($rqg_workdir);
+                    # ($verdict, $extra_info) = Verdict::get_rqg_verdict($rqg_workdir);
                 }
 
                 $worker_array[$worker_num][WORKER_VERDICT] = $verdict;
@@ -1115,8 +1117,10 @@ sub reap_workers {
                 my $target_prefix_rel = Auxiliary::lfill0($verdict_collected, RQG_NO_LENGTH);
                 my $target_prefix     = $workdir . "/" . $target_prefix_rel;
                 my $saved_log_rel     = $target_prefix_rel . ".log";
+                my $saved_job_rel     = $target_prefix_rel . ".job";
                 $worker_array[$worker_num][WORKER_LOG] = $saved_log_rel;
                 my $saved_log         = $target_prefix     . ".log";
+                my $saved_job         = $target_prefix     . ".job";
                 my $saved_arc         = $target_prefix     . ".tgz";
 
                 $iso_ts = isoTimestamp();
@@ -1141,6 +1145,7 @@ sub reap_workers {
                     $verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST   ) {
                     if (not $discard_logs) {
                         rename_file($rqg_log, $saved_log);
+                        rename_file($rqg_job, $saved_job);
                     } else {
                         $saved_log_rel = "<deleted>";
                         $worker_array[$worker_num][WORKER_LOG] = $saved_log_rel;
@@ -1195,7 +1200,7 @@ sub reap_workers {
                     # (death during archiving or too long busy with just that) for control.
                     rename_file($rqg_log, $saved_log);
                     $verdict_init++;
-                    say("WARN: Final Verdict Verdict::RQG_VERDICT_INIT in '$saved_log'.");
+                    say("WARN: The final Verdict in '$saved_log' is RQG_VERDICT_INIT.");
                     # Maybe touch ORDER_EFFORTS_INVESTED or ORDER_EFFORTS_LEFT
                 } else {
                     emergency_exit(STATUS_CRITICAL_FAILURE,
@@ -2064,8 +2069,8 @@ sub process_finished_runs {
             my $extra_info = $worker_array[$worker_num][WORKER_V_INFO];
             if (defined $worker_array[$worker_num][WORKER_STOP_REASON]) {
                 $extra_info = $worker_array[$worker_num][WORKER_STOP_REASON];
-                say("DEBUG: order_id $order_id Reporting WORKER_STOP_REASON instead of WORKER_V_INFO.")
-                    if Auxiliary::script_debug("B4");
+                say("DEBUG: order_id $order_id Reporting WORKER_STOP_REASON instead of " .
+                    "WORKER_V_INFO.") if Auxiliary::script_debug("B4");
             }
             my @result_record = (
                     $worker_num,
@@ -2077,9 +2082,11 @@ sub process_finished_runs {
                     $worker_array[$worker_num][WORKER_EXTRA1],
                     $worker_array[$worker_num][WORKER_EXTRA2],
                     $worker_array[$worker_num][WORKER_EXTRA3],
+                    $worker_array[$worker_num][WORKER_COMMAND],
             );
             if      ($batch_type eq BATCH_TYPE_COMBINATOR) {
                 $action = Combinator::register_result(@result_record);
+                # Maintaining the setup file is done im Combinator::register_result.
             } elsif ($batch_type eq BATCH_TYPE_RQG_SIMPLIFIER) {
                 $action = Simplifier::register_result(@result_record);
             } else {

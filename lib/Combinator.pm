@@ -22,8 +22,10 @@
 # - util/bughunt.pl
 #   - The immediate judging (based on status + text patterns) was extended to
 #     the black/whitelist matching and moved into Verdict.pm.
-#     The matching itself gets called by rqg.pl.
-#   - The creation of archives + first cleanup are moved into rqg.pl too.
+#     rqg_batch.pl forks a child process (RQG Worker) which performs the RQG
+#     run and after that the judging.
+#   - The creation of archives + first cleanup have also become a task of
+#     the RQG worker.
 #   - The unification regarding storage places was extended and also moved
 #     into rqg.pl.
 # - combinations.pl
@@ -128,6 +130,8 @@ my $config_file_copy_rel  = "combinations.cc";
 
 # File for bookkeeping + easy overview about results achieved.
 my $result_file;
+# File for result to setup correlation
+my $setup_file;
 
 our $combinations; # Otherwise the 'eval' in the sub 'init' makes trouble.
 my $workdir;
@@ -379,7 +383,6 @@ sub init {
     $result_file  = $workdir . "/result.txt";
     my $iso_ts = isoTimestamp();
     $verdict_setup =~ s/^/$iso_ts /gm;
-    # FIXME: Add printing the Combinator setup (parameters given to current sub)
     my $header =
 "$iso_ts Combinator init ================================================================================================\n" .
 "$iso_ts workdir                        : '$workdir'\n"                                                                      .
@@ -404,6 +407,30 @@ $verdict_setup                                                                  
        " | " . Batch::RQG_ORDERID_TITLE   . " | " . "RunTime"                  . " | " . "Extra info"         .         "\n" ;
 
     Batch::write_result($header);
+
+    $setup_file  = $workdir . "/setup.txt";
+    $header =
+"$iso_ts Combinator init ================================================================================================\n" .
+"$iso_ts workdir                        : '$workdir'\n"                                                                      .
+"$iso_ts config_file (assigned)         : '$config_file'\n"                                                                  .
+"$iso_ts config file (copy used)        : '$config_file_copy_rel'\n"                                                         .
+"$iso_ts seed (compute combinations)    : $seed\n"                                                                           .
+"$iso_ts exhaustive                     : $exhaustive\n"                                                                     .
+"$iso_ts noshuffle                      : $noshuffle\n"                                                                      .
+"$iso_ts start_combination              : $start_combination\n"                                                              .
+"$iso_ts trials                         : $trials (Default " . TRIALS_DEFAULT . ")\n"                                        .
+"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
+"$iso_ts options added to any RQG call  : $cl_snip_end\n"                                                                    .
+"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
+"$iso_ts number of sections to combine  : $comb_count\n"                                                                     .
+"$iso_ts max number of combinations     : $total\n"                                                                          .
+"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
+"$iso_ts Verdict setup\n"                                                                                                    .
+$verdict_setup                                                                                                               .
+"$iso_ts ================================================================================================================\n" .
+Verdict::RQG_VERDICT_TITLE . " - " . "Extra info" . " - " . " setup " . " - " . Batch::RQG_NO_TITLE           .         "\n" ;
+
+    Batch::make_file($setup_file, $header);
 
     Batch::init_order_management();
     Batch::init_load_control();
@@ -736,7 +763,8 @@ sub register_result {
 # - ~ run emergency exit
 #
 
-    my ($worker_number, $order_id, $verdict, $extra_info, $saved_log_rel, $total_runtime) = @_;
+    my ($worker_number, $order_id, $verdict, $extra_info, $saved_log_rel, $total_runtime,
+        $ignore1, $ignore2, $ignore3, $worker_command) = @_;
     say("DEBUG: Combinator::register_result : OrderID : $order_id, Verdict: $verdict, " .
         "Extra info: $extra_info, RQG log : '$saved_log_rel', total_runtime : $total_runtime")
         if Auxiliary::script_debug("C4");
@@ -772,6 +800,13 @@ sub register_result {
                  Auxiliary::lfill($total_runtime, Batch::RQG_ORDERID_LENGTH) . " | " .
                                   $extra_info                                . "\n";
     Batch::write_result($line);
+    # Verdict          - Extra info -  setup  - Number
+    $line      =
+                 Auxiliary::rfill($verdict,Verdict::RQG_VERDICT_LENGTH)      . " - " .
+                 $extra_info                                                 . " - " .
+                 $worker_command                                             . " - " .
+                 $arrival_number                                             . "\n";
+    write_setup($line);
 
     $arrival_number++;
 
@@ -787,5 +822,19 @@ sub register_result {
 
 } # End sub register_result
 
+sub write_setup {
+    my ($line) = @_;
+    if (not defined $line) {
+        Carp::cluck("INTERNAL ERROR: line is undef.");
+        my $status = STATUS_INTERNAL_ERROR;
+        emergency_exit($status);
+    }
+    if (not defined $setup_file) {
+        Carp::cluck("INTERNAL ERROR: result_file is undef.");
+        my $status = STATUS_INTERNAL_ERROR;
+        emergency_exit($status);
+    }
+    Batch::append_string_to_file($setup_file, $line);
+}
 
 1;

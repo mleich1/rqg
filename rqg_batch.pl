@@ -81,62 +81,20 @@ use ResourceControl;
 # - be capable to stop active RQG worker whenever it is recommended up till required.
 #   Typical reasons: Regular test end, resource trouble ahead, tricks for faster replay etc.
 #
-my @worker_array = ();
-# The pid got. Used for checking if that RQG worker is active/alive, maybe stopping him, avoiding
-# to get zombie processes et.
-use constant WORKER_PID       => 0;
-# Point of time after the process of the RQG worker was forked and has taken over his job.
-# Maybe used in future for
-# - limiting the runtime of a RQG worker
-# - computing the total runtime of a RQG worker in case the corresponding information cannot be
-#   found in the log of the RQG worker.
-use constant WORKER_START     => 1;
-# The id of the order (--> @order_array) which was used to construct the RQG call of the RQG worker.
-# This is used for bookkeeping in order to
-# - (combinations or variations): achieve maximum/required functional coverage by
-#   - minimizing holes in the first range of orders executed
-#     Example:
-#     - Order 1 till 10 executed with regular finish is better than
-#       Order 1 till 15 executed with regular finish except 2 4 7 and 12
-#   - not repeating the execution of orders which already had some execution with regular finish
-#     as long as other orders were never tried and are not already in execution.
-# - (grammar simplifier): Bookkeeping in order to optimize the grammar simplification process.
-use constant WORKER_ORDER_ID  => 2;
-# Three variables for stuff being
-# - not full and even not  half static like @order_array content
-# - full dynamic (calculated/decided) direct before the fork of the RQG Worker. And we need to
-#   memorize that value when the worker finished for valuating his result.
-#   Example for to be developed advanced grammar simplification:
-#   Orders like for example
-#      Try to remove the component/alternative "UPDATE ...." from the rule "dml" could be
-#      executed depending on the outcome of its last execution and the results of competing runs
-#      more than once. And the final grammar used is the current best grammar known with
-#      that removal applied if doable.
-#   So we need to memorize which current best grammar was used for such a run.
-#   Another example is the maximum runtime allowed to this run because this runtime will be
-#   adapted during the progressing grammar simplification.
-#   - CL_snippet (gendata etc. but not grammar) which is the same for any RQG run serving
-#     grammar simplification
-#   - grammar to be used <m>.yy for the replay attempt
-#     Attention: The RQG runner will later work with his personal copy named rqg.yy.
-#   - parent grammar b<n>.yy which was used for constructing the grammar <m>.yy by applying
-#     the simplification (*) WORKER_ORDER_ID is pointing to.
-#     The parent grammar is the best known grammar (b<n>.yy with highest <n>) at the time of
-#     generation of <m>.yy.
-#     (*) Something like "remove the component 'DROP TABLE t1' from the rule 'query'".
-#   - grammar to be used <m>.yy
-#     Attention: The RQG runner will later work with his personal copy named rqg.yy.
-#   - maximum runtime for the RQG run assigned
-#     Only relevant in case we go with adaptive runtimes.
-#     This is some extrapolated timespan for the complete RQG run (gendata + duration(gentest)
-#     + comparison if required + archiving + ...) which should ensure that >= 85% of all simplified
-#     grammars which are capable to replay have replayed.
-#     So in some sense this runtime defines what some sufficient long run is and the size changes
-#     during the simplification process.
-use constant WORKER_EXTRA1    => 3; # child grammar == grammar used if Simplifier
-use constant WORKER_EXTRA2    => 4; # parent grammar if Simplifier
-use constant WORKER_EXTRA3    => 5; # adapted duration if Simplifier
-use constant WORKER_END       => 6;
+# Batch.pm contains the following definition which we use here quite often
+# our @worker_array = ();
+#    use constant WORKER_PID         =>  0;
+#    use constant WORKER_START       =>  1;
+#    use constant WORKER_ORDER_ID    =>  2;
+#    use constant WORKER_EXTRA1      =>  3; # child grammar == grammar used if Simplifier
+#    use constant WORKER_EXTRA2      =>  4; # parent grammar if Simplifier
+#    use constant WORKER_EXTRA3      =>  5; # adapted duration if Simplifier
+#    use constant WORKER_END         =>  6;
+#    use constant WORKER_VERDICT     =>  7;
+#    use constant WORKER_LOG         =>  8;
+#    use constant WORKER_STOP_REASON =>  9; # in case the run was stopped than the reason
+#    use constant WORKER_V_INFO      => 10; # Additional info around the verdict
+#    use constant WORKER_COMMAND     => 11; # Essentials of RQG call
 # In case a 'stop_worker' had to be performed than WORKER_END will be set to the current timestamp
 # when issuing the SIGKILL that RQG worker processgroup.
 # When 'reap_worker' gets active the following should happen
@@ -624,14 +582,13 @@ say("DEBUG: logToStd is ->$logToStd<-") if Auxiliary::script_debug("T1");
 
 my $exit_file    = $workdir . "/exit";
 my $result_file  = $workdir . "/result.txt";
+my $setup_file   = $workdir . "/setup.txt";
 
 my $total_status = STATUS_OK;
 
 # Number of the next trial if started at all.
 # This also implies that incrementing must be after getting a valid command.
 my $trial_num    = 1;
-
-
 
 while($Batch::give_up <= 1) {
     say("DEBUG: Begin of while(...) loop. Next trial_num is $trial_num.")
@@ -705,18 +662,19 @@ while($Batch::give_up <= 1) {
                 Batch::emergency_exit($status);
             }
 
-            if (defined $runner and $runner ne '') {
-                $cl_snip = "$runner $cl_snip";
-            } else {
-                # Take the default RQG runner
-                $cl_snip = "rqg.pl $cl_snip";
-            }
+            # Beautify cl_snip by shrinking multiple spaces to one.
+            $cl_snip =~ s{ +}{ }img;
+            # Expand "--seed=time" to the real value.
+            my $tm = time();
+            $cl_snip =~ s/--seed=time/--seed=$tm/g;
+            say("DEBUG: cl_snip after some processing =>$cl_snip<=");
+            #   if Auxiliary::script_debug("T6");
 
             say("Job generated : $order_id § $cl_snip") if Auxiliary::script_debug("T5");
 
-            # OPEN
-            # ----
-            # - append RQG Worker specific stuff
+            # OPEN (not done till here but below)
+            # -----------------------------------
+            # - append RQG Worker specific stuff like RQG runner, vardir etc.
             # - append $cl_end
             # - glue "perl .... $rqg_home/" to the begin.
             # - enclose on non WIN with bash .....
@@ -727,6 +685,14 @@ while($Batch::give_up <= 1) {
             $Batch::worker_array[$free_worker][Batch::WORKER_EXTRA1]   = $job[Batch::JOB_MEMO1];
             $Batch::worker_array[$free_worker][Batch::WORKER_EXTRA2]   = $job[Batch::JOB_MEMO2];
             $Batch::worker_array[$free_worker][Batch::WORKER_EXTRA3]   = $job[Batch::JOB_MEMO3];
+            $Batch::worker_array[$free_worker][Batch::WORKER_COMMAND]  = $command;
+
+            if (defined $runner and $runner ne '') {
+                $command = "$runner $command";
+            } else {
+                # Take the default RQG runner
+                $command = "rqg.pl $command";
+            }
 
             say("COMMAND ->$command<-") if Auxiliary::script_debug("T5");
 
@@ -752,21 +718,25 @@ while($Batch::give_up <= 1) {
                 if Auxiliary::script_debug("T6");
             $command .= " --mtr-build-thread=$rqg_build_thread";
 
-            my $tm = time();
-            $command =~ s/--seed=time/--seed=$tm/g;
-
             $command .= " " . $cl_end;
 
             my $rqg_log = $rqg_workdir . "/rqg.log";
+            # $rqg_job is used for
+            # 1. debugging the simplifier/combinator mechanics (--> OrderID, Memo1, ...)
+            #    Q: Do the simplification phases work correct?
+            # 2. being able to get some rather complete overview about how RQG test setups
+            #    achieving whatever verdict looked like
+            #    Q1: What is the most promising setup (grammar, ...) for replaying TBR/MDEV-nnnnn?
+            #    Q2: Which setups (grammar, ...) tend to frequent false alarms etc.
             my $rqg_job = $rqg_workdir . "/rqg.job";
 
             # defined $value ? $value : "NULL";
             my $content =
-                "OrderID: " . $job[Batch::JOB_ORDER_ID] . "\n" .
+                "OrderID: " . $job[Batch::JOB_ORDER_ID]                                             . "\n" .
                 "Memo1:   " . (defined $job[Batch::JOB_MEMO1] ? $job[Batch::JOB_MEMO1] : '<undef>') . "\n" .
                 "Memo2:   " . (defined $job[Batch::JOB_MEMO2] ? $job[Batch::JOB_MEMO2] : '<undef>') . "\n" .
                 "Memo3:   " . (defined $job[Batch::JOB_MEMO3] ? $job[Batch::JOB_MEMO3] : '<undef>') . "\n" .
-                "Cl_Snip: " . $job[Batch::JOB_CL_SNIP]  . "\n" ;
+                "Cl_Snip: " . $Batch::worker_array[$free_worker][Batch::WORKER_COMMAND] ;
             Batch::append_string_to_file($rqg_job, $content);
             $content = "# " . isoTimestamp() . " INFO: Logfile for RQG Worker [$free_worker]\n";
             Batch::append_string_to_file($rqg_log, $content);
@@ -817,7 +787,7 @@ while($Batch::give_up <= 1) {
                 # - (more sure) anything else
                 # Batch queues: @try_queue, @try_first_queue, @try_later_queue, @try_over_queue
                 # Combinator/simplifier structure: @order_array
-                undef @worker_array;
+# FIXME         undef @worker_array;
                 if      ($Batch::batch_type eq Batch::BATCH_TYPE_COMBINATOR) {
                     Combinator::unset_variables;
                 } elsif ($Batch::batch_type eq Batch::BATCH_TYPE_RQG_SIMPLIFIER) {

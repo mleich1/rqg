@@ -1320,6 +1320,33 @@ sub get_job {
                     my @oid_list;
                     unshift @oid_list, $order_id;
 
+                    # FIXME:
+                    # I guess that the following concept would be better.
+                    # Early simplification campaigns
+                    #     More trials than just $trials, $trials serves mostly the first replay
+                    # Late simplification campaigns
+                    #     Just $trials trials
+                    # Number of OIDs in list ~ 1 + INT($cut_steps / 30)
+                    #
+
+                    my $cut_steps = GenTest::Simplifier::Grammar_advanced::estimate_cut_steps();
+                    my $oids_to_add = abs(int($cut_steps / 30));
+                    if (not defined $oids_to_add or $oids_to_add > 3000) {
+                        my $status = STATUS_INTERNAL_ERROR;
+                        Carp::cluck("INTERNALE ERROR: Simplifier::get_job : \$oids_to_add is " .
+                                    "undef or > 3000." .
+                                    "Will exit with status " . status2text($status) . "($status)");
+                        Batch::emergency_exit($status);
+                    }
+                    say("DEBUG: Simplifier::get_job : \$cut_steps : $cut_steps , " .
+                        "\$oids_to_add : $oids_to_add") if Auxiliary::script_debug("S6");
+                    while($oids_to_add > 0) {
+                        my $extra_order = Batch::get_rand_try_all_id();
+                        unshift @oid_list, $extra_order if defined $extra_order;
+                        $oids_to_add--;
+                    }
+
+                if(0) {
                     my $cut_steps = GenTest::Simplifier::Grammar_advanced::estimate_cut_steps();
                     if ($cut_steps >   30) {
                         my $extra_order = Batch::get_rand_try_all_id();
@@ -1337,6 +1364,7 @@ sub get_job {
                         my $extra_order = Batch::get_rand_try_all_id();
                         unshift @oid_list, $extra_order if defined $extra_order;
                     }
+                }
 
                     # Based on the order id's, their validity and their order within @oid_list
                     # a $redefine_string gets generated.
@@ -1748,13 +1776,13 @@ sub register_result {
 
     our $arrival_number;
     my ($worker_num, $order_id, $verdict, $extra_info, $saved_log_rel, $total_runtime,
-        $grammar_used, $grammar_parent, $adapted_duration) = @_;
+        $grammar_used, $grammar_parent, $adapted_duration, $ignore1) = @_;
 
-    if (@_ != 9) {
+    if (@_ != 10) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: register_result : 9 Parameters (worker_num, order_id, " .
+        Carp::cluck("INTERNAL ERROR: register_result : 10 Parameters (worker_num, order_id, " .
                     "verdict, extra_info, saved_log_rel, total_runtime, grammar_used, "      .
-                    "grammar_parent, adapted_duration) are required.");
+                    "grammar_parent, adapted_duration, ignore1) are required.");
         Batch::emergency_exit($status);
     }
     if (not defined $worker_num or not defined $order_id or not defined $verdict) {

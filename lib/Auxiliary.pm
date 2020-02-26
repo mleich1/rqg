@@ -1640,6 +1640,51 @@ sub get_string_after_pattern {
     }
 }
 
+sub get_scrap_after_pattern {
+# Purpose explained by example
+# ----------------------------
+# The RQG job file contains
+# Cl_Snip:  --duration=300 --queries=10000000 ...
+# and we are interested in the '  --duration=300 --queries=10000000 ...' whatever purposes.
+#
+# my $content = Auxiliary::get_scrap_after_pattern($file, "Cl_Snip: ");
+#
+# Note:
+# In case there
+# - are several lines with that pattern than we pick the string from the last line.
+# - is after the pattern stuff like 'abc def' than we catch everything like 'abc def'.
+#
+# Return values
+# -------------
+# undef    -- trouble with getting the content of the file at all
+# ''       -- No trouble with the file but either
+#             - most likely   : A line with the pattern does not exist.
+#             - very unlikely : The line ends direct after the pattern or only spaces follow.
+#
+
+    my ($file, $pattern) = @_;
+    if (@_ != 2) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: Auxiliary::get_scrap_after_pattern : 2 Parameters (file, " .
+                    "pattern) are required.");
+        safe_exit($status);
+        # This accident could roughly only happen when coding RQG or its tools.
+        # Already started servers need to be killed manually!
+    }
+
+    my $content = Auxiliary::getFileSlice($file, 100000000);
+    if (not defined $content) {
+        say("ERROR: Trouble getting the content of '$file'. Will return undef");
+        return undef;
+    }
+
+    if ($content=~ s|.*$pattern([^\n]*).*|$1|s) {
+        return $content;
+    } else {
+        return '';
+    }
+}
+
 # -----------------------------------------------------------------------------------
 
 # The unify_* routines

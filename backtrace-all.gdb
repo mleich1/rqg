@@ -1,4 +1,5 @@
 # Copyright (C) 2008 Sun Microsystems, Inc. All rights reserved.
+# Copyright (C) 2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -16,4 +17,8 @@
 # USA
 
 set print elements 0
+echo #===== Output of GDB     thread apply all backtrace full   ===================#
+thread apply all backtrace full
+echo #===== Output of GDB     thread apply all backtrace        ===================#
 thread apply all backtrace
+
