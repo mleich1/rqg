@@ -1,5 +1,5 @@
-# Copyright (C) 2019 MariaDB corporation Ab. All rights reserved.  Use
-# is subject to license terms.
+# Copyright (C) 2019, 2020 MariaDB corporation Ab. All rights reserved.
+# Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -56,7 +56,9 @@ $grammars =
   #
   # Suffers in old releases massive from https://jira.mariadb.org/browse/MDEV-19449
   '--gendata=conf/mariadb/oltp.zz --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy',    # This looked once like a dud.
+# TOO MUCH for the 32 GB of my notebook
   '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --grammar=conf/percona_qa/BT-16274/BT-16274.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
+# TOO MUCH for the 32 GB of my notebook
   '--gendata=conf/percona_qa/percona_qa.zz --grammar=conf/percona_qa/percona_qa.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
   '--views --grammar=conf/mariadb/partitions_innodb.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/userstat.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy',
   '--gendata=conf/engines/innodb/full_text_search.zz --short_column_names --grammar=conf/engines/innodb/full_text_search.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/redefine_temporary_tables.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy',
@@ -93,6 +95,11 @@ $grammars =
   # Only used if there is some table_stress.yy version of special interest in RQG_HOME
   # '--grammar=table_stress.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
 
+  # DML only together with Mariabackup
+  '--gendata=conf/mariadb/oltp.zz --grammar=conf/mariadb/oltp.yy --reporters=Mariabackup ',
+  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=Mariabackup ',
+  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=Mariabackup ',
+  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --reporters=Mariabackup ',
 
   # Most probably not relevant for InnoDB testing
   # '--grammar=conf/runtime/performance_schema.yy  --mysqld=--performance-schema --gendata-advanced --skip-gendata',
@@ -147,12 +154,12 @@ $grammars =
 # or
 #   --reporters=<one reporter> ... --reporters=<one reporter> ...
 # And it could be that already in the $grammars section some reporter was assigned.
+#   --mysqld=--innodb_adaptive_hash_index=OFF
 $combinations = [ $grammars,
   [
     '
-    --mysqld=--innodb_use_native_aio=0
+    --mysqld=--innodb_use_native_aio=1
     --mysqld=--innodb_stats_persistent=off
-    --mysqld=--innodb_adaptive_hash_index=OFF
     --mysqld=--innodb_lock_schedule_algorithm=fcfs
     --mysqld=--loose-idle_write_transaction_timeout=0
     --mysqld=--loose-idle_transaction_timeout=0
@@ -185,7 +192,14 @@ $combinations = [ $grammars,
     ' --threads=2  ',
     ' --threads=8  ',
     ' --threads=32 ',
-  ]
+  ],
+  [
+    ' --mysqld=--innodb_page_size=4K ',
+    ' --mysqld=--innodb_page_size=8K ',
+    ' --mysqld=--innodb_page_size=16K ',
+    ' --mysqld=--innodb_page_size=32K ',
+    ' --mysqld=--innodb_page_size=64K ',
+  ],
 ];
 
 
