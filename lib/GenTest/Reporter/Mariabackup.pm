@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -181,6 +181,9 @@ sub monitor {
     my $lc_messages_dir = $reporter->serverVariable('lc_messages_dir');
     my $datadir         = $reporter->serverVariable('datadir');
     $datadir =~ s{[\\/]$}{}sgio;
+    # 2020-02-27 The start of the server on the backuped data failed because this data
+    # goes with a different InnoDB page size than the server default of 16K.
+    my $innodb_page_size = $reporter->serverVariable('innodb_page_size');
 
     # We make a backup of $clone_datadir within $rqg_backup_dir because in case of failure we
     # need these files not modified by mariabackup --prepare.
@@ -327,6 +330,7 @@ sub monitor {
         '--loose-plugin-dir="'.$plugin_dir.'"',
         '--max-allowed-packet=20M',
         '--innodb',
+        '--innodb_page_size="' . $innodb_page_size . '"',
         '--loose_innodb_use_native_aio=0',
         '--sql_mode=NO_ENGINE_SUBSTITUTION',
     );
