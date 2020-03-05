@@ -96,6 +96,12 @@ echo "#--------------------------------------------------------------"  | tee -a
 cd mysql-test
 perl ./mysql-test-run.pl --mem 1st                               2>&1   | tee -a "$BLD_PROT"
 
+cd ..
+rm -f bin_arch.tgz
+echo "Generating compressed archive with binaries (for RQG)"            | tee -a "$BLD_PROT"
+tar czf bin_arch.tgz sql/mysqld lib/plugin/*                     2>&1   | tee -a "$BLD_PROT"
+ls -ld bin_arch.tgz                                              2>&1   | tee -a "$BLD_PROT"
+
 echo
 echo "The protocol of the build is:     $BLD_PROT"
 echo
