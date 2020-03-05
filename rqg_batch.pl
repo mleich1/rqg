@@ -484,42 +484,57 @@ Batch::check_and_set_discard_logs($discard_logs);
 
 
 # FIXME: Harden + restructure the code which follows.
+my @subdir_list;
+my $extension;
+if (osWindows()) {
+    @subdir_list = ("sql/Debug", "sql/RelWithDebInfo", "sql/Release", "bin");
+    $extension   = ".exe";
+} else {
+    @subdir_list = ("sql", "libexec", "bin", "sbin");
+    $extension   = "";
+}
 if (not defined $noarchiving) {
     $noarchiving = 0;
 }
 if ($noarchiving) {
     say("INFO: Archiving of data of interesting RQG runs is disabled.");
 } else {
-    my @subdir_list;
-    my $extension;
-    if (osWindows()) {
-        @subdir_list = ("sql/Debug", "sql/RelWithDebInfo", "sql/Release", "bin");
-        $extension   = ".exe";
-    } else {
-        @subdir_list = ("sql", "libexec", "bin", "sbin");
-        $extension   = "";
-    }
     say("INFO: Archiving of data of interesting RQG runs is enabled.");
     foreach my $i (1..3) {
         next if not defined $basedirs[$i];
         next if $basedirs[$i] eq '';
-        my $some_mysqld = Auxiliary::find_file_at_places ($basedirs[$i], \@subdir_list, 'mysqld');
-        if (not defined $some_mysqld) {
-            say("ERROR: No binary with name 'mysqld' found below basedirs[$i] '" . $basedirs[$i] . "'");
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            safe_exit($status);
+        my $bin_arch = $basedirs[$i] . '/bin_arch.tgz';
+        if (not -e $bin_arch) {
+            say("WARN: No '$bin_arch' found. Use buildscripts like 'util/bld_*.sh' or live with " .
+                "the consequences.");
         } else {
-            my $target_file = $workdir . '/mysqld.' . $i;
-            if (STATUS_OK != Auxiliary::copy_file($some_mysqld, $target_file)) {
+            my $target_file = $workdir . '/bin_arch' . $i . '.tgz';
+            if (STATUS_OK != Auxiliary::copy_file($bin_arch, $target_file)) {
                 my $status = STATUS_ENVIRONMENT_FAILURE;
                 safe_exit($status);
             } else {
-                say("INFO: '$some_mysqld' copied to '$target_file'.");
+                say("INFO: '$bin_arch' copied to '$target_file'.");
             }
         }
     }
 }
 
+# Check (at least) if all the assigned basedirs contain a mysqld.
+my $status = STATUS_OK;
+foreach my $i (1..3) {
+    next if not defined $basedirs[$i];
+    next if $basedirs[$i] eq '';
+    my $some_mysqld = Auxiliary::find_file_at_places ($basedirs[$i], \@subdir_list, 'mysqld');
+    if (not defined $some_mysqld) {
+        say("ERROR: No binary with name 'mysqld' found below basedirs[$i] '" . $basedirs[$i] . "'");
+        $status = STATUS_ENVIRONMENT_FAILURE;
+    }
+}
+if ($status != STATUS_OK) {
+    say("ERROR: A server binary is missing. $0 will exit with exit status " .
+         status2text($status) . "($status)");
+    safe_exit($status);
+}
 
 # Counter for statistics
 # ----------------------
