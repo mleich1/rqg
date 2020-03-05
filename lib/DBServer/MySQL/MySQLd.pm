@@ -825,8 +825,10 @@ sub startServer {
          say("ERROR: We did not get a connection to the just started server. Will return DBSTATUS_FAILURE");
          return DBSTATUS_FAILURE;
       } else {
+         $self->serverVariablesDump();
          return DBSTATUS_OK;
       }
+
    }
 }
 
@@ -1446,6 +1448,20 @@ sub serverVariable {
    my ($self, $var) = @_;
    return $self->serverVariables()->{$var};
 }
+
+sub serverVariablesDump {
+    my $self = shift;
+    my $pvar = $self->serverVariables;
+    if (not defined $pvar) {
+        say("WARNING: No connection to server or SHOW VARIABLES failed.");
+    } else {
+        my %vars = %{$pvar};
+        foreach my $variable (sort keys %vars) {
+            say ("SVAR: $variable : " . %vars{$variable});
+        }
+    }
+}
+
 
 sub running {
 # 1. Check if the server process is running and return
