@@ -1495,6 +1495,10 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
             exit_test($status);
         }
 
+        # Printing the systemvariables of the server is doable.
+        # But for the moment I prefer printing that in startServer.
+        # $server[$server_id]->serverVariablesDump;
+
         # FIXME: Isn't that questionable? We are in the non
         # MariaDB replication or Galera or Upgrade branch.
         # if (($server_id == 0) || ($rpl_mode eq Auxiliary::RQG_RPL_NONE) ) {
@@ -1839,6 +1843,7 @@ if (STATUS_OK != $ret) {
         say("DEBUG: Raising status from " . $final_result . " to " . STATUS_ALARM);
         $final_result = STATUS_ALARM;
     }
+    # FIXME: Make a backtrace
 }
 $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
 say("RESULT: The RQG run ended with status " . status2text($final_result) . " ($final_result)");
@@ -1872,13 +1877,15 @@ sub stopServers {
     # != DBSTATUS_OK  | no call of waitForSlaveSync
     my $status = shift;
 
+    say("DEBUG: rqg.pl: Entering stopServers with assigned status $status");
+
     if ($skip_shutdown) {
         say("Server shutdown is skipped upon request");
         return;
     }
     # For experimenting
     # system("killall -11 mysqld");
-    my $ret;
+    my $ret = STATUS_OK;
     say("Stopping server(s)...");
     if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
         ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
@@ -1892,7 +1899,12 @@ sub stopServers {
     } else {
         foreach my $srv (@server) {
             if ($srv) {
-                $ret = $srv->stopServer;
+                my $single_ret = $srv->stopServer;
+                if (not defined $single_ret) {
+                    say("ALARM: \$single_ret is not defined.");
+                } else {
+                    $ret = $single_ret if $single_ret != STATUS_OK;
+                }
             }
         }
     }
