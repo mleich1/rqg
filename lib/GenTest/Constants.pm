@@ -169,10 +169,10 @@ use constant DB_DRIZZLE                        => 5;
 
 # Original code
 # use constant DEFAULT_MTR_BUILD_THREAD          => 930; ## Legacy...
-# On extreme testing boxes (temporary more than 200 RQG runner) ports > 32000 get computed
-# and they tend to be sometimes already occupied.
-# Experiment:
-use constant DEFAULT_MTR_BUILD_THREAD          => 830;
+# On extreme testing boxes (temporary more than 200 RQG runner) than ports > 32000 get computed.
+# And they tend to be sometimes already occupied by whatever.
+# The critical ones start ~ 1140
+use constant DEFAULT_MTR_BUILD_THREAD          => 730;
 
 
 #

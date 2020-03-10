@@ -1836,7 +1836,8 @@ say("RESULT: The core of the RQG run ended with status " . status2text($final_re
 
 my $ret = stopServers($final_result);
 if (STATUS_OK != $ret) {
-    say("ERROR: Stopping the server(s) failed.");
+    say("ERROR: Stopping the server(s) failed somehow.");
+    say("       Server already no more running or no reaction on admin shutdown or ...");
     if ($final_result > STATUS_CRITICAL_FAILURE) {
         say("DEBUG: The current status is already high enough. So it will be not modified.");
     } else {

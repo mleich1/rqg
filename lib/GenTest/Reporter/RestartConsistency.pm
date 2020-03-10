@@ -90,6 +90,16 @@ sub report {
         return STATUS_CRITICAL_FAILURE;
     }
 
+    # Caused by whatever reasons we might meet other user sessions within the DB server which
+    # - have initiated their disconnect but it is not yet finished
+    #   IMHO not that likely, but if yes maybe defect in RQG core.
+    # - have not yet initiated their disconnect
+    #   Maybe defect in RQG core or caused by server freeze/deadlock.
+    #   IMHO more likely, but if yes maybe also defect in RQG core or missing reporter Deadlock1.
+    # Hence either report + soft kill them here or handle in App/GenTest.pm.
+    # IMHO unlikely worst case if this is omitted: Active user sessions change data and than dump
+    # before and after shutdown+restart could differ --> false alarm.
+
     my $dump_return = dump_database($reporter,$dbh,'before');
     if ($dump_return > STATUS_OK) {
         say("WARNING: $who_am_i Dumping the database failed with status $dump_return.");
