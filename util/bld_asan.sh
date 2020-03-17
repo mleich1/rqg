@@ -11,7 +11,7 @@ STORAGE_DIR="$SOURCE_DIR""/storage"
 if [ ! -d "$STORAGE_DIR" ]
 then
     echo "No '$STORAGE_DIR' found. Is the current position '$SOURCE_DIR' really the root of a source tree?"
-    exit 4
+    exit 16
 fi
 
 if [ ! -d "$OOS_DIR" ]
@@ -75,6 +75,8 @@ RUNTIME=$(($END_TS - $START_TS))
 echo -e "\nElapsed time for nice -19 make -j $PARALLEL: $RUNTIME\n"     | tee -a "$BLD_PROT"
 echo "#--------------------------------------------------------------"  | tee -a "$BLD_PROT"
 
+ls -ld sql/mysqld                                                2>&1   | tee -a "$BLD_PROT"
+
 # The server, how he is started by RQG, expects the plugins located in $OOS_DIR/lib/plugin/
 # which does not get created at all.
 if [ ! -d lib ]
@@ -94,7 +96,9 @@ ls -ld lib/plugin/*.so                                           2>&1   | tee -a
 
 echo "#--------------------------------------------------------------"  | tee -a "$BLD_PROT"
 cd mysql-test
-perl ./mysql-test-run.pl --mem 1st                               2>&1   | tee -a "$BLD_PROT"
+# Assigning a MTR_BUILD_THREAD serves to avoid collisions with RQG (starts at 730) and
+# especially other bld_*.sh running in parallel for the same or other source trees.
+perl ./mysql-test-run.pl --mtr-build-thread=702 --mem 1st        2>&1   | tee -a "$BLD_PROT"
 
 cd ..
 rm -f bin_arch.tgz
