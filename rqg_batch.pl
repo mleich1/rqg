@@ -392,19 +392,30 @@ check_and_set_config_file();
 # Variable for stuff to be glued at the end of the rqg.pl call.
 my $cl_end = ' ';
 
+# $basedir_info is required for result.txt and setup.txt.
+my $basedir_info = '';
 # For testing:
 # $basedirs[1] = '/weg';
 foreach my $i (1..3) {
-    next if not defined $basedirs[$i];
-    next if $basedirs[$i] eq '';
-    if (-d $basedirs[$i]) {
-        $cl_end .= "--basedir" . "$i" . "=" . $basedirs[$i] . " ";
+    $basedir_info .= "basedir" . $i . ": ";
+    if (not defined $basedirs[$i]) {
+        $basedir_info .= "<undef>\n";
+        next;
+    } elsif ('' eq $basedirs[$i]) {
+        $basedir_info .= "<empty>\n";
+        next;
     } else {
-        say("ERROR: basedir" . $i . " is set to '" . $basedirs[$i] .
-            "' but does not exist or is not a directory.");
-        safe_exit(STATUS_ENVIRONMENT_FAILURE);
+        $basedir_info .= "$basedirs[$i]\n";
+        if (-d $basedirs[$i]) {
+            $cl_end .= "--basedir" . "$i" . "=" . $basedirs[$i] . " ";
+        } else {
+            say("ERROR: basedir" . $i . " is set to '" . $basedirs[$i] .
+                "' but does not exist or is not a directory.");
+            safe_exit(STATUS_ENVIRONMENT_FAILURE);
+        }
     }
 }
+
 # say("cl_end ->$cl_end<-");
 
 # $workdir, $vardir are the "general" work/var directories of rqg_batch.pl run.
@@ -567,9 +578,9 @@ if (not defined $verdict_setup) {
 }
 
 if      ($Batch::batch_type eq Batch::BATCH_TYPE_COMBINATOR) {
-    Combinator::init($config_file, $workdir, $verdict_setup);
+    Combinator::init($config_file, $workdir, $verdict_setup, $basedir_info);
 } elsif ($Batch::batch_type eq Batch::BATCH_TYPE_RQG_SIMPLIFIER) {
-    Simplifier::init($config_file, $workdir, $verdict_setup);
+    Simplifier::init($config_file, $workdir, $verdict_setup, $basedir_info);
 } else {
     say("INTERNAL ERROR: The batch type '$Batch::batch_type' is unknown. Abort");
     safe_exit(4);
@@ -596,8 +607,6 @@ my $logToStd = !osWindows() && !$noLog;
 say("DEBUG: logToStd is ->$logToStd<-") if Auxiliary::script_debug("T1");
 
 my $exit_file    = $workdir . "/exit";
-my $result_file  = $workdir . "/result.txt";
-my $setup_file   = $workdir . "/setup.txt";
 
 my $total_status = STATUS_OK;
 
@@ -1222,7 +1231,14 @@ say($message);
 #   or
 #   - simply lost because of whatever reason but $workdir/result.txt survives
 # - the aggregated information in $message is too valuable
-Batch::append_string_to_file($result_file, $message . "\n");
+Batch::write_result($message . "\n");
+
+# Even though subdirs of $vardir belonging to RQG Workers get
+# - most probably already deleted by the corresponding RQG Workers
+# - most probably deleted by rqg_batch.pl when being forced to stop some RQG Worker
+# the $vardir will survive and in case of mistakes even directories belonging to RQG workers.
+# Hence we clean up here again.
+File::Path::rmtree($vardir);
 safe_exit(STATUS_OK);
 
 

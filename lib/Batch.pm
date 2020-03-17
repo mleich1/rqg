@@ -67,6 +67,14 @@ use constant RQG_LOG_LENGTH      => 10;             # 999999.log or <deleted>
 use constant RQG_ORDERID_TITLE   => 'OrderId';
 use constant RQG_ORDERID_LENGTH  => 7;              # Maximum is 9999999/Title
 
+use constant RQG_RUNTIME_TITLE   => 'Runtime';
+use constant RQG_RUNTIME_LENGTH  => 7;
+
+use constant RQG_INFO_TITLE      => 'RQG Status - Extra information';
+use constant RQG_INFO_LENGTH     => 38;
+                                 # 'STATUS_ENVIRONMENT_FAILURE--MDEV-22222'
+use constant RQG_CALL_SNIP_TITLE => 'Snip of the RQG call run by RQG Worker';
+
 
 # get_job
 # - implemented in Combinator/Simplifier/...
@@ -100,6 +108,7 @@ our $give_up = 0;
 our $workdir;
 our $vardir;
 my  $result_file;
+my  $setup_file;
 
 # Counter for statistics
 # ----------------------
@@ -1438,11 +1447,16 @@ sub make_multi_runner_infrastructure {
     my $symlink_exists = eval { symlink($workdir, $symlink_name) ; 1 };
 
 
-    # File for bookkeeping of all the RQG runs somehow finished
+    # Files for bookkeeping of all the RQG runs somehow finished
     # ---------------------------------------------------------
     $result_file = $workdir . "/result.txt";
     make_file($result_file, undef);
     say("DEBUG: The result (summary) file '$result_file' was created.")
+        if Auxiliary::script_debug("B2");
+
+    $setup_file = $workdir . "/setup.txt";
+    make_file($setup_file, undef);
+    say("DEBUG: The setup (summary) file '$setup_file' was created.")
         if Auxiliary::script_debug("B2");
 
 
@@ -2008,6 +2022,21 @@ sub write_result {
         emergency_exit($status);
     }
     append_string_to_file($result_file, $line);
+}
+
+sub write_setup {
+    my ($line) = @_;
+    if (not defined $line) {
+        Carp::cluck("INTERNAL ERROR: line is undef.");
+        my $status = STATUS_INTERNAL_ERROR;
+        emergency_exit($status);
+    }
+    if (not defined $setup_file) {
+        Carp::cluck("INTERNAL ERROR: setup_file is undef.");
+        my $status = STATUS_INTERNAL_ERROR;
+        emergency_exit($status);
+    }
+    append_string_to_file($setup_file, $line);
 }
 
 sub get_string_after_pattern {

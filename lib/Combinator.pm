@@ -73,6 +73,7 @@ my $script_debug = 1;
 #   The main difference to the free bughunting above is that the parent stops all other RQG Worker,
 #   cleans up and exits as soon as a RQG worker had the verdict "replay".
 # - grammar simplification
+#
 # There are two main reasons why some order management is required:
 # 1. The fastest grammar simplification mechanism
 #    - works with chunks of orders
@@ -81,7 +82,7 @@ my $script_debug = 1;
 #    - repeats frequent the execution of some order because
 #      - the order might have not had success on the previous execution but it looks as if repeating
 #        that execution is the most promising we could do
-#      - the order had uccess on the previous execution but it was a second "winner", so its
+#      - the order had success on the previous execution but it was a second "winner", so its
 #        simplification could be not applied. But trying again is highly recommended.
 #    - tries to get a faster simplification via bookkeeping about efforts invested in orders.
 # 2. Independent of the goal of the batch run the parent might be forced to stop some ongoing
@@ -128,11 +129,6 @@ use constant ORDER_PROPERTY3        => 4;
 my $config_file;
 my $config_file_copy_rel  = "combinations.cc";
 
-# File for bookkeeping + easy overview about results achieved.
-my $result_file;
-# File for result to setup correlation
-my $setup_file;
-
 our $combinations; # Otherwise the 'eval' in the sub 'init' makes trouble.
 my $workdir;
 
@@ -172,22 +168,23 @@ sub unset_variables {
 }
 
 sub init {
-    ($config_file, $workdir, my $verdict_setup) = @_;
+    ($config_file, $workdir, my $verdict_setup, my $basedir_info) = @_;
     # Based on the facts that
     # - Combinator/Simplifier init gets called before any Worker is running
     # - this init will be never called again
     # we can run safe_exit($status) and do not need to initiate an emergency_exit.
     #
     my $who_am_i = "Combinator::init:";
-    if (3 != scalar @_) {
+    if (4 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: $who_am_i Three parameters " .
-                    "(config_file, workdir, verdict_setup) are required.");
+        Carp::cluck("INTERNAL ERROR: $who_am_i Four parameters " .
+                    "(config_file, workdir, verdict_setup, basedir_info) are required.");
         safe_exit($status);
     }
 
     Carp::cluck("# " . isoTimestamp() . " DEBUG: $who_am_i Entering routine with variables " .
-                "(config_file, workdir, verdict_setup)") if Auxiliary::script_debug("C1");
+                "(config_file, workdir, verdict_setup, basedir_info)")
+        if Auxiliary::script_debug("C1");
 
     # Check the easy stuff first.
     if (not defined $config_file) {
@@ -335,9 +332,9 @@ sub init {
 
     # seed affects mainly the generation of random combinations.
     # Auxiliary::calculate_seed writes a message about
-    # - writes a message about assigned and computed setting of seed
-    #   and returns the computed value if all is fine
-    # - writes a message about the "defect" and some help and returns undef if the value assigned to
+    # - assigned and computed setting of seed and returns the computed value
+    #   if all is fine
+    # - the "defect" and some help and returns undef if the value assigned to
     #   seed is not supported
     $seed = Auxiliary::calculate_seed($seed);
     if (not defined $seed) {
@@ -380,9 +377,9 @@ sub init {
     }
     $left_over_trials = $trials;
 
-    $result_file  = $workdir . "/result.txt";
     my $iso_ts = isoTimestamp();
     $verdict_setup =~ s/^/$iso_ts /gm;
+    $basedir_info  =~ s/^/$iso_ts /gm;
     my $header =
 "$iso_ts Combinator init ================================================================================================\n" .
 "$iso_ts workdir                        : '$workdir'\n"                                                                      .
@@ -401,36 +398,31 @@ sub init {
 "$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
 "$iso_ts Verdict setup\n"                                                                                                    .
 $verdict_setup                                                                                                               .
-"$iso_ts ================================================================================================================\n" .
-"$iso_ts | " . Batch::RQG_NO_TITLE        . " | " . Batch::RQG_WNO_TITLE       . " | " . Verdict::RQG_VERDICT_TITLE          .
-       " | " . Batch::RQG_LOG_TITLE       .
-       " | " . Batch::RQG_ORDERID_TITLE   . " | " . "RunTime"                  . " | " . "Extra info"         .         "\n" ;
-
-    Batch::write_result($header);
-
-    $setup_file  = $workdir . "/setup.txt";
-    $header =
-"$iso_ts Combinator init ================================================================================================\n" .
-"$iso_ts workdir                        : '$workdir'\n"                                                                      .
-"$iso_ts config_file (assigned)         : '$config_file'\n"                                                                  .
-"$iso_ts config file (copy used)        : '$config_file_copy_rel'\n"                                                         .
-"$iso_ts seed (compute combinations)    : $seed\n"                                                                           .
-"$iso_ts exhaustive                     : $exhaustive\n"                                                                     .
-"$iso_ts noshuffle                      : $noshuffle\n"                                                                      .
-"$iso_ts start_combination              : $start_combination\n"                                                              .
-"$iso_ts trials                         : $trials (Default " . TRIALS_DEFAULT . ")\n"                                        .
 "$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
-"$iso_ts options added to any RQG call  : $cl_snip_end\n"                                                                    .
-"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
-"$iso_ts number of sections to combine  : $comb_count\n"                                                                     .
-"$iso_ts max number of combinations     : $total\n"                                                                          .
-"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
-"$iso_ts Verdict setup\n"                                                                                                    .
-$verdict_setup                                                                                                               .
-"$iso_ts ================================================================================================================\n" .
-Verdict::RQG_VERDICT_TITLE . " - " . "Extra info" . " - " . " setup " . " - " . Batch::RQG_NO_TITLE           .         "\n" ;
+$basedir_info                                                                                                                .
+"$iso_ts ================================================================================================================\n" ;
+Batch::write_result($header);
+Batch::write_setup($header);
 
-    Batch::make_file($setup_file, $header);
+my $header1 = $iso_ts                                                              . " | " .
+        Auxiliary::rfill(Batch::RQG_NO_TITLE,        Batch::RQG_NO_LENGTH)         . " | " .
+        Auxiliary::rfill(Batch::RQG_WNO_TITLE,       Batch::RQG_WNO_LENGTH)        . " | " .
+        Auxiliary::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH)  . " | " .
+        Auxiliary::rfill(Batch::RQG_LOG_TITLE,       Batch::RQG_LOG_LENGTH)        . " | " .
+        Auxiliary::rfill(Batch::RQG_ORDERID_TITLE,   Batch::RQG_ORDERID_LENGTH)    . " | " .
+        Auxiliary::rfill(Batch::RQG_RUNTIME_TITLE,   Batch::RQG_RUNTIME_LENGTH)    . " | " .
+        Auxiliary::rfill(Batch::RQG_INFO_TITLE,      Batch::RQG_INFO_LENGTH)       . "\n";
+
+Batch::write_result($header1);
+
+my $header2 =
+        Auxiliary::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH) . " | " .
+        Auxiliary::rfill(Batch::RQG_INFO_TITLE     , Batch::RQG_INFO_LENGTH)      . " | " .
+        Batch::RQG_CALL_SNIP_TITLE                                                . " | " .
+        Auxiliary::lfill(Batch::RQG_NO_TITLE       , Batch::RQG_NO_LENGTH)        . " | " .
+        Auxiliary::rfill(Batch::RQG_LOG_TITLE      , Batch::RQG_LOG_LENGTH)       . "\n" ;
+
+Batch::write_setup($header2);
 
     Batch::init_order_management();
     Batch::init_load_control();
@@ -792,21 +784,22 @@ sub register_result {
 
     my $iso_ts = isoTimestamp();
     my $line   = "$iso_ts | " .
-                 Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)     . " | " .
-                 Auxiliary::lfill($worker_number, Batch::RQG_WNO_LENGTH)     . " | " .
-                 Auxiliary::rfill($verdict,Verdict::RQG_VERDICT_LENGTH)      . " | " .
-                 Auxiliary::lfill($saved_log_rel, Batch::RQG_LOG_LENGTH)     . " | " .
-                 Auxiliary::lfill($order_id, Batch::RQG_ORDERID_LENGTH)      . " | " .
-                 Auxiliary::lfill($total_runtime, Batch::RQG_ORDERID_LENGTH) . " | " .
-                                  $extra_info                                . "\n";
+                 Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
+                 Auxiliary::lfill($worker_number, Batch::RQG_WNO_LENGTH)        . " | " .
+                 Auxiliary::rfill($verdict,Verdict::RQG_VERDICT_LENGTH)         . " | " .
+                 Auxiliary::lfill($saved_log_rel, Batch::RQG_LOG_LENGTH)        . " | " .
+                 Auxiliary::lfill($order_id, Batch::RQG_ORDERID_LENGTH)         . " | " .
+                 Auxiliary::lfill($total_runtime, Batch::RQG_ORDERID_LENGTH)    . " | " .
+                                  $extra_info                                   . "\n";
     Batch::write_result($line);
-    # Verdict          - Extra info -  setup  - Number
+
     $line      =
-                 Auxiliary::rfill($verdict,Verdict::RQG_VERDICT_LENGTH)      . " - " .
-                 $extra_info                                                 . " - " .
-                 $worker_command                                             . " - " .
-                 $arrival_number                                             . "\n";
-    write_setup($line);
+                 Auxiliary::rfill($verdict,        Verdict::RQG_VERDICT_LENGTH) . " | " .
+                 Auxiliary::rfill($extra_info,     Batch::RQG_INFO_LENGTH)      . " | " .
+                 $worker_command                                                . " | " .
+                 Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
+                 Auxiliary::lfill($saved_log_rel,  Batch::RQG_LOG_LENGTH)       . "\n";
+    Batch::write_setup($line);
 
     $arrival_number++;
 
@@ -822,19 +815,5 @@ sub register_result {
 
 } # End sub register_result
 
-sub write_setup {
-    my ($line) = @_;
-    if (not defined $line) {
-        Carp::cluck("INTERNAL ERROR: line is undef.");
-        my $status = STATUS_INTERNAL_ERROR;
-        emergency_exit($status);
-    }
-    if (not defined $setup_file) {
-        Carp::cluck("INTERNAL ERROR: result_file is undef.");
-        my $status = STATUS_INTERNAL_ERROR;
-        emergency_exit($status);
-    }
-    Batch::append_string_to_file($setup_file, $line);
-}
-
 1;
+

@@ -284,20 +284,21 @@ my $workdir;
 my $config_file;
 my $config_file_copy_rel  = "simplifier.cfg";
 
-# File for bookkeeping + easy overview about results achieved.
-my $result_file;
-
 # Constants serving for more convenient printing of results in table layout
 # -------------------------------------------------------------------------
 use constant RQG_DERIVATE_TITLE    => 'Derivate used     ';
 use constant RQG_PARENT_TITLE      => 'Parent of derivate';
 use constant RQG_SPECIALITY_LENGTH => 18;             # Maximum is Title
-my $title_line_part =
-       " | " . Batch::RQG_NO_TITLE        . " | " . Batch::RQG_WNO_TITLE       .
-       " | " . Verdict::RQG_VERDICT_TITLE .
-       " | " . Batch::RQG_LOG_TITLE       . " | " . Batch::RQG_ORDERID_TITLE   .
-       " | " . "RunTime"                  . " | " . RQG_DERIVATE_TITLE         .
-       " | " . RQG_PARENT_TITLE           . " | " . "Extra_info" . "\n";
+my $title_line_part =                                                                " | " .
+        Auxiliary::rfill(Batch::RQG_NO_TITLE,        Batch::RQG_NO_LENGTH)         . " | " .
+        Auxiliary::rfill(Batch::RQG_WNO_TITLE,       Batch::RQG_WNO_LENGTH)        . " | " .
+        Auxiliary::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH)  . " | " .
+        Auxiliary::rfill(Batch::RQG_LOG_TITLE,       Batch::RQG_LOG_LENGTH)        . " | " .
+        Auxiliary::rfill(Batch::RQG_ORDERID_TITLE,   Batch::RQG_ORDERID_LENGTH)    . " | " .
+        Auxiliary::rfill(Batch::RQG_RUNTIME_TITLE,   Batch::RQG_RUNTIME_LENGTH)    . " | " .
+        Auxiliary::rfill(RQG_DERIVATE_TITLE,         RQG_SPECIALITY_LENGTH)        . " | " .
+        Auxiliary::rfill(RQG_PARENT_TITLE,           RQG_SPECIALITY_LENGTH)        . " | " .
+        Auxiliary::rfill(Batch::RQG_INFO_TITLE,      Batch::RQG_INFO_LENGTH)       . "\n";
 
 # Whatever trials
 # ---------------
@@ -374,7 +375,7 @@ use constant DURATION_ADAPTION_EXP      => 'Experimental';
 
 my $grammar_flags;
 
-my $parent_number = 0;          # The number of the next parent grammar to be generated.
+my $parent_number         = 0;  # The number of the next parent grammar to be generated.
 my $parent_grammar;             # The name (no path) of the last parent grammar generated.
 my $parent_grammar_string = ''; # The content of the last valid parent grammar.
 my $grammar_string;
@@ -548,27 +549,28 @@ sub unset_variables {
 }
 
 sub init {
-    ($config_file, $workdir, my $verdict_setup) = @_;
+    ($config_file, $workdir, my $verdict_setup, my $basedir_info) = @_;
     # Based on the facts that
     # - Combinator/Simplifier init gets called before any Worker is running
     # - this init will be never called again
     # we can run safe_exit($status) and do not need to initiate an emergency_exit.
     #
     my $who_am_i = "Simplifier::init:";
-    if (3 != scalar @_) {
+    if (4 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: $who_am_i Three parameters " .
-                    "(config_file, workdir, verdict_setup) are required.");
+        Carp::cluck("INTERNAL ERROR: $who_am_i Four parameters " .
+                    "(config_file, workdir, verdict_setup, basedir_info) are required.");
         safe_exit($status);
     }
 
     Carp::cluck("# " . isoTimestamp() . " DEBUG: $who_am_i Entering routine with variables " .
-                "(config_file, workdir, verdict_setup).\n") if Auxiliary::script_debug("S1");
+                "(config_file, workdir, verdict_setup, basedir_info).\n")
+        if Auxiliary::script_debug("S1");
 
     # Check the easy stuff first.
     if (not defined $config_file) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNALE ERROR: $who_am_i config file is undef. " .
+        Carp::cluck("INTERNAL ERROR: $who_am_i config file is undef. " .
                     Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
@@ -581,7 +583,7 @@ sub init {
 
     if (not defined $workdir) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNALE ERROR: $who_am_i workdir is undef. " .
+        Carp::cluck("INTERNAL ERROR: $who_am_i workdir is undef. " .
                     Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
@@ -595,6 +597,12 @@ sub init {
     if (not defined $verdict_setup or '' eq $verdict_setup) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i \$verdict_setup is undef or '' " .
+            Auxiliary::exit_status_text($status));
+        safe_exit($status);
+    }
+    if (not defined $basedir_info or '' eq $basedir_info) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: $who_am_i \$basedir_info is undef or '' " .
             Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
@@ -1125,9 +1133,9 @@ sub init {
     make_parent_from_string ($grammar_string);
     say("Grammar ->$grammar_string<-") if Auxiliary::script_debug("S4");
 
-    $result_file  = $workdir . "/result.txt";
     my $iso_ts = isoTimestamp();
     $verdict_setup =~ s/^/$iso_ts /gm;
+    $basedir_info  =~ s/^/$iso_ts /gm;
     my $g_flags;
     if (not defined $grammar_flags) {
         $g_flags = '<undef>';
@@ -1153,12 +1161,21 @@ sub init {
 "$iso_ts simplify_mode (used for grammar simplification)         : '$simplify_mode' (Default '" . SIMP_MODE_DESTRUCTIVE . "')\n"      .
 "$iso_ts grammar_flags                                           : $g_flags (Default undef)\n"                               .
 "$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
-"$iso_ts call line additions (bwlists excluded) : $cl_snip_all\n"                                                            .
+"$iso_ts call line additions : $cl_snip_all\n"                                                                               .
 "$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
 "$iso_ts Verdict setup\n"                                                                                                    .
 $verdict_setup                                                                                                               .
+"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
+$basedir_info                                                                                                                .
 "$iso_ts ================================================================================================================\n" ;
     Batch::write_result($header);
+    Batch::write_setup($header);
+    my $header1 =  Auxiliary::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH) . " | " .
+                   Auxiliary::rfill(Batch::RQG_INFO_TITLE     , Batch::RQG_INFO_LENGTH)      . " | " .
+                   Batch::RQG_CALL_SNIP_TITLE                                                . " | " .
+                   Auxiliary::lfill(Batch::RQG_NO_TITLE       , Batch::RQG_NO_LENGTH)        . " | " .
+                   Auxiliary::rfill(Batch::RQG_LOG_TITLE      , Batch::RQG_LOG_LENGTH)       . "\n" ;
+    Batch::write_setup($header1);
 
     $cl_snip_all .= " " . $rqg_options_end . " " . $mysql_options ;
 
@@ -1333,7 +1350,7 @@ sub get_job {
                     my $oids_to_add = abs(int($cut_steps / 30));
                     if (not defined $oids_to_add or $oids_to_add > 3000) {
                         my $status = STATUS_INTERNAL_ERROR;
-                        Carp::cluck("INTERNALE ERROR: Simplifier::get_job : \$oids_to_add is " .
+                        Carp::cluck("INTERNAL ERROR: Simplifier::get_job : \$oids_to_add is " .
                                     "undef or > 3000." .
                                     "Will exit with status " . status2text($status) . "($status)");
                         Batch::emergency_exit($status);
@@ -1498,7 +1515,7 @@ sub get_job {
     } else {
         if (not defined $order_array[$order_id]) {
             my $status = STATUS_INTERNAL_ERROR;
-            Carp::cluck("INTERNALE ERROR: Simplifier::get_job : orderid is not in order_array. " .
+            Carp::cluck("INTERNAL ERROR: Simplifier::get_job : orderid is not in order_array. " .
                         "Will exit with status " . status2text($status) . "($status)");
             Batch::emergency_exit($status);
         }
@@ -1776,7 +1793,7 @@ sub register_result {
 
     our $arrival_number;
     my ($worker_num, $order_id, $verdict, $extra_info, $saved_log_rel, $total_runtime,
-        $grammar_used, $grammar_parent, $adapted_duration, $ignore1) = @_;
+        $grammar_used, $grammar_parent, $adapted_duration, $worker_command) = @_;
 
     if (@_ != 10) {
         my $status = STATUS_INTERNAL_ERROR;
@@ -1856,8 +1873,15 @@ sub register_result {
         Auxiliary::lfill($total_runtime,  Batch::RQG_ORDERID_LENGTH)   . " | " .
         Auxiliary::rfill($grammar_used,   RQG_SPECIALITY_LENGTH)       . " | " .
         Auxiliary::rfill($grammar_parent, RQG_SPECIALITY_LENGTH)       . " | " .
-        $extra_info                                                    . "\n";
-    Batch::append_string_to_file ($result_file, $line);
+        Auxiliary::rfill($extra_info,     Batch::RQG_INFO_LENGTH)      . "\n";
+    Batch::write_result($line);
+    $line =
+        Auxiliary::rfill($verdict,        Verdict::RQG_VERDICT_LENGTH) . " | " .
+        Auxiliary::rfill($extra_info,     Batch::RQG_INFO_LENGTH)      . " | " .
+        $worker_command                                                . " | " .
+        Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
+        Auxiliary::lfill($saved_log_rel,  Batch::RQG_LOG_LENGTH)       . "\n";
+    Batch::write_setup($line);
     $arrival_number++;
 
     # 2. Update $left_over_trials, ORDER_EFFORTS_INVESTED, ORDER_EFFORTS_LEFT_OVER
