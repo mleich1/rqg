@@ -87,7 +87,12 @@ $grammars =
   #     No change of PK, get default ALGORITHM which is NOCOPY if doable, no BACKUP STAGE because too new and RPL used instead.
   '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
   '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=RestartConsistency',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup',
   '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=CrashRecovery1',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --rpl_mode=statement',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --rpl_mode=mixed',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --rpl_mode=row',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --redefine=conf/mariadb/xa.yy',
 
   # Fiddle with FOREIGN Keys and TRUNCATE
   '--gendata=conf/mariadb/fk_truncate.zz --grammar=conf/mariadb/fk_truncate.yy',
@@ -100,6 +105,16 @@ $grammars =
   '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=Mariabackup ',
   '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=Mariabackup ',
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --reporters=Mariabackup ',
+  # DML only together with RestartConsistency
+  '--gendata=conf/mariadb/oltp.zz --grammar=conf/mariadb/oltp.yy --reporters=RestartConsistency ',
+  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=RestartConsistency ',
+  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=RestartConsistency ',
+  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --reporters=RestartConsistency ',
+  # DML only together with CrashRecovery1
+  '--gendata=conf/mariadb/oltp.zz --grammar=conf/mariadb/oltp.yy --reporters=CrashRecovery1 ',
+  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=CrashRecovery1 ',
+  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=CrashRecovery1 ',
+  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --reporters=CrashRecovery1 ',
 
   # Most probably not relevant for InnoDB testing
   # '--grammar=conf/runtime/performance_schema.yy  --mysqld=--performance-schema --gendata-advanced --skip-gendata',
@@ -189,9 +204,10 @@ $combinations = [ $grammars,
     '
   ],
   [
+    ' --threads=1  ',
     ' --threads=2  ',
-    ' --threads=8  ',
-    ' --threads=32 ',
+    ' --threads=9  ',
+    ' --threads=33 ',
   ],
   [
     ' --mysqld=--innodb_page_size=4K ',
