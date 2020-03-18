@@ -46,6 +46,7 @@ my $first_reporter;
 
 my $who_am_i = "Reporter 'CrashRecovery1':";
 
+my $first_monitoring = 1;
 sub monitor {
     my $reporter = shift;
 
@@ -57,6 +58,10 @@ sub monitor {
 
     my $pid = $reporter->serverInfo('pid');
 
+    if ($first_monitoring) {
+        say("INFO: $who_am_i First monitoring");
+        $first_monitoring = 0;
+    }
     if (time() > $reporter->testEnd() - 19) {
     my $kill_msg = "$who_am_i Sending SIGKILL to server with pid $pid in order to force a crash.";
         say("INFO: $kill_msg");
@@ -464,9 +469,7 @@ sub report {
 }
 
 sub type {
-    # return REPORTER_TYPE_ALWAYS | REPORTER_TYPE_PERIODIC;
-    # REPORTER_TYPE_ALWAYS would mean that it gets executed even after some previous server crash.
-    return REPORTER_TYPE_PERIODIC;
+    return REPORTER_TYPE_PERIODIC | REPORTER_TYPE_SERVER_KILLED ;
 }
 
 1;
