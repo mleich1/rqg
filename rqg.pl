@@ -147,7 +147,7 @@ $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
 $Carp::MaxArgNums= 8;
 
-use constant RQG_RUNNER_VERSION  => 'Version 3.1.2 (2019-11)';
+use constant RQG_RUNNER_VERSION  => 'Version 3.1.3 (2020-03)';
 use constant STATUS_CONFIG_ERROR => 199;
 
 use strict;
@@ -747,7 +747,17 @@ if ($result != STATUS_OK) {
 }
 my $number_of_servers = 0;
 if ($rpl_mode eq Auxiliary::RQG_RPL_NONE) {
-    $number_of_servers = 1;
+    if (not defined $upgrade_test) {
+       $number_of_servers = 1;
+    } else {
+       # Unsure if this is all time right.
+       $number_of_servers = 2;
+    }
+} elsif (defined $upgrade_test) {
+    say("ERROR: upgrade_test ($upgrade_test) in combination with rpl_mode ($rpl_mode) is " .
+        "in the moment not supported. Will exit with STATUS_ENVIRONMENT_FAILURE.");
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    run_end($status);
 } elsif (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
          ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
          ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)            or
@@ -1234,6 +1244,39 @@ if (defined $rr) {
     }
 }
 
+### What follows should be checked (if at all) before any server is started.
+# Otherwise it could happen that we have started some server and the test aborts later with
+# Perl error because some prequisite is missing.
+# Example:
+# $upgrade_test is undef + no replication variant assigned --> $number_of_servers == 1
+# basedir1 and basedir2 were assigned. basedir2 was set to undef because $number_of_servers == 1.
+# Finally rqg.pl concludes that is a "simple" test with one server and
+# 1. starts that one + runs gendata + gentest
+# 2. around end of gentest the reporter "Upgrade1" becomes active and tries to start the upgrade
+#    server based on basedir2 , $debug_server[1] etc.
+# 3. this will than fail with Perl error because of basedir2 , $debug_server[1] .... undef.
+#    The big problem: The already started Server will be than not stopped.
+# FIXME: Replace that splitting with some general routine in Auxiliary
+if ($#validators == 0 and $validators[0] =~ m/,/) {
+    @validators = split(/,/,$validators[0]);
+}
+if ($#reporters == 0 and $reporters[0] =~ m/,/) {
+    @reporters = split(/,/,$reporters[0]);
+}
+my $upgrade_rep_found = 0;
+foreach my $rep (@reporters) {
+    if (defined $rep and $rep =~ m/Upgrade/) {
+        $upgrade_rep_found = 1;
+        last;
+    }
+}
+
+# FIXME: Define which upgrade types ar supported + check the value assigned.
+if ($upgrade_rep_found && (not defined $upgrade_test)) {
+    say("ERROR: Inconsistency: Some Upgrade reporter assigned but upgrade_test not.");
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    run_end($status);
+}
 say(Verdict::MATCHING_START);
 
 # FIXME (check code again):
@@ -1425,7 +1468,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
     $server[1] = DBServer::MySQL::MySQLd->new(
                    basedir           => $basedirs[2],
                    vardir            => $vardirs[1],        # Same vardir as for the first server!
-                   debug_server      => $debug_server[1],
+                   debug_server      => $debug_server[1],   # <======================== here is the problem.
                    port              => $ports[0],          # Same port as for the first server!
                    start_dirty       => 1,
                    valgrind          => $valgrind,
@@ -1594,20 +1637,22 @@ my $gentestProps = GenTest::Properties->new(
 );
 
 
+# What follows happens far way to late because one server is already running.
+# Experimental begin
+# Move all that up and disable it here
 # FIXME: Replace with some general routine in Auxiliary
-## For backward compatability
+if (0) {
 if ($#validators == 0 and $validators[0] =~ m/,/) {
     @validators = split(/,/,$validators[0]);
 }
 
-## For backward compatibility
 if ($#reporters == 0 and $reporters[0] =~ m/,/) {
     @reporters = split(/,/,$reporters[0]);
 }
 
-## For backward compatability
 if ($#transformers == 0 and $transformers[0] =~ m/,/) {
     @transformers = split(/,/,$transformers[0]);
+}
 }
 
 $gentestProps->property('generator','FromGrammar') if not defined $gentestProps->property('generator');
@@ -2005,6 +2050,7 @@ $0 - Run a complete random query generation test, including server start with re
     --restart-timeout: If the server has gone away, do not fail immediately, but wait to see if it restarts (it might be a part of the test)
     --upgrade-test : enable Upgrade reporter and treat server1 and server2 as old/new server, correspondingly. After the test flow
                      on server1, server2 will be started on the same datadir, and the upgrade consistency will be checked
+                     Non simple upgrade variants will most probably fail because of weaknesses in RQG. Sorry for that.
     --workdir      : (optional) Workdir of this RQG run
                      Nothing assigned: We use the current working directory of the RQG runner process, certain files will be created.
                      Some directory assigned: We use the assigned directory and expect that certain files already exist.
