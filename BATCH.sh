@@ -6,8 +6,8 @@
 
 export LANG=C
 
-  USAGE="USAGE: $0 <Config file for the RQG test Combinator> <Basedir == path to MariaDB binaries>"
-EXAMPLE="EXAMPLE: $0 conf/mariadb/Innodb_standard.cc /work_m/bb-10.2-marko/bld_debug table_stress.yy"
+  USAGE="USAGE: $0 <Config file for the RQG test Combinator> <Basedir1 == path to MariaDB binaries> [<Basedir2>] "
+EXAMPLE="EXAMPLE: $0 conf/mariadb/InnoDB_standard.cc /work_m/bb-10.2-marko/bld_debug table_stress.yy"
 USAGE="\n$USAGE\n\n$EXAMPLE\n"
 
 CALL_LINE="$0 $*"
@@ -33,17 +33,28 @@ then
 fi
 
 # Path to MariaDB binaries
-BASEDIR="$2"
-if [ "$BASEDIR" = "" ]
+BASEDIR1="$2"
+if [ "$BASEDIR1" = "" ]
 then
    echo "You need to assign a basedir (path to MariaDB binaries) as second parameter."
    echo "The call was ->$CALL_LINE<-"
    echo -e "$USAGE"
    exit
 fi
-if [ ! -d "$BASEDIR" ]
+if [ ! -d "$BASEDIR1" ]
 then
-   echo "BASEDIR '$BASEDIR' does not exist."
+   echo "BASEDIR1 '$BASEDIR1' does not exist."
+   exit
+fi
+BASEDIR2="$3"
+if [ "$BASEDIR2" = "" ]
+then
+   echo "Setting basedir2 = basedir1"
+   BASEDIR2="$BASEDIR1"
+fi
+if [ ! -d "$BASEDIR2" ]
+then
+   echo "BASEDIR2 '$BASEDIR2' does not exist."
    exit
 fi
 
@@ -176,12 +187,14 @@ set -o pipefail
 # PARALLEL=2
 # TRIALS=1
 # PARALLEL=1
+#
 
 nohup perl -w ./rqg_batch.pl                                           \
 --workdir=$BATCH_WORKDIR                                               \
 --vardir=$BATCH_VARDIR                                                 \
 --parallel=$PARALLEL                                                   \
---basedir1=$BASEDIR                                                    \
+--basedir1=$BASEDIR1                                                   \
+--basedir2=$BASEDIR2                                                   \
 --config=$CONFIG                                                       \
 --trials=$TRIALS                                                       \
 --discard_logs                                                         \

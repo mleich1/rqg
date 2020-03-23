@@ -62,30 +62,30 @@ my %detected_known_bugs;
 sub report {
     my $reporter = shift;
 
+    my $who_am_i = "Reporter 'Upgrade1'";
+
+    $first_reporter = $reporter if not defined $first_reporter;
+    return STATUS_OK if $reporter ne $first_reporter;
+
     my $upgrade_mode= $reporter->properties->property('upgrade-test');
     if ($upgrade_mode eq 'normal') {
-      say("The test will perform normal server upgrade");
+        say("The test will perform normal server upgrade");
     } elsif ($upgrade_mode eq 'crash') {
-      say("The test will perform server crash-upgrade");
+        say("The test will perform server crash-upgrade");
     } elsif ($upgrade_mode eq 'recovery') {
-      say("The test will perform server crash-recovery");
+        say("The test will perform server crash-recovery");
     }
+    $who_am_i .= " with mode '$upgrade_mode':";
+
+    say("INFO: $who_am_i -------------------- Begin");
     say("-- Old server info: --");
     say($reporter->properties->servers->[0]->version());
     $reporter->properties->servers->[0]->printServerOptions();
+    $vardir = $reporter->properties->servers->[0]->vardir();
     say("-- New server info: --");
     say($reporter->properties->servers->[1]->version());
     $reporter->properties->servers->[1]->printServerOptions();
     say("----------------------");
-
-    # If the test run is not properly configured, the module can be
-    # called more than once. Produce an error if it happens
-
-    $first_reporter = $reporter if not defined $first_reporter;
-    if ($reporter ne $first_reporter) {
-        sayError("Upgrade reporter has been called twice, the test run is misconfigured");
-        return STATUS_ENVIRONMENT_FAILURE;
-    }
 
     my $server = $reporter->properties->servers->[0];
     my $dbh = DBI->connect($server->dsn);
@@ -99,17 +99,14 @@ sub report {
     dump_database($reporter,$server,$dbh,'old');
     $table_autoinc{'old'} = collect_autoincrements($dbh,'old');
 
-    if ($upgrade_mode eq 'normal')
-    {
+    if ($upgrade_mode eq 'normal') {
         say("Shutting down the old server...");
         kill(15, $pid);
         foreach (1..60) {
             last if not kill(0, $pid);
             sleep 1;
         }
-    }
-    else
-    {
+    } else {
         say("Killing the old server...");
         kill(9, $pid);
         foreach (1..60) {
@@ -128,6 +125,9 @@ sub report {
     } else {
         say("Old server with pid $pid has been shut down/killed");
     }
+    # Example of code which helps when meeting some already locked file.
+    # my $maybe_locked_file = $vardir . "/data/aria_log_control";
+    # system("lsof $maybe_locked_file");
 
     my $datadir = $server->datadir;
     $datadir =~ s{[\\/]$}{}sgio;
@@ -499,7 +499,8 @@ sub normalize_dumps {
 }
 
 sub type {
-    return REPORTER_TYPE_ALWAYS;
+    # return REPORTER_TYPE_ALWAYS;
+    return REPORTER_TYPE_SUCCESS;
 }
 
 1;

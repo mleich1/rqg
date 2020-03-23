@@ -102,7 +102,9 @@ sub report {
 
     my $dump_return = dump_database($reporter,$dbh,'before');
     if ($dump_return > STATUS_OK) {
-        say("WARNING: $who_am_i Dumping the database failed with status $dump_return.");
+        say("ERROR: $who_am_i Dumping the database failed with status $dump_return. " .
+            "Will return STATUS_CRITICAL_FAILURE");
+        return STATUS_CRITICAL_FAILURE;
     }
     my $dump_return_before = $dump_return;
 

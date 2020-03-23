@@ -493,8 +493,35 @@ sub doGenTest {
    #    So in case we just take the maximum like usual than we destroy detail up to report a false
    #    status.
    foreach my $worker_pid (keys %worker_pids) {
-      say("Killing remaining worker process with pid $worker_pid...");
+      say("Killing (TERM) remaining worker process with pid $worker_pid...");
       kill(15, $worker_pid);
+   }
+   # 1. The box might be under heavy load --> Delay in reaction on TERM
+   # 2. The worker might be in whatever state and temporary or permanent not reactive.
+   my $end_time = Time::HiRes::time() + 15;
+   while ($end_time > Time::HiRes::time()) {
+      foreach my $worker_pid (keys %worker_pids) {
+         my $message_begin = "Process with pid $worker_pid ";
+         my ($reaped, $child_exit_status) = reapChild($worker_pid, $worker_pids{$worker_pid});
+         if (0 == $reaped) {
+            if ($child_exit_status > STATUS_OK) {
+                say("INTERNAL ERROR: Inconsistency that child_exit_status $child_exit_status was " .
+                    "got though process [$worker_pid] was not reaped.");
+                return STATUS_INTERNAL_ERROR;
+            } else {
+                next;
+            }
+         } else {
+            my $message_end   = " ended with status " . status2text($child_exit_status);
+            say($message_begin . "for " . $worker_pids{$worker_pid} . $message_end);
+            delete $worker_pids{$worker_pid};
+         }
+      }
+      sleep 1;
+   }
+   foreach my $worker_pid (keys %worker_pids) {
+      say("Killing (KILL) remaining worker process with pid $worker_pid...");
+      kill(9, $worker_pid);
    }
 
    if ($reporter_died == 0) {
@@ -666,9 +693,10 @@ sub reportResults {
 sub stopChild {
 # FIXME:
 # Correct the wording if time permits.
-# The parent process has sent the TERM signal to the current process.
-# And the current process has received that, calls the current sub and exits.
-#
+# a) The parent process has sent the TERM signal to the current process.
+#    And the current process has received that, calls the current sub and exits.
+# b) The child process itself has met some state which is bad + exit recommended.
+# c) The amount of work limited by queries, duration, ... is done.
 
     my ($self, $status) = @_;
 
@@ -966,7 +994,7 @@ sub doGenData {
     # Some server build with ASAN aborted with core during generation of initial data.
     # Unfortunately RQG just reported STATUS_ENVIRONMENT_FAILURE and did not generate a backtrace.
     # In case the server was not responding, lets assume that it crashed, calling the
-    # reporter Backtrace or something similar would make a lot sense.
+    # reporter Backtrace or something equivalent.
 
     return $gendata_result;
 
@@ -1127,7 +1155,7 @@ sub initReporters {
             $self->config->property('upgrade-test') =~ /undo/) {
             $reporter_hash{'UpgradeUndoLogs'} = 1;
         } elsif ($self->config->property('upgrade-test')) {
-            $reporter_hash{'Upgrade'} = 1;
+            $reporter_hash{'Upgrade1'} = 1;
         } else {
             if (exists $reporter_hash{'Upgrade'}) {
                 say("WARNING: Upgrade reporter is requested, but --upgrade-test option is " .
@@ -1433,8 +1461,13 @@ sub reapChild {
     # Returns observed:
     if      (not defined $waitpid_return) {
         # 1. !!! undef !!!
-        #    During deep inspections with a lot debugging code rerunning waitpid delivered
-        #    all time $spawned_pid. Here we rerun on the next reapChild call.
+        #    In case of excessive load we could harvest that.
+        #    Observations with a lot debugging code showed
+        #    1.1 childs which have not initiated to exit and have not got a TERM or KILL ..
+        #        did never show an undef here ~ no undef if child process is active
+        #    1.2 never a case where the next call of waitpid ... delivered undef again.
+        #        The next call returned all time $spawned_pid.
+        #    Hence we do nothing here and "hope" that some next call of reapChild follows.
         say("WARN: waitpid for $spawned_pid ($info) returned undef.");
         return 0, STATUS_OK;
     } elsif (0 == $waitpid_return) {
