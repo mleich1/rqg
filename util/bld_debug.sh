@@ -103,7 +103,7 @@ perl ./mysql-test-run.pl --mtr-build-thread=700 --mem 1st        2>&1   | tee -a
 cd ..
 rm -f bin_arch.tgz
 echo "Generating compressed archive with binaries (for RQG)"            | tee -a "$BLD_PROT"
-tar czf bin_arch.tgz sql/mysqld lib/plugin/*                     2>&1   | tee -a "$BLD_PROT"
+tar czhf bin_arch.tgz sql/mysqld lib/plugin/*                    2>&1   | tee -a "$BLD_PROT"
 ls -ld bin_arch.tgz                                              2>&1   | tee -a "$BLD_PROT"
 
 echo

@@ -1442,10 +1442,13 @@ sub archive_results {
 
     # FIXME/DECIDE:
     # - Use the GNU tar long options because the describe better what is done
+    # h           --> --dereference     sql/mysqld is a symlink pointing on sql/mariadbd
+    # c           --> --create
+    # f <archive> --> --file <archive>
     # Failing cmd for experimenting
     # $cmd = "cd $workdir ; tar csf $archive rqg* $vardir 2>$archive_err";
 
-    $cmd = "cd $workdir 2>>$archive_err; tar czf $archive rqg* $vardir 2>>$archive_err";
+    $cmd = "cd $workdir 2>>$archive_err; tar chzf $archive rqg* $vardir 2>>$archive_err";
     say("DEBUG: cmd : ->$cmd<-") if script_debug("A5");
     $rc = system($cmd);
     if ($rc != 0) {
@@ -2273,7 +2276,9 @@ sub egalise_dump {
         # FIXME(later):
         # AFAIR certain things like EVENTS or TRIGGER should be disabled on a slave.
         # So test it out and add the required replacing.
-        $line =~ s{AUTO_INCREMENT=[1-9][0-9]*}{AUTO_INCREMENT=<egalized>};
+        # $line =~ s{AUTO_INCREMENT=[1-9][0-9]*}{AUTO_INCREMENT=<egalized>};
+        $line =~ s{ AUTO_INCREMENT=[1-9][0-9]*}{};
+        $line =~ s{AUTO_INCREMENT=[1-9][0-9]* }{};
         if (not print DUMP_FILE_EGALIZED $line) {
             say("ERROR: Print to file '$dump_file_egalized' failed : $!");
         }
