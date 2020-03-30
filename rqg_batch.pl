@@ -232,6 +232,13 @@ sub help();
 # - Read all options (GetOptions removes all options found from @ARGV) which do not need to
 #    be passed to any module in the list Combinator, Simplifier, Variator, Replayer
 # - 'pass_through' causes that we do not abort in case meeting some option which is not listed here.
+# - The difference between "parm=s" and "parm:s"
+#   Assignment       Content of $parm
+#                    parm=s           parm:s
+#   <no --parm...>   undef            undef
+#   --parm           undef            ''
+#   --parm=          undef            ''
+#   --parm=otto      'otto'           'otto'
 # Example:
 # 'threads'
 # 1. In case the value is assigned on command line than
@@ -511,9 +518,11 @@ if ($noarchiving) {
     say("INFO: Archiving of data of interesting RQG runs is disabled.");
 } else {
     say("INFO: Archiving of data of interesting RQG runs is enabled.");
+    my %archived;
     foreach my $i (1..3) {
         next if not defined $basedirs[$i];
         next if $basedirs[$i] eq '';
+        next if exists $archived{$basedirs[$i]};
         my $bin_arch = $basedirs[$i] . '/bin_arch.tgz';
         if (not -e $bin_arch) {
             say("WARN: No '$bin_arch' found. Use buildscripts like 'util/bld_*.sh' or live with " .
@@ -525,6 +534,7 @@ if ($noarchiving) {
                 safe_exit($status);
             } else {
                 say("INFO: '$bin_arch' copied to '$target_file'.");
+                $archived{$basedirs[$i]} = 1;
             }
         }
     }
@@ -659,7 +669,7 @@ while($Batch::give_up <= 1) {
             # use constant JOB_MEMO2      => 3;  # Parent grammar or Parent rvt_snip
             # use constant JOB_MEMO3
         } else {
-            # In case we ever land here than its before any worker was started.
+            # In case we ever land here than its before starting the first worker.
             # So exiting should not make trouble later.
             say("INTERNAL ERROR: The batch type '$Batch::batch_type' is unknown. Abort");
             safe_exit(4);
