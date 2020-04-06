@@ -41,7 +41,7 @@ git show --pretty='format:%D %H %cI' -s                          2>&1   | tee -a
 echo                                                                    | tee -a "$BLD_PROT"
 git status --untracked-files=no                                  2>&1   | tee -a "$BLD_PROT"
 echo                                                                    | tee -a "$BLD_PROT"
-git diff cmake/maintainer.cmake                                  2>&1   | tee -a "$BLD_PROT"
+git diff                                                         2>&1   | tee -a "$BLD_PROT"
 echo "#--------------------------------------------------------------"  | tee -a "$BLD_PROT"
 cd "$OOS_DIR"
 rm -f CMakeCache.txt
@@ -58,6 +58,7 @@ RUNTIME=$(($END_TS - $START_TS))
 echo -e "\nElapsed time for cmake: $RUNTIME\n\n"                        | tee -a "$BLD_PROT"
 
 rm -f sql/mysqld
+rm -f sql/mariabd
 
 if [ "" != "$PAR" ]
 then
@@ -74,7 +75,29 @@ RUNTIME=$(($END_TS - $START_TS))
 echo -e "\nElapsed time for nice -19 make -j $PARALLEL: $RUNTIME\n"     | tee -a "$BLD_PROT"
 echo "#--------------------------------------------------------------"  | tee -a "$BLD_PROT"
 
+set +e
 ls -ld sql/mysqld                                                2>&1   | tee -a "$BLD_PROT"
+ls -ld sql/mariabd                                               2>&1   | tee -a "$BLD_PROT"
+NUM=0
+LIST=' '
+if [ -e sql/mysqld ]
+then
+    LIST="sql/mysqld "
+    NUM=$((NUM + 1))
+fi
+if [ -e sql/mariabd ]
+then
+    LIST=$LIST"sql/mariabd "
+    NUM=$((NUM + 1))
+fi
+# echo "-->$LIST<--"
+
+set -e
+if [ $NUM -eq 0 ]
+then
+    echo "ERROR: neither sql/mysqld sql/mariabd found"
+    exit 8
+fi
 
 # The server, how he is started by RQG, expects the plugins located in $OOS_DIR/lib/plugin/
 # which does not get created at all.
@@ -102,8 +125,12 @@ perl ./mysql-test-run.pl --mtr-build-thread=701 --mem 1st        2>&1   | tee -a
 cd ..
 rm -f bin_arch.tgz
 echo "Generating compressed archive with binaries (for RQG)"            | tee -a "$BLD_PROT"
-tar czhf bin_arch.tgz sql/mysqld lib/plugin/*                    2>&1   | tee -a "$BLD_PROT"
+tar czhf bin_arch.tgz $LIST lib/plugin/*                         2>&1   | tee -a "$BLD_PROT"
 ls -ld bin_arch.tgz                                              2>&1   | tee -a "$BLD_PROT"
+MD5SUM=`md5sum bin_arch.tgz | cut -f1 -d' '`
+echo "$MD5SUM" > bin_arch.md5
+echo "MD5SUM of bin_arch.tgz: $MD5SUM"                                  | tee -a "$BLD_PROT"
+
 
 echo
 echo "The protocol of the build is:     $BLD_PROT"
