@@ -120,6 +120,11 @@ sub report {
 
     say("INFO: $who_am_i Attempting database recovery using the server ...");
 
+    # Using some buffer-pool-size which is smaller than before should work.
+    # InnoDB page sizes >= 32K need in minimum a buffer-pool-size >=24M.
+    # So we go with that.
+    $server->addServerOptions(['--innodb-buffer-pool-size=24M']);
+
     $server->setStartDirty(1);
     my $recovery_status = $server->startServer();
     if ($recovery_status > STATUS_OK) {
