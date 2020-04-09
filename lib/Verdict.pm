@@ -658,8 +658,8 @@ sub set_final_rqg_verdict {
             say("ERROR: set_rqg_verdict: Appending '$extra_text' to '$target_file' failed.");
             return STATUS_FAILURE;
         } else {
-            say("DEBUG: set_rqg_verdict from '$initial_verdict' to '$verdict' and '$extra_info'.")
-                if Auxiliary::script_debug("V2");
+            say("DEBUG: set_rqg_verdict from '$initial_verdict' to '$verdict' and " .
+                "extra_info '$extra_info'.") if Auxiliary::script_debug("V2");
             return STATUS_OK;
         }
     }

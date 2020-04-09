@@ -1633,8 +1633,8 @@ sub generate_orders {
             # - a high density (at least 1, 2, 3) for low thread numbers
             # - a decreasing density for high thread numbers
             while ($thread_num < $threads) {
-                $thread_num_hash{int($thread_num)} = 1;
-                $thread_num = $thread_num * 1.3;
+                $thread_num_hash{$thread_num} = 1;
+                $thread_num = int($thread_num * 1.3);
             }
             my @thread_num_list = sort {$a <=> $b} keys %thread_num_hash;
             foreach $thread_num ( @thread_num_list ) {
