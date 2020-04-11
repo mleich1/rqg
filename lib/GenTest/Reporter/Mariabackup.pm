@@ -196,7 +196,10 @@ sub monitor {
     my $plugin_dir    = $reporter->serverVariable('plugin_dir');
     my $plugins       = $reporter->serverPlugins();
     my ($version)     = ( $reporter->serverVariable('version') =~ /^(\d+\.\d+)\./ ) ;
-    my $backup_binary = "$basedir" . "/extra/mariabackup/mariabackup";
+
+    # Replace maybe by use of Auxiliary::find_file_at_places like in rqg_batch.pl
+    # mariabackup could be in bin too.
+    my $backup_binary = "$client_basedir" . "/mariabackup";
     if (not -e $backup_binary) {
         direct_to_std();
         my $status = STATUS_ENVIRONMENT_FAILURE;
