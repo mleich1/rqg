@@ -307,7 +307,8 @@ if (not GetOptions(
            #   If runner in call line snip returned by module than use that.
            #   If no runner in call line snip than use 'rqg.pl'.
            'runner=s'                  => \$runner,                 # Swallowed and handled by rqg_batch
-           'stop_on_replay'            => \$stop_on_replay,         # Swallowed and handled by rqg_batch
+           # <option>:1   Value is optional, if no value given than treat as if 1 given
+           'stop_on_replay:1'          => \$stop_on_replay,         # Swallowed and handled by rqg_batch
            'noarchiving'               => \$noarchiving,            # Swallowed and handled by rqg_batch
            'rr'                        => \$rr,                     # Swallowed and handled by rqg_batch
            'rr_options=s'              => \$rr_options,             # Swallowed and handled by rqg_batch
@@ -323,6 +324,7 @@ if (not GetOptions(
     help();
     safe_exit(STATUS_ENVIRONMENT_FAILURE);
 };
+
 
 # Support script debugging as soon as possible.
 # my $scrip_debug_string = Auxiliary::script_debug_init($script_debug_value);
@@ -428,8 +430,14 @@ foreach my $i (1..3) {
 # $workdir, $vardir are the "general" work/var directories of rqg_batch.pl run.
 # The corresponding directories of the RQG runs get later calculated on the fly and than glued
 # to the RQG call.
-($workdir, $vardir) = Batch::make_multi_runner_infrastructure ($workdir, $vardir, $runid,
-                                                               BATCH_WORKDIR_SYMLINK);
+($workdir, $vardir) =
+    Batch::make_multi_runner_infrastructure ($workdir, $vardir, $runid, BATCH_WORKDIR_SYMLINK);
+if (not defined $workdir) {
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    say("ERROR: Making the multi_runner_infrastructure failed. Abort");
+    safe_exit($status);
+}
+
 if (not defined $resource_control) {
     say("DEBUG: resource_control is not defined") if Auxiliary::script_debug("T2");
 }
@@ -480,6 +488,11 @@ if (defined $rr) {
     }
 }
 
+my $cl_begin = '';
+if (not defined $runner) {
+    $runner = "rqg.pl";
+    say("INFO: RQG runner was not assigned. Taking the default '$runner'.");
+}
 if (defined $runner) {
     if (File::Basename::basename($runner) ne $runner) {
         say("Error: The value for the RQG runner '$runner' needs to be without any path.");
@@ -487,10 +500,10 @@ if (defined $runner) {
     }
     # For experimenting
     # $runner = 'mimi';
-    $runner = $rqg_home . "/" . $runner;
-    if (not -e $runner) {
+    my $runner_file = $rqg_home . "/" . $runner;
+    if (not -e $runner_file) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: The RQG runner '$runner' does not exist. " .
+        say("ERROR: The RQG runner '$runner_file' does not exist. " .
             Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
@@ -721,13 +734,6 @@ while($Batch::give_up <= 1) {
             $Batch::worker_array[$free_worker][Batch::WORKER_EXTRA3]   = $job[Batch::JOB_MEMO3];
             $Batch::worker_array[$free_worker][Batch::WORKER_COMMAND]  = $command;
 
-            if (defined $runner and $runner ne '') {
-                $command = "$runner $command";
-            } else {
-                # Take the default RQG runner
-                $command = "rqg.pl $command";
-            }
-
             say("COMMAND ->$command<-") if Auxiliary::script_debug("T5");
 
             # Add options which need to be RQG runner specific in order to prevent collisions with
@@ -788,8 +794,10 @@ while($Batch::give_up <= 1) {
             #  we get a flood of RQG run messages over the screen.
             #  But backtraces are detailed.
 
+
             $command = "perl " . ($Carp::Verbose?"-MCarp=verbose ":"") . " $rqg_home" .
-                       "/" . $command;
+                       "/" . $runner . ' ' . $command;
+
             # "Decorate" for use with bash + add nice -19 etc.
             $command = Auxiliary::prepare_command_for_system($command);
             say("DEBUG: command ==>" . $command . "<==") if Auxiliary::script_debug("T5");
@@ -1144,7 +1152,7 @@ while($Batch::give_up <= 1) {
     # This is completely handled in Batch::check_resources.
     # So in case we have here a sleep not set to comment than it serves only for preventing a too
     # busy rqg_batch.
-    # sleep 0.1;
+      sleep 0.1;
 
 } # End of while($Batch::give_up <= 1) loop with search for a free RQG runner + job + starting it.
 
@@ -1273,7 +1281,7 @@ sub help() {
    "      Such stopped runs will be restarted with the same setup as soon as possible.\n"          .
    "\n"                                                                                            .
    "--help\n"                                                                                      .
-   "      Some general help about rqg_batch.pl and its command line parameters/options which \n"   .
+   "      Some general help about rqg_batch.pl and its command line parameters/options which\n"    .
    "      are not handled by the Combinator or the Simplifier.\n"                                  .
    "--help_combinator\n"                                                                           .
    "      Information about the rqg_batch.pl command line parameters/options which are handled "   .
@@ -1312,9 +1320,11 @@ sub help() {
    "--discard_logs\n"                                                                              .
    "      Remove even the logs of RQG runs with the verdict '" . Verdict::RQG_VERDICT_IGNORE       .
    "'\n"                                                                                           .
-   "--stop_on_replay\n"                                                                            .
-   "      As soon as the first RQG run achieved the verdict '" . Verdict::RQG_VERDICT_REPLAY       .
-   " , stop all active RQG runners, cleanup, give a summary and exit.\n\n"                         .
+   "--stop_on_replay=<n>\n"                                                                        .
+   "      As soon as <n> RQG runs achieved the verdict '" . Verdict::RQG_VERDICT_REPLAY            .
+   " , stop all active RQG Worker, cleanup, give a summary and exit.\n"                            .
+   "      '--stop_on_replay...' not in command line n = " . Batch::MAX_BATCH_STARTS . "\n"         .
+   "      '--stop_on_replay '       in command line n = 1\n\n"                                     .
    "--dryrun=<verdict_value>\n"                                                                    .
    "      Run the complete mechanics except that the RQG worker processes forked\n"                .
    "      - print the RQG call which they would run\n"                                             .

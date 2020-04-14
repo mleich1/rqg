@@ -75,6 +75,8 @@ use constant RQG_INFO_LENGTH     => 38;
                                  # 'STATUS_ENVIRONMENT_FAILURE--MDEV-22222'
 use constant RQG_CALL_SNIP_TITLE => 'Snip of the RQG call run by RQG Worker';
 
+# Maximum number of RQG runs started
+use constant MAX_BATCH_STARTS    => 999999;
 
 # get_job
 # - implemented in Combinator/Simplifier/...
@@ -361,8 +363,8 @@ sub set_workers_range {
     for my $worker_num (1..$workers_max) {
         worker_reset($worker_num);
     }
-    say("DEBUG: Load range set : workers_max ($workers_max), workers_mid ($workers_mid),
-        workers_min ($workers_min)") if Auxiliary::script_debug("T6");
+    say("DEBUG: Load range set : workers_max ($workers_max), workers_mid ($workers_mid), " .
+        "workers_min ($workers_min)") if Auxiliary::script_debug("T6");
 }
 sub adjust_workers_range {
     # Needed after getting LOAD_DECREASE, reducing the load till all is ok
@@ -372,8 +374,8 @@ sub adjust_workers_range {
     if ($workers_min > $max_min) {
         $workers_min = $max_min;
     }
-    say("DEBUG: Load range reduction : workers_max ($workers_max), workers_mid ($workers_mid),
-        workers_min ($workers_min)") if Auxiliary::script_debug("T6");
+    say("DEBUG: Load range reduction : workers_max ($workers_max), workers_mid ($workers_mid), " .
+        "workers_min ($workers_min)") if Auxiliary::script_debug("T6");
 }
 sub raise_workers_range {
     $workers_mid++;
@@ -381,8 +383,8 @@ sub raise_workers_range {
     if ($workers_min < $max_min) {
         $workers_min = $max_min;
     }
-    say("DEBUG: Load range raise : workers_mid ($workers_mid), workers_min ($workers_min)")
-        if Auxiliary::script_debug("T6");
+    say("DEBUG: Load range raise : workers_max ($workers_max), workers_mid ($workers_mid), " .
+        "workers_min ($workers_min)") if Auxiliary::script_debug("T6");
 }
 
 sub worker_reset {
@@ -2067,10 +2069,9 @@ my $stop_on_replay;
 sub check_and_set_stop_on_replay {
     ($stop_on_replay) = @_;
     if (not defined $stop_on_replay) {
-        $stop_on_replay = 0;
-    } else {
-        $stop_on_replay = 1
+        $stop_on_replay = MAX_BATCH_STARTS;
     }
+    say("INFO: stop_on_replay = $stop_on_replay");
 }
 
 sub process_finished_runs {
@@ -2155,9 +2156,9 @@ sub process_finished_runs {
                 }
             }
             worker_reset($worker_num);
-            if ($stop_on_replay and $verdict eq Verdict::RQG_VERDICT_REPLAY) {
+            if ($stop_on_replay <= $verdict_replay and $verdict eq Verdict::RQG_VERDICT_REPLAY) {
                 say("INFO: OrderID $order_id achieved the verdict '$verdict' and stop_on_replay " .
-                    "is set. Giving up.");
+                    "(number of replaying runs) is reached. Giving up.");
                 stop_workers(STOP_REASON_WORK_FLOW);
                 if (2 > $give_up) {
                     $give_up = 2;

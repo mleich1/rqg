@@ -669,7 +669,7 @@ sub init {
     # partially differing RQG runners?
     # A user could also distribute these runs over several rqg_batch.pl calls with differing config files.
     #   'runner=s'                  => \$runner,                # Swallowed and handled by rqg_batch
-    #   'stop_on_replay'            => \$stop_on_replay,        # Swallowed and handled by rqg_batch
+    #   'stop_on_replay:1'          => \$stop_on_replay,        # Swallowed and handled by rqg_batch
     #   'servers=i'                 => \$servers,               # Swallowed and handled by rqg_batch
         'threads=i'                 ,                           # Handled here (placed in cl_snip)  ### FIXME, is that right?
     #   'discard_logs'              => \$discard_logs,          # Swallowed and handled by rqg_batch
