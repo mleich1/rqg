@@ -99,6 +99,10 @@ my $start_cwd     = Cwd::getcwd();
 
 use lib 'lib'; # In case we are in the root of a RQG install than we have at least a chance.
 
+# Note:
+# In case the RQG runner was started like "rr record .... perl rqg.pl ..." than we get
+#      [rr 18745 3119]# DEBUG: $0 ->/work/RQG_mleich2/rqg.pl<-
+# This means $0 cannot be used in an easy way for figuring out if we run under 'rr'.
 print("# DEBUG: \$0 ->$0<-\n" .
       "# DEBUG: rqg_home_call ->$rqg_home_call<-\n" .
       "# DEBUG: rqg_home_env  ->$env_val<-\n"  .
@@ -900,18 +904,22 @@ foreach my $i (0..3) {
     }
 }
 
+say("INFO: RQG_HOME '$rqg_home' ----------");
 my $status = Auxiliary::get_git_info($rqg_home, '$rqg_home');
 if ($status > STATUS_CRITICAL_FAILURE) {
-    Carp::cluck("ERROR: get_git_info1 returned a critical failure. Will exit with that status.");
+    Carp::cluck("ERROR: get_git_info returned a critical failure. Will exit with that status.");
     run_end($status);
 } elsif (STATUS_OK != $status) {
     say("DEBUG: Trouble with git. But no reason to abort.");
 } else {
-    $status = Auxiliary::get_git_info($basedirs[0], '$basedirs[0]');
-    $status = Auxiliary::get_git_info($basedirs[1], '$basedirs[1]');
-    $status = Auxiliary::get_git_info($basedirs[2], '$basedirs[2]');
-    $status = Auxiliary::get_git_info($basedirs[3], '$basedirs[3]');
 }
+foreach my $i (0..2) {
+    say("INFO: basedir[$i] : " . (defined $basedirs[$i] ?
+        $basedirs[$i] . " ----" :
+        '<undef>' . " ------------------------------" ));
+    $status = Auxiliary::get_basedir_info($basedirs[$i], "basedirs[$i]");
+}
+
 
 # Other semantics ?
 # $vardirs[0] set
@@ -1761,6 +1769,27 @@ if ($final_result == STATUS_OK) {
     $summary .= "SUMMARY: $message\n";
     say("INFO: " . $message);
 }
+if ($final_result > STATUS_OK) {
+    # FIXME:
+    # $gentest->doGenData should somehow tell if some server and which one looks like no
+    # more responsive (no more connectable). And than some corresponding routine in
+    # lib/DBServer/... should make the analysis and print to the RQG output.
+    #
+    # Provisoric solution because (in the moment)
+    # 1. doGenData does not try to analyze the problem deeper like doGenTest would do.
+    #    Example: doGenTest might activate the reporter Backtrace
+    # 2. some sub generating a backtrace and located in lib/DBServer.... does not exist.
+    # 3. doGenData reporting STATUS_ALARM and than aborting with that is so horrible unspecific.
+    say("INFO: Printing content of all server error logs because of error in doGenTest ==========");
+    foreach my $server_id (0..$#server) {
+        say("INFO: Server[" . ($server_id + 1) . "] ---");
+        my $error_log = $server[$server_id]->errorlog;
+        sayFile($error_log);
+    }
+    say("INFO: Printing content of all server error logs End ==========");
+}
+
+
 if ($final_result == STATUS_OK) {
     my $start_time = time();
     $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENTEST);
@@ -1899,21 +1928,7 @@ exit_test($final_result);
 
 exit;
 
-# FIXME: Implement a solution for storing binaries
-if ($final_result != STATUS_OK and $store_binaries) {
-    foreach my $i ($#server) {
-        my $file = $server[$i]->binary;
-        my $to   = $vardirs[$i];
-        say("HERE: trying to copy $file to $to");
-        if (osWindows()) {
-            system("xcopy \"$file\" \"".$to."\"") if -e $file and $to;
-            $file =~ s/\.exe/\.pdb/;
-            system("xcopy \"$file\" \"".$to."\"") if -e $file and $to;
-        } else {
-            system("cp $file " . $to) if -e $file and $to;
-        }
-    }
-}
+
 
 sub stopServers {
     # $status is relevant for replication only.

@@ -1263,43 +1263,98 @@ sub getFileSection {
 # -----------------------------------------------------------------------------------
 
 my $git_supported;
+sub check_git_support {
+
+    # For experimenting/debugging
+    ## -> failed to execute
+    # $cmd = "nogit --version 2>&1";    # == git not installed or typo
+    ## -> exited with value 2
+    # $cmd = "git --version 2>&1 > /";  # == installed but some permission missing or typo
+    ## -> exited with value 129
+    # $cmd = "git --caramba 2>&1";      # == installed but wrong option or typo
+    ## -> DEBUG: ... exited with value 0 but messages 'cannot open .... Permission denied'
+    # $cmd = "fdisk -l 2>&1";
+    my  $cmd = "git --version 2>&1";
+    my $return = `$cmd`;
+    my $rc = $?;
+    if ($rc == -1) {
+        say("WARNING: '$cmd' failed to execute: $!");
+        $git_supported = 0;
+        return STATUS_OK;
+    } elsif ($rc & 127) {
+        say("WARNING: '$cmd' died with signal " . ($rc & 127));
+        $git_supported = 0;
+        return STATUS_ENVIRONMENT_FAILURE;
+    } elsif (($rc >> 8) != 0) {
+        say("WARNING: '$cmd' exited with value " . ($rc >> 8));
+        $git_supported = 0;
+        return STATUS_INTERNAL_ERROR;
+    } else {
+        say("DEBUG: '$cmd' exited with value " . ($rc >> 8));
+        $git_supported = 1;
+        return STATUS_OK;
+    }
+}
+
+
 sub get_git_info {
 
     my ($directory, $parameter_name) = @_;
 
-    my $cmd;             # For commands run through system ...
+    if (not defined $directory) {
+        # Ok, we are this time tolerant because $basedirs[2] etc. could be undef.
+        return STATUS_OK;
+    }
+    if (not -e $directory) {
+        say("ERROR: Auxiliary::get_git_info : The assigned '$directory' does not exist. " .
+            "Will return STATUS_INTERNAL_ERROR");
+        return STATUS_INTERNAL_ERROR;
+    }
+    if (not -d $directory) {
+        say("ERROR: Auxiliary::get_git_info : The assigned '$directory' is not a directory. " .
+            "Will return STATUS_INTERNAL_ERROR");
+        return STATUS_INTERNAL_ERROR;
+    }
 
     if (not defined $git_supported) {
-        # For experimenting/debugging
-        ## -> failed to execute
-        # $cmd = "nogit --version 2>&1";
-        ## -> exited with value 2
-        # $cmd = "git --version 2>&1 > /";
-        ## -> exited with value 129
-        # $cmd = "git --caramba 2>&1";
-        ## -> DEBUG: ... exited with value 0 but messages 'cannot open .... Permission denied'
-        # $cmd = "fdisk -l 2>&1";
-          $cmd = "git --version 2>&1";
-        my $return = `$cmd`;
-        if ($? == -1) {
-            say("WARNING: '$cmd' failed to execute: $!");
-            $git_supported = 0;
-            return STATUS_FAILURE;
-        } elsif ($? & 127) {
-            say("WARNING: '$cmd' died with signal " . ($? & 127));
-            $git_supported = 0;
-            return STATUS_FAILURE;
-        } elsif (($? >> 8) != 0) {
-            say("WARNING: '$cmd' exited with value " . ($? >> 8));
-            $git_supported = 0;
-            return STATUS_FAILURE;
-        } else {
-            say("DEBUG: '$cmd' exited with value " . ($? >> 8));
-            $git_supported = 1;
+        my $status = check_git_support();
+        if ($status != STATUS_OK) {
+            return $status;
         }
-    } elsif (0 == $git_supported) {
-        return STATUS_FAILURE;
     }
+
+    return STATUS_OK if not $git_supported;
+
+    my $cwd = Cwd::cwd();
+    if (not chdir($directory)) {
+        say("ALARM: chdir to '$directory' failed with : $!\n" .
+            "       Will return STATUS_ENVIRONMENT_FAILURE");
+        return STATUS_ENVIRONMENT_FAILURE;
+    }
+    # git show --pretty='format:%D %H  %cI' -s
+    # HEAD -> experimental, origin/experimental ce3c84fc53216162ef8cc9fdcce7aed24887e305  2018-05-04T12:39:45+02:00
+    # %s would show the title of the last commit but that could be longer than wanted.
+    my $cmd = "git show --pretty='format:%D %H %cI' -s 2>&1";
+    my $val= `$cmd`;
+    say("INFO: GIT on $parameter_name('$directory') $val");
+
+    chdir($cwd);
+    return STATUS_OK;
+
+    # Note:
+    # The output for a directory not under control of git like
+    #    Auxiliary::get_git_info('/', 'ROOT')   is
+    #    ROOT('/') fatal: Not a git repository (or any of the parent directories): .git
+    # and we should be able to live with that.
+
+} # End sub get_git_info
+
+
+sub get_basedir_info {
+
+    my ($directory, $parameter_name) = @_;
+
+    my $cmd;             # For commands run through system ...
 
     if (not defined $directory) {
         # Ok, we are this time tolerant because $basedirs[2] etc. could be undef.
@@ -1323,22 +1378,28 @@ sub get_git_info {
             "       Will return STATUS_ENVIRONMENT_FAILURE");
         return STATUS_ENVIRONMENT_FAILURE;
     }
-    # git show --pretty='format:%D %H  %cI' -s
-    # HEAD -> experimental, origin/experimental ce3c84fc53216162ef8cc9fdcce7aed24887e305  2018-05-04T12:39:45+02:00
-    # %s would show the title of the last commit but that could be longer than wanted.
-    $cmd = "git show --pretty='format:%D %H %cI' -s 2>&1";
-    my $val= `$cmd`;
-    say("GIT: $parameter_name('$directory') $val");
+    my $status = get_git_info($directory, $parameter_name);
     chdir($cwd);
+
+    my $build_prt = $directory . "build.prt";
+    if (-f $build_prt) {
+        say("INFO: Protocol of build '$build_prt' detected. Extracting some data ...");
+        my $val= Auxiliary::get_scrap_after_pattern($build_prt, 'HEAD, ');
+        if (not defined $val) {
+            return STATUS_ENVIRONMENT_FAILURE;
+        } elsif ('' eq $val) {
+            # No such string found. So do nothing
+        } else {
+            say("HEAD, $val");
+        }
+        # MD5SUM of bin_arch.tgz:
+        my $md5_sum = Auxiliary::get_string_after_pattern($build_prt, "MD5SUM of bin_arch.tgz: ");
+        say("MD5SUM of bin_arch.tgz: $md5_sum");
+    }
+
     return STATUS_OK;
 
-
-    # Note:
-    # The output for    Auxiliary::get_git_info1('/', 'ROOT')   is
-    #    ROOT('/') fatal: Not a git repository (or any of the parent directories): .git
-    # and we should be able to live with that.
-
-} # End sub get_git_info
+} # End sub get_basedir_info
 
 
 ####################################################################################################
