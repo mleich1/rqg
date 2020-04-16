@@ -1945,7 +1945,7 @@ sub stopServers {
         return;
     }
     # For experimenting
-    # system("killall -11 mysqld");
+    # system("killall -11 mysqld; killall -11 mariadbd");
     my $ret = STATUS_OK;
     say("Stopping server(s)...");
     if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or

@@ -88,6 +88,7 @@ fi
 
 set +e
 
+
 # Go with heavy load in case the rqg_batch.pl ResourceControl allows it.
 # The rqg_batch.pl ResourceControl should be capable to avoid trouble with resources.
 # Per experience:
@@ -130,7 +131,7 @@ MAX_RUNTIME=3600
 # - current rqg_batch run ---- ongoing MTR run
 # clash on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files) or
 # suffer from tmpfs full etc.
-killall -9 perl ; killall -9 mysqld
+killall -9 perl ; killall -9 mysqld ; killall -9 mariadbd
 rm -rf /dev/shm/var*
 
 # In case the cleanup above is disabled than at least this.
@@ -148,41 +149,72 @@ echo "Have set "`env | grep ASAN`
 
 
 set -o pipefail
-# Remove the logs of RQG runs achieving STATUS_OK/verdict 'ignore_*'.
-# Their stuff grammar/datadir was not archived and is already thrown away.
-# So basically:
-# Remove the --discard_logs in case you want to see logs of RQG runs which achieved
-# the verdict 'ignore_*' (blacklist match or STATUS_OK or stopped by rqg_batch.pl)
-# --discard_logs                                                         \
+# Options
+# -------
+# 0. Please take care that there must be a '\' at line end.
 #
-# Do not abort if hitting Perl errors or STATUS_ENVIRONMENT_FAILURE. IMHO rather questionable
-# --force
+# 1. Remove the logs of RQG runs achieving STATUS_OK/verdict 'ignore_*'.
+#    Their stuff grammar/datadir was not archived and is already thrown away.
+#    So basically:
+#    Do not assign '--discard_logs' in case you want to see logs of RQG runs which achieved
+#    the verdict 'ignore_*' (blacklist match or STATUS_OK or stopped by rqg_batch.pl)
+# --discard_logs                                                      \
 #
-# Old stuff. In history required.
-# --no-mask  Unclear if ./rqg_batch.pl and rqg.pl will mask at all.
+# 2. Per default the data (data dir of server, core etc.) of some RQG replaying or being at least
+#    of interest gets archived.
+#    In case you do not want that archiving than you can disable it.
+#    But thats is rather suitable for runs of the test simplifier only.
+# --noarchiving                                                       \
 #
-# rqg_batch.pl prints how it would start RQG Workers and the RQG Worker started "fakes" that
-# it has achieved the verdict assigned. == There all no "real" RQG runs at all.
-# Example:
-# --dryrun=replay --> All RQG Worker started "tell" that they have achieved some replay.
-# Use cases:
-# a) When using the Combinator see which combinations would get generated.
-# b) When using the Simplifier see how it would be tried to shrink the grammar.
-# c) --dryrun=ignore_blacklist see how TRIALS would be the limiter.
+# 3. Do not abort if hitting Perl errors or STATUS_ENVIRONMENT_FAILURE. IMHO some rather
+#    questionable option. I am unsure if that option gets correct handled in rqg_batch.pl.
+# --force                                                             \
+#
+# 4. Debugging of the rqg_batch.pl tool machinery and rqg.pl
+#    Default: Minimal debug output.
+#    Assigning '_all_' causes maximum debug output.
+#    Warning: Significant more output of especially rqg_batch.pl and partially rqg.pl.
+# --script_debug=_all_                                                \
+#
+# 5. "--no-mask", old stuff.
+#    combinations.pl had the default to apply some masking except ??? assigned some other one.
+#    Hence assigning "--no-mask" was required in order to switch any masking off.
+#    rqg_batch.pl
+#    - does not support "--mask=...", "--mask_level=..." on command line
+#    - accepts any "--no-mask" from command line but passes it through to Combinator or Simplifier
+#    The Simplifier
+#    - ignores any "--no-mask", "--mask=...", "--mask_level=..." got from whereever
+#    - assigns all time "--no-mask" to any call of a RQG runner
+#    The Combinator
+#    - generates a snippet (might contain no-mask, mask, mask-level) of the call of a RQG runner
+#    - adds "--no-mask" to the end of that snippet if having got "--no-mask" from somewhere.
+# --no-mask                                                            \
+#
+# 6. rqg_batch.pl prints how it would start RQG Workers and the RQG Worker started "fakes" that
+#    it has achieved the verdict assigned. == There all no "real" RQG runs at all.
+#    Example:
+#    --dryrun=replay --> All RQG Worker started "tell" that they have achieved some replay.
+#    Use cases:
+#    a) When using the Combinator see which combinations would get generated.
+#    b) When using the Simplifier see how it would be tried to shrink the grammar.
+#    c) --dryrun=ignore_blacklist see how TRIALS would be the limiter.
 # --dryrun=ignore_blacklist                                            \
 # --dryrun=replay                                                      \
 #
-# rqg_batch stops immediate if hitting a 'replay'
+# 7. rqg_batch stops immediate all RQG runner if reaching the assigned number of replays
+#    Stop after the first replay
 # --stop_on_replay                                                     \
+#    Stop after the n'th replay
+# --stop_on_replay=<n>                                                 \
 #
 # Use this grammar in all test variants
 # GRAMMAR=conf/mariadb/table_stress.yy
 # vi $GRAMMAR
-# --grammar=$GRAMMAR                                                   \
+# --grammar=$GRAMMAR                                                  \
 #
 
-# In case you distrust your tests+setup made via config file or the config file processing
-# by rqg_batch.pl than going with some limited number is useful.
+# In case you distrust the rqg_batch.pl mechanics or the config file etc. than going with some
+# limited number of trials is often useful.
 # TRIALS=2
 # PARALLEL=2
 # TRIALS=1

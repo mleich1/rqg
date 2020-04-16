@@ -14,7 +14,7 @@ Use rqg_batch.pl on some Linux
 #                                                                                                  #
 # In the rare case that this does not help than what else to do?                                   #
 #                                                                                                  #
-#     killall -9 perl ; killall -9 mysqld ; rm -rf /dev/shm/var*                                   #
+#     killall -9 perl ; killall -9 mysqld ; killall -9 mariadbd ; rm -rf /dev/shm/var*             #
 #                                                                                                  #
 ####################################################################################################
 #                                                                                                  #

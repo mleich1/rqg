@@ -104,7 +104,7 @@ PROT="$CASE"".prt"
 # - current rqg_batch run ---- ongoing MTR run
 # clash on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files) or
 # suffer from tmpfs full etc.
-killall -9 perl ; killall -9 mysqld
+killall -9 perl ; killall -9 mysqld ; killall -9 mariadbd
 rm -rf /dev/shm/var*
 
 # In case the cleanup above is disabled than at least this.
