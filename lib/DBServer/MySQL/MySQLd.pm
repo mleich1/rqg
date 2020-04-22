@@ -475,6 +475,36 @@ sub createMysqlBase  {
     }
     close BOOT;
 
+    if (not osWindows) {
+        my $rr = $self->[MYSQLD_RR];
+        if (defined $rr and $rr eq Auxiliary::RR_TYPE_EXTENDED) {
+            my $rr_options = '';
+            if (defined $self->[MYSQLD_RR_OPTIONS]) {
+                $rr_options = $self->[MYSQLD_RR_OPTIONS];
+            }
+
+            my $rr_trace_dir = $ENV{'_RR_TRACE_DIR'};
+            if (not defined $rr_trace_dir) {
+                my $status = DBSTATUS_FAILURE;
+                say("ERROR: startserver: The environment variable '_RR_TRACE_DIR' is not set. " .
+                    "Will return status DBSTATUS_FAILURE" . "($status)");
+                return $status;
+            }
+            if (not -d $rr_trace_dir) {
+                my $status = DBSTATUS_FAILURE;
+                say("ERROR: startserver: The 'rr' trace directory '$rr_trace_dir' does not exist. ".
+                    "Will return status DBSTATUS_FAILURE" . "($status)");
+                return $status;
+            }
+
+            # $command = "rr record --mark-stdio $rr_options $command";
+            # like used in sub startServer does not work well here.
+            # Even though the content of boot.sql is 100% correct processing this file fails
+            # on the first line ("CREATE database test;") because from whatever reason
+            # some "[rr <pid>] " gets prependet when pumping the file content into ist receiver.
+              $command = "rr record $rr_options $command";
+        }
+    }
     say("Bootstrap command: $command");
     my $bootlog = $self->vardir . "/" . MYSQLD_BOOTLOG_FILE;
     system("$command > \"" . $bootlog . "\" 2>&1");
@@ -485,7 +515,7 @@ sub createMysqlBase  {
        say("ERROR: Will return the status got for Bootstrap : $rc");
     }
     return $rc
-}
+} # End sub createMysqlBase
 
 sub _reportError {
     say(Win32::FormatMessage(Win32::GetLastError()));
@@ -576,37 +606,28 @@ sub startServer {
       }
 
         if ($self->[MYSQLD_RR]) {
-            $start_wait_timeout = 45;   # Maximum wait time for an error log update or
-                                        # pid_file existence..
-            $startup_timeout    = 900;
-
+            my $rr = $self->[MYSQLD_RR];
             my $rr_options = '';
             if (defined $self->[MYSQLD_RR_OPTIONS]) {
                 $rr_options = $self->[MYSQLD_RR_OPTIONS];
             }
-            my $rr_trace_dir = $self->vardir . "/rr_trace";
-            # Remove any remainings of some previous rr use
-            # - bootstrap (currently not supported but maybe in future)
-            # - start server, shutdown, start server again
-            # in order to keep the space consumption as small as possible.
-            # Important:
-            # We should not be never here in case some previous step hit a serious error
-            # because otherwise we would just now destroy valuable data.
-            if (-d $rr_trace_dir) {
-                if (not File::Path::rmtree($rr_trace_dir)) {
-                    my $status = DBSTATUS_FAILURE;
-                    say("ERROR: startserver: Removal of the tree '$rr_trace_dir' failed. : $!. " .
-                        "Will return status DBSTATUS_FAILURE" . "($status)");
-                    return $status;
-                }
-            }
-            # Experiments showed that the rr trace directory must exist in advance.
-            if (not mkdir $rr_trace_dir) {
+
+            my $rr_trace_dir = $ENV{'_RR_TRACE_DIR'};
+            if (not defined $rr_trace_dir) {
                 my $status = DBSTATUS_FAILURE;
-                say("ERROR: Creating the 'rr' trace directory '$rr_trace_dir' failed : $!. " .
+                say("ERROR: startserver: The environment variable '_RR_TRACE_DIR' is not set. " .
                     "Will return status DBSTATUS_FAILURE" . "($status)");
                 return $status;
             }
+            # Experiments showed that the rr trace directory must exist in advance.
+            # Bail out in case it does not exist. I hesitate to create it here if failing.
+            if (not -d $rr_trace_dir) {
+                my $status = DBSTATUS_FAILURE;
+                say("ERROR: startserver: The 'rr' trace directory '$rr_trace_dir' does not exist. ".
+                    "Will return status DBSTATUS_FAILURE" . "($status)");
+                return $status;
+            }
+
             # FIXME as soon as doable:
             # Core files
             # - do not offer more information than already provided by "rr"
@@ -616,11 +637,21 @@ sub startServer {
             # $command = "ulimit -c 0; _RR_TRACE_DIR=$rr_trace_dir rr record --mark-stdio $rr_options $command";
             # But as long as I do not know of a way how to extract the backtrace in batch mode
             # from rr stuff we need core files.
-              $command = "_RR_TRACE_DIR=$rr_trace_dir rr record --mark-stdio $rr_options $command";
+              $command = "rr record --mark-stdio $rr_options $command";
+            # say("DEBUG: command with rr ->" . $command . "<-");
             # The rqg runner has to check in advance that 'rr' is installed on the current box.
             # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
             # in the DB server error log.
         }
+
+        if (exists $ENV{'RUNNING_UNDER_RR'} or defined $self->[MYSQLD_RR]) {
+            # rr tracing is already active ('RQG') or will become active for the calls of
+            # certain binaries. In all cases the server binaries run under "rr".
+            $start_wait_timeout = 45;   # Maximum wait time for an error log update or
+                                        # pid_file existence..
+            $startup_timeout    = 900;
+        }
+
 
       # This is too early. printInfo needs the pid which is currently unknown!
       # $self->printInfo;
@@ -1122,9 +1153,9 @@ sub stopServer {
     # $shutdown_timeout = 60 unless defined $shutdown_timeout;
     if (not defined $shutdown_timeout) {
         if (defined $self->[MYSQLD_RR]) {
-            $shutdown_timeout = 90;
+            $shutdown_timeout = 180;
         } else {
-            $shutdown_timeout = 60;
+            $shutdown_timeout = 120;
         }
     }
     my $errorlog = $self->errorlog;
@@ -1457,7 +1488,7 @@ sub serverVariablesDump {
     } else {
         my %vars = %{$pvar};
         foreach my $variable (sort keys %vars) {
-            say ("SVAR: $variable : " . %vars{$variable});
+            say ("SVAR: $variable : " . $vars{$variable});
         }
     }
 }

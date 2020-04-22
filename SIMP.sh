@@ -172,6 +172,7 @@ nohup perl -w ./rqg_batch.pl                                           \
 $GRAMMAR_PART                                                          \
 --config=$CONFIG                                                       \
   --trials=$TRIALS                                                     \
+  --noarchiving                                                        \
   --discard_logs                                                       \
 --type=RQG_Simplifier                                                  \
 --no-mask                                                              \

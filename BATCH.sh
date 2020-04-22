@@ -207,6 +207,35 @@ set -o pipefail
 #    Stop after the n'th replay
 # --stop_on_replay=<n>                                                 \
 #
+# 8. Use "rr" (https://github.com/mozilla/rr/wiki/Usage) for tracing DB servers and other
+#    programs.
+#
+#    Get the default which is 'Server'
+# --rr                                                                 \
+#
+#    Preserve the 'rr' traces of all servers started
+#        lib/DBServer/MySQL/MySQLd.pm    sub startServer
+# --rr=Server                                                          \
+#
+#    Preserve the 'rr' traces of the bootstrap or server or soon mariabackup ... prepare ... started
+# --rr=Extended                                                        \
+#
+#    Make a 'rr' trace of the complete RQG run like even of the perl code of the RQG runner.
+#    This leads to a huge space consumption (example: 2.6 GB for traces + datadir) during the
+#    RQG test runtime but
+#    - gives a better overview of the interdependence of component activities
+#    - traces also the activities of MariaDB replication or Galera
+# --rr=RQG                                                             \
+#
+#    "rr" checks which CPU is used in your box.
+#    In case your version of "rr" is too old or your CPU is too new than the check might fail
+#    and cause that the call of 'rr' fails.
+#    Example:
+#    Box having "Intel Skylake" CPU's, "rr" version 4 contains the string "Intel Skylake" but
+#    claims to have met some unknown CPU.
+#    Please becareful with the single and double quotes.
+# --rr_options="\'--microarch='Intel Kabylake'\'"                     \
+#
 # Use this grammar in all test variants
 # GRAMMAR=conf/mariadb/table_stress.yy
 # vi $GRAMMAR

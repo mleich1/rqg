@@ -353,7 +353,7 @@ if (not GetOptions(
     'testname=s'                  => \$testname,
     'valgrind!'                   => \$valgrind,
     'valgrind_options=s@'         => \@valgrind_options,
-    'rr!'                         => \$rr,
+    'rr:s'                        => \$rr,
     'rr_options=s'                => \$rr_options,
     'vcols:s'                     => \$vcols[0],
     'vcols1:s'                    => \$vcols[1],
@@ -419,13 +419,58 @@ if ( defined $help ) {
     exit STATUS_OK;
 }
 
-if (defined $rr and STATUS_OK != Auxiliary::find_external_command("rr")) {
-    my $status = STATUS_ENVIRONMENT_FAILURE;
-    say("ERROR: rr is required but was not found.");
-    safe_exit($status);
+# FIXME: Maybe move into Auxiliary.pm
+if (defined $rr) {
+    my $status = STATUS_OK;
+    if (STATUS_OK != Auxiliary::find_external_command("rr")) {
+        $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: The external binary 'rr' is required but was not found.");
+        safe_exit($status);
+    }
+    if($rr eq '') {
+        $rr = Auxiliary::RR_TYPE_DEFAULT;
+    }
+
+    my $result = Auxiliary::check_value_supported (
+                'rr', Auxiliary::RR_TYPE_ALLOWED_VALUE_LIST, $rr);
+    if ($result != STATUS_OK) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("$0 will exit with exit status " . status2text($status) . "($status)");
+        run_end($status);
+    }
+    if ($rr eq Auxiliary::RR_TYPE_RQG) {
+        say("ERROR: Only 'rqg_batch.pl' supports the 'rr' invocation type '$rr'.");
+        $status = STATUS_ENVIRONMENT_FAILURE;
+        safe_exit($status);
+    }
+    say("INFO: The 'rr' invocation type '$rr'.");
+} else {
+    if (defined $rr_options) {
+        say("WARN: Setting rr_options('$rr_options') to undef because 'rr' is not defined.");
+        $rr_options = undef;
+    }
 }
-# FIXME
-# The reporter Backtrace + rr makes no sense because writing a core file is prevented.
+if (defined $rr_options) {
+    say("INFO: rr_options ->$rr_options<-");
+}
+my $env_var = $ENV{RUNNING_UNDER_RR};
+if (defined $env_var) {
+    say("INFO: The environment variable RUNNING_UNDER_RR is set. " . 
+        "This means we run under the control of 'rr'.");
+    if (defined $rr) {
+        say("ERROR: 'rqg.pl' should invoke 'rr' even though already running under control " .
+            "of 'rr'. This makes no sense.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        safe_exit($status);
+    }
+}
+
+# FIXME if a solution was found.
+# The reporter Backtrace + rr makes not that much sense.
+# Hence writing a core file could be in theory prevented. See MySQLd.pm
+# And if its prevented than we should probably do something here.
+#
+
 if (defined $valgrind and STATUS_OK != Auxiliary::find_external_command("valgrind")) {
     my $status = STATUS_ENVIRONMENT_FAILURE;
     say("ERROR: valgrind is required but was not found.");
@@ -469,6 +514,7 @@ if ($result) {
     say("$0 will exit with exit status " . status2text($status) . "($status)");
     safe_exit($status);
 }
+
 
 $job_file = $workdir . "/rqg.job";
 
@@ -740,8 +786,8 @@ if (not defined $rpl_mode or $rpl_mode eq '') {
     $rpl_mode = Auxiliary::RQG_RPL_NONE;
     say("INFO: rpl_mode was not defined or eq '' and therefore set to '$rpl_mode'.");
 }
-my $result = Auxiliary::check_value_supported (
-                'rpl_mode', Auxiliary::RQG_RPL_ALLOWED_VALUE_LIST, $rpl_mode);
+$result = Auxiliary::check_value_supported (
+             'rpl_mode', Auxiliary::RQG_RPL_ALLOWED_VALUE_LIST, $rpl_mode);
 if ($result != STATUS_OK) {
     Auxiliary::print_list("The values supported for 'rpl_mode' are :" ,
                           Auxiliary::RQG_RPL_ALLOWED_VALUE_LIST);
@@ -988,6 +1034,20 @@ $ENV{'TMP'} = $vardirs[0];
 # Modify direct so that we get rid of crap values.
 say("tmpdir in GenTest ->" . GenTest::tmpdir() . "<-");
 say("tmpdir in DBServer ->" . DBServer::DBServer::tmpdir() . "<-");
+
+if (defined $rr) {
+    my $rr_trace_dir = $vardirs[0] . "/rr_trace";
+    if (not -d $rr_trace_dir) {
+        if (not mkdir $rr_trace_dir) {
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: Creating the 'rr' trace directory '$rr_trace_dir' failed : $!.");
+            run_end($status);
+        }
+    }
+    $ENV{_RR_TRACE_DIR} = $rr_trace_dir;
+    say("INFO: Environment variable _RR_TRACE_DIR set to '$rr_trace_dir'.");
+}
+
 
 ## Make sure that "default" values ([0]) are also set, for compatibility,
 ## in case they are used somewhere
@@ -1918,8 +1978,11 @@ if (STATUS_OK != $ret) {
         say("DEBUG: Raising status from " . $final_result . " to " . STATUS_ALARM);
         $final_result = STATUS_ALARM;
     }
-    # FIXME: Make a backtrace
+    # FIXME: In case there is a core file make a backtrace
 }
+
+# For experiments requiring that a RQG test has failed:
+# $final_result = STATUS_SERVER_CRASHED;
 $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
 say("RESULT: The RQG run ended with status " . status2text($final_result) . " ($final_result)");
 

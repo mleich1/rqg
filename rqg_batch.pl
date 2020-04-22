@@ -174,7 +174,7 @@ my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar
     $seed, $testname, $xml_output, $report_xml_tt, $report_xml_tt_type, $max_runtime,
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
     $parallel, $servers, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
-    $help, $help_simplifier, $help_combinator, $help_verdict, $runner, $noarchiving,
+    $help, $help_simplifier, $help_combinator, $help_verdict, $help_rr, $help_archiving, $runner, $noarchiving,
     $rr, $rr_options,
     $stop_on_replay, $script_debug_value, $runid, $threads, $type, $algorithm, $resource_control);
 
@@ -263,6 +263,8 @@ if (not GetOptions(
            'help_simplifier'           => \$help_simplifier,
            'help_combinator'           => \$help_combinator,
            'help_verdict'              => \$help_verdict,
+           'help_rr'                   => \$help_rr,
+           'help_archiving'            => \$help_archiving,
            ### type == Which type of campaign to run
            # pass_through: no
            'type=s'                    => \$type,        # Swallowed and handled by rqg_batch
@@ -310,7 +312,7 @@ if (not GetOptions(
            # <option>:1   Value is optional, if no value given than treat as if 1 given
            'stop_on_replay:1'          => \$stop_on_replay,         # Swallowed and handled by rqg_batch
            'noarchiving'               => \$noarchiving,            # Swallowed and handled by rqg_batch
-           'rr'                        => \$rr,                     # Swallowed and handled by rqg_batch
+           'rr:s'                      => \$rr,                     # Swallowed and handled by rqg_batch
            'rr_options=s'              => \$rr_options,             # Swallowed and handled by rqg_batch
            'servers=i'                 => \$servers,                # Swallowed and handled by rqg_batch
 #          'threads=i'                 => \$threads,                # Pass through (@ARGV).
@@ -375,6 +377,12 @@ if (defined $help) {
 } elsif (defined $help_verdict) {
     Verdict::help();
     safe_exit(0);
+} elsif (defined $help_rr) {
+    Auxiliary::help_rr();
+    safe_exit(0);
+} elsif (defined $help_archiving) {
+    Batch::help_archiving();
+    safe_exit(0);
 }
 
 
@@ -382,11 +390,37 @@ if (defined $help) {
 # $type='omo';
 Batch::check_and_set_batch_type($type);
 
-if (defined $rr and STATUS_OK != Auxiliary::find_external_command("rr")) {
-    my $status = STATUS_ENVIRONMENT_FAILURE;
-    say("ERROR: rr is required but was not found.");
-    safe_exit($status);
+if (defined $rr) {
+    my $status = STATUS_OK;
+    if (STATUS_OK != Auxiliary::find_external_command("rr")) {
+        $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: The external binary 'rr' is required but was not found.");
+        safe_exit($status);
+    }
+    if($rr eq '') {
+        $rr = Auxiliary::RR_TYPE_DEFAULT;
+    }
+
+    my $result = Auxiliary::check_value_supported (
+                'rr', Auxiliary::RR_TYPE_ALLOWED_VALUE_LIST, $rr);
+    if ($result != STATUS_OK) {
+        Auxiliary::help_rr();
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("$0 will exit with exit status " . status2text($status) . "($status)");
+        run_end($status);
+    }
+    say("INFO: 'rr' invocation type '$rr'.");
+} else {
+    if (defined $rr_options) {
+        say("WARN: Setting rr_options('rr_options') to undef because 'rr' is not defined.");
+        $rr_options = undef;
+    }
 }
+if (defined $rr_options) {
+    say("INFO: rr_options ->$rr_options<-");
+}
+
+
 
 # FIXME:
 # Make this parameter configurable.
@@ -430,7 +464,7 @@ foreach my $i (1..3) {
 # $workdir, $vardir are the "general" work/var directories of rqg_batch.pl run.
 # The corresponding directories of the RQG runs get later calculated on the fly and than glued
 # to the RQG call.
-($workdir, $vardir) =
+($workdir, $vardir, my $bin_arch_dir) =
     Batch::make_multi_runner_infrastructure ($workdir, $vardir, $runid, BATCH_WORKDIR_SYMLINK);
 if (not defined $workdir) {
     my $status = STATUS_ENVIRONMENT_FAILURE;
@@ -481,12 +515,6 @@ $cl_end .= " --report-xml-tt-dest=$report_xml_tt_dest "
     if defined $report_xml_tt_dest and $report_xml_tt_dest ne '';
 $cl_end .= " --script_debug=" . $script_debug_value
     if $script_debug_value ne '';
-if (defined $rr) {
-    $cl_end .= " --rr";
-    if (defined $rr_options) {
-        $cl_end .= " --rr_options=" . $rr_options;
-    }
-}
 
 my $cl_begin = '';
 if (not defined $runner) {
@@ -529,29 +557,95 @@ if (not defined $noarchiving) {
 }
 if ($noarchiving) {
     say("INFO: Archiving of data of interesting RQG runs is disabled.");
+    if (defined $rr) {
+        say("ERROR: 'rr' tracing without archiving is not supported.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        safe_exit($status);
+    }
 } else {
     say("INFO: Archiving of data of interesting RQG runs is enabled.");
-    my %archived;
+
+    ######### Archive/Preserve the binaries by hardlinking
+    # The general directory for archives of binaries/archive of installations is in
+    # $bin_arch_dir. Auxiliary::make_multi_runner_infrastructure has already
+    # calculated its value, created that directory if missing and returned that value.
+    #
+    # Description of concept by example:
+    # 1. Write whatever important information to som file build.prt
+    # 2. <source tree dirs>/10.5
+    #        Clone origin/10.5 to here
+    # 3. /dev/shm/build_dir
+    #        Make here some out of source build with debug and
+    #        INSTALL_PREFIX=<whatever>/10.5_debug
+    #        make install
+    # 4. tar czf <RQG>/storage/binarchs/bin_arch.tgz
+    #    Determine the md5sum of <RQG>/storage/binarchs/bin_arch.tgz and
+    #    write it into build.prt
+    # 5. cp build.prt to <RQG>/storage/binarchs/build.prt
+    #    cp build.prt to <whatever>/10.5_debug/build.prt
+    # 6. mv <RQG>/storage/binarchs/bin_arch.tgz <RQG>/storage/binarchs/<md5_sum>.tgz
+    #    mv <RQG>/storage/binarchs/build.prt    <RQG>/storage/binarchs/<md5_sum>.prt
+    # So the binaries used during the batch of RQG runs can be preserved by hard linking
+    # RQG batch workdir
+    # basedir<n>.tgz -- inode A -- <RQG>/storage/binarchs/<md5_sum>.tgz
+    # basedir<n>.prt -- inode B -- <RQG>/storage/binarchs/<md5_sum>.prt
+    #
+
     foreach my $i (1..3) {
         next if not defined $basedirs[$i];
         next if $basedirs[$i] eq '';
-        next if exists $archived{$basedirs[$i]};
-        my $bin_arch = $basedirs[$i] . '/bin_arch.tgz';
-        if (not -e $bin_arch) {
-            say("WARN: No '$bin_arch' found. Use buildscripts like 'util/bld_*.sh' or live with " .
-                "the consequences.");
-        } else {
-            my $target_file = $workdir . '/bin_arch' . $i . '.tgz';
-            if (STATUS_OK != Auxiliary::copy_file($bin_arch, $target_file)) {
-                my $status = STATUS_ENVIRONMENT_FAILURE;
-                safe_exit($status);
-            } else {
-                say("INFO: '$bin_arch' copied to '$target_file'.");
-                $archived{$basedirs[$i]} = 1;
-            }
+
+        my $build_prt   = $basedirs[$i] . '/build.prt';
+        if (not -e $build_prt) {
+            say("WARN: No protocol of the build '$build_prt' found. " .
+                "Preserving of basedir content impossible.");
+            say("HINT: Use buildscripts like 'util/bld_*.sh'.");
+            next;
         }
+        say("INFO: Protocol of build '$build_prt' detected.");
+        my $pattern = 'MD5SUM of bin_arch.tgz: ';
+        my $md5_sum = Auxiliary::get_string_after_pattern($build_prt, $pattern);
+        if (not defined $md5_sum) {
+            say("WARN: '$build_prt' does not contain a line with '$pattern'. " .
+                "Preserving of basedir content impossible.");
+            say("HINT: Use buildscripts like 'util/bld_*.sh'.");
+            next;
+        }
+        say("DEBUG: $pattern  $md5_sum");
+
+        my $s_prefix       = $bin_arch_dir . "/" . $md5_sum;
+        my $s_bin_arch     = $s_prefix . '.tgz';
+        my $s_bin_arch_prt = $s_prefix . '.prt';
+
+        my $l_prefix       = $workdir  . '/basedir' . $i;
+        my $l_bin_arch     = $l_prefix . '.tgz';
+        my $l_bin_arch_prt = $l_prefix . '.prt';
+
+        if (not -e $s_bin_arch) {
+            say("WARN: No archive '$s_bin_arch' found. " .
+                "Preserving of basedir content impossible.");
+            say("HINT: Use buildscripts like 'util/bld_*.sh'.");
+            next;
+        }
+
+        my $target_file    = $workdir  . '/bin_arch' . $i . '.tgz';
+
+        if (not link($s_bin_arch, $l_bin_arch)) {
+            say("ERROR: Hardlinking '$s_bin_arch' to '$l_bin_arch' failed: $!");
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            safe_exit($status);
+        }
+        if (not link($s_bin_arch_prt, $l_bin_arch_prt)) {
+            say("ERROR: Hardlinking '$s_bin_arch_prt' to '$l_bin_arch_prt' failed: $!");
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            safe_exit($status);
+        }
+        say("INFO: Hardlinks for basedirs[$i] related files in '$workdir' created.");
+        system("ls -lid $s_prefix* $l_prefix* | sort -n") if Auxiliary::script_debug("T3");
+
     }
 }
+
 
 # Check (at least) if all the assigned basedirs contain a mysqld.
 my $status = STATUS_OK;
@@ -797,6 +891,40 @@ while($Batch::give_up <= 1) {
 
             $command = "perl " . ($Carp::Verbose?"-MCarp=verbose ":"") . " $rqg_home" .
                        "/" . $runner . ' ' . $command;
+
+            if (defined $rr) {
+                # Let the child create the $rr_trace_dir before starting the RQG runner?
+                my $rr_trace_dir = $rqg_vardir . "/rr_trace";
+                if (not mkdir $rr_trace_dir) {
+                    my $status = STATUS_ENVIRONMENT_FAILURE;
+                    say("ERROR: Creating the 'rr' trace directory '$rr_trace_dir' failed : $!. " .
+                        "Will return status DBSTATUS_FAILURE" . "($status)");
+                    return $status;
+                }
+                my ($rr_snip_begin, $rr_snip_end);
+                if ($rr eq 'RQG' or $runner eq 'rqg.pl') {
+                    # $rr_snip_begin = "_RR_TRACE_DIR=$rr_trace_dir ";
+                    $ENV{_RR_TRACE_DIR} = $rr_trace_dir;
+                }
+                if ($rr eq 'RQG') {
+                    $rr_snip_begin .= "rr record --mark-stdio ";
+                    if (defined $rr_options) {
+                        $rr_snip_begin .= "'$rr_options' ";
+                    }
+                }
+                if ($rr ne 'RQG' and $runner eq 'rqg.pl') {
+                    $rr_snip_end = " --rr=$rr ";
+                    if (defined $rr_options) {
+                        $rr_snip_end .= "--rr_options='$rr_options' ";
+                    }
+                }
+                $command = $rr_snip_begin . $command if defined $rr_snip_begin;
+                $command = $command . $rr_snip_end   if defined $rr_snip_end;
+
+            } else {
+                # Unclear of 100% needed.
+                $ENV{_RR_TRACE_DIR} = undef;
+            }
 
             # "Decorate" for use with bash + add nice -19 etc.
             $command = Auxiliary::prepare_command_for_system($command);
@@ -1294,6 +1422,12 @@ sub help() {
    "--help_verdict\n"                                                                              .
    "      Information about how to setup the black and whitelist parameters which are used for\n"  .
    "      defining desired and to be ignored test outcomes.\n"                                     .
+   "--help_rqg_home\n"                                                                             .
+   "      Information about the RQG home directory used and the RQG tool/runner called.\n"         .
+   "--help_rr\n"                                                                                   .
+   "      Information about how and when to invoke the tool 'rr' (https://rr-project.org/)\n"      .
+   "--help_archiving\n"                                                                            .
+   "      Information about how and when archives of the binaries used and results are made\n"     .
    "\n"                                                                                            .
    "--type=<Which type of work ('Combinator' or 'Simplifier') to do>\n"                            .
    "--config=<config file with path absolute or path relative to top directory of RQG install>\n"  .

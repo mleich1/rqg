@@ -1331,6 +1331,7 @@ sub get_git_info {
             "       Will return STATUS_ENVIRONMENT_FAILURE");
         return STATUS_ENVIRONMENT_FAILURE;
     }
+
     # git show --pretty='format:%D %H  %cI' -s
     # HEAD -> experimental, origin/experimental ce3c84fc53216162ef8cc9fdcce7aed24887e305  2018-05-04T12:39:45+02:00
     # %s would show the title of the last commit but that could be longer than wanted.
@@ -1384,17 +1385,19 @@ sub get_basedir_info {
     my $build_prt = $directory . "build.prt";
     if (-f $build_prt) {
         say("INFO: Protocol of build '$build_prt' detected. Extracting some data ...");
-        my $val= Auxiliary::get_scrap_after_pattern($build_prt, 'HEAD, ');
+        my $val= Auxiliary::get_scrap_after_pattern($build_prt, 'GIT_SHOW: ');
         if (not defined $val) {
             return STATUS_ENVIRONMENT_FAILURE;
         } elsif ('' eq $val) {
             # No such string found. So do nothing
         } else {
-            say("HEAD, $val");
+            say("GIT_SHOW: $val");
         }
         # MD5SUM of bin_arch.tgz:
         my $md5_sum = Auxiliary::get_string_after_pattern($build_prt, "MD5SUM of bin_arch.tgz: ");
         say("MD5SUM of bin_arch.tgz: $md5_sum");
+    } else {
+        say("INFO: No protocol of build '$build_prt' found.");
     }
 
     return STATUS_OK;
@@ -1484,8 +1487,8 @@ sub archive_results {
     # Maybe check if some of the all time required/used files exist in order to be sure to have
     # picked the right directory.
     # We make a "cd $workdir"   first!
-    my $archive     = "archive.tgz";
-    my $archive_err = "rqg_arch.err";
+    my $archive     = $workdir . "/archive.tgz";
+    my $archive_err = $workdir . "/rqg_arch.err";
     my $cmd;
     my $rc;
     my $status;
@@ -1506,10 +1509,16 @@ sub archive_results {
     # h           --> --dereference     sql/mysqld is a symlink pointing on sql/mariadbd
     # c           --> --create
     # f <archive> --> --file <archive>
+    # Whereas dereference looks "attractive"
+    # - because it would materialize symlinks like sql/mysqld pointing on sql/mariadbd
+    #   Fortunately mysqld/mariadbd does not need to get archived here.
+    # its is rather fatal in the region of archiving rr traces
+    #   because last_trace pointing to some mysqld-<n> which we archive too
+    #   would get materialized.
     # Failing cmd for experimenting
     # $cmd = "cd $workdir ; tar csf $archive rqg* $vardir 2>$archive_err";
 
-    $cmd = "cd $workdir 2>>$archive_err; tar chzf $archive rqg* $vardir 2>>$archive_err";
+    $cmd = "cd $workdir 2>>$archive_err; tar czf $archive rqg* $vardir 2>>$archive_err";
     say("DEBUG: cmd : ->$cmd<-") if script_debug("A5");
     $rc = system($cmd);
     if ($rc != 0) {
@@ -2308,7 +2317,14 @@ sub help_seed {
     say("- 'time'   == seconds since 1970-01-01 00:00:00 UTC");
     say("- 'epoch5' == Remainder of seconds since 1970-01-01 00:00:00 UTC modulo 100000");
     say("- 'random' == Random integer >= 0 and < 32767");
-    say("Per my (mleich) experiences 'random' is optimal for bug hunting.");
+    say("Per my (mleich) experiences 'random' is optimal for bug hunting and test simplification.");
+#   say("Impact of seed value assigned to");
+#   say("RQG runner: Use it for the generation of data and the SQL streams.");
+#   say("rqg_batch.pl: Pass the value through to the Combinator or Simplifier");
+#   say("Combinator: Use it for the generation of the random combinations.");
+#   say("            Assign --seed=random to any RQG run.");
+#   say("Simplifier: Ignore the value.");
+#   say("            Assign --seed=random to any RQG run.");
 }
 
 sub egalise_dump {
@@ -2373,11 +2389,79 @@ sub find_external_command {
     if (not defined $return or $return eq '') {
         say("ERROR: which $command failed. Will return STATUS_FAILURE.");
     } else {
-        say("DEBUG: which $command returned ->" . $return . "<-");
+        # say("DEBUG: which $command returned ->" . $return . "<-");
         return STATUS_OK;
     }
 }
 
+
+# Support for rr (https://rr-project.org/, https://github.com/mozilla/rr)
+# -----------------------------------------------------------------------
+# RR tracing variants
+use constant RR_TYPE_DEFAULT            => 'Server';
+use constant RR_TYPE_SERVER             => 'Server';
+use constant RR_TYPE_EXTENDED           => 'Extended';
+use constant RR_TYPE_RQG                => 'RQG';
+
+use constant RR_TYPE_ALLOWED_VALUE_LIST => [
+      RR_TYPE_SERVER, RR_TYPE_EXTENDED, RR_TYPE_RQG,
+   ];
+
+sub help_rr {
+    print(
+"HELP: About how and when to invoke the tool 'rr' (https://rr-project.org/)\n"                     .
+"      --rr           Get the default which is '" . RR_TYPE_DEFAULT . "'.\n"                       .
+"      --rr=" . RR_TYPE_SERVER . "\n"                                                              .
+"           Supported by 'rqg_batch.pl' which passes this setting through to the RQG runner\n"     .
+"           'rqg.pl'. No pass through to other RQG runners.\n"                                     .
+"           Support by RQG runners: 'rqg.pl' only.\n"                                              .
+"           Any start of a regular DBServer will be done by 'rr record .... mysqld ...'.\n"        .
+"           Serious advantage: Small 'rr' traces like ~ 30 till 40 MB\n"                           .
+"           Disadvantages:\n"                                                                      .
+"           - No tracing of bootstrap, mariabackup or other processes being maybe of interest.\n"  .
+"           - Interweaving of events in different traced processes not good visible.\n"            .
+"      --rr=" . RR_TYPE_EXTENDED . "\n"                                                            .
+"           Supported by 'rqg_batch.pl' which passes this setting through to the RQG runner\n"     .
+"           'rqg.pl'. No pass through to other RQG runners as long as the do not support it.\n"    .
+"           Any start of some essential program will be done by 'rr record ....'.\n"               .
+"              Bootstrap, server starts, soon mariabackup --prepare ... .\n"                       .
+"           Advantages:\n"                                                                         .
+"           - Smaller 'rr' traces than with --rr=" . RR_TYPE_RQG . " ?? MB\n"                      .
+"           - Cover more essential programs\n"                                                     .
+"           Disadvantages:\n"                                                                      .
+"           - No tracing of other processes being maybe of interest too.\n"                        .
+"           - Interweaving of events in different traced processes not good visible.\n"            .
+"      --rr=" . RR_TYPE_RQG . "\n"                                                                 .
+"           Supported by 'rqg_batch.pl' only.\n"                                                   .
+"           Call of the RQG runner like 'rr record perl <RQG runner> ...'.\n"                      .
+"           Hence we get 'rr' tracing of that perl process and all his children etc.\n"            .
+"           Advantages:\n"                                                                         .
+"           - All processes being maybe of interest get traced.\n"                                 .
+"             Good for: MariaDB replication, Galera, Mariabackup, certain RQG reporters\n"         .
+"           - Interweaving of events in different processes will be good visible.\n"               .
+"           - It works probably well for RQG runner != 'rqg.pl'.\n"                                .
+"           Serious disadvantage: Huge 'rr' traces like 2.5 TB.\n"                                 .
+"      Rules of thumb if assigning '--rr=" . RR_TYPE_RQG . "' to rqg_batch.pl\n"                   .
+"      - Do that only if being sure to replay some bad effect with a few RQG runs only.\n"         .
+"      - For the case that this does not hold because of whatever reason\n"                        .
+"        - Assign an upper limit (--trials) for the number of RQG runs.\n"                         .
+"        - Let rqg_batch.pl stop (--stop_on_replay) as soon as the first replay happened.\n"       .
+"        - Have a config file with a corresponding huge amount of blacklist patterns.\n"           .
+"          Blacklisted results will not get archived.\n"                                           .
+"        - Observe the ongoing RQG runs and stop them in case too many archives get generated.\n"  .
+"      - Avoid having rqg_batch.pl/rqg.pl vardirs located on a SSD and also paging to SSD.\n"      .
+"      rqg_batch.pl --trials=<small number> --stop_on_replay <more options>.\n"                    .
+"      Warnings if assigning '--rr=" . RR_TYPE_RQG . "' to rqg_batch.pl\n"                         .
+"      1. 3000 RQG runs means ~ 7.5 TB 'rr' trace get written in the RQG vardir even if the\n"     .
+"         result are not of interest and get not archived.\n"                                      .
+"         And there will be a serious number of writes into server logs and data in addition.\n"   .
+"         Hence vardirs on SSD are most probably dangerous for the lifetime of the SSD.\n"         .
+"      2. Even having the vardirs on RAM based tmpfs and moving only compressed archives of RQG\n" .
+"         results of interest on SSD could be dangerous for that SSD.\n"                           .
+"         'rr' traces are nearly not compressible.\n"                                              .
+"         3000 RQG runs with 10% ending in generation of some archive mean ~ 0.75 TB written.\n"
+    );
+}
 
 # FIXME: Maybe move from the Simplifier to here.
 # Adaptive FIFO
