@@ -1100,8 +1100,7 @@ sub reap_workers {
                     # - most likely no archive at all
                     # - sometimes an archive harmed by the SIGKILL
                     # - extreme unlikely a complete archive
-                    # ==> The stuff gets thrown away in general.
-                    ####### $worker_array[$worker_num][WORKER_END] = time();
+                    # ==> The archive gets thrown away in general.
                     if ($worker_array[$worker_num][WORKER_STOP_REASON] eq STOP_REASON_RQG_LIMIT) {
                         $verdict = Verdict::RQG_VERDICT_INTEREST;
                     } else {
@@ -1375,6 +1374,8 @@ sub make_multi_runner_infrastructure {
 
     $run_id = Auxiliary::get_run_id() if not defined $run_id;
 
+    my $general_binarch;
+
     if (not defined $general_workdir or $general_workdir eq '') {
         $general_workdir = cwd() . '/rqg_workdirs';
         say("INFO: The general workdir $snip_all was not assigned. " .
@@ -1390,6 +1391,18 @@ sub make_multi_runner_infrastructure {
         } else {
             say("ERROR: make_multi_runner_infrastructure : Creating the general workdir " .
                 "$snip_all '$general_workdir' failed: $!. Will return undef.");
+            return undef;
+        }
+    }
+
+    $general_binarch = $general_workdir . "/bin_archs";
+    if (not -e $general_binarch) {
+        if (mkdir $general_binarch) {
+            say("DEBUG: The general binarch $snip_all '$general_binarch' created.")
+                if Auxiliary::script_debug("B2");
+        } else {
+            say("ERROR: make_multi_runner_infrastructure : Creating the directory for archives of " .
+                "binaries '$general_binarch' failed: $!. Will return undef.");
             return undef;
         }
     }
@@ -1482,7 +1495,7 @@ sub make_multi_runner_infrastructure {
     }
     say("INFO: Final workdir  : '$workdir'\n" .
         "INFO: Final vardir   : '$vardir'");
-    return $workdir, $vardir;
+    return $workdir, $vardir, $general_binarch;
 }
 
 
@@ -1725,7 +1738,7 @@ sub get_order {
     }
 
     my @array;
-    # Sort keys of %try_first_queue numerically ascending because in average the orders with the
+    # Sort keys of %try_first_hash numerically ascending because in average the orders with the
     # lower id's will remove more if having success at all.
     @array    = sort {$a <=> $b} keys %try_first_hash;
     $order_id = shift @array;
@@ -1774,7 +1787,8 @@ sub get_order {
     }
 
     return undef;
-}
+
+} # End sub get_order
 
 sub check_order_id {
     my ($order_id) = @_;
@@ -2090,7 +2104,7 @@ sub process_finished_runs {
             my ($status,$action);
             my $total_runtime = $worker_array[$worker_num][WORKER_END] -
                                 $worker_array[$worker_num][WORKER_START];
-            if (-1 ==$worker_array[$worker_num][WORKER_START]) {
+            if (-1 == $worker_array[$worker_num][WORKER_START]) {
                 # A RQG run died in Phase init -> Verdict will be init too.
                 # Real life example:
                 # I edited rqg.pl and made there a mistake in perl syntax.
@@ -2168,6 +2182,14 @@ sub process_finished_runs {
     }
 } # End of sub process_finished_runs
 
+sub help_archiving {
+       print(
+   "\nSorry, under construction and partially different or not yet implemented.\n\n"               .
+   "Default\n"                                                                                     .
+   "      What you get in case you do not assign some corresponding --<parameter>=<value>.\n"      .
+   "  will be taken according to their setting with absolute path or relative to the current "     .
+   "Description currently missing. Sorry.\n");
+}
 
 1;
 
