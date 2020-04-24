@@ -522,13 +522,15 @@ sub _reportError {
 }
 
 sub startServer {
-   my ($self) = @_;
+    my ($self) = @_;
 
-   my @defaults = ($self->[MYSQLD_CONFIG_FILE] ? ("--defaults-group-suffix=.runtime", "--defaults-file=$self->[MYSQLD_CONFIG_FILE]") : ("--no-defaults"));
+    my $who_am_i = "DBServer::MySQL::MySQLd::killServer:";
 
-   my ($v1,$v2,@rest) = $self->versionNumbers;
-   my $v = $v1*1000+$v2;
-   my $command = $self->generateCommand([@defaults],
+    my @defaults = ($self->[MYSQLD_CONFIG_FILE] ? ("--defaults-group-suffix=.runtime", "--defaults-file=$self->[MYSQLD_CONFIG_FILE]") : ("--no-defaults"));
+
+    my ($v1,$v2,@rest) = $self->versionNumbers;
+    my $v = $v1*1000+$v2;
+    my $command = $self->generateCommand([@defaults],
                                          $self->[MYSQLD_STDOPTS],
                                          ["--core-file",
                                           "--datadir=".$self->datadir,  # Could not add to STDOPTS, because datadir could have changed
@@ -537,48 +539,48 @@ sub startServer {
                                           "--socket=".$self->socketfile,
                                           "--pid-file=".$self->pidfile],
                                          $self->_logOptions);
-   if (defined $self->[MYSQLD_SERVER_OPTIONS]) {
+    if (defined $self->[MYSQLD_SERVER_OPTIONS]) {
         # Original code with the following bad effect seen
         #     A call is given to the shell and many but not all option settings are enclosed in double quotes.
         #     The non enclosed make trouble if looking like
         #     wsrep_provider_options=repl.causal_read_timeout=PT90S;base_port=16002;<whatever>
         # $command = $command." ".join(' ',@{$self->[MYSQLD_SERVER_OPTIONS]});
         $command = $command . ' "' .join('" "', @{$self->[MYSQLD_SERVER_OPTIONS]}) . '"';
-   }
-   # If we don't remove the existing pidfile,
-   # the server will be considered started too early, and further flow can fail
-   unlink($self->pidfile);
+    }
+    # If we don't remove the existing pidfile,
+    # the server will be considered started too early, and further flow can fail
+    unlink($self->pidfile);
 
-   my $errorlog = $self->vardir."/".MYSQLD_ERRORLOG_FILE;
+    my $errorlog = $self->vardir . "/" . MYSQLD_ERRORLOG_FILE;
 
-   # In seconds, timeout for the server to start updating error log
-   # after the server startup command has been launched
-   my $start_wait_timeout= 30;
+    # In seconds, timeout for the server to start updating error log
+    # after the server startup command has been launched
+    my $start_wait_timeout= 30;
 
-   # In seconds, timeout for the server to create pid file
-   # after it has started updating the error log
-   # (before the server is considered hanging)
-   my $startup_timeout= 600;
+    # In seconds, timeout for the server to create pid file
+    # after it has started updating the error log
+    # (before the server is considered hanging)
+    my $startup_timeout= 600;
 
-   if (osWindows) {
-      my $proc;
-      my $exe = $self->binary;
-      my $vardir = $self->[MYSQLD_VARDIR];
-      $exe =~ s/\//\\/g;
-      $vardir =~ s/\//\\/g;
-      $self->printInfo();
-      say("INFO: Starting MySQL " . $self->version . ": $exe as $command on $vardir");
-      Win32::Process::Create($proc,
+    if (osWindows) {
+        my $proc;
+        my $exe = $self->binary;
+        my $vardir = $self->[MYSQLD_VARDIR];
+        $exe =~ s/\//\\/g;
+        $vardir =~ s/\//\\/g;
+        $self->printInfo();
+        say("INFO: Starting MySQL " . $self->version . ": $exe as $command on $vardir");
+        Win32::Process::Create($proc,
                                $exe,
                                $command,
                                0,
                                NORMAL_PRIORITY_CLASS(),
                                ".") || croak _reportError();
-      $self->[MYSQLD_WINDOWS_PROCESS]=$proc;
-      $self->[MYSQLD_SERVERPID]=$proc->GetProcessID();
-      # Gather the exit code and check if server is running.
-      $proc->GetExitCode($self->[MYSQLD_WINDOWS_PROCESS_EXITCODE]);
-      if ($self->[MYSQLD_WINDOWS_PROCESS_EXITCODE] == MYSQLD_WINDOWS_PROCESS_STILLALIVE) {
+        $self->[MYSQLD_WINDOWS_PROCESS]=$proc;
+        $self->[MYSQLD_SERVERPID]=$proc->GetProcessID();
+        # Gather the exit code and check if server is running.
+        $proc->GetExitCode($self->[MYSQLD_WINDOWS_PROCESS_EXITCODE]);
+        if ($self->[MYSQLD_WINDOWS_PROCESS_EXITCODE] == MYSQLD_WINDOWS_PROCESS_STILLALIVE) {
             ## Wait for the pid file to have been created
             my $wait_time = 0.5;
             my $waits = 0;
@@ -590,20 +592,20 @@ sub startServer {
                 sayFile($errorlog);
                 croak("Could not start mysql server, waited ".($waits*$wait_time)." seconds for pid file");
             }
-      }
-   } else {
-      if ($self->[MYSQLD_VALGRIND]) {
-         my $val_opt         = "";
-         $start_wait_timeout = 60;   # Maximum wait time for an error log update or
-                                     # pid_file existence..
-         $startup_timeout    = 1200;
-         if (defined $self->[MYSQLD_VALGRIND_OPTIONS]) {
-            $val_opt = join(' ',@{$self->[MYSQLD_VALGRIND_OPTIONS]});
-         }
-         # FIXME: Do we check somewhere that the $self->valgrind_suppressionfile exists?
-         $command = "valgrind --time-stamp=yes --leak-check=yes --suppressions=" .
-                    $self->valgrind_suppressionfile . " " . $val_opt . " " . $command;
-      }
+        }
+    } else {
+        if ($self->[MYSQLD_VALGRIND]) {
+            my $val_opt         = "";
+            $start_wait_timeout = 60;   # Maximum wait time for an error log update or
+                                        # pid_file existence..
+            $startup_timeout    = 1200;
+            if (defined $self->[MYSQLD_VALGRIND_OPTIONS]) {
+                $val_opt = join(' ',@{$self->[MYSQLD_VALGRIND_OPTIONS]});
+            }
+            # FIXME: Do we check somewhere that the $self->valgrind_suppressionfile exists?
+            $command = "valgrind --time-stamp=yes --leak-check=yes --suppressions=" .
+                       $self->valgrind_suppressionfile . " " . $val_opt . " " . $command;
+        }
 
         if ($self->[MYSQLD_RR]) {
             my $rr = $self->[MYSQLD_RR];
@@ -634,7 +636,7 @@ sub startServer {
             # - get often written even if the server option "--core-file" was not assigned
             # - consume ~ 1 GB storage space in vardir (usually located in tmpfs) temporary
             # So we could try to prevent the writing of core files via ulimit.
-            # $command = "ulimit -c 0; _RR_TRACE_DIR=$rr_trace_dir rr record --mark-stdio $rr_options $command";
+            # $command = "ulimit -c 0; rr record --mark-stdio $rr_options $command";
             # But as long as I do not know of a way how to extract the backtrace in batch mode
             # from rr stuff we need core files.
               $command = "rr record --mark-stdio $rr_options $command";
@@ -863,56 +865,65 @@ sub startServer {
    }
 }
 
-sub kill {
-   my ($self) = @_;
+sub killServer {
+    my ($self) = @_;
 
-   if (osWindows()) {
-      if (defined $self->[MYSQLD_WINDOWS_PROCESS]) {
-         $self->[MYSQLD_WINDOWS_PROCESS]->Kill(0);
-         say("Killed process ".$self->[MYSQLD_WINDOWS_PROCESS]->GetProcessID());
-      }
-   } else {
-      my $pidfile= $self->pidfile;
+    my $who_am_i = "DBServer::MySQL::MySQLd::killServer:";
 
-      # FIXME: Is RQG really unable to memorize the server pid somehow else?
-      if (not defined $self->serverpid and -f $pidfile) {
-         $self->[MYSQLD_SERVERPID] = `cat \"$pidfile\"`;
-      }
+    if (osWindows()) {
+        if (defined $self->[MYSQLD_WINDOWS_PROCESS]) {
+            $self->[MYSQLD_WINDOWS_PROCESS]->Kill(0);
+            say("INFO: $who_am_i Killed process ".$self->[MYSQLD_WINDOWS_PROCESS]->GetProcessID());
+        }
+    } else {
+        my $pidfile= $self->pidfile;
 
-      if (defined $self->serverpid and $self->serverpid =~ /^\d+$/) {
-         kill KILL => $self->serverpid;
-         # There is no guarantee that the OS has already killed the process when
-         # kill KILL returns. This is especially valid for boxes with currently
-         # extreme CPU load.
-         my $wait_end  = Time::HiRes::time() + 30;
-         my $wait_unit = 0.2;
-         while ($self->running && Time::HiRes::time() < $wait_end) {
-                Time::HiRes::sleep($wait_unit);
-         }
-         if (not Time::HiRes::time() < $wait_end) {
-            # FIXME: Replace the croak
-            say("ERROR: Unable to kill the server process " . $self->serverpid .
-                "Will return DBSTATUS_FAILURE.");
-         } else {
-            say("INFO: Killed the server process " . $self->serverpid);
-         }
-      }
-   }
-   # FIXME: We must return something and bring the test to some clean end if failure.
+        if (not defined $self->serverpid and -f $pidfile) {
+            $self->[MYSQLD_SERVERPID] = `cat \"$pidfile\"`;
+            say("WARN: $who_am_i serverpid had to be extracted from '$pidfile'.");
+        }
 
-   # Clean up when the server is not alive.
-   my $return = $self->running ? DBSTATUS_FAILURE : DBSTATUS_OK;
-   unlink $self->socketfile if -e $self->socketfile;
-   unlink $self->pidfile if -e $self->pidfile;
-   $self->[MYSQLD_WINDOWS_PROCESS] = undef;
-   $self->[MYSQLD_SERVERPID]       = undef;
-   return $return;
+        if (defined $self->serverpid and $self->serverpid =~ /^\d+$/) {
+            if (not $self->running) {
+                say("INFO: $who_am_i The server with process [" . $self->serverpid .
+                    "] is already no more running. Will return DBSTATUS_OK.");
+                unlink $self->socketfile if -e $self->socketfile;
+                unlink $self->pidfile    if -e $self->pidfile;
+                $self->[MYSQLD_WINDOWS_PROCESS] = undef;
+                $self->[MYSQLD_SERVERPID]       = undef;
+                # FIXME: What to return if the server is already no more running.
+
+                return DBSTATUS_OK;
+            }
+            kill KILL => $self->serverpid;
+            # There is no guarantee that the OS has already killed the process when
+            # kill KILL returns. This is especially valid for boxes with currently
+            # extreme CPU load.
+            if ($self->waitForServerToStop(30) != DBSTATUS_OK) {
+                say("ERROR: $who_am_i Unable to kill the server process " . $self->serverpid);
+            } else {
+                say("INFO: $who_am_i Killed the server process " . $self->serverpid);
+            }
+        } else {
+            Carp:cluck("FATAL ERROR: Killing the server process impossible because " .
+                       "no server pid found.");
+            return DBSTATUS_FAILURE;
+        }
+    }
+
+    # Clean up when the server is not alive.
+    my $return = $self->running ? DBSTATUS_FAILURE : DBSTATUS_OK;
+    unlink $self->socketfile if -e $self->socketfile;
+    unlink $self->pidfile    if -e $self->pidfile;
+    $self->[MYSQLD_WINDOWS_PROCESS] = undef;
+    $self->[MYSQLD_SERVERPID]       = undef;
+    return $return;
 }
 
 sub term {
-   my ($self) = @_;
+    my ($self) = @_;
 
-   my $res;
+    my $res;
 
     if (not $self->running) {
         say("DEBUG: DBServer::MySQL::MySQLd::term: The server with process [" .
@@ -926,61 +937,85 @@ sub term {
         return DBSTATUS_OK;
     }
 
-   if (osWindows()) {
-      ### Not for windows
-      say("Don't know how to do SIGTERM on Windows");
-      $self->kill;
-      $self->[MYSQLD_WINDOWS_PROCESS] = undef;
-      $res= DBSTATUS_OK;
-   } else {
-      if (defined $self->serverpid) {
-         kill TERM => $self->serverpid;
+    if (osWindows()) {
+        ### Not for windows
+        say("Don't know how to do SIGTERM on Windows");
+        $self->killServer;
+        $self->[MYSQLD_WINDOWS_PROCESS] = undef;
+        $res= DBSTATUS_OK;
+    } else {
+        if (defined $self->serverpid) {
+            kill TERM => $self->serverpid;
 
-         my $wait_end  = Time::HiRes::time() + 60;
-         my $wait_unit = 0.2;
-         while ($self->running && Time::HiRes::time() < $wait_end) {
-            Time::HiRes::sleep($wait_unit);
-         }
-         if (not Time::HiRes::time() < $wait_end) {
-            say("WARNING: Unable to terminate the server process " . $self->serverpid .
-                " Trying kill");
-            $self->kill;
-            $res= DBSTATUS_FAILURE;
-            $self->[MYSQLD_SERVERPID]       = undef;
-         } else {
-            say("INFO: Terminated the server process " . $self->serverpid);
-            $self->[MYSQLD_SERVERPID]       = undef;
-            $res= DBSTATUS_OK;
-         }
-      }
-   }
-   if (-e $self->socketfile) {
-      unlink $self->socketfile;
-   }
-   return $res;
+            if ($self->waitForServerToStop(60) != DBSTATUS_OK) {
+                say("WARNING: Unable to terminate the server process " . $self->serverpid .
+                    " Trying kill");
+                # FIXME: Try killing with core first
+                $self->killServer;
+                $res= DBSTATUS_FAILURE;
+                $self->[MYSQLD_SERVERPID]       = undef;
+             } else {
+                say("INFO: Terminated the server process " . $self->serverpid);
+                $self->[MYSQLD_SERVERPID]       = undef;
+                $res= DBSTATUS_OK;
+             }
+        }
+    }
+    if (-e $self->socketfile) {
+        unlink $self->socketfile;
+    }
+    return $res;
 }
 
-sub crash {
-   my ($self) = @_;
+sub crashServer {
+    my ($self) = @_;
 
-   if (osWindows()) {
-      ## How do i do this?????
-      $self->kill; ## Temporary
-      $self->[MYSQLD_WINDOWS_PROCESS] = undef;
-   } else {
-      if (defined $self->serverpid) {
-         kill SEGV => $self->serverpid;
-         say("INFO: Crashed the server process " . $self->serverpid . " with SEGV.");
-         $self->[MYSQLD_SERVERPID]       = undef;
-      } else {
-         Carp:cluck("ERROR: Crashing the server process impossible because server pid is not defined.");
-      }
-   }
-   # FIXME: We must return something and bring the test to some clean end if failure.
+    my $who_am_i = "DBServer::MySQL::MySQLd::crashServer:";
+    # FIXME: What to do if the server is already no more running.
+    if (osWindows()) {
+        ## How do i do this?????
+        $self->killServer; ## Temporary
+        $self->[MYSQLD_WINDOWS_PROCESS] = undef;
+    } else {
+        my $pidfile= $self->pidfile;
+        if (not defined $self->serverpid and -f $pidfile) {
+            $self->[MYSQLD_SERVERPID] = `cat \"$pidfile\"`;
+            say("WARN: $who_am_i serverpid had to be extracted from '$pidfile'.");
+        }
 
-   # clean up when the server is not alive.
-   unlink $self->socketfile if -e $self->socketfile;
-   unlink $self->pidfile if -e $self->pidfile;
+        if (defined $self->serverpid and $self->serverpid =~ /^\d+$/) {
+            if (not $self->running) {
+                say("INFO: $who_am_i The server with process [" . $self->serverpid .
+                    "] is already no more running. Will return DBSTATUS_OK.");
+                unlink $self->socketfile if -e $self->socketfile;
+                unlink $self->pidfile    if -e $self->pidfile;
+                $self->[MYSQLD_WINDOWS_PROCESS] = undef;
+                $self->[MYSQLD_SERVERPID]       = undef;
+                # FIXME: What to return if the server is already no more running.
+
+                return DBSTATUS_OK;
+            }
+            # Use ABRT in order to be able to distinct from genuine SEGV's.
+            kill 'ABRT' => $self->serverpid;
+            say("INFO: $who_am_i Crashed the server process " . $self->serverpid . " with ABRT.");
+            if ($self->waitForServerToStop(120) != DBSTATUS_OK) {
+                say("ERROR: $who_am_i Crashing the server with core failed. Trying kill. " .
+                    "Will return DBSTATUS_FAILURE.");
+                $self->killServer;
+                return DBSTATUS_FAILURE;
+            } else {
+                $self->[MYSQLD_SERVERPID] = undef;
+                # clean up when the server is not alive.
+                unlink $self->socketfile if -e $self->socketfile;
+                unlink $self->pidfile    if -e $self->pidfile;
+                return DBSTATUS_OK;
+            }
+        } else {
+            Carp:cluck("FATAL ERROR: $who_am_i Crashing the server process impossible because " .
+                       "no server pid found.");
+            return DBSTATUS_FAILURE;
+        }
+    }
 
 }
 
@@ -1122,7 +1157,7 @@ sub nonSystemDatabases {
   my $self= shift;
   return @{$self->dbh->selectcol_arrayref(
       "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA ".
-      "WHERE LOWER(SCHEMA_NAME) NOT IN ('mysql','information_schema','performance_schema','sys')"
+      "WHERE LOWER(SCHEMA_NAME) NOT IN ('rqg','mysql','information_schema','performance_schema','sys')"
     )
   };
 }
@@ -1184,7 +1219,7 @@ sub stopServer {
     # system("ps -elf | grep mysqld");
 
     # For experimenting: Simulate a server crash during shutdown
-    # system("killall -9 mysqld");
+    # system("killall -9 mysqld; killall -9 mariadbd");
 
     if ($shutdown_timeout and defined $self->[MYSQLD_DBH]) {
         say("Stopping server on port " . $self->port);
@@ -1235,7 +1270,13 @@ sub stopServer {
         }
     } else {
         say("Shutdown timeout or dbh is not defined, killing the server");
-        $res= $self->kill;
+        $res= $self->killServer;
+        if ($self->waitForServerToStop(30) != DBSTATUS_OK) {
+            say("FATAL ERROR: Killing the server did not work properly. " .
+                "Will return DBSTATUS_FAILURE");
+            sayFile($errorlog);
+            return DBSTATUS_FAILURE;
+        }
     }
     if ($check_shutdown) {
         my @filestats = stat($file_to_read);

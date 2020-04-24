@@ -1,4 +1,4 @@
-# Copyright (C) 2017 MariaDB Corporation Ab
+# Copyright (C) 2017, 2020 MariaDB Corporation Ab
 # 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -219,7 +219,9 @@ sub run {
   #####
   $self->printStep("Killing the old server");
 
-  $status= $old_server->kill;
+  # (mleich) Experimental
+  # $status= $old_server->kill;
+  $status= $old_server->killServer;
   
   if ($status != STATUS_OK) {
     sayError("Could not kill the old server");

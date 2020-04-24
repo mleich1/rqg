@@ -1,4 +1,5 @@
 # Copyright (c) 2012 Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -125,7 +126,9 @@ sub test_crash_and_backtrace_reporter {
     # Crash the server for the test.
     if (not osWindows()) { ## crash is not yet implemented for windows
         sleep(1);
-        $server->crash;
+        # (mleich) Experimental
+        # $server->crash;
+        $server->crashServer;
         sleep(1);
     }
     
@@ -150,7 +153,9 @@ sub test_crash_and_valgrind_reporter {
     # Crash the server for the test.
     if (not osWindows()) { ## crash is not yet implemented for windows
         sleep(1);
-        $server->crash;
+        # (mleich) Experimental
+        # $server->crash;
+        $server->crashServer;
         sleep(1);
     }
     

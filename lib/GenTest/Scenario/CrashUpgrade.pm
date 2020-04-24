@@ -182,7 +182,9 @@ sub run {
   #####
   $self->printStep("Killing the old server");
 
-  $status= $old_server->kill;
+  # (mleich) Experimental
+  # $status= $old_server->kill;
+  $status= $old_server->killServer;
   
   if ($status != STATUS_OK) {
     sayError("Could not kill the old server");

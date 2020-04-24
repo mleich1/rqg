@@ -1,4 +1,4 @@
-# Copyright (C) 2017 MariaDB Corporation Ab
+# Copyright (C) 2017, 2020 MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -289,7 +289,9 @@ sub finalize {
   my ($self, $status, $servers)= @_;
   if ($servers) {
     foreach my $s (@$servers) {
-      $s->kill;
+      # (mleich) Experimental
+      # $s->kill;
+      $s->killServer;
     }
   }
   if (scalar (keys %{$self->detectedBugs})) {

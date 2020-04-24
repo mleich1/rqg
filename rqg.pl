@@ -1968,17 +1968,25 @@ say("RESULT: The core of the RQG run ended with status " . status2text($final_re
 #     print all server error logs, stop all servers + cleanup + exit
 # and do not print any server error logs earlier except they would get later removed or ...
 
-my $ret = stopServers($final_result);
-if (STATUS_OK != $ret) {
-    say("ERROR: Stopping the server(s) failed somehow.");
-    say("       Server already no more running or no reaction on admin shutdown or ...");
-    if ($final_result > STATUS_CRITICAL_FAILURE) {
-        say("DEBUG: The current status is already high enough. So it will be not modified.");
-    } else {
-        say("DEBUG: Raising status from " . $final_result . " to " . STATUS_ALARM);
-        $final_result = STATUS_ALARM;
+
+if ($final_result >= STATUS_CRITICAL_FAILURE) {
+    my $ret = killServers();
+    if (STATUS_OK != $ret) {
+        say("ERROR: Killing the server(s) failed somehow.");
     }
-    # FIXME: In case there is a core file make a backtrace
+} else {
+    my $ret = stopServers($final_result);
+    if (STATUS_OK != $ret) {
+        say("ERROR: Stopping the server(s) failed somehow.");
+        say("       Server already no more running or no reaction on admin shutdown or ...");
+        if ($final_result > STATUS_CRITICAL_FAILURE) {
+            say("DEBUG: The current status is already high enough. So it will be not modified.");
+        } else {
+            say("DEBUG: Raising status from " . $final_result . " to " . STATUS_ALARM);
+            $final_result = STATUS_ALARM;
+        }
+        # FIXME: In case there is a core file make a backtrace
+    }
 }
 
 # For experiments requiring that a RQG test has failed:
@@ -2037,6 +2045,40 @@ sub stopServers {
     }
 
 }
+
+sub killServers {
+# Use case:
+# If the status is already bad than the final status must be not
+# influenced by if a smooth shutdown is possible or not.
+# Hence harsh and therefore reliable+fast treatment is best.
+    say("Killing server(s)...");
+    my $ret;
+    if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
+        ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
+        ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)            or
+        ($rpl_mode eq Auxiliary::RQG_RPL_MIXED_NOSYNC)     or
+        ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
+        ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         ) {
+        $ret = $rplsrv->killServer();
+    } elsif (defined $upgrade_test) {
+        $ret = $server[1]->killServer;
+    } else {
+        foreach my $srv (@server) {
+            if ($srv) {
+                my $single_ret = $srv->killServer;
+                if (not defined $single_ret) {
+                    say("ALARM: \$single_ret is not defined.");
+                } else {
+                    $ret = $single_ret if $single_ret != STATUS_OK;
+                }
+            }
+        }
+    }
+    if ($ret != STATUS_OK) {
+        say("DEBUG: killServers(rqg.pl) failed with : ret : $ret");
+    }
+}
+
 
 sub help {
 

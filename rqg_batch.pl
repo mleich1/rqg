@@ -166,8 +166,8 @@ my $ctrl_c = 0;
 # would cause exact some abort with cleanup but without summary.
 $SIG{INT}  = sub { $ctrl_c = 1 };
 # SIGTERM should lead to some abort with cleanup but without summary.
-$SIG{TERM} = sub { Batch::emergency_exit("INFO: SIGTERM or SIGINT received. Will stop all RQG worker " .
-                                         "and exit without cleanup.", STATUS_OK) };
+$SIG{TERM} = sub { Batch::emergency_exit(STATUS_OK, "INFO: SIGTERM or SIGINT received. Will stop " .
+                                         "all RQG worker and exit without cleanup.") };
 $SIG{CHLD} = "IGNORE" if osWindows();
 
 my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar, $gendata,
@@ -571,25 +571,27 @@ if ($noarchiving) {
     # calculated its value, created that directory if missing and returned that value.
     #
     # Description of concept by example:
-    # 1. Write whatever important information to som file build.prt
+    # 1. Write whatever important information (git show, git diff, cmake ...) to some file build.prt
     # 2. <source tree dirs>/10.5
-    #        Clone origin/10.5 to here
+    #        origin/10.5 was once cloned to here
     # 3. /dev/shm/build_dir
-    #        Make here some out of source build with debug and
+    #        Make here some out of source build with debug based on <source tree dirs>/10.5 and
     #        INSTALL_PREFIX=<whatever>/10.5_debug
     #        make install
-    # 4. tar czf <RQG>/storage/binarchs/bin_arch.tgz
+    # 4. cd <whatever>/10.5_debug
+    #    tar czf <RQG>/storage/binarchs/bin_arch.tgz .
     #    Determine the md5sum of <RQG>/storage/binarchs/bin_arch.tgz and
     #    write it into build.prt
     # 5. cp build.prt to <RQG>/storage/binarchs/build.prt
     #    cp build.prt to <whatever>/10.5_debug/build.prt
     # 6. mv <RQG>/storage/binarchs/bin_arch.tgz <RQG>/storage/binarchs/<md5_sum>.tgz
     #    mv <RQG>/storage/binarchs/build.prt    <RQG>/storage/binarchs/<md5_sum>.prt
-    # So the binaries used during the batch of RQG runs can be preserved by hard linking
-    # RQG batch workdir
-    # basedir<n>.tgz -- inode A -- <RQG>/storage/binarchs/<md5_sum>.tgz
-    # basedir<n>.prt -- inode B -- <RQG>/storage/binarchs/<md5_sum>.prt
-    #
+    # So the binaries used during the batch of RQG runs can be preserved by hard linking.
+    # Extract the md5sum from of <whatever>/10.5_debug/build.prt.
+    # RQG batch workdir | filesystem | <RQG>/storage/binarchs
+    # basedir<n>.tgz    | inode <A>  | <md5_sum>.tgz
+    # basedir<n>.prt    | inode <B>  | <md5_sum>.prt
+    #######################################################
 
     foreach my $i (1..3) {
         next if not defined $basedirs[$i];

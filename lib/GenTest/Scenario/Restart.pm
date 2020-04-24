@@ -1,4 +1,4 @@
-# Copyright (C) 2017 MariaDB Corporation Ab
+# Copyright (C) 2017, 2020 MariaDB Corporation Ab
 # 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -167,7 +167,9 @@ sub run {
 
     if ($self->getTestType eq 'crash') {
       $self->printStep("killing the server");
-      $status= $server->kill;
+      # (mleich) Experimental
+      # $status= $server->kill;
+      $status= $server->killServer;
     } else {
       $self->printStep("Stopping the server");
       $status= $server->stopServer;
