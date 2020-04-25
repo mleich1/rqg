@@ -1109,9 +1109,6 @@ sub reap_workers {
                     append_string_to_file($rqg_log, "# $iso_ts BATCH: Stop the run ".
                         "because of '" . $worker_array[$worker_num][WORKER_STOP_REASON] . "'.\n" .
                                                            "# $iso_ts Verdict: $verdict\n");
-                } else {
-                    ####### $worker_array[$worker_num][WORKER_END] = time();
-                    # ($verdict, $extra_info) = Verdict::get_rqg_verdict($rqg_workdir);
                 }
 
                 $worker_array[$worker_num][WORKER_VERDICT] = $verdict;
@@ -1725,6 +1722,8 @@ sub known_orders_waiting {
 
 
 sub get_order {
+
+    my $who_am_i = "Batch::get_order:";
     my $order_id;
 
     sub is_order_valid {
@@ -1740,51 +1739,74 @@ sub get_order {
     my @array;
     # Sort keys of %try_first_hash numerically ascending because in average the orders with the
     # lower id's will remove more if having success at all.
-    @array    = sort {$a <=> $b} keys %try_first_hash;
-    $order_id = shift @array;
-    if (defined $order_id) {
-        say("DEBUG: Batch::get_order: Order $order_id picked from \%try_first_hash.")
-            if Auxiliary::script_debug("B5");
-        delete $try_first_hash{$order_id};
-        $order_id = is_order_valid($order_id);
-        return $order_id if defined $order_id;
-    }
-    @array = ();
-
-    # %try_first_hash was empty.
-    $order_id = shift @try_queue;
-    if (defined $order_id) {
-        say("DEBUG: Order $order_id picked from \@try_queue.")
-            if Auxiliary::script_debug("B5");
-        $order_id = is_order_valid($order_id);
-        return $order_id if defined $order_id;
-    } else {
-        if (0 == $out_of_ideas) {
-            # Maybe we have not generated all orders possible?
-            if      ($batch_type eq BATCH_TYPE_RQG_SIMPLIFIER) {
-                my $num = Simplifier::generate_orders();
-                say("DEBUG: Batch::get_order: \@try_queue refilled up to " .
-                    scalar @try_queue . " Elements.") if Auxiliary::script_debug("B3");
-            } elsif ($batch_type eq BATCH_TYPE_COMBINATOR) {
-                Combinator::generate_orders();
-                say("DEBUG: Batch::get_order: \@try_queue refilled up to " .
-                    scalar @try_queue . " Elements.") if Auxiliary::script_debug("B3");
-            } else {
-                Carp::cluck("INTERNAL ERROR: batch_type '$batch_type' is not supported.");
-                emergency_exit(STATUS_INTERNAL_ERROR, "ERROR: This must not happen (1).");
-            }
-            $order_id = shift @try_queue;
-            if (defined $order_id) {
-                say("DEBUG: Batch::get_order: \%try_first_hash and \@try_queue are empty.")
-                    if Auxiliary::script_debug("B5");
-                $order_id = is_order_valid($order_id);
-                return $order_id if defined $order_id;
-            }
-            say("DEBUG: Batch::get_order: Setting out_of_ideas = 1.")
-                if Auxiliary::script_debug("B3");
-            $out_of_ideas = 1;
+    @array = sort {$a <=> $b} keys %try_first_hash;
+    while (0 < scalar @array) {
+        $order_id = shift @array;
+        if (defined $order_id) {
+            say("DEBUG: $who_am_i Order $order_id picked from \%try_first_hash.")
+                if Auxiliary::script_debug("B5");
+            delete $try_first_hash{$order_id};
+            $order_id = is_order_valid($order_id);
+            return $order_id if defined $order_id;
         }
     }
+    say("DEBUG: $who_am_i \%try_first_hash was or has become empty.")
+        if Auxiliary::script_debug("B5");
+
+    # @array = ();
+
+    while (0 < scalar @try_queue) {
+        $order_id = shift @try_queue;
+        if (defined $order_id) {
+            say("DEBUG: $who_am_i Order $order_id picked from \@try_queue.")
+                if Auxiliary::script_debug("B5");
+            $order_id = is_order_valid($order_id);
+            return $order_id if defined $order_id;
+        }
+    }
+    say("DEBUG: $who_am_i \@try_queue was or has become empty.")
+        if Auxiliary::script_debug("B5");
+
+    # Observation: 2020-04-18
+    # rqg_batch.pl exits (phase 'grammar_simp', campaign 1, out_of_ideas = 1, refills : 2) even
+    # though queues and/or hashes contain order id's.
+    # IMPORTANT:
+    # Never enclose the group of lines (no empty line between) with a
+    #   if (0 == $out_of_ideas) {
+    # Main reason:
+    # After the first time where generate_orders does not add entries to @try_queue $out_of_ideas
+    # gets set to 1 it is clear that we need either a new campaign for the current phase or a
+    # switch to the next simplification phase. And that requires that all active RQG Worker have
+    # finished. Hence generate_orders() looks if $out_of_ideas == 1 and active workers == 0
+    # and sets than switch_phase = 1.
+    # Minor reason:
+    # Even though $out_of_ideas == 1 was set it might happen that some job finished and could be
+    # recycled.
+    # Maybe we have not generated all orders possible?
+    if      ($batch_type eq BATCH_TYPE_RQG_SIMPLIFIER) {
+        my $num = Simplifier::generate_orders();
+        say("DEBUG: $who_am_i \@try_queue refilled up to " .
+            scalar @try_queue . " Elements.") if Auxiliary::script_debug("B3");
+    } elsif ($batch_type eq BATCH_TYPE_COMBINATOR) {
+        Combinator::generate_orders();
+        say("DEBUG: $who_am_i \@try_queue refilled up to " .
+            scalar @try_queue . " Elements.") if Auxiliary::script_debug("B3");
+    } else {
+        Carp::cluck("INTERNAL ERROR: batch_type '$batch_type' is not supported.");
+        emergency_exit(STATUS_INTERNAL_ERROR, "ERROR: This must not happen (1).");
+    }
+    while (0 < scalar @try_queue) {
+        $order_id = shift @try_queue;
+        if (defined $order_id) {
+            say("DEBUG: $who_am_i Order $order_id picked from refilled \@try_queue.")
+                if Auxiliary::script_debug("B5");
+            $order_id = is_order_valid($order_id);
+            return $order_id if defined $order_id;
+        }
+    }
+    say("DEBUG: $who_am_i refilled \@try_queue was or has become empty. Setting " .
+        "out_of_ideas = 1.") if Auxiliary::script_debug("B3");
+    $out_of_ideas = 1;
 
     return undef;
 
@@ -2137,6 +2159,8 @@ sub process_finished_runs {
                 emergency_exit(STATUS_CRITICAL_FAILURE,
                     "INTERNAL ERROR: The batch type '$batch_type' is unknown. ");
             }
+            # For debugging
+            # dump_try_hashes();
             update_extra_info_hash($extra_info);
             # For debugging
             if (0) {

@@ -1212,6 +1212,7 @@ sub get_job {
 #    - no valid order got at all set $phase_switch = 1 and return undef
 #    - a valid order return a description of the job
 #
+    my $who_am_i = "Simplifier::get_job:";
 
     my $order_id;
     my @job;
@@ -1225,7 +1226,7 @@ sub get_job {
     # Safety measure
     my ($active) = @_;
 
-    say("DEBUG: phase_switch($phase_switch), active($active), phase($phase)")
+    say("DEBUG: $who_am_i phase_switch($phase_switch), active($active), phase($phase)")
          if Auxiliary::script_debug("S6");
 
     # For experimenting:
@@ -1244,6 +1245,10 @@ sub get_job {
                 $rounds--;
             }
             if ($phase eq PHASE_SIMP_END) {
+                say("DEBUG: $who_am_i phase_switch($phase_switch), active($active), phase($phase)")
+                     if Auxiliary::script_debug("S6");
+                say("DEBUG: $who_am_i Setting give_up = 2 because phase($phase)")
+                     if Auxiliary::script_debug("S4");
                 $Batch::give_up = 2;
                 return undef;
             }
@@ -1251,10 +1256,10 @@ sub get_job {
     }
 
     while (not defined $order_id) {
-        say("DEBUG: Begin of loop for getting an order.") if Auxiliary::script_debug("S6");
+        say("DEBUG: $who_am_i Begin of loop for getting an order.") if Auxiliary::script_debug("S6");
         $order_id = Batch::get_order();
         if (defined $order_id) {
-            say("DEBUG: Batch::get_order delivered order_id $order_id.")
+            say("DEBUG: $who_am_i Batch::get_order delivered order_id $order_id.")
                 if Auxiliary::script_debug("S6");
             my $order_is_valid = 0;
                 if (PHASE_FIRST_REPLAY   eq $phase or
@@ -1363,26 +1368,6 @@ sub get_job {
                         $oids_to_add--;
                     }
 
-                if(0) {
-                    my $cut_steps = GenTest::Simplifier::Grammar_advanced::estimate_cut_steps();
-                    if ($cut_steps >   30) {
-                        my $extra_order = Batch::get_rand_try_all_id();
-                        unshift @oid_list, $extra_order if defined $extra_order;
-                    }
-                    if ($cut_steps >  100) {
-                        my $extra_order = Batch::get_rand_try_all_id();
-                        unshift @oid_list, $extra_order if defined $extra_order;
-                    }
-                    if ($cut_steps >  300) {
-                        my $extra_order = Batch::get_rand_try_all_id();
-                        unshift @oid_list, $extra_order if defined $extra_order;
-                    }
-                    if ($cut_steps > 1000) {
-                        my $extra_order = Batch::get_rand_try_all_id();
-                        unshift @oid_list, $extra_order if defined $extra_order;
-                    }
-                }
-
                     # Based on the order id's, their validity and their order within @oid_list
                     # a $redefine_string gets generated.
                     # And this string gets than appended to the child grammar to be tried.
@@ -1470,6 +1455,7 @@ sub get_job {
                     Batch::reactivate_till_filled;
                     say("DEBUG: \@try_queue refill : $refill_number")
                         if Auxiliary::script_debug("S3");
+                    next;
                 } else {
                     say("DEBUG: No \@try_queue refill. Limit of $refill_number already reached.")
                         if Auxiliary::script_debug("S3");
@@ -1478,10 +1464,11 @@ sub get_job {
             } else {
                 Batch::reactivate_till_filled;
                 say("DEBUG: \@try_queue refilled.") if Auxiliary::script_debug("S3");
+                next;
             }
             # FIXME: Is that right?
             # This implies Batch::get_out_of_ideas() > 0;
-            last;
+            # last;
         }
         say("DEBUG: End of loop for getting an order.") if Auxiliary::script_debug("S6");
     } # End of while (not defined $order_id)
@@ -1633,8 +1620,8 @@ sub generate_orders {
             # - a high density (at least 1, 2, 3) for low thread numbers
             # - a decreasing density for high thread numbers
             while ($thread_num < $threads) {
-                $thread_num_hash{$thread_num} = 1;
-                $thread_num = int($thread_num * 1.3);
+                $thread_num_hash{int($thread_num)} = 1;
+                $thread_num = $thread_num * 1.5;
             }
             my @thread_num_list = sort {$a <=> $b} keys %thread_num_hash;
             foreach $thread_num ( @thread_num_list ) {
@@ -2146,9 +2133,7 @@ sub register_result {
         Batch::emergency_exit($status);
     }
 
-    if ($left_over_trials > 0) {
-        return $return;
-    } else {
+    if ($left_over_trials <= 0) {
         $phase_switch = 1;
         Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW);
         if (PHASE_GRAMMAR_SIMP  eq $phase or
@@ -2171,8 +2156,10 @@ sub register_result {
             say("DEBUG: left_over_trials is no more > 0. Giving up with the current campaign.")
                 if Auxiliary::script_debug("S3");
         }
-        return Batch::REGISTER_SOME_STOPPED;
+        $return = Batch::REGISTER_SOME_STOPPED;
     }
+
+    return $return;
 
 } # End sub register_result
 
