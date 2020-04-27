@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, 2019 MariaDB Corporation Ab.
+#  Copyright (c) 2018, 2020 MariaDB Corporation Ab.
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -117,7 +117,6 @@ my @whitelist_statuses;
 my @whitelist_patterns;
 my $bw_lists_set = 0;
 
-# sub report_setup {
 
 sub get_verdict_config_file {
     my ($workdir, $config_file_copy) = @_;
@@ -202,7 +201,8 @@ sub get_verdict_config_file {
                         Auxiliary::exit_status_text($status));
                     safe_exit($status);
                 } else {
-                    say("DEBUG: Created the verdict config file '$verdict_config_file' by extracting data out of '$config_file_copy'.");
+                    say("DEBUG: Created the verdict config file '$verdict_config_file' by " .
+                        "extracting data out of '$config_file_copy'.");
                 }
             }
         }
@@ -213,8 +213,14 @@ sub get_verdict_config_file {
 
 
 sub load_verdict_config_file {
-# Input: Verdict config file (neither a Combinator cc nor a Simplifier cfg file!)
-# Return:
+# Input
+# -----
+# Verdict config file (neither a Combinator cc nor a Simplifier cfg file!).
+# Main characteristic is that the black/white status/pattern definitions
+# are plain perl code. Prominent example is 'verdict_for_combinations.cfg'.
+#
+# Return
+# ------
 # undef -- error around or in config file
 # printable description
     my ($verdict_config_file) = @_;
@@ -479,13 +485,6 @@ sub calculate_verdict {
         say("INFO: No RQG log content left over after cutting. Will return undef.");
         return undef, undef;
     }
-
-    #############################################
-#   my $status_prefix;
-#   my @blacklist_statuses;
-#   my @blacklist_patterns;
-#   my @whitelist_statuses;
-#   my @whitelist_patterns;
 
     my $p_match;
     my $p_info;
