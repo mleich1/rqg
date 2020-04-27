@@ -1382,7 +1382,7 @@ sub get_basedir_info {
     my $status = get_git_info($directory, $parameter_name);
     chdir($cwd);
 
-    my $build_prt = $directory . "build.prt";
+    my $build_prt = $directory . "/build.prt";
     if (-f $build_prt) {
         say("INFO: Protocol of build '$build_prt' detected. Extracting some data ...");
         my $val= Auxiliary::get_scrap_after_pattern($build_prt, 'GIT_SHOW: ');
