@@ -105,11 +105,6 @@ if ( osWindows() )
 
 # my $ctrl_c = 0;
 
-# FIXME: Discover Which impact has the value within $ctrl_c?
-# $SIG{INT}  = sub { $ctrl_c = 1 };
-# $SIG{TERM} = sub { $ctrl_c = 1 };
-# $SIG{CHLD} = "IGNORE" if osWindows();
-
 my ($config_file, $log_file, $dryrun, $workdir, $help, $help_verdict, $script_debug_value );
 
 # Take the options assigned in command line and
@@ -225,13 +220,7 @@ sub help() {
    "      - Simplifier configuration file (extension .cfg)\n"                                      .
    "      - Verdict configuration file (extension .cfg)\n"                                         .
    "--log_file=<verdict_value>\n"                                                                  .
-   "      Run the complete mechanics except that the RQG worker processes forked\n"                .
-   "--dryrun=<verdict_value>\n"                                                                    .
-   "      Run the complete mechanics except that the RQG worker processes forked\n"                .
-   "      - print the RQG call which they would run\n"                                             .
-   "      - do not start a RQG run at all but fake a few effects checked by the parent process\n"  .
-   "      Debug functionality of other RQG parts like the RQG runner will be not touched!\n"       .
-   "      (Default) No additional information.\n"                                                  .
+   "      RQG log file to be checked\n"                                                            .
    "--script_debug=...       FIXME: Only rudimentary and different implemented\n"                  .
    "      Print additional detailed information about decisions made by the tool components\n"     .
    "      assigned and observations made during runtime.\n"                                        .
