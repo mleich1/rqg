@@ -535,6 +535,16 @@ TODO (incomplete list):
           CREATE TABLE t1 (col1 INT);
           A result file does not exist.
           We get a pass no matter how many repeats I run.
+   3. Try competing
+      -filters
+       - failing statements removed
+       - SHOW
+       - SELECT
+       - ???
+      - test setups which make the run faster
+        - no warnings
+        - fast shutdown
+        - ......
 --dryrun=... works quite incomplete because best_grammar.yy is not fully maintained.
 
 
@@ -599,6 +609,9 @@ Hints
     leads to the generation of queries like
     a)  SELECT col1 FROM t3 ; <-- correct syntax
     b)  t4 ;                  <-- wrong syntax
+3. Take care that the content of literals is not equal to a rule name.
+   Negative example:
+    rule1: { $var = 'rule1' ; return undef };
 
 How to use "rr" (https://github.com/mozilla/rr) in combination with RQG
 -----------------------------------------------------------------------

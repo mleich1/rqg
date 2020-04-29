@@ -123,7 +123,7 @@ $combinations = [ $grammars,
     --mysqld=--loose-max-statement-time=30
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
-    --restart_timeout=60
+    --restart_timeout=120
     '
   ],
   [

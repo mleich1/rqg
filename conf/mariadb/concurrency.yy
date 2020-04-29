@@ -1,5 +1,5 @@
 # Copyright (c) 2011,2012 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2015, 2018 MariaDB Corporation Ab.
+# Copyright (c) 2015, 2020 MariaDB Corporation Ab.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -857,10 +857,10 @@ kill_query_or_session:
 #     before the KILL affecting the own session is issued.
 #
    COMMIT ; correct_rqg_sessions_table           ; COMMIT                            | # (1)
-              own_id_part AND kill_age_cond               ; KILL CONNECTION @kill_id | # (2)
-              own_id_part                                 ; KILL QUERY      @kill_id | # (2)
-   COMMIT ; other_id_part AND kill_age_cond      ; COMMIT ; KILL CONNECTION @kill_id | # (1)
-   COMMIT ; other_id_part                        ; COMMIT ; KILL QUERY      @kill_id ; # (1)
+              own_id_part AND kill_age_cond               ; KILL SOFT CONNECTION @kill_id | # (2)
+              own_id_part                                 ; KILL SOFT QUERY      @kill_id | # (2)
+   COMMIT ; other_id_part AND kill_age_cond      ; COMMIT ; KILL SOFT CONNECTION @kill_id | # (1)
+   COMMIT ; other_id_part                        ; COMMIT ; KILL SOFT QUERY      @kill_id ; # (1)
 
 own_id_part:
    SELECT     processlist_id  INTO @kill_id FROM test . rqg_sessions WHERE rqg_id  = _thread_id ;

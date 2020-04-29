@@ -33,11 +33,11 @@
 # not yet fixed bugs.
 #
 
+our $test_compression_encryption =
+  '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz ' .
+  '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
 
-our $grammars;
-# require 'conf/mariadb/combo.grammars';
-
-$grammars =
+our $grammars =
 [
 
   # modules/acl.yy unclear error
@@ -127,6 +127,10 @@ $grammars =
   # '--grammar=conf/optimizer/updateable_views.yy --mysqld=--init-file='.$ENV{RQG_HOME}.'/conf/optimizer/updateable_views.init',
   # '--grammar=conf/mariadb/functions.yy --gendata-advanced --skip-gendata',
 
+  "$test_compression_encryption                                                                                               ",
+  "$test_compression_encryption                                                                --reporters=RestartConsistency ",
+  "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables                                ",
+  "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables --reporters=RestartConsistency ",
 ];
 
 
@@ -143,10 +147,11 @@ $grammars =
 #   Various ASAN failures when testing 10.2/10.3
 #   --mysqld=--innodb_stats_persistent=off
 #
-#   Made trouble somewhere 2017 July/August
-#   --mysqld=--innodb_adaptive_hash_index=ON    (server default)
+#   The server default "on" made trouble somewhere 2018 July/August
+#   --mysqld=--innodb_adaptive_hash_index=off
 #
-# Avoid to hit known OS config limits. skylake01 has a big value but even that is too small!
+# Avoid to hit known OS config limits in case the OS resource is too small (usually valid)
+# and the MariaDB version is too old (< 10.0?). Newer versions can handle a shortage.
 # --mysqld=--innodb_use_native_aio=0
 #
 # Avoid to generate frequent false alarms because of too short timeouts and too overloaded boxes.
@@ -156,9 +161,8 @@ $grammars =
 # Excessive sql tracing via RQG makes the RQG logs rather fat and is frequent of low value.
 #     --sqltrace=MarkErrors
 #
-#
 
-#   --reporters=Backtrace,ErrorLog,RestartConsistency,None
+# Sometimes useful settings
 #   --mysqld=--innodb_stats_persistent=off
 #   --mysqld=--innodb_adaptive_hash_index=OFF
 #   --mysqld=--innodb_use_native_aio=0
@@ -169,7 +173,7 @@ $grammars =
 # or
 #   --reporters=<one reporter> ... --reporters=<one reporter> ...
 # And it could be that already in the $grammars section some reporter was assigned.
-#   --mysqld=--innodb_adaptive_hash_index=OFF
+#
 $combinations = [ $grammars,
   [
     '
@@ -200,7 +204,7 @@ $combinations = [ $grammars,
     --mysqld=--loose-max-statement-time=30
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
-    --mysqld=--innodb-buffer-pool-size=256M
+    --restart_timeout=120
     '
   ],
   [
@@ -210,11 +214,22 @@ $combinations = [ $grammars,
     ' --threads=33 ',
   ],
   [
-    ' --mysqld=--innodb_page_size=4K ',
-    ' --mysqld=--innodb_page_size=8K ',
-    ' --mysqld=--innodb_page_size=16K ',
-    ' --mysqld=--innodb_page_size=32K ',
-    ' --mysqld=--innodb_page_size=64K ',
+    # 1. innodb_page_size >= 32K requires a innodb-buffer-pool-size >=24M
+    #    otherwise the start of the server will fail.
+    # 2. An innodb-buffer-pool-size=5M should work well with innodb_page_size < 32K
+    # 3. A huge innodb-buffer-pool-size will not give an advantage if the tables are small.
+    # 4. Small innodb-buffer-pool-size and small innodb_page_size stress Purge more.
+    ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=5M   ',
+    ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=8M   ',
+    ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=256M ',
+    ' --mysqld=--innodb_page_size=8K  --mysqld=--innodb-buffer-pool-size=8M   ',
+    ' --mysqld=--innodb_page_size=8K  --mysqld=--innodb-buffer-pool-size=256M ',
+    ' --mysqld=--innodb_page_size=16K --mysqld=--innodb-buffer-pool-size=8M   ',
+    ' --mysqld=--innodb_page_size=16K --mysqld=--innodb-buffer-pool-size=256M ',
+    ' --mysqld=--innodb_page_size=32K --mysqld=--innodb-buffer-pool-size=24M  ',
+    ' --mysqld=--innodb_page_size=32K --mysqld=--innodb-buffer-pool-size=256M ',
+    ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=24M  ',
+    ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=256M ',
   ],
 ];
 

@@ -172,8 +172,8 @@ sub monitor {
     if ($actual_test_duration > ACTUAL_TEST_DURATION_EXCEED + $reporter->testDuration()) {
         say("ERROR: $who_am_i Actual test duration($actual_test_duration" . "s) is more than "     .
             "ACTUAL_TEST_DURATION_EXCEED(" . ACTUAL_TEST_DURATION_EXCEED  . "s) + the desired "    .
-            "duration (" . $reporter->testDuration() . "s). Will kill the server so that we get "  .
-            "a core and exit with STATUS_SERVER_DEADLOCKED.");
+            "duration (" . $reporter->testDuration() . "s). Will kill the server later so that "   .
+            "we get a core and exit with STATUS_SERVER_DEADLOCKED.");
         my $status;
         if (osWindows()) {
             $status = $reporter->monitor_threaded();

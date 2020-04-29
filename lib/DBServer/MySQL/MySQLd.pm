@@ -1167,7 +1167,7 @@ sub collectAutoincrements {
     my $autoinc_tables= $self->dbh->selectall_arrayref(
       "SELECT CONCAT(ist.TABLE_SCHEMA,'.',ist.TABLE_NAME), ist.AUTO_INCREMENT, isc.COLUMN_NAME, '' ".
       "FROM INFORMATION_SCHEMA.TABLES ist JOIN INFORMATION_SCHEMA.COLUMNS isc ON (ist.TABLE_SCHEMA = isc.TABLE_SCHEMA AND ist.TABLE_NAME = isc.TABLE_NAME) ".
-      "WHERE ist.TABLE_SCHEMA NOT IN ('mysql','information_schema','performance_schema','sys') ".
+      "WHERE ist.TABLE_SCHEMA NOT IN ('rqg','mysql','information_schema','performance_schema','sys') ".
       "AND ist.AUTO_INCREMENT IS NOT NULL ".
       "AND isc.EXTRA LIKE '%auto_increment%' ".
       "ORDER BY ist.TABLE_SCHEMA, ist.TABLE_NAME, isc.COLUMN_NAME"
@@ -1342,7 +1342,7 @@ sub checkDatabaseIntegrity {
 
   my $databases = $dbh->selectcol_arrayref("SHOW DATABASES");
   foreach my $database (@$databases) {
-      next if $database =~ m{^(mysql|information_schema|pbxt|performance_schema)$}sio;
+      next if $database =~ m{^(rqg|mysql|information_schema|pbxt|performance_schema)$}sio;
       $dbh->do("USE $database");
       my $tabl_ref = $dbh->selectcol_arrayref("SHOW FULL TABLES", { Columns=>[1,2] });
       # 1178 is ER_CHECK_NOT_IMPLEMENTED

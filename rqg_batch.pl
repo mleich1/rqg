@@ -1352,7 +1352,7 @@ my $message = "\n\n"                                                            
              " -- Otherwise interesting effect (no Whitelist match, no Blacklist match)\n"         .
 "STATISTICS: " . Auxiliary::lfill($Batch::verdict_ignore, 8)    . " -- "                           .
                  Auxiliary::rfill("'" . Verdict::RQG_VERDICT_IGNORE   . "_*'",$pl)                 .
-             " -- Effect is not of interest(Blacklist match or STATUS_OK or stopped)\n"            .
+             " -- Effect is not of interest (Blacklist match or STATUS_OK or stopped)\n"           .
 "STATISTICS: " . Auxiliary::lfill($Batch::stopped, 8)   . " -- "                                   .
                  Auxiliary::rfill("'" . Verdict::RQG_VERDICT_IGNORE_STOPPED . "'",$pl)             .
              " -- RQG run stopped by rqg_batch.pl because of whatever reasons\n"                   .
