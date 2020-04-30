@@ -1,5 +1,6 @@
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
+# Copyright (c) 2020, MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -50,6 +51,8 @@ use constant REPLMYSQLD_SLAVE_BASEDIR => 15;
 use constant REPLMYSQLD_CONFIG_CONTENTS => 16;
 use constant REPLMYSQLD_USER => 17;
 use constant REPLMYSQLD_NOSYNC => 18;
+use constant REPLMYSQLD_RR => 19;
+use constant REPLMYSQLD_RR_OPTIONS => 20;
 
 sub new {
     my $class = shift;
@@ -71,6 +74,8 @@ sub new {
                                    'valgrind_options' => REPLMYSQLD_VALGRIND_OPTIONS,
                                    'use_gtid' => REPLMYSQLD_USE_GTID,
                                    'config' => REPLMYSQLD_CONFIG_CONTENTS,
+                                   'rr'     => REPLMYSQLD_RR,
+                                   'rr_options'     => REPLMYSQLD_RR_OPTIONS,
                                    'user' => REPLMYSQLD_USER},@_);
 
     if (defined $self->[REPLMYSQLD_USE_GTID] 
@@ -147,6 +152,8 @@ sub new {
                                      start_dirty => $self->[REPLMYSQLD_START_DIRTY],
                                      valgrind => $self->[REPLMYSQLD_VALGRIND],
                                      valgrind_options => $self->[REPLMYSQLD_VALGRIND_OPTIONS],
+                                     rr     => $self->[REPLMYSQLD_RR],
+                                     rr_options     => $self->[REPLMYSQLD_RR_OPTIONS],
                                      config => $self->[REPLMYSQLD_CONFIG_CONTENTS],
                                      user => $self->[REPLMYSQLD_USER]);
         
@@ -175,6 +182,8 @@ sub new {
                                      start_dirty => $self->[REPLMYSQLD_START_DIRTY],
                                      valgrind => $self->[REPLMYSQLD_VALGRIND],
                                      valgrind_options => $self->[REPLMYSQLD_VALGRIND_OPTIONS],
+                                     rr     => $self->[REPLMYSQLD_RR],
+                                     rr_options     => $self->[REPLMYSQLD_RR_OPTIONS],
                                      config => $self->[REPLMYSQLD_CONFIG_CONTENTS],
                                      user => $self->[REPLMYSQLD_USER]);
         
