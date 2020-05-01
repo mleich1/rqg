@@ -300,4 +300,21 @@ sub stopServer {
     return $total_ret;
 }
 
+sub killServer {
+    my ($self) = @_;
+
+    my $total_ret = DBSTATUS_OK;
+    my $ret_slave  = $self->slave->killServer;
+    if ($ret_slave != DBSTATUS_OK) {
+        say("WARN: Killing the slave made trouble.");
+        $total_ret = $ret_slave;
+    }
+    my $ret_master = $self->master->killServer;
+    if ($ret_master != DBSTATUS_OK) {
+        say("WARN: Killing the master made trouble.");
+        $total_ret = $ret_slave;
+    }
+    return $total_ret;
+}
+
 1;
