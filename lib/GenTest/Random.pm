@@ -1,4 +1,5 @@
 # Copyright (c) 2008,2010 Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -225,7 +226,17 @@ my %name2range = (
         'integer_unsigned'      => [0, 4294967295],
         'integer_positive'      => [1, 4294967295],
         'bigint_unsigned'       => [0, 18446744073709551615],
-        'bigint_positive'       => [1, 18446744073709551615]
+        'bigint_positive'       => [1, 18446744073709551615],
+        # decimal and numeric
+        # - State till 2020-04
+        #   There was no entry for these data types here.
+        #   Hence the border values used in the sub int ($_[0] and $_[1]) were undef
+        #   (perl warns) and the value finally used is 0.
+        # - Without knowing the total and fractional number of digits we have no
+        #   good chances to guess valid values.
+        # Therefore we set simply [ 0, 0] and get rid of the warnings.
+        'decimal'               => [0, 0],
+        'numeric'               => [0, 0],
 );
 
 my $prng_class;
