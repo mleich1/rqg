@@ -1244,9 +1244,9 @@ field_list:
    #     This variable is to be used in statements which create primary keys or indexes.
    # - does not return anything.
    # The amount of elements within the lists is random.
-   # The preceding "{ undef <variable name> }" ensures that we get rid of the data from any
+   # The preceding "{ <variable name> = '' }" ensures that we get rid of the data from any
    # previous call of the rule "field_list".
-   { undef $field_list ; undef $ifield_list ; return undef } field_list_build ;
+   { $field_list = ''; $ifield_list = ''; return undef } field_list_build ;
 
 field_list_build:
    field ifield_len ifield_dir {$fl_o = $field_list; $field_list = $fl_o.' '.$field    ; $ifl_o = $ifield_list; $ifield_list = $ifl_o.' '.$field.$ifield_len.$ifield_dir    ; return undef}                  |
@@ -1274,7 +1274,7 @@ ifield_len:
    # Using a prefix length for blob columns only should be sufficient for covering
    # such kind of primary keys and indexes.
    # 1000 Byte (+ there might be more columns in the structure) might be too long
-   # for the capabilities of soem storage engine --> 1071 ER_TOO_LONG_KEY
+   # for the capabilities of some storage engine --> 1071 ER_TOO_LONG_KEY
    { if ( $field =~ m{blob} ) { $ifield_len = '(' . $prng->int(1,1000) . ')' } else { $ifield_len = '' }; return undef };
 
 alter_algorithm:

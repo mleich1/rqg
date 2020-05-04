@@ -152,6 +152,7 @@ $Carp::MaxArgLen=  200;
 $Carp::MaxArgNums= 8;
 
 use constant RQG_RUNNER_VERSION  => 'Version 3.1.3 (2020-03)';
+use constant STATUS_FAILURE      => 2;
 use constant STATUS_CONFIG_ERROR => 199;
 
 use strict;
@@ -2063,11 +2064,13 @@ sub killServers {
     } elsif (defined $upgrade_test) {
         $ret = $server[1]->killServer;
     } else {
+        $ret = STATUS_OK;
         foreach my $srv (@server) {
             if ($srv) {
                 my $single_ret = $srv->killServer;
                 if (not defined $single_ret) {
                     say("ALARM: \$single_ret is not defined.");
+                    $ret = STATUS_FAILURE;
                 } else {
                     $ret = $single_ret if $single_ret != STATUS_OK;
                 }

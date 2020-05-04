@@ -264,6 +264,7 @@ sub next {
 					(substr($item,  0, 1) eq '{') &&
 					(substr($item, -1, 1) eq '}')
 				) {
+                    # The no strict is because grammars could fiddle with undef perl variables.
 					$item = eval("no strict;\n".$item);		# Code
 
 					if ($@ ne '') {
@@ -285,6 +286,8 @@ sub next {
 					$item = eval("no strict;\n".$item.";\n");	# Variable
 				} else {
 					my $field_type = (substr($item, 0, 1) eq '_' ? $prng->isFieldType(substr($item, 1)) : undef);
+
+                    # say("DEBUG: Item is ->" . $item . "<-");
 
 					if ($item eq '_letter') {
 						$item = $prng->letter();
