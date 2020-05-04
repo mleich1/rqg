@@ -95,7 +95,7 @@ use POSIX;
 #
 
 use constant CONNECT_TIMEOUT => 30;
-use constant BACKUP_TIMEOUT  => 60;
+use constant BACKUP_TIMEOUT  => 180;
 
 my $first_reporter;
 my $client_basedir;

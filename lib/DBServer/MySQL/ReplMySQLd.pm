@@ -122,7 +122,7 @@ sub new {
         }
         if (not defined $self->[REPLMYSQLD_SLAVE_VARDIR]) {
             my $varbase = $self->[REPLMYSQLD_MASTER_VARDIR];
-            $varbase =~ s/(.*)\/$/\1/;
+            $varbase =~ s/(.*)\/$/$1/;
             $self->[REPLMYSQLD_SLAVE_VARDIR] = $varbase.'_slave';
         }
 
