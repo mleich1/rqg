@@ -344,7 +344,8 @@ sub run {
         #   $field_copy[FIELD_INDEX] = 'nokey' if $field_copy[FIELD_INDEX] eq '';
         
         # Remove fields where default null and not null appear together, as its not valid.
-        if ( (($field_copy[FIELD_NULLABILITY] =~ m{not null}sio) || (defined $self->[GD_NOTNULL])) && ($field_copy[FIELD_DEFAULT]=~ m{default null}sio) )
+        if ( ((defined $field_copy[FIELD_NULLABILITY] && $field_copy[FIELD_NULLABILITY] =~ m{not null}sio) || (defined $self->[GD_NOTNULL]))
+             && (defined $field_copy[FIELD_DEFAULT] and $field_copy[FIELD_DEFAULT]=~ m{default null}sio) )
         {
             # Remove the fields array structure and skip.
 	    # We dont want to keep this, becasue it causes duplicate coulmns to be created.
@@ -358,7 +359,7 @@ sub run {
         } elsif ($self->short_column_names) {
             $field_name = 'c'.($field_no++);
         } else {
-            $field_name = "col_".join('_', grep { $_ ne '' } @field_copy);
+            $field_name = "col_".join('_', grep { defined $_ and $_ ne '' } @field_copy);
             $field_name =~ s{[^A-Za-z0-9]}{_}sgio;
             $field_name =~ s{ }{_}sgio;
             $field_name =~ s{_+}{_}sgio;
@@ -381,28 +382,30 @@ sub run {
             $field_copy[FIELD_TYPE] .= ' (1)';
         }
         
-        $field_copy[FIELD_CHARSET] = "/*+mysql: CHARACTER SET ".$field_copy[FIELD_CHARSET]."*/" if $field_copy[FIELD_CHARSET] ne '';
-        $field_copy[FIELD_COLLATION] = "/*mysql: COLLATE ".$field_copy[FIELD_COLLATION]."*/" if $field_copy[FIELD_COLLATION] ne '';
+        $field_copy[FIELD_CHARSET] = "/*+mysql: CHARACTER SET ".$field_copy[FIELD_CHARSET]."*/" if defined $field_copy[FIELD_CHARSET] and $field_copy[FIELD_CHARSET] ne '';
+        $field_copy[FIELD_COLLATION] = "/*mysql: COLLATE ".$field_copy[FIELD_COLLATION]."*/" if defined $field_copy[FIELD_COLLATION] and $field_copy[FIELD_COLLATION] ne '';
         
         my $key_len;
         
         if (
-            ($field_copy[FIELD_TYPE] =~ m{blob|text|binary}sio ) &&  
+            (defined $field_copy[FIELD_TYPE] and $field_copy[FIELD_TYPE] =~ m{blob|text|binary}sio ) &&
             ($field_copy[FIELD_TYPE] !~ m{\(}sio )
             ) {
             $key_len = " (255)";
+        } else {
+            $key_len = "";
         }
         
         if (
-            ($field_copy[FIELD_INDEX] ne 'nokey') &&
-            ($field_copy[FIELD_INDEX] ne '')
+            (defined $field_copy[FIELD_INDEX] and $field_copy[FIELD_INDEX] ne 'nokey') &&
+            (defined $field_copy[FIELD_INDEX] and $field_copy[FIELD_INDEX] ne '')
             ) {
             $field->[FIELD_INDEX_SQL] = $field_copy[FIELD_INDEX]." (`$field_name` $key_len)";
         }
         
         delete $field_copy[FIELD_INDEX]; # do not include FIELD_INDEX in the field description
         
-        $fields[$field_id]->[FIELD_SQL] = "`$field_name` ". join(' ' , grep { $_ ne '' } @field_copy);
+        $fields[$field_id]->[FIELD_SQL] = "`$field_name` ". join(' ' , grep { defined $_ and $_ ne '' } @field_copy);
         
         if (!$self->strict_fields && $field_copy[FIELD_TYPE] =~ m{timestamp}sio ) {
             if (defined $self->[GD_NOTNULL]) {
@@ -430,7 +433,7 @@ sub run {
             $table->[TABLE_NAME] = shift @{$table_perms[TABLE_NAMES]};
         } else {
             my $table_name;
-            $table_name = "table".join('_', grep { $_ ne '' } @table_copy);
+            $table_name = "table".join('_', grep { defined $_ and $_ ne '' } @table_copy);
             $table_name =~ s{[^A-Za-z0-9]}{_}sgio;
             $table_name =~ s{ }{_}sgio;
             $table_name =~ s{_+}{_}sgio;
@@ -469,7 +472,7 @@ sub run {
         delete $table_copy[TABLE_ROW];	# Do not include number of rows in the CREATE TABLE
         delete $table_copy[TABLE_PK];	# Do not include PK definition at the end of CREATE TABLE
         
-        $table->[TABLE_SQL] = join(' ' , grep { $_ ne '' } @table_copy);
+        $table->[TABLE_SQL] = join(' ' , grep { defined $_ and $_ ne '' } @table_copy);
     }	
 
     foreach my $schema (@schema_perms) {
@@ -516,7 +519,7 @@ sub run {
         
         # Compose the CREATE TABLE statement by joining all fields and indexes and appending the table options
         # Skip undefined fields. 
-        my @field_sqls = join(",\n", map { $_->[FIELD_SQL] } grep { $_->[FIELD_SQL] ne '' } @fields_copy);
+        my @field_sqls = join(",\n", map { $_->[FIELD_SQL] } grep { defined $_->[FIELD_SQL] and $_->[FIELD_SQL] ne '' } @fields_copy);
  
         my @index_fields;
         if ($executor->type() == DB_MYSQL || $executor->type() == DB_DRIZZLE) {
@@ -537,7 +540,7 @@ sub run {
         $executor->execute("CREATE TABLE `$table->[TABLE_NAME]` (\n".join(",\n/*Indices*/\n", grep { defined $_ } (@field_sqls, $index_sqls) ).") ".$table->[TABLE_SQL]);
         
         if (not ($executor->type() == DB_MYSQL or $executor->type() == DB_DRIZZLE)) {
-            @index_fields = grep { $_->[FIELD_INDEX_SQL] ne '' } @fields_copy;
+            @index_fields = grep { defined $_->[FIELD_INDEX_SQL] and $_->[FIELD_INDEX_SQL] ne '' } @fields_copy;
             foreach my $idx (@index_fields) {
                 my $key_sql = $idx->[FIELD_INDEX_SQL];
                 if ($key_sql =~ m/^key \((`[a-z0-9_]*)/) {
@@ -626,7 +629,7 @@ sub run {
                     
                     if ((defined $field->[FIELD_NULLABILITY] and $field->[FIELD_NULLABILITY] eq 'not null') || ($self->[GD_NOTNULL])) {
                         # Remove NULL from the list of allowed values
-                        @possible_values = grep { lc($_) ne 'null' } @{$data_perms[$value_type]};
+                        @possible_values = grep { defined $_ and lc($_) ne 'null' } @{$data_perms[$value_type]};
                     } else {
                         @possible_values = @{$data_perms[$value_type]};
                     }
@@ -648,10 +651,10 @@ sub run {
                 }
                 
                 ## Quote if necessary
-                if ($value =~ m{load_file}sio) {
+                if (defined $value and $value =~ m{load_file}sio) {
                     push @data, defined $value ? $value : "NULL";
                 } elsif ($quote) {
-                    $value =~ s{'}{\\'}sgio;
+                    $value =~ s{'}{\\'}sgio if defined $value;
                     push @data, defined $value ? "'$value'" : "NULL";
                 } else {
                     push @data, defined $value ? $value : "NULL";
