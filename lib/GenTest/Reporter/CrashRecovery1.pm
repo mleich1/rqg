@@ -124,6 +124,12 @@ sub report {
     # InnoDB page sizes >= 32K need in minimum a buffer-pool-size >=24M.
     # So we go with that.
     $server->addServerOptions(['--innodb-buffer-pool-size=24M']);
+    # 2020-05-05 False alarm
+    # One of the walking queries failed because max_statement_time=30 was exceeded.
+    # The test setup might go with a short max_statement_time which might
+    # cause that queries checking huge tables get aborted. And the code which follows
+    # is not prepared for that.
+    $server->addServerOptions(['--max_statement_time=120']);
 
     $server->setStartDirty(1);
     my $recovery_status = $server->startServer();
