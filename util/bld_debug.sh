@@ -44,12 +44,6 @@ then
     echo "The source directory '$SOURCE_DIR' does not exist or is not a directory."
     exit 16
 fi
-GENERAL_BIN_DIR="/home/mleich/Server_bin/"
-if [ ! -d "$GENERAL_BIN_DIR" ]
-then
-    echo "The general DB bin directory '$GENERAL_BIN_DIR' does not exist or is not a directory."
-    exit 16
-fi
 
 INSTALL_PREFIX="$GENERAL_BIN_DIR""/""$RELEASE""_debug"
 
