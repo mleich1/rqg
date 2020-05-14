@@ -192,6 +192,7 @@ rm -f var
 
 echo "# Archiving of the installed release"                             | tee -a "$BLD_PROT"
 echo "#=============================================================="  | tee -a "$BLD_PROT"
+cd "$INSTALL_PREFIX"
 echo "INSTALL_PREFIX=$INSTALL_PREFIX"                                   | tee -a "$BLD_PROT"
 TARGET="$RQG_ARCH_DIR""/bin_arch.tgz"
 TARGET_PRT="$RQG_ARCH_DIR""/bin_arch.prt"
