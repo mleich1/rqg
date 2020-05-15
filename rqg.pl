@@ -456,7 +456,7 @@ if (defined $rr_options) {
 }
 my $env_var = $ENV{RUNNING_UNDER_RR};
 if (defined $env_var) {
-    say("INFO: The environment variable RUNNING_UNDER_RR is set. " . 
+    say("INFO: The environment variable RUNNING_UNDER_RR is set. " .
         "This means we run under the control of 'rr'.");
     if (defined $rr) {
         say("ERROR: 'rqg.pl' should invoke 'rr' even though already running under control " .
@@ -1052,7 +1052,7 @@ if (defined $rr) {
 
 ## Make sure that "default" values ([0]) are also set, for compatibility,
 ## in case they are used somewhere
-#$basedirs[0] ||= $basedirs[1];
+$basedirs[0] ||= $basedirs[1];
 #$vardirs[0]  ||= $vardirs[1];
 #Auxiliary::print_list("INFO: Now 1 RQG vardirs ",  @vardirs);
 #Auxiliary::print_list("INFO: Now 1 RQG basedirs ",  @basedirs);
@@ -1071,7 +1071,7 @@ push @{$mysqld_options[0]}, "--sql-mode=no_engine_substitution"
 
 # FIXME: Clean up/make more safe
 foreach my $i (1..3) {
-            @{$mysqld_options[$i]} = ( defined $mysqld_options[$i]
+    @{$mysqld_options[$i]} = ( defined $mysqld_options[$i]
             ? ( @{$mysqld_options[0]}, @{$mysqld_options[$i]} )
             : @{$mysqld_options[0]}
     );
@@ -1331,6 +1331,9 @@ if ($#validators == 0 and $validators[0] =~ m/,/) {
 }
 if ($#reporters == 0 and $reporters[0] =~ m/,/) {
     @reporters = split(/,/,$reporters[0]);
+}
+if ($#transformers == 0 and $transformers[0] =~ m/,/) {
+    @transformers = split(/,/,$transformers[0]);
 }
 my $upgrade_rep_found = 0;
 foreach my $rep (@reporters) {
@@ -1905,7 +1908,6 @@ if (($final_result == STATUS_OK)                         and
         # There is nothing to do for RQG builtin statement based replication.
     }
 
-
     # The facts that
     # - the servers are running (detection of trouble in gentest)
     # - reporters and validators did not detect trouble during gentest runtime
@@ -1916,6 +1918,8 @@ if (($final_result == STATUS_OK)                         and
     my $diff_result = DBSTATUS_OK;
     if ($status == DBSTATUS_OK) {
         my @dump_files;
+        # For testing:
+        # system("killall -9 mysqld; killall -9 mariadbd; sleep 3");
         foreach my $i (0..$#server) {
             # FIXME: Why the appended pid '$$'?
             # Any server needs his own exlusive dumpfile. This is ensured by the '$i'.
@@ -2189,10 +2193,19 @@ EOF
 sub exit_test {
     my $status = shift;
 
-    # Note: stopServers reports any trouble met during shutdown.
-    stopServers($status);
-
     say(Verdict::MATCHING_END);
+
+    # Variants
+    # 1.  Around end of test
+    # 1a  status was < STATUS_CRITICAL_FAILURE and stopServers was tried
+    #     The escalation is: admin shutdown -> term -> crashServer -> killServer
+    # 1b  status was > STATUS_CRITICAL_FAILURE and killServer was tried
+    # Hence it is unlikely that some server is running.
+    # 2.  Somewhere around begin of test
+    #     Some fatal error was hit and it is not unlikely that some server is running.
+    # Hence some harsh killServers instead of stopServers is acceptable.
+    killServers($status);
+
     my $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_ANALYZE);
 
     $message = "RQG total runtime in s : " . (time() - $rqg_start_time);
