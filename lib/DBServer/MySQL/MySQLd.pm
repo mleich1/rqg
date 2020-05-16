@@ -524,7 +524,7 @@ sub _reportError {
 sub startServer {
     my ($self) = @_;
 
-    my $who_am_i = "DBServer::MySQL::MySQLd::killServer:";
+    my $who_am_i = "DBServer::MySQL::MySQLd::startServer:";
 
     my @defaults = ($self->[MYSQLD_CONFIG_FILE] ? ("--defaults-group-suffix=.runtime", "--defaults-file=$self->[MYSQLD_CONFIG_FILE]") : ("--no-defaults"));
 
@@ -820,6 +820,7 @@ sub startServer {
             sayFile($errorlog);
             if ($pid and not kill(0, $pid)) {
                sayError("Server disappeared after having started with pid $pid");
+               $self->[MYSQLD_SERVERPID] = undef;
             } elsif ($pid) {
                sayError("Timeout $startup_timeout has passed and the server still has not created the pid file, assuming it has hung, sending final SIGABRT to pid $pid...");
                kill 'ABRT', $pid;
@@ -887,27 +888,20 @@ sub killServer {
             if (not $self->running) {
                 say("INFO: $who_am_i The server with process [" . $self->serverpid .
                     "] is already no more running. Will return DBSTATUS_OK.");
-                unlink $self->socketfile if -e $self->socketfile;
-                unlink $self->pidfile    if -e $self->pidfile;
-                $self->[MYSQLD_WINDOWS_PROCESS] = undef;
-                $self->[MYSQLD_SERVERPID]       = undef;
-                # FIXME: What to return if the server is already no more running.
-
-                return DBSTATUS_OK;
-            }
-            kill KILL => $self->serverpid;
-            # There is no guarantee that the OS has already killed the process when
-            # kill KILL returns. This is especially valid for boxes with currently
-            # extreme CPU load.
-            if ($self->waitForServerToStop(30) != DBSTATUS_OK) {
-                say("ERROR: $who_am_i Unable to kill the server process " . $self->serverpid);
             } else {
-                say("INFO: $who_am_i Killed the server process " . $self->serverpid);
+                kill KILL => $self->serverpid;
+                # There is no guarantee that the OS has already killed the process when
+                # kill KILL returns. This is especially valid for boxes with currently
+                # extreme CPU load.
+                if ($self->waitForServerToStop(30) != DBSTATUS_OK) {
+                    say("ERROR: $who_am_i Unable to kill the server process " . $self->serverpid);
+                } else {
+                    say("INFO: $who_am_i Killed the server process " . $self->serverpid);
+                }
             }
         } else {
-            Carp:cluck("FATAL ERROR: Killing the server process impossible because " .
-                       "no server pid found.");
-            return DBSTATUS_FAILURE;
+            say("INFO: $who_am_i Killing the server process impossible because " .
+                "no server pid found.");
         }
     }
 
@@ -949,9 +943,8 @@ sub term {
 
             if ($self->waitForServerToStop(60) != DBSTATUS_OK) {
                 say("WARNING: Unable to terminate the server process " . $self->serverpid .
-                    " Trying kill");
-                # FIXME: Try killing with core first
-                $self->killServer;
+                    ". Trying kill with core.");
+                $self->crashServer;
                 $res= DBSTATUS_FAILURE;
                 $self->[MYSQLD_SERVERPID]       = undef;
              } else {
@@ -965,7 +958,7 @@ sub term {
         unlink $self->socketfile;
     }
     return $res;
-}
+} # End sub term
 
 sub crashServer {
     my ($self) = @_;
@@ -1265,6 +1258,7 @@ sub stopServer {
             # clean up when server is not alive.
             unlink $self->socketfile if -e $self->socketfile;
             unlink $self->pidfile    if -e $self->pidfile;
+            $self->[MYSQLD_SERVERPID] = undef;
             $res= DBSTATUS_OK;
             say("Server has been stopped");
         }
