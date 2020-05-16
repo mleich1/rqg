@@ -184,7 +184,6 @@ sub monitor {
 
         $reporter->kill_with_core;
         exit STATUS_SERVER_DEADLOCKED;
-        # return STATUS_SERVER_DEADLOCKED;
     }
 
     if (osWindows()) {
@@ -223,29 +222,36 @@ sub monitor_nonthreaded {
         exit STATUS_SERVER_DEADLOCKED;
     } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
 
-    my $con_get_start = Time::HiRes::time();
     $alarm_timeout = CONNECT_TIMEOUT_THRESHOLD + OVERLOAD_ADD;
     $exit_msg      = "Got no connect to server within " . $alarm_timeout . "s.";
     alarm ($alarm_timeout);
-    $dbh = DBI->connect($dsn, undef, undef,
-                        { mysql_connect_timeout => CONNECT_TIMEOUT_THRESHOLD,
-                          PrintError            => 0,
-                          RaiseError            => 0});
-    alarm (0);
-    my $con_get_time = Time::HiRes::time() - $con_get_start;
-    if (not defined $dbh) {
-        say("ERROR: $who_am_i The connect attempt to dsn $dsn failed: " . $DBI::errstr .
-            " after $con_get_time s.");
-        my $return = GenTest::Executor::MySQL::errorType($DBI::err);
-        if (not defined $return) {
-            say("ERROR: $who_am_i The type of the error got is unknown. " .
-                "Will exit with STATUS_INTERNAL_ERROR");
-            exit STATUS_INTERNAL_ERROR;
-            # return STATUS_UNKNOWN_ERROR;
+    my $round = 0;
+    while(1) {
+        $round++;
+        $dbh = DBI->connect($dsn, undef, undef,
+                            { mysql_connect_timeout => CONNECT_TIMEOUT_THRESHOLD,
+                              PrintError            => 0,
+                              RaiseError            => 0});
+        if (not defined $dbh) {
+            say("WARN: $who_am_i The connect attempt to dsn $dsn failed: " . $DBI::errstr);
+            my $return = GenTest::Executor::MySQL::errorType($DBI::err);
+            if (not defined $return) {
+                say("ERROR: $who_am_i The type of the error got is unknown. " .
+                    "Will exit with STATUS_INTERNAL_ERROR");
+                exit STATUS_INTERNAL_ERROR;
+            }
         } else {
-            say("ERROR: $who_am_i Will return status $return" . ".");
-            return $return;
+            last;
         }
+        last if $round >= 10;
+        sleep 3;
+    }
+    alarm (0);
+    if (not defined $dbh) {
+        say("ERROR: $who_am_i All $round connect attempts to dsn $dsn failed." .
+            "Will return STATUS_SERVER_CRASHED");
+        # FIXME: Why not STATUS_CRITICAL_ERROR ?
+        return STATUS_SERVER_CRASHED;
     }
 
     # We should have now a connection.
