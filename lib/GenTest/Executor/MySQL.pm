@@ -1622,6 +1622,8 @@ sub getSchemaMetaData {
    ## 6. generalized data type (INT, FLOAT, BLOB, etc.)
    ## 7. real data type
    ## or undef if hitting an error.
+   ## SCHEMAs without tables and also the maybe existing SCHEMA 'rqg' get ignored.
+   ## Hence "_database" will never return their name.
    my ($self) = @_;
 
    # Unset max_statement_time in case it was set in test configuration.
@@ -1664,7 +1666,8 @@ sub getSchemaMetaData {
              "information_schema.columns USING(table_schema,table_name) LEFT JOIN ".
              "information_schema.statistics USING(table_schema,table_name,column_name) ".
 
-        "WHERE table_name <> 'DUMMY'";
+        "WHERE table_schema <> 'rqg' AND table_name <> 'DUMMY'";
+   #    "WHERE table_name <> 'DUMMY'";
 
    # system("killall -9 mysqld");
    # sleep 3;
