@@ -211,11 +211,16 @@ sub mode {
 sub startServer {
     my ($self) = @_;
 
-    $self->master->startServer;
+    if ($self->master->startServer != DBSTATUS_OK) {
+        return DBSTATUS_FAILURE;
+    }
     my $master_dbh = $self->master->dbh;
-    $self->slave->startServer;
+    if ($self->slave->startServer != DBSTATUS_OK) {
+        return DBSTATUS_FAILURE;
+    }
     my $slave_dbh = $self->slave->dbh;
 
+    # FIXME: All the SQL which follows could fail!
 	my ($foo, $master_version) = $master_dbh->selectrow_array("SHOW VARIABLES LIKE 'version'");
 
 	if (($master_version !~ m{^5\.0}sio) && ($self->mode ne 'default')) {
@@ -280,22 +285,23 @@ sub waitForSlaveSync {
 sub stopServer {
     my ($self, $status) = @_;
 
+    my $total_ret = DBSTATUS_OK;
     if ($status == DBSTATUS_OK) {
-        $self->waitForSlaveSync();
+        if ($self->waitForSlaveSync() != DBSTATUS_OK) {
+            say("WARN: Syncing the slave made trouble.");
+            $total_ret = DBSTATUS_FAILURE;
+        }
     }
     if ($self->slave->dbh) {
         $self->slave->dbh->do("STOP SLAVE");
     }
-    my $total_ret;
-    my $ret_slave  = $self->slave->stopServer;
-    if ($ret_slave != DBSTATUS_OK) {
+    if ($self->slave->stopServer != DBSTATUS_OK) {
         say("WARN: Stopping the slave made trouble.");
-        $total_ret = $ret_slave;
+        $total_ret = DBSTATUS_FAILURE;
     }
-    my $ret_master = $self->master->stopServer;
-    if ($ret_master != DBSTATUS_OK) {
+    if ($self->master->stopServer != DBSTATUS_OK) {
         say("WARN: Stopping the master made trouble.");
-        $total_ret = $ret_slave;
+        $total_ret = DBSTATUS_FAILURE;
     }
     return $total_ret;
 }
@@ -304,15 +310,13 @@ sub killServer {
     my ($self) = @_;
 
     my $total_ret = DBSTATUS_OK;
-    my $ret_slave  = $self->slave->killServer;
-    if ($ret_slave != DBSTATUS_OK) {
+    if ($self->slave->killServer != DBSTATUS_OK) {
         say("WARN: Killing the slave made trouble.");
-        $total_ret = $ret_slave;
+        $total_ret = DBSTATUS_FAILURE;
     }
-    my $ret_master = $self->master->killServer;
-    if ($ret_master != DBSTATUS_OK) {
+    if ($self->master->killServer != DBSTATUS_OK) {
         say("WARN: Killing the master made trouble.");
-        $total_ret = $ret_slave;
+        $total_ret = DBSTATUS_FAILURE;
     }
     return $total_ret;
 }
