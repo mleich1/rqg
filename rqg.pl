@@ -1598,7 +1598,8 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         my $status = $server[$server_id]->startServer;
 
         if ($status > DBSTATUS_OK) {
-            stopServers($status);
+            # exit_test will run killServers
+            # stopServers($status);
             if (osWindows()) {
                 say(system("dir " . unix2winPath($server[$server_id]->datadir)));
             } else {
@@ -1623,7 +1624,9 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         if ((defined $dsns[$server_id]) and
             (defined $engine[$server_id] and $engine[$server_id] ne '')) {
             my $dbh = DBI->connect($dsns[$server_id], undef, undef,
-                                   { mysql_multi_statements => 1, RaiseError => 1 } );
+                                   { mysql_multi_statements => 1,
+                                     PrintError => 1,
+                                     RaiseError => 0 } );
             $dbh->do("SET GLOBAL default_storage_engine = '$engine[$server_id]'");
         }
     }
@@ -1921,34 +1924,57 @@ if (($final_result == STATUS_OK)                         and
         # For testing:
         # system("killall -9 mysqld; killall -9 mariadbd; sleep 3");
         foreach my $i (0..$#server) {
-            # FIXME: Why the appended pid '$$'?
             # Any server needs his own exlusive dumpfile. This is ensured by the '$i'.
             # As soon as the caller takes care that any running rqg.pl uses his own exclusive
             # $rqg_vardir and $rqg_wordir + dumpfiles in $rqg_vardir it must be clash free.
-            $dump_files[$i] = tmpdir() . "server_" . abs($$) . "_" . $i . ".dump";
-            # FIXME: 1. There could be more user defined schemas than 'test'.
-            #        2. What about other user defined objects like views , users, ....?
-            my $dump_result = $server[$i]->dumpdb($database,$dump_files[$i]);
-            if ( $dump_result > 0 ) {
-                $final_result = $dump_result >> 8;
-                last;
+            # The numbering of servers -> name of subdir for data etc. starts with 1!
+            $dump_files[$i] = tmpdir() . ($i + 1) . "/DB.dump";
+            my $result = $server[$i]->nonSystemDatabases;
+            if (not defined $result) {
+                say("ERROR: Trouble running SQL on Server " . ($i + 1) . ". Will exit with STATUS_ALARM");
+                exit_test(STATUS_ALARM);
+            }
+            if ("0" == $result) {
+                say("WARN: Variant1: Server " . ($i + 1) . " does not contain non system SCHEMAs. " .
+                    "Will create a dummy dump file.");
+                system("echo 'Dummy' > $dump_files[$i]");
+            } else {
+                my @schema_list = @{$result};
+                if (0 == scalar @schema_list) {
+                    say("WARN: Variant2: Server " . ($i + 1) . " does not contain non system SCHEMAs. " .
+                        "Will create a dummy dump file.");
+                    system("echo 'Dummy' > $dump_files[$i]");
+                } else {
+                    my $schema_listing = join (' ', @schema_list);
+                    say("DEBUG: schema_listing for mysqldump ->$schema_listing<-");
+                    if ($schema_listing eq '') {
+                        say("ERROR: Schemalisting for Server " . ($i + 1) . " is empty. " .
+                            "Will exit with STATUS_ALARM");
+                        exit_test(STATUS_ALARM);
+                    } else {
+                        my $dump_result = $server[$i]->dumpdb("--databases $schema_listing",$dump_files[$i]);
+                        if ( $dump_result > 0 ) {
+                            $final_result = $dump_result >> 8;
+                            last;
+                        }
+                    }
+                }
             }
         }
         if ($final_result == STATUS_OK) {
             say("INFO: Comparing SQL dumps...");
             foreach my $i (1..$#server) {
                 ### 0 vs. 1 , 0 vs. 2 ...
-                ### my $diff = system("diff -u $dump_files[$i - 1] $dump_files[$i]");
-                ### The IMHO better solution: 0 vs. 1 , 0 vs. 2 , 0 vs. 3
                 my $diff = system("diff -u $dump_files[0] $dump_files[$i]");
                 if ($diff == STATUS_OK) {
-                    say("No differences were found between server 0 and server $i.");
+                    say("INFO: No differences were found between first server and server " .
+                        ($i + 1) . ".");
                     # Make free space as soon ass possible.
-                    say("DEBUG: Deleting the dump file of server $i.");
+                    say("DEBUG: Deleting the dump file of server " . ($i + 1) . ".");
                     unlink($dump_files[$i]);
                 } else {
-                    sayError("Found differences between server 0 and server $i. Setting " .
-                             "final_result to STATUS_CONTENT_MISMATCH");
+                    sayError("ERROR: Found differences between first server and server " .
+                             ($i + 1) . ". Setting final_result to STATUS_CONTENT_MISMATCH");
                     $diff_result  = STATUS_CONTENT_MISMATCH;
                     $final_result = $diff_result;
                 }
@@ -1956,8 +1982,9 @@ if (($final_result == STATUS_OK)                         and
         }
         if ($final_result == STATUS_OK) {
             # In case we have no diffs than even the dump of the first server is no more needed.
-            unlink($dump_files[0]);
             say("INFO: No differences between the SQL dumps of the servers detected.");
+            say("DEBUG: Deleting the dump file of the first server.");
+            unlink($dump_files[0]);
         } else {
             # FIXME:
             # ok we have a diff. But maybe the dumps of the second and third server are equal
@@ -1975,13 +2002,11 @@ say("RESULT: The core of the RQG run ended with status " . status2text($final_re
 
 
 if ($final_result >= STATUS_CRITICAL_FAILURE) {
-    my $ret = killServers();
-    if (STATUS_OK != $ret) {
+    if (killServers() != STATUS_OK) {
         say("ERROR: Killing the server(s) failed somehow.");
     }
 } else {
-    my $ret = stopServers($final_result);
-    if (STATUS_OK != $ret) {
+    if (stopServers($final_result) != STATUS_OK) {
         say("ERROR: Stopping the server(s) failed somehow.");
         say("       Server already no more running or no reaction on admin shutdown or ...");
         if ($final_result > STATUS_CRITICAL_FAILURE) {
@@ -1998,7 +2023,6 @@ if ($final_result >= STATUS_CRITICAL_FAILURE) {
 # $final_result = STATUS_SERVER_CRASHED;
 $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
 say("RESULT: The RQG run ended with status " . status2text($final_result) . " ($final_result)");
-
 
 exit_test($final_result);
 
@@ -2048,7 +2072,6 @@ sub stopServers {
     if ($ret != STATUS_OK) {
         say("DEBUG: stopServers(rqg.pl) failed with : ret : $ret");
     }
-
 }
 
 sub killServers {
