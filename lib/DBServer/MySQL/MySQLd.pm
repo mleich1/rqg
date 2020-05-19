@@ -630,16 +630,13 @@ sub startServer {
                 return $status;
             }
 
-            # FIXME as soon as doable:
-            # Core files
+            # In case of using 'rr' core files
             # - do not offer more information than already provided by "rr"
-            # - get often written even if the server option "--core-file" was not assigned
+            # - gdb -c <core file> <mysqld binary>   gives often rotten output freom
+            #   whatever unknown reason
             # - consume ~ 1 GB storage space in vardir (usually located in tmpfs) temporary
-            # So we could try to prevent the writing of core files via ulimit.
-            # $command = "ulimit -c 0; rr record --mark-stdio $rr_options $command";
-            # But as long as I do not know of a way how to extract the backtrace in batch mode
-            # from rr stuff we need core files.
-              $command = "rr record --mark-stdio $rr_options $command";
+            # So we prevent the writing of core files via ulimit.
+              $command = "ulimit -c 0; rr record --mark-stdio $rr_options $command";
             # say("DEBUG: command with rr ->" . $command . "<-");
             # The rqg runner has to check in advance that 'rr' is installed on the current box.
             # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
@@ -648,10 +645,14 @@ sub startServer {
 
         if (exists $ENV{'RUNNING_UNDER_RR'} or defined $self->[MYSQLD_RR]) {
             # rr tracing is already active ('RQG') or will become active for the calls of
-            # certain binaries. In all cases the server binaries run under "rr".
+            # certain binaries. In all cases the server binaries run under "rr" which needs a
+            # a bit bigger timeouts.
             $start_wait_timeout = 45;   # Maximum wait time for an error log update or
                                         # pid_file existence..
             $startup_timeout    = 900;
+            # Having more events from the 'rr' point of view would make debugging faster.
+            # We just try that via more dense logging of events in the server.
+            $command .= " --log_warnings=4";
         }
 
 
@@ -1147,12 +1148,40 @@ sub normalizeDump {
 }
 
 sub nonSystemDatabases {
-  my $self= shift;
-  return @{$self->dbh->selectcol_arrayref(
-      "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA ".
-      "WHERE LOWER(SCHEMA_NAME) NOT IN ('rqg','mysql','information_schema','performance_schema','sys')"
-    )
-  };
+    my $self= shift;
+    # The use of (combine with or)
+    # a) my $dbh          = $self->dbh
+    # b) my $col_arrayref = $self->dbh->selectcol_arrayref(....)
+    # causes that it is tried to get some proper connection to the server via "sub dbh".
+    # In case that fails than
+    # a) (harmless) $dbh is undef and we are able to handle that.
+    # b) the current process aborts with the perl error
+    #    Can't call method "selectcol_arrayref" on an undefined value at ...
+    #    which is fatal because we are no more able to bring the servers down.
+    # Hence the solution is to use <connection_handle>->selectcol_arrayref(....).
+    my $dbh = $self->dbh;
+    if (not defined $dbh) {
+        say("ERROR: DBServer::MySQL::MySQLd::nonSystemDatabases: Connection to Server was lost. " .
+            "Will return undef.");
+        return undef;
+    } else {
+        # Unify somehow like picking code from lib/GenTest/Executor/MySQL.pm.
+        # For testing:
+        # KILL leads to    $col_arrayref is undef, $dbh->err() is defined.
+        # system("killall -9 mysqld; killall -9 mariadbd");
+        my $col_arrayref = $dbh->selectcol_arrayref(
+            "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA " .
+            "WHERE LOWER(SCHEMA_NAME) NOT IN " .
+            "    ('rqg','mysql','information_schema','performance_schema','sys') " .
+            "ORDER BY SCHEMA_NAME");
+        my $error = $dbh->err();
+        if (defined $error) {
+           say("ERROR: nonSystemDatabases: Query failed with $error. Will return undef.");
+           return undef;
+        }
+        my @schema_list = @{$col_arrayref};
+        return @schema_list;
+    }
 }
 
 sub collectAutoincrements {
@@ -1261,6 +1290,11 @@ sub stopServer {
             $self->[MYSQLD_SERVERPID] = undef;
             $res= DBSTATUS_OK;
             say("Server has been stopped");
+            # 2020-05-19 we passed this branch and the server error log contains
+            # 'mysqld: Shutdown complete'. Nevertheless it looks like that pattern was not
+            # there when the error log was processed because RQG claims that no regular
+            # shutdown was achieved.
+            sleep 1;
         }
     } else {
         say("Shutdown timeout or dbh is not defined, killing the server");
@@ -1277,7 +1311,7 @@ sub stopServer {
         my $file_size_after = $filestats[7];
         # say("DEBUG: Server error log '$errorlog' size after shutdown attempt : $file_size_after");
         if ($file_size_after == $file_size_before) {
-            my $offset = 5000;
+            my $offset = 10000;
             say("INFO: The shutdown attempt has not changed the size of '$file_to_read'. " .
                 "Therefore looking into the last $offset Bytes.");
             $file_size_before = $file_size_before - $offset;
