@@ -1028,6 +1028,26 @@ sub execute {
       exit STATUS_ENVIRONMENT_FAILURE;
    }
 
+   # Experimental
+   # ------------
+   # Observation since years:
+   # 1. A query gets generated because current time < end_time.
+   # 2. Than this query gets transformed into many variants.
+   #    During execution of one of these variants the threshold of the reporter Deadlock
+   #    gets exceeded and the reporter claims to have seen STATUS_SERVER_DEADLOCK.
+   # Worker threads get the end time assigned.
+   # I hope that reporters have not such a end_time.
+   #
+   my $give_up_time = $executor->end_time();
+   if (defined $give_up_time and time() > $give_up_time) {
+      say("INFO: MLML lib/GenTest::Executor::MySQL::execute : $executor_role has already exceeded " .
+          " the end_time. Will return STATUS_SKIP");
+      return GenTest::Result->new(
+          query       => $query,
+          status      => STATUS_SKIP,
+      );
+   }
+
    my $dbh = $executor->dbh();
    if (not defined $dbh) {
       # One executor lost his connection but the server was connectable.
@@ -1270,10 +1290,10 @@ sub execute {
          } else {
             say("ERROR: $trace_addition : The server is not connectable even though trying over " .
                 "a timespan of " . CONNECT_TIMEOUT . " seconds.");
-            say("ERROR: $trace_addition. Will exit with STATUS_ALARM.");
+            say("ERROR: $trace_addition. Will exit with STATUS_CRITICAL_FAILURE.");
             return GenTest::Result->new(
                 query       => '/* During connect attempt */',
-                status      => STATUS_ALARM,
+                status      => STATUS_CRITICAL_FAILURE,
             );
          }
       } elsif (not ($execution_flags & EXECUTOR_FLAG_SILENT)) {
