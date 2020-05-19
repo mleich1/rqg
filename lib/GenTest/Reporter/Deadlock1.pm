@@ -248,7 +248,7 @@ sub monitor_nonthreaded {
     }
     alarm (0);
     if (not defined $dbh) {
-        say("ERROR: $who_am_i All $round connect attempts to dsn $dsn failed." .
+        say("ERROR: $who_am_i All $round connect attempts to dsn $dsn failed. " .
             "Will return STATUS_SERVER_CRASHED");
         # FIXME: Why not STATUS_CRITICAL_ERROR ?
         return STATUS_SERVER_CRASHED;

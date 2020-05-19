@@ -174,7 +174,7 @@ cd "$OOS_DIR"
 rm -rf "$INSTALL_PREFIX"
 make install                                                     2>&1   | tee -a "$BLD_PROT"
 
-echo "# Check if the realease in '"$INSTALL_PREFIX"' basically works"   | tee -a "$BLD_PROT"
+echo "# Check if the release in '"$INSTALL_PREFIX"' basically works"    | tee -a "$BLD_PROT"
 cd "$INSTALL_PREFIX"
 cd mysql-test
 perl ./mysql-test-run.pl --mtr-build-thread=700 --mem 1st        2>&1   | tee -a "$BLD_PROT"
