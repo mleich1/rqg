@@ -1929,30 +1929,28 @@ if (($final_result == STATUS_OK)                         and
             # $rqg_vardir and $rqg_wordir + dumpfiles in $rqg_vardir it must be clash free.
             # The numbering of servers -> name of subdir for data etc. starts with 1!
             $dump_files[$i] = tmpdir() . ($i + 1) . "/DB.dump";
-            my $result = $server[$i]->nonSystemDatabases;
+            my $result = $server[$i]->nonSystemDatabases1;
             if (not defined $result) {
-                say("ERROR: Trouble running SQL on Server " . ($i + 1) . ". Will exit with STATUS_ALARM");
+                say("ERROR: Trouble running SQL on Server " . ($i + 1) .
+                    ". Will exit with STATUS_ALARM");
                 exit_test(STATUS_ALARM);
-            }
-            if ("0" == $result) {
-                say("WARN: Variant1: Server " . ($i + 1) . " does not contain non system SCHEMAs. " .
-                    "Will create a dummy dump file.");
-                system("echo 'Dummy' > $dump_files[$i]");
             } else {
                 my @schema_list = @{$result};
                 if (0 == scalar @schema_list) {
-                    say("WARN: Variant2: Server " . ($i + 1) . " does not contain non system SCHEMAs. " .
+                    say("WARN: Server " . ($i + 1) . " does not contain non system SCHEMAs. " .
                         "Will create a dummy dump file.");
                     system("echo 'Dummy' > $dump_files[$i]");
                 } else {
                     my $schema_listing = join (' ', @schema_list);
-                    say("DEBUG: schema_listing for mysqldump ->$schema_listing<-");
+                    say("DEBUG: Server " . ($i + 1) . " schema_listing for mysqldump " .
+                        "->$schema_listing<-");
                     if ($schema_listing eq '') {
                         say("ERROR: Schemalisting for Server " . ($i + 1) . " is empty. " .
                             "Will exit with STATUS_ALARM");
                         exit_test(STATUS_ALARM);
                     } else {
-                        my $dump_result = $server[$i]->dumpdb("--databases $schema_listing",$dump_files[$i]);
+                        my $dump_result = $server[$i]->dumpdb("--databases $schema_listing",
+                                                              $dump_files[$i]);
                         if ( $dump_result > 0 ) {
                             $final_result = $dump_result >> 8;
                             last;

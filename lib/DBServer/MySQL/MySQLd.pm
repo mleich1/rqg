@@ -99,6 +99,7 @@ sub new {
                                    'rr' => MYSQLD_RR,
                                    'rr_options' => MYSQLD_RR_OPTIONS},@_);
 
+    # FIXME: Inform about error + return undef so that the caller can clean up
     croak "No valgrind support on windows" if osWindows() and $self->[MYSQLD_VALGRIND];
     croak "No rr support on OS <> Linux"   if $self->[MYSQLD_RR] and not osLinux() and $self->[MYSQLD_RR];
     croak "No support for using rr and valgrind together" if $self->[MYSQLD_RR] and $self->[MYSQLD_VALGRIND];
@@ -137,6 +138,7 @@ sub new {
                                                   osWindows()?["sql/Debug","sql/RelWithDebInfo","sql/Release","bin"]:["sql","libexec","bin","sbin"],
                                                   osWindows()?"mysqld.exe":"mysqld");
             if ($self->[MYSQLD_MYSQLD] && $self->serverType($self->[MYSQLD_MYSQLD]) !~ /Debug/) {
+                # FIXME: Inform about error + return undef so that the caller can clean up
                 croak "--debug-server needs a mysqld debug server, the server found is $self->[MYSQLD_SERVER_TYPE]";
             }
         }
@@ -570,6 +572,7 @@ sub startServer {
         $vardir =~ s/\//\\/g;
         $self->printInfo();
         say("INFO: Starting MySQL " . $self->version . ": $exe as $command on $vardir");
+        # FIXME: Inform about error + return undef so that the caller can clean up
         Win32::Process::Create($proc,
                                $exe,
                                $command,
@@ -590,6 +593,7 @@ sub startServer {
             }
             if (!-f $self->pidfile) {
                 sayFile($errorlog);
+                # FIXME: Inform about error + return undef so that the caller can clean up
                 croak("Could not start mysql server, waited ".($waits*$wait_time)." seconds for pid file");
             }
         }
@@ -632,7 +636,7 @@ sub startServer {
 
             # In case of using 'rr' core files
             # - do not offer more information than already provided by "rr"
-            # - gdb -c <core file> <mysqld binary>   gives often rotten output freom
+            # - gdb -c <core file> <mysqld binary>   gives often rotten output from
             #   whatever unknown reason
             # - consume ~ 1 GB storage space in vardir (usually located in tmpfs) temporary
             # So we prevent the writing of core files via ulimit.
@@ -652,6 +656,12 @@ sub startServer {
             $startup_timeout    = 900;
             # Having more events from the 'rr' point of view would make debugging faster.
             # We just try that via more dense logging of events in the server.
+            # Example:
+            # [rr 19150 245575]2020-05-22 11:13:59 139797702706944 [Warning] Aborted connection 78 to db: 'test' user: 'root' host: 'localhost' (CLOSE_CONNECTION)
+            # The content like that there was an abort of a connection is most probably
+            # of rather low value. But the
+            # [rr 19150 <event_number>] <timestamp> might help to find the right region of
+            # events where debugging should start.
             $command .= " --log_warnings=4";
         }
 
@@ -965,7 +975,6 @@ sub crashServer {
     my ($self) = @_;
 
     my $who_am_i = "DBServer::MySQL::MySQLd::crashServer:";
-    # FIXME: What to do if the server is already no more running.
     if (osWindows()) {
         ## How do i do this?????
         $self->killServer; ## Temporary
@@ -1148,21 +1157,30 @@ sub normalizeDump {
 }
 
 sub nonSystemDatabases {
+  my $self= shift;
+  return @{$self->dbh->selectcol_arrayref(
+      "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA ".
+      "WHERE LOWER(SCHEMA_NAME) NOT IN ('mysql','information_schema','performance_schema','sys')"
+    )
+  };
+}
+
+sub nonSystemDatabases1 {
     my $self= shift;
+    my $who_am_i = "DBServer::MySQL::MySQLd::nonSystemDatabases1:";
     # The use of (combine with or)
     # a) my $dbh          = $self->dbh
     # b) my $col_arrayref = $self->dbh->selectcol_arrayref(....)
     # causes that it is tried to get some proper connection to the server via "sub dbh".
     # In case that fails than
-    # a) (harmless) $dbh is undef and we are able to handle that.
+    # a) (harmless) $dbh is undef and we are able to check that.
     # b) the current process aborts with the perl error
     #    Can't call method "selectcol_arrayref" on an undefined value at ...
     #    which is fatal because we are no more able to bring the servers down.
     # Hence the solution is to use <connection_handle>->selectcol_arrayref(....).
     my $dbh = $self->dbh;
     if (not defined $dbh) {
-        say("ERROR: DBServer::MySQL::MySQLd::nonSystemDatabases: Connection to Server was lost. " .
-            "Will return undef.");
+        say("ERROR: $who_am_i No connection to Server got. Will return undef.");
         return undef;
     } else {
         # Unify somehow like picking code from lib/GenTest/Executor/MySQL.pm.
@@ -1176,11 +1194,11 @@ sub nonSystemDatabases {
             "ORDER BY SCHEMA_NAME");
         my $error = $dbh->err();
         if (defined $error) {
-           say("ERROR: nonSystemDatabases: Query failed with $error. Will return undef.");
+           say("ERROR: $who_am_i Query failed with $error. Will return undef.");
            return undef;
         }
         my @schema_list = @{$col_arrayref};
-        return @schema_list;
+        return \@schema_list;
     }
 }
 
