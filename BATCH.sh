@@ -31,6 +31,13 @@ then
    echo -e "$USAGE"
    exit
 fi
+CASE0=`basename $CONFIG`
+CASE=`basename $CASE0 .cfg`
+if [ $CASE = $CASE0 ]
+then
+   CASE=`basename $CASE0 .cc`
+fi
+
 
 # Path to MariaDB binaries
 BASEDIR1="$2"
@@ -46,6 +53,7 @@ then
    echo "BASEDIR1 '$BASEDIR1' does not exist."
    exit
 fi
+BASEDIR1_NAME=`basename "$BASEDIR1"`
 BASEDIR2="$3"
 if [ "$BASEDIR2" = "" ]
 then
@@ -58,14 +66,7 @@ then
    exit
 fi
 
-CASE0=`basename $CONFIG`
-CASE=`basename $CASE0 .cfg`
-if [ $CASE = $CASE0 ]
-then
-   CASE=`basename $CASE0 .cc`
-fi
-
-PROT="$CASE"".prt"
+PROT="$CASE""-""$BASEDIR1_NAME"".prt"
 rm -f $PROT
 
 # My standard work directory for rqg_batch.pl.
@@ -250,7 +251,8 @@ set -o pipefail
 # PARALLEL=1
 #
 
-nohup perl -w ./rqg_batch.pl                                           \
+# nohup perl -w ./rqg_batch.pl                                           \
+nohup perl ./rqg_batch.pl                                           \
 --workdir=$BATCH_WORKDIR                                               \
 --vardir=$BATCH_VARDIR                                                 \
 --parallel=$PARALLEL                                                   \
@@ -258,6 +260,7 @@ nohup perl -w ./rqg_batch.pl                                           \
 --basedir2=$BASEDIR2                                                   \
 --config=$CONFIG                                                       \
 --trials=$TRIALS                                                       \
+--duration=300                                                         \
 --discard_logs                                                         \
 --max_runtime=$MAX_RUNTIME                                             \
 --no-mask                                                              \
