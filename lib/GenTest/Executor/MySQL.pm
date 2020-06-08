@@ -1426,7 +1426,7 @@ sub execute {
       }
    }
 
-   if ($result->status() == STATUS_OK or $result->status() == STATUS_SKIP) {
+   if ($result->status() == STATUS_OK) {
       # Now we have excluded certain classes of failing statements where all what follows
       # makes no sense up till additional trouble with not initialized values etc.
       #
@@ -1772,6 +1772,13 @@ sub read_only {
    } else {
       return 0;
    }
+}
+
+sub exp_server_kill {
+    my ($who_am_i, $where) = @_;
+    say("EXPERIMENT: $who_am_i Kill all servers before calling ->" . $where . "<-");
+    system("killall -9 mysqld; killall -9 mariadbd");
+    sleep 3;
 }
 
 1;
