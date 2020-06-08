@@ -809,8 +809,49 @@ my %acceptable_se_errors = (
 
 my ($version, $major_version);
 my $query_no = 0;
-my $first_connect = 1;
 
+sub get_dbh {
+    my ($dsn, $role, $timeout) = @_;
+
+    my $who_am_i = "GenTest::Executor::MySQL::get_dbh:";
+
+    if (not defined $dsn or not defined $role or not defined $timeout) {
+        Carp::cluck("ERROR: One of the parameters is undef.");
+        exit STATUS_INTERNAL_ERROR;
+    }
+
+    my $start_time = time();
+    my $end_time   = $start_time + $timeout;
+    my $dbh;
+    while (time() < $end_time) {
+        # At least for worker threads mysql_auto_reconnect MUST be 0.
+        # If not than we will get an automatic reconnect without executing *_connect.
+        $dbh = DBI->connect($dsn, undef, undef, {
+            mysql_connect_timeout  => CONNECT_TIMEOUT,
+            PrintError             => 0,
+            RaiseError             => 0,
+            AutoCommit             => 1,
+            mysql_multi_statements => 1,
+            mysql_auto_reconnect   => 0
+        });
+        if (defined $dbh) {
+            last;
+        } else {
+            sleep 1;
+        }
+    }
+
+    if (not defined $dbh) {
+        my $message_part = "ERROR: $who_am_i " . $role . " connect to dsn " .
+                           $dsn . " failed: " . $DBI::errstr ;
+        say("$message_part. Will return undef");
+    }
+    return $dbh;
+}
+
+# The parent process (...app/GenTest.pm) connects first.
+# And in case that passes all future childs see the value 0..
+my $first_connect = 1;
 sub get_connection {
     my $executor = shift;
 
