@@ -855,32 +855,25 @@ my $first_connect = 1;
 sub get_connection {
     my $executor = shift;
 
+    my $who_am_i = "GenTest::Executor::MySQL::get_connection:";
     # We need the $executor->role as important detail for messages.
     if (not defined $executor->role) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL_ERROR: Executor Role is undef. Will exit with status : " .
+        Carp::cluck("INTERNAL_ERROR: $who_am_i Executor Role is undef. Will exit with status : " .
                     status2text($status) . "($status).");
+        # Exit because this must never happen.
         exit $status;
     }
-    # At least for worker threads mysql_auto_reconnect MUST be 0.
-    # If not than we will get an automatic reconnect without executing *_connect.
-    my $dbh = DBI->connect($executor->dsn(), undef, undef, {
-        mysql_connect_timeout  => CONNECT_TIMEOUT,
-        PrintError             => 0,
-        RaiseError             => 0,
-        AutoCommit             => 1,
-        mysql_multi_statements => 1,
-        mysql_auto_reconnect   => 0
-    } );
 
+    # exp_server_kill($who_am_i, "get_dbh(...)");
+    my $dbh = get_dbh($executor->dsn(), $executor->role(), CONNECT_TIMEOUT);
     if (not defined $dbh) {
-        my $message_part = "ERROR: " . $executor->role . " connect() to dsn " . $executor->dsn() .
-                          " failed: " . $DBI::errstr ;
+        my $message_part = "ERROR: $who_am_i " . $executor->role;
         if ($first_connect == 1) {
-            say("$message_part. Will return STATUS_ENVIRONMENT_FAILURE");
+            say("$message_part: Will return STATUS_ENVIRONMENT_FAILURE");
             return STATUS_ENVIRONMENT_FAILURE;
         } else {
-            say("$message_part. Will return STATUS_SERVER_CRASHED");
+            say("$message_part: Will return STATUS_SERVER_CRASHED");
             return STATUS_SERVER_CRASHED;
         }
     }
@@ -1815,6 +1808,27 @@ sub read_only {
    } else {
       return 0;
    }
+}
+
+sub is_connectable {
+    # To be used in case some worker thread lost his connection (STATUS_SERVER_CRASHED) but we need
+    # to figure out if the reason was a
+    # - previous KILL SESSION <own> or COMMIT/ROLLBACK RELEASE
+    # - KILL SESSION <our> issued by some other session
+    # - "death" of server
+    my $executor = shift;
+
+    my $role = "ConnectChecker";
+    # exp_server_kill("is_connectable", "Connect");
+    my $check_dbh = get_dbh($executor->dsn(), $role, CONNECT_TIMEOUT);
+    if (defined $check_dbh) {
+        say("DEBUG: Helper for " . $executor->role . " figured out: The server is connectable.") if $debug_here;
+        $check_dbh->disconnect();
+        return STATUS_OK;
+    } else {
+        say("ERROR: Helper for " . $executor->role . " figured out: The server is not connectable.") if $debug_here;
+        return STATUS_SERVER_CRASHED;
+    }
 }
 
 sub exp_server_kill {
