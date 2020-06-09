@@ -59,6 +59,10 @@
 # - server freeze ?
 #
 
+# FIXME:
+# 1. Disable the max-statement-time for all activity here or all reporters
+# 2. Multiply all timeouts with 1.5 for rr or valgrind runs
+
 package GenTest::Reporter::Deadlock1;
 
 require Exporter;
@@ -122,7 +126,7 @@ use constant STALLED_QUERY_COUNT_THRESHOLD   => 2;
 # use constant ACTUAL_TEST_DURATION_MULTIPLIER => 2;
 
 # Number of seconds the actual test duration is allowed to exceed the desired one.
-use constant ACTUAL_TEST_DURATION_EXCEED     => 180;  # Seconds
+use constant ACTUAL_TEST_DURATION_EXCEED     => 240;  # Seconds
 
 # The time, in seconds, we will wait for some query issued by the reporter (i.e. SHOW PROCESSLIST)
 # before we declare the server hanged.
@@ -216,14 +220,14 @@ sub monitor_nonthreaded {
     sigaction SIGALRM, new POSIX::SigAction sub {
         # Concept:
         # Set the error_exit_message before setting the alarm.
-        say("ERROR: $who_am_i $exit_msg" .
+        say("ERROR: $who_am_i $exit_msg " .
             "Will exit with STATUS_SERVER_DEADLOCKED later.");
         $reporter->kill_with_core;
         exit STATUS_SERVER_DEADLOCKED;
     } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
 
     $alarm_timeout = CONNECT_TIMEOUT_THRESHOLD + OVERLOAD_ADD;
-    $exit_msg      = "Got no connect to server within " . $alarm_timeout . "s.";
+    $exit_msg      = "Got no connect to server within " . $alarm_timeout . "s. ";
     alarm ($alarm_timeout);
     my $round = 0;
     while(1) {
@@ -490,7 +494,7 @@ sub nativeReport {
         # FIXME:
         # How to ensure that
         # - all debug output is written before the SIGSEGV is sent
-        # - worker threads detecting that the server does not repond twist the final status to
+        # - worker threads detecting that the server does not respond twist the final status to
         #   something != STATUS_SERVER_DEADLOCKED
         sleep((REPORTER_QUERY_THRESHOLD + OVERLOAD_ADD) / 2);
 

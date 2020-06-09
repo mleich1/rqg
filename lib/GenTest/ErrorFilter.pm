@@ -47,7 +47,8 @@ sub run {
     # Setting InactiveDestroy should help to avoid it. 
     foreach my $server (@$servers) {
         next unless $server;
-        $server->dbh()->{InactiveDestroy} = 1;
+        my $dbh = $server->dbh();
+        $dbh->{InactiveDestroy} = 1 if defined $dbh;
     }
     while (1) {
         my $msg = $self->[ERRORFILTER_CHANNEL]->recv;

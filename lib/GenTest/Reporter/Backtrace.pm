@@ -133,7 +133,7 @@ sub nativeReport {
     #     Have such a high fraction (> 30%) again but now with ASAN builds.
     #     Experiments with "sync $error_log" show some serious progress (fraction ~ 3%).
     # Use 'system ("sync $error_log ... ");' in addition
-    # - before serching for applying the 270s timeout.
+    # - before searching for applying the 270s timeout.
     #
     # My guesss:
     # If using sync than we might be able to reduce the timeout later.

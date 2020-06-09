@@ -391,7 +391,7 @@ sub load_verdict_config_file {
 
 
 # RQG_VERDICT_INIT
-# Initial value == The RQG run not finished. So there is real verdict at all.
+# Initial value == The RQG run is not finished. So there is real verdict at all.
 use constant RQG_VERDICT_INIT               => 'init';
 #
 # RQG_VERDICT_REPLAY
