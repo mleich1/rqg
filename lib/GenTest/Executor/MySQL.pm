@@ -897,20 +897,32 @@ sub get_connection {
         $major_version = $1;
     }
 
-    $dbh->do("SET optimizer_switch = (SELECT variable_value FROM INFORMATION_SCHEMA . " .
-             "GLOBAL_VARIABLES WHERE VARIABLE_NAME = 'optimizer_switch')");
+    my $aux_query = "SET optimizer_switch = (SELECT variable_value FROM INFORMATION_SCHEMA . " .
+                    "GLOBAL_VARIABLES WHERE VARIABLE_NAME = 'optimizer_switch')";
+    # exp_server_kill($who_am_i, $aux_query);
+    $dbh->do($aux_query);
     my $error = $dbh->err();
     my $error_type = STATUS_OK;
     if (defined $error) {
         $error_type = $err2type{$error} || STATUS_OK;
-        my $message_part = "ERROR: " . $executor->role . " dbh->do failed: $error " .
-                           $dbh->errstr();
+        my $message_part = "ERROR: $who_am_i" . $executor->role . " query ->" . $aux_query .
+                           "<- failed: $error " .  $dbh->errstr();
         my $status = $error_type;
-        say("$message_part. Will exit with status : " . status2text($status) . "($status).");
-        exit $status;
+        say("$message_part. Will return status : " . status2text($status) . "($status).");
+        return $status;
     }
 
-    $executor->defaultSchema($executor->currentSchema());
+    # exp_server_kill($who_am_i, "executor->currentSchema()");
+    my $result = $executor->currentSchema();
+    if (not defined $result) {
+        # Variants:
+        # a) The server has crashed or is damaged otherwise
+        # b) use ... was forgotten or similar == internal error
+        say("FATAL ERROR: $who_am_i" . $executor->role . ": Getting the current schema failed. " .
+            "Will return STATUS_CRITICAL_FAILURE.");
+        return STATUS_CRITICAL_FAILURE;
+    }
+    $executor->defaultSchema($result);
 
 #   FIXME: Either remove the code or enable it.
 #   if (($executor->fetchMethod() == FETCH_METHOD_AUTO) ||
@@ -936,36 +948,35 @@ sub get_connection {
     # The same is valid for the other $dbh->selectrow_arrayref("SELECT CURRENT_USER()")->[0].
     # $dbh->selectrow_arrayref itself is "clean" and retturns undef according to the spec!
     #
-    # For experimenting:
-    # system("killall -9 mysqld");
-    # sleep(1);
-    #
     # $executor->setConnectionId($dbh->selectrow_arrayref("SELECT CONNECTION_ID()")->[0]);
     #
-    my $row_arrayref = $dbh->selectrow_arrayref("SELECT CONNECTION_ID()");
+    $aux_query = "SELECT CONNECTION_ID()";
+    # exp_server_kill($who_am_i, $aux_query);
+    my $row_arrayref = $dbh->selectrow_arrayref($aux_query);
     $error = $dbh->err();
     $error_type = STATUS_OK;
     if (defined $error) {
         $error_type = $err2type{$error} || STATUS_OK;
-        my $message_part = "ERROR: " . $executor->role . " dbh->do failed: $error " .
-                           $dbh->errstr();
+        my $message_part = "ERROR: $who_am_i " . $executor->role . " query ->" . $aux_query .
+                           "<- failed: $error " .  $dbh->errstr();
         my $status = $error_type;
-        say("$message_part. Will exit with status : " . status2text($status) . "($status).");
-        exit $status;
+        say("$message_part. Will return status : " . status2text($status) . "($status).");
+        return $status;
     }
     $executor->setConnectionId($row_arrayref->[0]);
 
-    # $executor->setCurrentUser($dbh->selectrow_arrayref("SELECT CURRENT_USER()")->[0]);
-    $row_arrayref = $dbh->selectrow_arrayref("SELECT CURRENT_USER()");
+    $aux_query = "SELECT CURRENT_USER()";
+    # exp_server_kill($who_am_i, $aux_query);
+    $row_arrayref = $dbh->selectrow_arrayref($aux_query);
     $error = $dbh->err();
     $error_type = STATUS_OK;
     if (defined $error) {
         $error_type = $err2type{$error} || STATUS_OK;
-        my $message_part = "ERROR: " . $executor->role . " dbh->do failed: $error " .
-                           $dbh->errstr();
+        my $message_part = "ERROR: $who_am_i " . $executor->role . " query ->" . $aux_query .
+                           "<- failed: $error " .  $dbh->errstr();
         my $status = $error_type;
-        say("$message_part. Will exit with status : " . status2text($status) . "($status).");
-        exit $status;
+        say("$message_part. Will return status : " . status2text($status) . "($status).");
+        return $status;
     }
     $executor->setCurrentUser($row_arrayref->[0]);
 
@@ -1002,24 +1013,37 @@ sub get_connection {
     #   get_connection gets called by init and Executor::init gets called by the relevant modules
     #   Mixer GendataAdvanced Gendata GendataSimple GendataSQL GenTest PopulateSchema ...
     #
-    $row_arrayref = $dbh->selectrow_arrayref("SELECT \@\@sql_mode");
+    $aux_query = "SELECT \@\@sql_mode";
+    # exp_server_kill($who_am_i, $aux_query);
+    $row_arrayref = $dbh->selectrow_arrayref($aux_query);
     $error = $dbh->err();
     $error_type = STATUS_OK;
     if (defined $error) {
         $error_type = $err2type{$error} || STATUS_OK;
-        my $message_part = "ERROR: " . $executor->role . " dbh->do failed: $error " .
-                           $dbh->errstr();
+        my $message_part = "ERROR: $who_am_i " . $executor->role . " query ->" . $aux_query .
+                           "<- failed: $error " .  $dbh->errstr();
         my $status = $error_type;
-        say("$message_part. Will exit with status : " . status2text($status) . "($status).");
-        exit $status;
+        say("$message_part. Will return status : " . status2text($status) . "($status).");
+        return $status;
     }
-    my $sql_mode = $row_arrayref->[0];
-    $executor->execute("SET SESSION sql_mode = '$sql_mode'");
 
-    #-------------------------------------
+    my $sql_mode = $row_arrayref->[0];
+    $aux_query = "SET SESSION sql_mode = '$sql_mode'";
+    $dbh->do($aux_query);
+    $error = $dbh->err();
+    $error_type = STATUS_OK;
+    if (defined $error) {
+        $error_type = $err2type{$error} || STATUS_OK;
+        my $message_part = "ERROR: $who_am_i" . $executor->role . " query ->" . $aux_query .
+                           "<- failed: $error " .  $dbh->errstr();
+        my $status = $error_type;
+        say("$message_part. Will return status : " . status2text($status) . "($status).");
+        return $status;
+    }
+
     return STATUS_OK;
 
-}
+} # End sub get_connection
 
 sub init {
     my $executor = shift;
@@ -1027,7 +1051,7 @@ sub init {
     my $status = get_connection($executor);
 
     if ($status) {
-        say("ERROR: GenTest::Executor::MySQL::init : Getting a connection for " .
+        say("ERROR: GenTest::Executor::MySQL::init: Getting a proper connection for " .
              $executor->role() . " failed with $status. Will return that status : " .
              status2text($status) . "($status).");
         return $status;
@@ -1052,15 +1076,20 @@ sub reportError {
     }
 }
 
+
 sub execute {
    my ($executor, $query, $execution_flags) = @_;
    $execution_flags= 0 unless defined $execution_flags;
+
+   my $who_am_i = "GenTest::Executor::MySQL::execute: ";
 
    my $executor_role = $executor->role();
    $executor_role = 'unknown' if not defined $executor_role;
 
    if (not defined $query) {
-      Carp::cluck("ERROR: \$query is not defined for $executor_role. Will exit with STATUS_ENVIRONMENT_FAILURE.");
+      # Its so fatal that we should exit immediate.
+      Carp::cluck("ERROR: The query is not defined for $executor_role. " .
+                  "Will exit with STATUS_ENVIRONMENT_FAILURE.");
       exit STATUS_ENVIRONMENT_FAILURE;
    }
 
@@ -1071,12 +1100,12 @@ sub execute {
    # 2. Than this query gets transformed into many variants.
    #    During execution of one of these variants the threshold of the reporter Deadlock
    #    gets exceeded and the reporter claims to have seen STATUS_SERVER_DEADLOCK.
-   # Worker threads get the end time assigned.
+   # Worker threads get the end time assigned. So check that limit here.
    # I hope that reporters have not such a end_time.
    #
    my $give_up_time = $executor->end_time();
    if (defined $give_up_time and time() > $give_up_time) {
-      say("INFO: MLML lib/GenTest::Executor::MySQL::execute : $executor_role has already exceeded " .
+      say("INFO: $who_am_i $executor_role has already exceeded " .
           " the end_time. Will return STATUS_SKIP");
       return GenTest::Result->new(
           query       => $query,
@@ -1094,12 +1123,12 @@ sub execute {
       #       Mixer picks the leftmost "single" query from that list and gives it to every
       #       executor (one per DB server). After execution (includes validators) the next
       # query from that list is picked.
-      say("DEBUG: lib/GenTest::Executor::MySQL::execute : The connection to the server for " .
+      say("DEBUG: $who_am_i The connection to the server for " .
           "$executor_role was lost. Trying to reconnect.");
       my $status = get_connection($executor);
       # Hint: get_connection maintains the connection_id etc.
       if ($status) {
-         say("ERROR: Executor::MySQL::execute Getting a connection for $executor_role failed " .
+         say("ERROR: $who_am_i Getting a connection for $executor_role failed " .
              "with $status. Will return that status : " . status2text($status) . "($status).");
          return GenTest::Result->new(
             query       => '/* During connect attempt */',
@@ -1125,26 +1154,40 @@ sub execute {
       $query =~ s{/\*executor.*?\*/}{}sgo;
    }
 
-   # What follows is most probably no more needed.
-   # return GenTest::Result->new( query => $query, status => STATUS_UNKNOWN_ERROR ) if not defined $dbh;
-
    #  say("DEBUG: $trace_addition Before preprocess");
 
    $query = $executor->preprocess($query);
-   # Hint: preprocess does not run any SQL.
+   # Hint: Preprocess does not run any SQL so its unlikely that it can be a victim of whatever.
 
    if (
         (not defined $executor->[EXECUTOR_MYSQL_AUTOCOMMIT]) &&
         ($query =~ m{^\s*(start\s+transaction|begin|commit|rollback)}io)
    ) {
-      # say("DEBUG: $trace_addition Before flipping AUTOCOMMIT");
-      # FIXME: This can be a victim
-      # Fortunately it was not used when running the test table_stress
-      $dbh->do("SET AUTOCOMMIT=OFF");
-      $executor->[EXECUTOR_MYSQL_AUTOCOMMIT] = 0;
+      my $aux_query = "SET AUTOCOMMIT=OFF";
+      # exp_server_kill($who_am_i, $aux_query);
+      $dbh->do($aux_query);
+      my $error = $dbh->err();
+      my $error_type = STATUS_OK;
+      if (defined $error) {
+          $error_type = $err2type{$error} || STATUS_OK;
+          my $message_part = "ERROR: $who_am_i $executor_role Auxiliary query ->" .
+                             $aux_query . "<- failed: $error " .  $dbh->errstr();
+          my $status = $error_type;
+          if ((($status == STATUS_SERVER_CRASHED) || ($status == STATUS_SERVER_KILLED))
+              and (STATUS_OK == $executor->is_connectable())) {
+              $status = STATUS_SKIP_RELOOP;
+          }
+          say("$message_part. Will return status : " . status2text($status) . "($status).");
+          return GenTest::Result->new(
+              query       => '/* During auxiliary query */',
+              status      => $status,
+          );
+      }
 
+      $executor->[EXECUTOR_MYSQL_AUTOCOMMIT] = 0;
       if ($executor->fetchMethod() == FETCH_METHOD_AUTO) {
-         say("Transactions detected. Setting mysql_use_result to 0, so mysql_store_result() will be used.") if rqg_debug();
+         say("INFO: $who_am_i $executor_role Transactions detected. Setting mysql_use_result to " .
+             "0, so mysql_store_result() will be used.") if rqg_debug();
          $dbh->{'mysql_use_result'} = 0;
       }
    }
@@ -1261,8 +1304,8 @@ sub execute {
       } elsif (($err_type == STATUS_SERVER_CRASHED) ||
                ($err_type == STATUS_SERVER_KILLED)    ) {
          my $query_for_print= shorten_message($query);
-         say("Executor::MySQL::execute: Query: $query_for_print failed: $err " . $sth->errstr())
-                       if not ($execution_flags & EXECUTOR_FLAG_SILENT);
+         say("$who_am_i $executor_role Query: $query_for_print failed: $err " . $sth->errstr())
+             if not ($execution_flags & EXECUTOR_FLAG_SILENT);
          # Lets assume some evil and complicated scenario (lost connection but no real crash)
          # ----------------------------------------------------------------------------------
          # Query from generator is a multi statement query like
@@ -1292,46 +1335,29 @@ sub execute {
          #    Even with mysql_connect_timeout => 20 added the distance between message about
          #    connection lost and connect attempt failed < 1s seen.
          # First (because easier to handle) hypothesis:
-         #    The server is for some short timespan so busy especially around around managing
+         #    The server is for some short timespan so busy especially around managing
          #    connections so that he simply denies to create a new one.
          #    2018-07-02 Up till today I have never seen a false alarm from here again.
-         # At least for worker threads mysql_auto_reconnect MUST be 0.
-         # If not than we will get an automatic reconnect without executing *_connect.
-         my $check_dbh;
-         my $try_end_time = time() + CONNECT_TIMEOUT;
-         while (time() < $try_end_time and not defined $check_dbh) {
-             $check_dbh = DBI->connect($executor->dsn(), undef, undef, {
-                                       mysql_connect_timeout  => CONNECT_TIMEOUT,
-                                       PrintError             => 0,
-                                       RaiseError             => 0,
-                                       AutoCommit             => 0,
-                                       mysql_multi_statements => 0,
-                                       mysql_auto_reconnect   => 0
-                                       } );
-             sleep 1;
+         my $status;
+         if (STATUS_OK == $executor->is_connectable()) {
+            $status = STATUS_SKIP_RELOOP;
+            say("INFO: $trace_addition :  The server is connectable. Will return a result " .
+                "containing the status " . status2text($status) . "($status).");
+         } else {
+            $status = STATUS_CRITICAL_FAILURE;
+            say("INFO: $trace_addition :  The server is not connectable. Will return a result " .
+                "containing the status " . status2text($status) . "($status).");
          }
-         if (defined $check_dbh) {
-            say("DEBUG: $trace_addition : The server is connectable.") if $debug_here;
-            $check_dbh->disconnect();
-            return GenTest::Result->new(
+         return GenTest::Result->new(
                query        => $query,
              # status       => $err2type{$dbh->err()} || STATUS_UNKNOWN_ERROR,
-               status       => STATUS_SKIP_RELOOP,
+               status       => $status,
                err          => $dbh->err(),
                errstr       => $dbh->errstr(),
                sqlstate     => $dbh->state(),
                start_time   => $start_time,
                end_time     => Time::HiRes::time()
-            );
-         } else {
-            say("ERROR: $trace_addition : The server is not connectable even though trying over " .
-                "a timespan of " . CONNECT_TIMEOUT . " seconds.");
-            say("ERROR: $trace_addition. Will exit with STATUS_CRITICAL_FAILURE.");
-            return GenTest::Result->new(
-                query       => '/* During connect attempt */',
-                status      => STATUS_CRITICAL_FAILURE,
-            );
-         }
+         );
       } elsif (not ($execution_flags & EXECUTOR_FLAG_SILENT)) {
          $executor->[EXECUTOR_ERROR_COUNTS]->{$sth->errstr()}++;
          my $query_for_print= shorten_message($query);
@@ -1343,7 +1369,7 @@ sub execute {
          # ...
          # ER_DO_NOT_WANT()               => STATUS_UNSUPPORTED,
          #
-         say("Executor::MySQL::execute: Query: $query_for_print failed: $err ".$sth->errstr());
+         say("$who_am_i $executor_role Query: $query_for_print failed: $err " . $sth->errstr());
       }
 
       $result = GenTest::Result->new(
@@ -1376,9 +1402,8 @@ sub execute {
       my $row_count = 0;
       my $result_status = STATUS_OK;
 
-      # FIXME:
       # What follows could fail because of real crash or connection killed etc.
-      # Check that such cases get handled right.
+      # The if (defined $sth->err())  a bit later should catch this.
       while (my @row = $sth->fetchrow_array()) {
          $row_count++;
          if ($execution_flags & EXECUTOR_FLAG_HASH_DATA) {
@@ -1400,9 +1425,17 @@ sub execute {
              MAX_ROWS_THRESHOLD() . ") rows. Killing it ...");
          $executor->[EXECUTOR_RETURNED_ROW_COUNTS]->{'>MAX_ROWS_THRESHOLD'}++;
 
-         my $kill_dbh = DBI->connect($executor->dsn(), undef, undef, {
-                                     mysql_connect_timeout  => CONNECT_TIMEOUT,
-                                     PrintError => 1 });
+         my $kill_dbh = get_dbh($executor->dsn(), 'QueryKiller', CONNECT_TIMEOUT);
+         if (not defined $kill_dbh) {
+             my $status = STATUS_CRITICAL_FAILURE;
+             my $message_part = "ERROR: $who_am_i QueryKiller:";
+             say("$message_part. Will return status : " . status2text($status) . "($status).");
+             return GenTest::Result->new(
+                 query       => '/* During auxiliary connect */',
+                 status      => $status,
+             );
+         }
+         # What follows could fail if the server dies.
          $kill_dbh->do("KILL QUERY " . $executor->connectionId());
          $kill_dbh->disconnect();
          $sth->finish();
@@ -1457,8 +1490,19 @@ sub execute {
 
    if ($sth->{mysql_warning_count} > 0) {
       eval {
-            my $warnings = $dbh->selectall_arrayref("SHOW WARNINGS");
-            $result->setWarnings($warnings);
+          my $aux_query = "SHOW WARNINGS";
+          # exp_server_kill($who_am_i, $aux_query);
+          my $warnings   = $dbh->selectall_arrayref($aux_query);
+          my $error      = $dbh->err();
+          my $error_type = STATUS_OK;
+          if (defined $error) {
+              $error_type = $err2type{$error} || STATUS_OK;
+              my $message_part = "ERROR: $who_am_i $executor_role. Auxiliary query ->" .
+                                 $aux_query . "<- failed: $error " .  $dbh->errstr();
+              say("$message_part. Will just return the result we have.");
+              return $result;
+          }
+          $result->setWarnings($warnings);
       }
    }
 
@@ -1479,15 +1523,10 @@ sub execute {
       #
       if ( (rqg_debug()) && (! ($execution_flags & EXECUTOR_FLAG_SILENT)) ) {
          if (($query =~ m{^\s*select}sio) and (not $query =~ m{^\s*select\s.*into @}sio)) {
+            # exp_server_kill($who_am_i, "executor->explain");
             $executor->explain($query);
-
-            if ($result->status() != STATUS_SKIP) {
-               if (not defined $result->rows()) {
-                  say("WARNING: \$result->rows() provides an undef value and status is : " . $result->status());
-               }
-               my $row_group = $result->rows() > 100 ? '>100' : ($result->rows() > 10 ? ">10" : sprintf("%5d",$sth->rows()) );
-               $executor->[EXECUTOR_RETURNED_ROW_COUNTS]->{$row_group}++;
-            }
+            my $row_group = $result->rows() > 100 ? '>100' : ($result->rows() > 10 ? ">10" : sprintf("%5d",$sth->rows()) );
+            $executor->[EXECUTOR_RETURNED_ROW_COUNTS]->{$row_group}++;
          } elsif ($query =~ m{^\s*(update|delete|insert|replace)}sio) {
             my $row_group = $affected_rows > 100 ? '>100' : ($affected_rows > 10 ? ">10" : sprintf("%5d",$affected_rows) );
             $executor->[EXECUTOR_AFFECTED_ROW_COUNTS]->{$row_group}++;
@@ -1638,13 +1677,35 @@ sub DESTROY {
 sub currentSchema {
    my ($executor,$schema) = @_;
 
-   return undef if not defined $executor->dbh();
+    my $who_am_i = "GenTest::Executor::MySQL::currentSchema:";
 
+   # Hint:
+   # $executor->dbh() is safe because it just returns the known dbh or undef.
+   my $dbh = $executor->dbh();
+   return undef if not defined $dbh;
+
+   my $executor_role = $executor->role();
    if (defined $schema) {
-      $executor->execute("USE $schema");
+      my $result = $executor->execute("USE $schema");
+      my $status = $result->status;
+      # Experimental
+      if ($status != STATUS_OK) {
+          say("DEBUG: Use <schema> harvested status $status. Will return undef");
+          return undef;
+      }
    }
-
-   return $executor->dbh()->selectrow_array("SELECT DATABASE()");
+   my $aux_query = "SELECT DATABASE()";
+   my $database =  $dbh->selectrow_array($aux_query);
+   my $error = $dbh->err();
+   my $error_type = STATUS_OK;
+   if (defined $error) {
+       $error_type = $err2type{$error} || STATUS_OK;
+       my $message_part = "ERROR: $who_am_i $executor_role. Auxiliary query ->" .
+                           $aux_query . "<- failed: $error " .  $dbh->errstr();
+       say("$message_part. Will return undef.");
+       return undef;
+   }
+   return $database;
 }
 
 
@@ -1683,9 +1744,18 @@ sub getSchemaMetaData {
    my ($self) = @_;
 
    # Unset max_statement_time in case it was set in test configuration.
-   $self->dbh()->do('/*!100108 SET @@max_statement_time = 0 */');
+   my $query = '/*!100108 SET @@max_statement_time = 0 */';
+    $self->dbh()->do($query);
+    my $error = $self->dbh()->err();
+    if (defined $error) {
+        Carp::cluck("FATAL ERROR: getSchemaMetaData: dbh-do failed.");
+             say("FATAL ERROR: getSchemaMetaData: The query was ->$query<-.");
+             say("FATAL ERROR: $error: " . $self->dbh()->errstr());
+             say("FATAL ERROR: getSchemaMetaData: Will return undef.");
+        return undef;
+    }
 
-   my $query =
+   $query =
         "SELECT DISTINCT " .
                 "CASE WHEN table_schema = 'information_schema' ".
                      "THEN 'INFORMATION_SCHEMA' ".  ## Hack due to
@@ -1725,8 +1795,7 @@ sub getSchemaMetaData {
         "WHERE table_schema <> 'rqg' AND table_name <> 'DUMMY'";
    #    "WHERE table_name <> 'DUMMY'";
 
-   # system("killall -9 mysqld");
-   # sleep 3;
+   # exp_server_kill("getSchemaMetaData", $query);
    my $res = $self->dbh()->selectall_arrayref($query);
    # 2019-05 (mleich)
    # This can also become victim of
@@ -1734,7 +1803,7 @@ sub getSchemaMetaData {
    if (not defined $res) {
        # SQL syntax error or DB server dead.
        # In case of empty result sets we will not end up here.
-       my $error = $self->dbh()->err();
+       $error = $self->dbh()->err();
        Carp::cluck("FATAL ERROR: getSchemaMetaData: selectall_arrayref failed.");
        say("FATAL ERROR: getSchemaMetaData: The query was ->$query<-.");
        say("FATAL ERROR: $error: " . $self->dbh()->errstr());
@@ -1743,18 +1812,17 @@ sub getSchemaMetaData {
        return undef;
    }
 
-   # system("killall -9 mysqld");
-   # sleep 3;
    my %table_rows = ();
    foreach my $i (0..$#$res) {
       my $tbl = $res->[$i]->[0] . '.' . $res->[$i]->[1];
       if ((not defined $table_rows{$tbl}) or ($table_rows{$tbl} eq 'NULL') or ($table_rows{$tbl} eq '')) {
          $query = "SELECT COUNT(*) FROM $tbl";
+         # exp_server_kill("getSchemaMetaData", $query);
          my $count_row = $self->dbh()->selectrow_arrayref($query);
          if (not defined $count_row) {
              # SQL syntax error or DB server dead.
              # In case of empty result sets we will not end up here.
-             my $error = $self->dbh()->err();
+             $error = $self->dbh()->err();
              Carp::cluck("FATAL ERROR: getSchemaMetaData: selectrow_arrayref failed.");
              say("FATAL ERROR: getSchemaMetaData: The query was ->$query<-.");
              say("FATAL ERROR: $error: " . $self->dbh()->errstr());
@@ -1769,7 +1837,18 @@ sub getSchemaMetaData {
 
    #
    # Restore original max_statement_time value.
-   $self->dbh()->do('/*!100108 SET @@max_statement_time= @@global.max_statement_time */');
+   $query = '/*!100108 SET @@max_statement_time= @@global.max_statement_time */';
+   # exp_server_kill("getSchemaMetaData", $query);
+   $self->dbh()->do($query);
+    $error = $self->dbh()->err();
+    if (defined $error) {
+        Carp::cluck("FATAL ERROR: getSchemaMetaData: dbh-do failed.");
+             say("FATAL ERROR: getSchemaMetaData: The query was ->$query<-.");
+             say("FATAL ERROR: $error: " . $self->dbh()->errstr());
+             say("FATAL ERROR: getSchemaMetaData: Will return undef.");
+        return undef;
+    }
+
    return $res;
 
 } # End of sub getSchemaMetaData
@@ -1781,9 +1860,8 @@ sub getCollationMetaData {
    ## or undef if hitting an error.
    my ($self) = @_;
    my $query = "SELECT collation_name,character_set_name FROM information_schema.collations";
+   # exp_server_kill("getCollationMetaData", $query);
 
-   # system("killall -9 mysqld");
-   # sleep 3;
    my $res = $self->dbh()->selectall_arrayref($query);
    if (not defined $res) {
       # SQL syntax error, DB server dead but not empty result set
@@ -1794,7 +1872,7 @@ sub getCollationMetaData {
       ########## my $error_type = $err2type{$error} || STATUS_OK;
       return undef;
    }
-   return $self->dbh()->selectall_arrayref($query);
+   return $res;
 }
 
 sub read_only {
