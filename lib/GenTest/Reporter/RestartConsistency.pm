@@ -100,6 +100,12 @@ sub report {
     # IMHO unlikely worst case if this is omitted: Active user sessions change data and than dump
     # before and after shutdown+restart could differ --> false alarm.
 
+    # Observation 2020-06:
+    # dump_database fails because the limit max_statement_time = 30 kicks in.
+    # And than we get finally STATUS_CRITICAL_FAILURE.
+    # So given the fact that we are around test end we could manipulate the @global variable.
+    $dbh->do('/*!100108 SET @@global.max_statement_time = 0 */');
+
     my $dump_return = dump_database($reporter,$dbh,'before');
     if ($dump_return > STATUS_OK) {
         say("ERROR: $who_am_i Dumping the database failed with status $dump_return. " .
@@ -110,6 +116,7 @@ sub report {
 
     my $pid = $reporter->serverInfo('pid');
     kill(15, $pid);
+    say("INFO: $who_am_i Sending SIGTERM to Server with pid $pid.");
 
     foreach (1..60) {
         last if not kill(0, $pid);
