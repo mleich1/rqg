@@ -70,7 +70,7 @@ $combinations = [
           --queries=100000000
           --mysqld=--loose_innodb_use_native_aio=1
           --reporters=Backtrace,ErrorLog,Deadlock1,RestartConsistency
-          --restart_timeout=30
+          --restart_timeout=120
           --mysqld=--log_output=none
           --sqltrace=MarkErrors
           --grammar=conf/mariadb/innodb_compression_encryption.yy

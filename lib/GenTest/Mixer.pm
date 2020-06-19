@@ -190,9 +190,14 @@ sub next {
       # Omit to execute queries consisting of white spaces only.
       next if $query =~ m{^\s*$}o;
 
+      # The check which follows here cannot prevent 100% that the reporter Deadlock could
+      # mean to have detected a problem based on  The duration was far way exceeded.
+      # Reasons:
+      # 1. There can be more than one executor per SQL statement.
+      # 2. There could be several validators and especially several transformers per statement.
       if ($mixer->end_time() && (time() > $mixer->end_time())) {
          say("INFO: $mixer_role in Mixer : We have already exceeded time specified by " .
-             "--duration=x; exiting now.");
+             "--duration=x; Will leave Mixer soon.");
          last;
       }
 

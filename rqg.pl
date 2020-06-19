@@ -2002,6 +2002,8 @@ say("RESULT: The core of the RQG run ended with status " . status2text($final_re
 if ($final_result >= STATUS_CRITICAL_FAILURE) {
     if (killServers() != STATUS_OK) {
         say("ERROR: Killing the server(s) failed somehow.");
+    } else {
+        say("INFO: Any remaining servers were killed.");
     }
 } else {
     if (stopServers($final_result) != STATUS_OK) {
