@@ -37,6 +37,7 @@ our $test_compression_encryption =
   '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz ' .
   '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
 
+our $duration = 300;
 our $grammars =
 [
 
@@ -56,10 +57,10 @@ our $grammars =
   #
   # Suffers in old releases massive from https://jira.mariadb.org/browse/MDEV-19449
   '--gendata=conf/mariadb/oltp.zz --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy',    # This looked once like a dud.
-# TOO MUCH for the 32 GB of my notebook
-  '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --grammar=conf/percona_qa/BT-16274/BT-16274.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
-# TOO MUCH for the 32 GB of my notebook
-  '--gendata=conf/percona_qa/percona_qa.zz --grammar=conf/percona_qa/percona_qa.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
+# Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
+# '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --grammar=conf/percona_qa/BT-16274/BT-16274.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
+# Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
+# '--gendata=conf/percona_qa/percona_qa.zz --grammar=conf/percona_qa/percona_qa.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
   '--views --grammar=conf/mariadb/partitions_innodb.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/userstat.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy',
   '--gendata=conf/engines/innodb/full_text_search.zz --short_column_names --grammar=conf/engines/innodb/full_text_search.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/redefine_temporary_tables.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy',
   '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/userstat.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy',
@@ -82,17 +83,19 @@ our $grammars =
 
   # Main DDL-DDL, DDL-DML stress work horse   with generated virtual columns, fulltext indexes, KILL QUERY/SESSION, BACKUP STAGE
   '--grammar=conf/mariadb/table_stress_innodb.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
+  '--grammar=conf/mariadb/table_stress_innodb.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
   # Derivate of above which tries to avoid any DDL rebuilding the table, also without BACKUP STAGE
   #     IMHO this fits more likely to the average fate of production applications.
   #     No change of PK, get default ALGORITHM which is NOCOPY if doable, no BACKUP STAGE because too new and RPL used instead.
   '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=RestartConsistency',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=CrashRecovery1',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --rpl_mode=statement',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --rpl_mode=mixed',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --rpl_mode=row',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --redefine=conf/mariadb/xa.yy',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=RestartConsistency',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup_linux',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=CrashRecovery1',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --rpl_mode=statement',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --rpl_mode=mixed',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --rpl_mode=row',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --redefine=conf/mariadb/xa.yy',
 
   # Fiddle with FOREIGN Keys and TRUNCATE
   '--gendata=conf/mariadb/fk_truncate.zz --grammar=conf/mariadb/fk_truncate.yy',
@@ -101,10 +104,10 @@ our $grammars =
   # '--grammar=table_stress.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
 
   # DML only together with Mariabackup
-  '--gendata=conf/mariadb/oltp.zz --grammar=conf/mariadb/oltp.yy --reporters=Mariabackup ',
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=Mariabackup ',
-  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=Mariabackup ',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --reporters=Mariabackup ',
+  '--gendata=conf/mariadb/oltp.zz --grammar=conf/mariadb/oltp.yy --reporters=Mariabackup_linux ',
+  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=Mariabackup_linux ',
+  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=Mariabackup_linux ',
+  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --reporters=Mariabackup_linux ',
   # DML only together with RestartConsistency
   '--gendata=conf/mariadb/oltp.zz --grammar=conf/mariadb/oltp.yy --reporters=RestartConsistency ',
   '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=RestartConsistency ',
@@ -178,7 +181,6 @@ $combinations = [ $grammars,
   [
     '
     --mysqld=--innodb_use_native_aio=1
-    --mysqld=--innodb_stats_persistent=off
     --mysqld=--innodb_lock_schedule_algorithm=fcfs
     --mysqld=--loose-idle_write_transaction_timeout=0
     --mysqld=--loose-idle_transaction_timeout=0
@@ -194,7 +196,6 @@ $combinations = [ $grammars,
     --mysqld=--innodb-lock-wait-timeout=50
     --no-mask
     --queries=10000000
-    --duration=300
     --seed=random
     --reporters=Backtrace --reporters=ErrorLog --reporters=Deadlock1
     --validators=None
@@ -205,7 +206,32 @@ $combinations = [ $grammars,
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
     --restart_timeout=120
-    '
+    ' .
+    "
+    --duration=$duration
+    --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=$duration
+    "
+  ],
+  [
+    ' --mysqld=--loose-innodb-sync-debug ',
+    '',
+  ],
+  [
+    ' --mysqld=--innodb_stats_persistent=off ',
+    ' --mysqld=--innodb_stats_persistent=on ',
+  ],
+  [
+    # Warning (mleich 2020-06):
+    # It might look as if max-statement-time is a good alternative to using the reporter
+    # "Querytimeout". I fear that the latter is not that reliable.
+    # But certain RQG tests showed that especially DDL's could run several minutes
+    # without being stopped by max-statement-time.
+    # Conclusion:
+    # If facing frequent STATUS_SERVER_DEADLOCKED and assuming its false alarm
+    # (= long runtime because of "natural" reason) than using
+    # max-statement-time and the reporter Querytimeout makes sense.
+    #
+    ' --mysqld=--loose-max-statement-time=30 ',
   ],
   [
     ' --threads=1  ',
@@ -219,16 +245,18 @@ $combinations = [ $grammars,
     # 2. An innodb-buffer-pool-size=5M should work well with innodb_page_size < 32K
     # 3. A huge innodb-buffer-pool-size will not give an advantage if the tables are small.
     # 4. Small innodb-buffer-pool-size and small innodb_page_size stress Purge more.
-    ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=5M   ',
-    ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=8M   ',
+    # Some settings need to be temporary disabled in order to reduce the fraction of false positives.
+    # Reporter "QueryTimeout" not used, max-statement-time=30, certain DDL does not honor max-statement-time
+#   ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=5M   ',
+#   ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=8M   ',
     ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=256M ',
-    ' --mysqld=--innodb_page_size=8K  --mysqld=--innodb-buffer-pool-size=8M   ',
+#   ' --mysqld=--innodb_page_size=8K  --mysqld=--innodb-buffer-pool-size=8M   ',
     ' --mysqld=--innodb_page_size=8K  --mysqld=--innodb-buffer-pool-size=256M ',
-    ' --mysqld=--innodb_page_size=16K --mysqld=--innodb-buffer-pool-size=8M   ',
+#   ' --mysqld=--innodb_page_size=16K --mysqld=--innodb-buffer-pool-size=8M   ',
     ' --mysqld=--innodb_page_size=16K --mysqld=--innodb-buffer-pool-size=256M ',
-    ' --mysqld=--innodb_page_size=32K --mysqld=--innodb-buffer-pool-size=24M  ',
+#   ' --mysqld=--innodb_page_size=32K --mysqld=--innodb-buffer-pool-size=24M  ',
     ' --mysqld=--innodb_page_size=32K --mysqld=--innodb-buffer-pool-size=256M ',
-    ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=24M  ',
+#   ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=24M  ',
     ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=256M ',
   ],
 ];

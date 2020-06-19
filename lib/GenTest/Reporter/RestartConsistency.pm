@@ -194,6 +194,7 @@ sub report {
         say("ERROR: $who_am_i Restart has failed.");
         return $recovery_status;
     }
+    $dbh->do('/*!100108 SET @@global.max_statement_time = 0 */');
 
     #
     # Phase 2 - server is now running, so we execute various statements in order to verify table consistency
