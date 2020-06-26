@@ -16,9 +16,10 @@
 # USA
 
 # Certain parts (c) Percona Inc
+# Certain parts (c) Mariadb Corporation Ab
 
 $tables = {
-  pk => [undef,'int','int auto_increment','varchar'],
+  pk => [undef,'int','int auto_increment','varchar(10)'],
   partitions => [ undef , 'KEY (pk) PARTITIONS 2' ],
   engines => ['InnoDB'],
   rows => [100,500],

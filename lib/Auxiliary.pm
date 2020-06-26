@@ -923,7 +923,9 @@ sub status_matching {
             "found once.") if script_debug("A5");
     }
 
-    # FIXME: maybe just read $content line by line in order to save memory
+    # FIXME:
+    # 1. Maybe the file is not readable or ....
+    # 2. Maybe just read $content line by line in order to save memory
     my $line;
     open my $handle, "<", \$content;
     while( $line = <$handle> ) {
@@ -2453,7 +2455,7 @@ sub help_rr {
 "      rqg_batch.pl --trials=<small number> --stop_on_replay <more options>.\n"                    .
 "      Warnings if assigning '--rr=" . RR_TYPE_RQG . "' to rqg_batch.pl\n"                         .
 "      1. 3000 RQG runs means ~ 7.5 TB 'rr' trace get written in the RQG vardir even if the\n"     .
-"         result are not of interest and get not archived.\n"                                      .
+"         results are not of interest and get not archived.\n"                                      .
 "         And there will be a serious number of writes into server logs and data in addition.\n"   .
 "         Hence vardirs on SSD are most probably dangerous for the lifetime of the SSD.\n"         .
 "      2. Even having the vardirs on RAM based tmpfs and moving only compressed archives of RQG\n" .

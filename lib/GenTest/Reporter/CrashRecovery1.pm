@@ -382,8 +382,9 @@ sub report {
                             say("DEBUG: $sql harvested harmless $errstr.");
                             next;
                         } else {
-                            say("ERROR: $stmt harvested $err: $errstr. " .
-                                "Will return STATUS_DATABASE_CORRUPTION");
+                            say("ERROR: $sql harvested $err: $errstr. " .
+                                "Will return STATUS_DATABASE_CORRUPTION later.");
+                            sayFile($server->errorlog);
                             return STATUS_DATABASE_CORRUPTION;
                         }
                     }
