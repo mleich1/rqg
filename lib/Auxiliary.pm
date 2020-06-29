@@ -686,7 +686,7 @@ sub content_matching {
         last if not defined $pattern;
         $no_pattern = 0;
         my $message = "$message_prefix element '$pattern' :";
-        if ($content =~ m{$pattern}s) {
+        if ($content =~ m{$pattern}ms) {
             if ($debug) { say("$message match"); };
             $match = 1;
         } else {
@@ -2465,6 +2465,40 @@ sub help_rr {
     );
 }
 
+sub search_in_file {
+# Return:
+# undef - $search_file does not exist or is not readable
+# 0     - $search_file is ok, $pattern not found
+# 1     - $search_file is ok, $pattern found
+    my ($search_file, $pattern) = @_;
+
+    my $who_am_i = "Auxiliary::search_in_file:";
+    if (not -e $search_file) {
+        Carp::cluck("ERROR: $who_am_i The file '$search_file' is missing. Will return undef.");
+        return undef;
+    }
+    if (not osWindows()) {
+        system ("sync $search_file");
+    }
+    if (open(LOGFILE, "$search_file")) {
+        while(<LOGFILE>) {
+            if( m{$pattern}m ) {
+                close LOGFILE;
+                # say("DEBUG: '" . $pattern . "' found in '" . $search_file . "'. Will return 1.");
+                return 1;
+            }
+        }
+        close LOGFILE;
+        # say("DEBUG: '" . $pattern . "' not found in '" . $search_file . "'. Will return 0.");
+        return 0;
+    } else {
+        Carp::cluck("ERROR: $who_am_i Open file '" . $search_file . "' failed : $!. " .
+                    "Will return undef.");
+        return undef;
+    }
+}
+
+
 # FIXME: Maybe move from the Simplifier to here.
 # Adaptive FIFO
 #
@@ -2473,6 +2507,7 @@ sub help_rr {
 #
 
 # Check if basedir contains a mysqld and clients
+
 
 
 1;

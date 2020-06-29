@@ -1,5 +1,5 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
-# Copyright (C) 2016-2019 MariaDB Corporation Ab.
+# Copyright (C) 2016-2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -42,14 +42,19 @@ sub new {
 sub monitor {
 	my ($manager, $desired_type) = @_;
 
+    my $who_am_i = "GenTest::ReporterManager::monitor:";
 	my $max_result = STATUS_OK;
 
 	foreach my $reporter (@{$manager->reporters()}) {
 		if ($reporter->type() & $desired_type) {
 			my $reporter_result = $reporter->monitor();
 			$max_result = $reporter_result if $reporter_result > $max_result;
+            if ($reporter_result != STATUS_OK) {
+                say("INFO: $who_am_i Reporter '" . $reporter->name() . "' reported $reporter_result ");
+            }
 		}
 	}
+    say("DEBUG: $who_am_i Will return the (maximum) status $max_result");
 	return $max_result;
 }
 

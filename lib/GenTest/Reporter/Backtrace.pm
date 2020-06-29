@@ -1,5 +1,5 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2018-2019 MariaDB Corporation Ab.
+# Copyright (c) 2018-2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -23,6 +23,7 @@ require Exporter;
 
 use strict;
 use GenTest;
+use Auxiliary;
 use GenTest::Constants;
 use GenTest::Reporter;
 use GenTest::Incident;
@@ -36,7 +37,18 @@ use GenTest::CallbackPlugin;
 # 3. Builds with ASAN do not write a core file except the process environment
 #    gets corresponding set
 #    export ASAN_OPTIONS=abort_on_error=1,disable_coredump=0
-#
+# 4. In case of runs invoking 'rr' writing of cores of the server process is
+#    disabled.
+
+my @end_line_patterns = (
+    '^Aborted$',
+    '^Segmentation fault$',
+    'mysqld: Shutdown complete$',
+    '^Killed$'
+);
+
+
+my $who_am_i = "Reporter 'Backtrace':";
 
 sub report {
     if (defined $ENV{RQG_CALLBACK}) {
@@ -49,7 +61,8 @@ sub report {
 sub nativeReport {
     my $reporter = shift;
 
-    say("INFO: Reporter 'Backtrace' ------------------------------ Begin");
+
+    say("INFO: $who_am_i ----- nativeReport ----------- Begin");
 
     my $datadir = $reporter->serverVariable('datadir');
     say("datadir is $datadir");
@@ -150,7 +163,7 @@ sub nativeReport {
     # Do not look for a core file in case the server pid exists.
     # Observation on ASAN build but weak statistics
     # - If '(core dumped)' shows up in server error log than the timestamp in the log is 0 to 1s
-    #   Backtrace.pm detects that the server process disappered.
+    #   before Backtrace.pm detects that the server process disappered.
     # - A high fraction of the crashes cause the usual block of related entries in the error log
     #   and
     #   - none of these entries look like made by ASAN
@@ -163,34 +176,33 @@ sub nativeReport {
     #   In case the ASAN options allow core writing and we wait long enough than a
     #   'Aborted (core dumped)' follows later.
     my $server_running    = 1;
-    my $core_dumped_found = 0;
+    my $end_line_found    = 0;
     my $wait_timeout      = 180;
     my $start_time        = Time::HiRes::time();
     my $max_end_time      = $start_time + $wait_timeout;
-    while ($server_running and not $core_dumped_found and (Time::HiRes::time() < $max_end_time)) {
+    while ($server_running and not $end_line_found and (Time::HiRes::time() < $max_end_time)) {
         sleep 1;
         $server_running = kill (0, $pid);
         # say("DEBUG: server pid : $pid , server_running : $server_running");
-
-        if (not osWindows()) {
-            system ("sync $datadir/* $error_log $pid_file");
+        my $content = Auxiliary::getFileSlice($error_log, 1000000);
+        if (not defined $content or '' eq $content) {
+            say("FATAL ERROR: $who_am_i No server error log content got. Will return undef.");
+            return STATUS_ENVIRONMENT_FAILURE, undef;
         }
-        if ($core_dumped_found == 0) {
-            open(LOGFILE, "$error_log") or Carp::cluck("Error on open Server error file $error_log");
-            while(<LOGFILE>) {
-                if( /\(core dumped\)/ ) {
-                    $core_dumped_found = 1;
-                    # say("DEBUG: '(core dumped)' found in server error log.");
-                }
-                # Segmentation fault (core dumped)
-                # Aborted (core dumped)
-            }
-            close LOGFILE;
+        my $return = Auxiliary::content_matching($content, \@end_line_patterns, '', 0);
+        if      ($return eq Auxiliary::MATCH_YES) {
+            $end_line_found = 1;
+        } elsif ($return eq Auxiliary::MATCH_NO) {
+            # Do nothing
+        } else {
+            say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. Will return " .
+                "STATUS_ENVIRONMENT_FAILURE, undef");
+            return STATUS_ENVIRONMENT_FAILURE, undef;
         }
     }
 
     my $wait_time     = Time::HiRes::time() - $start_time;
-    my $message_begin = "ALARM: Reporter::Backtrace $wait_time" . "s waited but the server";
+    my $message_begin = "ALARM: $who_am_i $wait_time" . "s waited but the server";
     if ( $server_running ) {
         say("$message_begin process has not disappeared.");
         # It does not make sense to wait longer.
@@ -203,11 +215,49 @@ sub nativeReport {
     # Hence we need to report the status STATUS_SERVER_CRASHED whenever we return.
 
     if ( -e $pid_file ) {
-        say("INFO: Reporter::Backtrace The pid_file '$pid_file' did not disappear.");
+        say("INFO: $who_am_i The pid_file '$pid_file' did not disappear.");
+    } else {
+        say("WARN: $who_am_i The pid_file '$pid_file' did disappear. Hence (likely) the server " .
+            "was able to remove it or (less likely) something else did that.");
+        my $found = Auxiliary::search_in_file($error_log, 'mysqld: Shutdown complete^');
+        if      (not defined $found) {
+            say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. Will return " .
+                "STATUS_ENVIRONMENT_FAILURE, undef");
+            return STATUS_ENVIRONMENT_FAILURE, undef;
+        } elsif (1 == $found) {
+            say("WARN: $who_am_i Normal shutdown detected. This is unexpected. Will return " .
+                "STATUS_CRITICAL_FAILURE, undef");
+            return STATUS_CRITICAL_FAILURE, undef;
+        } else {
+            # Do nothing
+        }
     }
-    if ( not $core_dumped_found ) {
-        say("$message_begin error_log remains without '... (core dumped)'.");
+    # Note:
+    # The message within the server error log "Writing a core file..." describes the intention
+    # but not if that really happened.
+    my $found = Auxiliary::search_in_file($error_log, 'core dumped');
+    say("MLML: found ->$found<-");
+    if      (not defined $found) {
+        say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. Will return " .
+            "STATUS_ENVIRONMENT_FAILURE, undef");
+        return STATUS_ENVIRONMENT_FAILURE, undef;
+    } elsif (1 == $found) {
+        # Go on
+    } else {
+        say("INFO: $who_am_i No core file to be expected. Will return " .
+                "STATUS_SERVER_CRASHED, undef");
+        return STATUS_SERVER_CRASHED, undef;
     }
+
+#   if (defined $reporter->properties->rr) {
+#       # It is a run with 'rr' and their cores are disabled intentionally.
+#       # FIXME: Check what the server error log says.
+#       say("INFO: The server was running under 'rr' with core file disabled.");
+#       say("Will return STATUS_SERVER_CRASHED, undef");
+#       say("INFO: Reporter 'Backtrace' ------------------------------ End");
+#       return STATUS_SERVER_CRASHED, undef;
+#
+#   }
 
     $wait_timeout   = 270;
     $start_time     = Time::HiRes::time();
