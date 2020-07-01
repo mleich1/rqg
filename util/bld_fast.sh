@@ -86,6 +86,7 @@ touch "$BLD_PROT"
 echo "# Build in '"$OOS_DIR"' at "`date --rfc-3339=seconds`             | tee -a "$BLD_PROT"
 echo "#=============================================================="  | tee -a "$BLD_PROT"
 cd "$SOURCE_DIR"
+git checkout cmake/maintainer.cmake
 GIT_SHOW=`git show --pretty='format:%D %H %cI' -s 2>&1`
 echo "GIT_SHOW: $GIT_SHOW"                                              | tee -a "$BLD_PROT"
 echo                                                                    | tee -a "$BLD_PROT"
@@ -193,14 +194,16 @@ rm -f "$TARGET" "$TARGET_PRT"
 echo "Generating compressed archive with binaries (for RQG)"            | tee -a "$BLD_PROT"
 tar czf "$TARGET" .                                              2>&1   | tee -a "$BLD_PROT"
 MD5SUM=`md5sum "$TARGET" | cut -f1 -d' '`
-echo "MD5SUM of bin_arch.tgz: $MD5SUM"                                  | tee -a "$BLD_PROT"
+echo "MD5SUM of archive: $MD5SUM"                                       | tee -a "$BLD_PROT"
+DATE=`date -u +%s`
 echo "The archive of the release before renaming"                       | tee -a "$BLD_PROT"
 ls -ld "$TARGET"                                                 2>&1   | tee -a "$BLD_PROT"
+echo "BASENAME of the archive and protocol: $DATE"                      | tee -a "$BLD_PROT"
 cp "$BLD_PROT"   "$INSTALL_PREFIX""/"
 cp "$BLD_PROT"   "$TARGET_PRT"
 
-mv "$TARGET_PRT" "$RQG_ARCH_DIR""/""$MD5SUM"".prt"
-mv "$TARGET"     "$RQG_ARCH_DIR""/""$MD5SUM"".tgz"
+mv "$TARGET_PRT" "$RQG_ARCH_DIR""/""$DATE"".prt"
+mv "$TARGET"     "$RQG_ARCH_DIR""/""$DATE"".tgz"
 
 echo
 echo "End of build+install process reached"

@@ -584,13 +584,13 @@ if ($noarchiving) {
     #    write it into build.prt
     # 5. cp build.prt to <RQG>/storage/binarchs/build.prt
     #    cp build.prt to <whatever>/10.5_debug/build.prt
-    # 6. mv <RQG>/storage/binarchs/bin_arch.tgz <RQG>/storage/binarchs/<md5_sum>.tgz
-    #    mv <RQG>/storage/binarchs/build.prt    <RQG>/storage/binarchs/<md5_sum>.prt
+    # 6. mv <RQG>/storage/binarchs/bin_arch.tgz <RQG>/storage/binarchs/<build_date>.tgz
+    #    mv <RQG>/storage/binarchs/build.prt    <RQG>/storage/binarchs/<build_date>.prt
     # So the binaries used during the batch of RQG runs can be preserved by hard linking.
-    # Extract the md5sum from of <whatever>/10.5_debug/build.prt.
+    # Extract the build_date from of <whatever>/10.5_debug/build.prt.
     # RQG batch workdir | filesystem | <RQG>/storage/binarchs
-    # basedir<n>.tgz    | inode <A>  | <md5_sum>.tgz
-    # basedir<n>.prt    | inode <B>  | <md5_sum>.prt
+    # basedir<n>.tgz    | inode <A>  | <build_date>.tgz
+    # basedir<n>.prt    | inode <B>  | <build_date>.prt
     #######################################################
 
     foreach my $i (1..3) {
@@ -605,17 +605,17 @@ if ($noarchiving) {
             next;
         }
         say("INFO: Protocol of build '$build_prt' detected.");
-        my $pattern = 'MD5SUM of bin_arch.tgz: ';
-        my $md5_sum = Auxiliary::get_string_after_pattern($build_prt, $pattern);
-        if (not defined $md5_sum) {
+        my $pattern = 'BASENAME of the archive and protocol: ';
+        my $base_name = Auxiliary::get_string_after_pattern($build_prt, $pattern);
+        if (not defined $base_name) {
             say("WARN: '$build_prt' does not contain a line with '$pattern'. " .
                 "Preserving of basedir content impossible.");
             say("HINT: Use buildscripts like 'util/bld_*.sh'.");
             next;
         }
-        say("DEBUG: $pattern  $md5_sum");
+        say("DEBUG: $pattern  $base_name");
 
-        my $s_prefix       = $bin_arch_dir . "/" . $md5_sum;
+        my $s_prefix       = $bin_arch_dir . "/" . $base_name;
         my $s_bin_arch     = $s_prefix . '.tgz';
         my $s_bin_arch_prt = $s_prefix . '.prt';
 
