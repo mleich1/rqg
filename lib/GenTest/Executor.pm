@@ -37,6 +37,8 @@ require Exporter;
 	EXECUTOR_FLAG_SILENT
 	EXECUTOR_FLAG_PERFORMANCE
 	EXECUTOR_FLAG_HASH_DATA
+
+    EXECUTOR_TASK
 );
 
 use strict;
@@ -70,10 +72,12 @@ use constant EXECUTOR_FLAGS			=> 18;
 use constant EXECUTOR_HOST          => 19;
 use constant EXECUTOR_PORT          => 20;
 use constant EXECUTOR_END_TIME	    => 21;
-use constant EXECUTOR_CURRENT_USER	    => 22;
+use constant EXECUTOR_CURRENT_USER          => 22;
+# Used for distinction between Threads, Reporters ... when running execute.
+use constant EXECUTOR_TASK                  => 23;
 # Used for better messages.
 # Gendata , GendataSimple, ... , Thread1, ...., Reporter....
-use constant EXECUTOR_ROLE	    => 23;
+use constant EXECUTOR_ROLE                  => 24;
 
 use constant FETCH_METHOD_AUTO		=> 0;
 use constant FETCH_METHOD_STORE_RESULT	=> 1;
@@ -82,6 +86,12 @@ use constant FETCH_METHOD_USE_RESULT	=> 2;
 use constant EXECUTOR_FLAG_SILENT	=> 1;
 use constant EXECUTOR_FLAG_PERFORMANCE	=> 2;
 use constant EXECUTOR_FLAG_HASH_DATA	=> 4;
+
+use constant EXECUTOR_TASK_GENDATA  => 0;
+use constant EXECUTOR_TASK_CACHER   => 0;
+use constant EXECUTOR_TASK_THREAD   => 1;
+use constant EXECUTOR_TASK_REPORTER => 2;
+use constant EXECUTOR_TASK_UNKNOWN  => 3;
 
 my %global_schema_cache;
 
@@ -98,6 +108,7 @@ sub new {
         'no-err-filter'  => EXECUTOR_NO_ERR_FILTER,
         'fetch_method'   => EXECUTOR_FETCH_METHOD,
         'end_time'       => EXECUTOR_END_TIME,
+        'task'           => EXECUTOR_TASK,
         'role'           => EXECUTOR_ROLE
    }, @_);
 
@@ -182,6 +193,14 @@ sub role {
 
 sub setRole {
 	$_[0]->[EXECUTOR_ROLE] = $_[1];
+}
+
+sub task {
+	return $_[0]->[EXECUTOR_TASK];
+}
+
+sub setTask {
+	$_[0]->[EXECUTOR_TASK] = $_[1];
 }
 
 sub sqltrace {
@@ -379,7 +398,7 @@ sub cacheMetaData {
             # SUMMARY: RQG GenTest runtime in s : 7   -- Here was the problem but why?
             # SUMMARY: RQG total runtime in s : 22
 
-            Carp::cluck("FATAL ERROR: failed to cache schema metadata " .
+            Carp::cluck("FATAL ERROR: Failed to cache schema metadata. " .
                         "Will return status STATUS_ENVIRONMENT_FAILURE.");
             return STATUS_ENVIRONMENT_FAILURE;
         }
@@ -418,7 +437,7 @@ sub cacheMetaData {
 
     my $metadata= $self->getCollationMetaData();
     if (not defined $metadata) {
-        Carp::cluck("FATAL ERROR: failed to cache collation metadata" .
+        Carp::cluck("FATAL ERROR: Failed to cache collation metadata. " .
                     "Will return status STATUS_ENVIRONMENT_FAILURE.");
         return STATUS_ENVIRONMENT_FAILURE;
     }
