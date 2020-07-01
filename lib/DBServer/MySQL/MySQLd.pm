@@ -1297,46 +1297,40 @@ sub stopServer {
                 ## If shutdown fails, we want to know why:
                 say("Shutdown failed due to " . $dbh->err . ": " . $dbh->errstr);
                 $res= DBSTATUS_FAILURE;
+            } else {
+                if ($self->waitForServerToStop($shutdown_timeout) != DBSTATUS_OK) {
+                    # Terminate process
+                    say("ERROR: Server did not shut down properly. Terminate it");
+                    sayFile($errorlog);
+                    $res= $self->term;
+                    # If SIGTERM does not work properly then SIGKILL is used.
+                    if ($res == DBSTATUS_OK) {
+                        $check_shutdown = 1;
+                    }
+                } else {
+                    $check_shutdown = 1;
+                    # clean up when server is not alive.
+                    unlink $self->socketfile if -e $self->socketfile;
+                    unlink $self->pidfile    if -e $self->pidfile;
+                    $self->[MYSQLD_SERVERPID] = undef;
+                    $res= DBSTATUS_OK;
+                    say("Server has been stopped");
+                    # 2020-05-19 we passed this branch and the server error log contains
+                    # 'mysqld: Shutdown complete'. Nevertheless it looks like that pattern was not
+                    # there when the error log was processed because RQG claims that no regular
+                    # shutdown was achieved.
+                    sleep 1;
+                }
             }
         } else {
             # Lets stick to a warning because the state met might be intentional.
             say("WARN: In stopServer : dbh is not defined.");
             $res= $self->term;
             # If SIGTERM does not work properly then SIGKILL is used.
+            # The operations ends with setting the pid to undef and removing the pidfile!
             if ($res == DBSTATUS_OK) {
                 $check_shutdown = 1;
             }
-        }
-
-        # Possible states:   The server was running when we checked for that last time!
-        # 1. dbh was defined
-        # 1a: Shutdown is on its way
-        # 1b: Shutdown via corresponding command already failed
-        # 2. dbh is not defined
-        #    We have initiated a shutdown via SIGTERM.
-
-        if ($self->waitForServerToStop($shutdown_timeout) != DBSTATUS_OK) {
-            # Terminate process
-            say("ERROR: Server did not shut down properly. Terminate it");
-            sayFile($errorlog);
-            $res= $self->term;
-            # If SIGTERM does not work properly then SIGKILL is used.
-            if ($res == DBSTATUS_OK) {
-                $check_shutdown = 1;
-            }
-        } else {
-            $check_shutdown = 1;
-            # clean up when server is not alive.
-            unlink $self->socketfile if -e $self->socketfile;
-            unlink $self->pidfile    if -e $self->pidfile;
-            $self->[MYSQLD_SERVERPID] = undef;
-            $res= DBSTATUS_OK;
-            say("Server has been stopped");
-            # 2020-05-19 we passed this branch and the server error log contains
-            # 'mysqld: Shutdown complete'. Nevertheless it looks like that pattern was not
-            # there when the error log was processed because RQG claims that no regular
-            # shutdown was achieved.
-            sleep 1;
         }
     } else {
         say("Shutdown timeout or dbh is not defined, killing the server");
