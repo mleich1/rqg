@@ -1112,6 +1112,30 @@ sub dumpSchema {
     return $dump_result;
 }
 
+sub dumpSomething {
+    my ($self, $options, $file_prefix) = @_;
+    say("Dumping MySQL server " . $self->version . " content on port " . $self->port);
+    my $dump_command = '"' . $self->dumper . "\" --host=127.0.0.1 --port=" . $self->port .
+                             " --user=root $options";
+    say("DEBUG: dump_command ->" . $dump_command . "<-");
+    my $dump_file =   $file_prefix . ".dump";
+    my $err_file =    $file_prefix . ".err";
+    my $dump_result = system("$dump_command > $dump_file 2>$err_file");
+    if ($dump_result > 0) {
+        say("ERROR: dump_command ->" . $dump_command . "<- failed.");
+        sayFILE($err_file);
+    }
+    # Command line
+    # 1. mysqldump without options -> help text
+    #    RC=1
+    # 2. mysqldump with wrong option -> Lament about connect failing text
+    #    mysqldump: Got error: 2002: "Can't connect .... socket '/tmp/mysql.sock' (2)"
+    #    RC=2
+    return $dump_result;
+}
+
+
+
 # There are some known expected differences in dump structure between
 # pre-10.2 and 10.2+ versions.
 # We need to normalize the dumps to avoid false positives while comparing them.
