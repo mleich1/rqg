@@ -107,8 +107,29 @@ PROT="$CASE"".prt"
 killall -9 perl ; killall -9 mysqld ; killall -9 mariadbd
 rm -rf /dev/shm/var*
 
+############################################################
+if [ "$PWD" = "$BATCH_VARDIR" ]
+then
+   echo "ERROR: Current working directory equals BATCH_VARDIR '$BATCH_VARDIR'."
+   echo "The call was ->$CALL_LINE<-"
+   exit
+fi
+if [ "$BASEDIR1" = "$BATCH_VARDIR" ]
+then
+   echo "ERROR: BASEDIR1 equals BATCH_VARDIR '$BATCH_VARDIR'."
+   echo "The call was ->$CALL_LINE<-"
+   exit
+fi
+if [ "$BATCH_WORKDIR" = "$BATCH_VARDIR" ]
+then
+   echo "ERROR: BASEDIR1 equals BATCH_VARDIR '$BATCH_VARDIR'."
+   echo "The call was ->$CALL_LINE<-"
+   exit
+fi
+#############################################################
+
 # In case the cleanup above is disabled than at least this.
-rm -rf $BATCH_VARDIR/*
+rm -rf $BATCH_VARDIR/1*
 
 # There should be usually sufficient space in VARDIR for just a few fat core files caused by ASAN.
 # Already the RQG runner will take care that everything important inside his VARDIR will be
@@ -163,6 +184,7 @@ set -o pipefail
 # PARALLEL=2
 # TRIALS=1
 # PARALLEL=1
+#
 
 nohup perl -w ./rqg_batch.pl                                           \
 --workdir=$BATCH_WORKDIR                                               \
