@@ -122,8 +122,14 @@ sub report {
 
     # Using some buffer-pool-size which is smaller than before should work.
     # InnoDB page sizes >= 32K need in minimum a buffer-pool-size >=24M.
-    # So we go with that.
-    $server->addServerOptions(['--innodb-buffer-pool-size=24M']);
+    # So we might assume that works.
+    # 10.4.11  64K Pagesize test
+    # [Warning] InnoDB: Difficult to find free blocks in the buffer pool (21 search iterations)!
+    #    21 failed attempts to flush a page! Consider increasing innodb_buffer_pool_size.
+    #    Pending flushes (fsync) log: 0; buffer pool: 0. 38 OS file reads, 0 OS file writes, 0 OS fsyncs.
+    # 2020-07-07T15:46:12 [25311] | 200707 15:46:12 [ERROR] mysqld got signal 6 ;
+    # Therefore trying 48M
+    $server->addServerOptions(['--innodb-buffer-pool-size=48M']);
     # 2020-05-05 False alarm
     # One of the walking queries failed because max_statement_time=30 was exceeded.
     # The test setup might go with a short max_statement_time which might
