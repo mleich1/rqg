@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2019 MariaDB Corporation
+# Copyright (c) 2018, 2020 MariaDB Corporation
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -91,7 +91,7 @@ set_timeouts:
    SET SESSION lock_wait_timeout = 2 ; SET SESSION innodb_lock_wait_timeout = 1 ;
 
 maintain_session_entry:
-   REPLACE INTO test . rqg_sessions SET rqg_id = _thread_id , processlist_id = CONNECTION_ID(), pid = { my $x = $$ } , connect_time = UNIX_TIMESTAMP();  COMMIT ;
+   REPLACE INTO rqg . rqg_sessions SET rqg_id = _thread_id , processlist_id = CONNECTION_ID(), pid = { my $x = $$ } , connect_time = UNIX_TIMESTAMP();  COMMIT ;
 
 kill_query_or_session_or_release:
 # We are here interested on the impact of
@@ -133,10 +133,10 @@ kill_query_or_session_or_release:
 #    Hence this will be not generated.
 # 5. Various combinations of sessions running 1. till 5.
 #
-# (1) COMMIT before and after selecting in test . rqg_sessions in order to avoid effects caused by
+# (1) COMMIT before and after selecting in rqg . rqg_sessions in order to avoid effects caused by
 #     - a maybe open transaction before that select
 #     - the later statements of a transaction maybe opened by that select
-# (2) No COMMIT before and after selecting in test . rqg_sessions in order to have no freed locks
+# (2) No COMMIT before and after selecting in rqg . rqg_sessions in order to have no freed locks
 #     before the KILL affecting the own session is issued. This is only valid if AUTOCOMMIT=0.
 #
    COMMIT ; correct_rqg_sessions_table      ; COMMIT                                 | # (1)
@@ -147,16 +147,17 @@ kill_query_or_session_or_release:
             ROLLBACK RELEASE                                                         ;
 
 own_id_part:
-   SELECT     processlist_id  INTO @kill_id FROM test . rqg_sessions WHERE rqg_id  = _thread_id ;
+   SELECT     processlist_id  INTO @kill_id FROM rqg . rqg_sessions WHERE rqg_id  = _thread_id ;
 other_id_part:
-   SELECT MIN(processlist_id) INTO @kill_id FROM test . rqg_sessions WHERE rqg_id <> _thread_id AND processlist_id IS NOT NULL;
+   SELECT MIN(processlist_id) INTO @kill_id FROM rqg . rqg_sessions WHERE rqg_id <> _thread_id AND processlist_id IS NOT NULL;
 kill_50_cond:
    MOD(rqg_id,2) = 0;
 kill_age_cond:
    UNIX_TIMESTAMP() - connect_time > 10;
 
 correct_rqg_sessions_table:
-   UPDATE test . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
+   # UPDATE rqg . rqg_sessions SET processlist_id = NULL, connect_time = NULL WHERE processlist_id NOT IN (SELECT id FROM information_schema. processlist);
+   UPDATE rqg . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 create_table:
    # c_t_begin t0 c_t_mid ENGINE = MyISAM ; c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic ; c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed ; c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact ; c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant ; c_t_begin t5 c_t_mid ENGINE = Aria ;
@@ -221,7 +222,7 @@ enforce_duplicate1:
    delete ; insert_part /* my_int */ some_record , some_record ;
 
 enforce_duplicate2:
-   UPDATE table_names SET column_name_int = my_int LIMIT 2 ;
+   UPDATE table_names SET column_name_int = my_int ORDER BY col1 DESC LIMIT 2 ;
 
 insert_part:
    INSERT INTO table_names (col1,col2,col_int_properties $col_name, col_string_properties $col_name, col_text_properties $col_name) VALUES ;
