@@ -141,7 +141,8 @@ sub report {
     open(RECOVERY, $server->errorlog);
     while (<RECOVERY>) {
         $_ =~ s{[\r\n]}{}siog;
-        say($_);
+        # Only for debugging
+        # say($_);
         if ($_ =~ m{registration as a STORAGE ENGINE failed.}sio) {
             say("ERROR: $who_am_i Storage engine registration failed");
             $recovery_status = STATUS_DATABASE_CORRUPTION;
@@ -190,6 +191,7 @@ sub report {
     }
 
     if (not defined $dbh or $recovery_status > STATUS_OK) {
+        sayFile($server->errorlog);
         say("ERROR: $who_am_i Recovery has failed. Will return status STATUS_DATABASE_CORRUPTION");
         return STATUS_DATABASE_CORRUPTION;
     }
@@ -237,11 +239,13 @@ sub report {
             $errstr    = $sth_keys->errstr() if defined $sth_keys->errstr();
             if (defined $err) {
                 if (1356 == $err) {
-                    say("INFO: $table_to_check is a damaged VIEW. Omitting the walk_queries");
+                    say("INFO: $who_am_i $table_to_check is a damaged VIEW. Omitting the walk_queries");
                     next;
                 } else {
-                    say("ERROR: $stmt harvested $err: $errstr. " .
+                    say("ERROR: $who_am_i $stmt harvested $err: $errstr. " .
                         "Will return status STATUS_RECOVERY_FAILURE");
+                    sayFile($server->errorlog);
+                    say("ERROR: Will return status STATUS_RECOVERY_FAILURE");
                     return STATUS_RECOVERY_FAILURE;
                 }
             }
@@ -302,7 +306,8 @@ sub report {
             }
 
             if (keys %rows > 1) {
-                say("ERROR: $who_am_i Table $table_to_check is inconsistent.");
+                say("ERROR: $who_am_i Table $table_to_check is inconsistent. " .
+                    "Will return STATUS_DATABASE_CORRUPTION later.");
                 print Dumper \%rows;
 
                 my @rows_sorted = grep { $_ > 0 } sort keys %rows;
