@@ -87,7 +87,7 @@ echo "# Build in '"$OOS_DIR"' at "`date --rfc-3339=seconds`             | tee -a
 echo "#=============================================================="  | tee -a "$BLD_PROT"
 cd "$SOURCE_DIR"
 git checkout cmake/maintainer.cmake
-# Especially debug builds tend to fail with higher optimization because of coding mistakes 
+# Especially debug builds tend to fail with higher optimization because of coding mistakes
 # and errors. In the current case detecting them is usually of lower value than having a
 # build with non standard optimization.
 cp cmake/maintainer.cmake maintainer.cmake.tmp
@@ -120,6 +120,7 @@ cmake -DCONC_WITH_{UNITTEST,SSL}=OFF -DWITH_EMBEDDED_SERVER=OFF -DWITH_UNIT_TEST
 -DWITH_WSREP=ON                                                                                    \
 -DPLUGIN_TOKUDB=NO -DPLUGIN_MROONGA=NO -DPLUGIN_OQGRAPH=NO -DPLUGIN_SPHINX=NO -DPLUGIN_SPIDER=NO   \
 -DPLUGIN_ROCKSDB=NO -DPLUGIN_CONNECT=NO -DWITH_SAFEMALLOC=OFF -DWITH_SSL=bundled                   \
+-DPLUGIN_COLUMNSTORE=NO                                                                            \
 -DCMAKE_BUILD_TYPE=Debug                                                                           \
 -DWITH_ASAN:BOOL=OFF                                                                               \
 -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" "$SOURCE_DIR"    2>&1   | tee -a "$BLD_PROT"
@@ -189,6 +190,9 @@ cd "$OOS_DIR"
 
 rm -rf "$INSTALL_PREFIX"
 make install                                                     2>&1   | tee -a "$BLD_PROT"
+
+cd "$SOURCE_DIR"
+git checkout cmake/maintainer.cmake
 
 echo "# Check if the release in '"$INSTALL_PREFIX"' basically works"    | tee -a "$BLD_PROT"
 cd "$INSTALL_PREFIX"

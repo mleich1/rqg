@@ -45,7 +45,7 @@ then
     exit 16
 fi
 
-INSTALL_PREFIX="$GENERAL_BIN_DIR""/""$RELEASE""_debug"
+INSTALL_PREFIX="$GENERAL_BIN_DIR""/""$RELEASE""_debug_Og"
 
 RQG_ARCH_DIR="$GENERAL_RQG_WORK_DIR""/bin_archs"
 if [ ! -d "$RQG_ARCH_DIR" ]
@@ -87,6 +87,12 @@ echo "# Build in '"$OOS_DIR"' at "`date --rfc-3339=seconds`             | tee -a
 echo "#=============================================================="  | tee -a "$BLD_PROT"
 cd "$SOURCE_DIR"
 git checkout cmake/maintainer.cmake
+# Especially debug builds tend to fail with higher optimization because of coding mistakes
+# and errors. In the current case detecting them is usually of lower value than having a
+# build with non standard optimization.
+cp cmake/maintainer.cmake maintainer.cmake.tmp
+sed -e '/-Werror/d' maintainer.cmake.tmp > cmake/maintainer.cmake
+
 GIT_SHOW=`git show --pretty='format:%D %H %cI' -s 2>&1`
 echo "GIT_SHOW: $GIT_SHOW"                                              | tee -a "$BLD_PROT"
 echo                                                                    | tee -a "$BLD_PROT"
@@ -121,6 +127,14 @@ cmake -DCONC_WITH_{UNITTEST,SSL}=OFF -DWITH_EMBEDDED_SERVER=OFF -DWITH_UNIT_TEST
 END_TS=`date '+%s'`
 RUNTIME=$(($END_TS - $START_TS))
 echo -e "\nElapsed time for cmake: $RUNTIME\n\n"                        | tee -a "$BLD_PROT"
+
+# Append in order to not mangle the file maybe too much
+OTHER_VAL="-Og -g"
+echo -e "\nAppending CMAKE_ASM_FLAGS_DEBUG, CMAKE_CXX_FLAGS_DEBUG, CMAKE_C_FLAGS_DEBUG" \
+     "=$OTHER_VAL to CMakeCache.txt\n\n"                              | tee -a "$BLD_PROT"
+echo "CMAKE_ASM_FLAGS_DEBUG:STRING=$OTHER_VAL"                          >> CMakeCache.txt
+echo "CMAKE_CXX_FLAGS_DEBUG:STRING=$OTHER_VAL"                          >> CMakeCache.txt
+echo "CMAKE_C_FLAGS_DEBUG:STRING=$OTHER_VAL"                            >> CMakeCache.txt
 
 rm -f sql/mysqld
 rm -f sql/mariadbd
@@ -176,6 +190,9 @@ cd "$OOS_DIR"
 
 rm -rf "$INSTALL_PREFIX"
 make install                                                     2>&1   | tee -a "$BLD_PROT"
+
+cd "$SOURCE_DIR"
+git checkout cmake/maintainer.cmake
 
 echo "# Check if the release in '"$INSTALL_PREFIX"' basically works"    | tee -a "$BLD_PROT"
 cd "$INSTALL_PREFIX"

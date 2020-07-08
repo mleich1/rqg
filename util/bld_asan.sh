@@ -114,6 +114,7 @@ cmake -DCONC_WITH_{UNITTEST,SSL}=OFF -DWITH_EMBEDDED_SERVER=OFF -DWITH_UNIT_TEST
 -DWITH_WSREP=ON                                                                                    \
 -DPLUGIN_TOKUDB=NO -DPLUGIN_MROONGA=NO -DPLUGIN_OQGRAPH=NO -DPLUGIN_SPHINX=NO -DPLUGIN_SPIDER=NO   \
 -DPLUGIN_ROCKSDB=NO -DPLUGIN_CONNECT=NO -DWITH_SAFEMALLOC=OFF -DWITH_SSL=bundled                   \
+-DPLUGIN_COLUMNSTORE=NO                                                                            \
 -DCMAKE_BUILD_TYPE=Debug                                                                           \
 -DWITH_ASAN:BOOL=ON                                                                                \
 -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" "$SOURCE_DIR"    2>&1   | tee -a "$BLD_PROT"
