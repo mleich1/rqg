@@ -126,7 +126,7 @@ use constant STALLED_QUERY_COUNT_THRESHOLD   => 2;
 # use constant ACTUAL_TEST_DURATION_MULTIPLIER => 2;
 
 # Number of seconds the actual test duration is allowed to exceed the desired one.
-use constant ACTUAL_TEST_DURATION_EXCEED     => 240;  # Seconds
+use constant ACTUAL_TEST_DURATION_EXCEED     => 300;  # Seconds
 
 # The time, in seconds, we will wait for some query issued by the reporter (i.e. SHOW PROCESSLIST)
 # before we declare the server hanged.
@@ -489,6 +489,7 @@ sub nativeReport {
         # system("gdb --batch -p $server_pid -ex 'thread apply all backtrace'");
         my $msg_begin = "INFO: $who_am_i Killing mysqld with pid $server_pid with";
         say("$msg_begin SIGHUP in order to force debug output.");
+        # MariaDB prints a round status information into the server error log.
         kill(1, $server_pid);
 
         # FIXME:
