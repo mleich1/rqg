@@ -1,4 +1,5 @@
 # Copyright (c) 2013, Monty Program Ab.
+# Copyright (c) 2020, MariaDB Corporation Ab.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -86,7 +87,7 @@ sub report {
 	}
 
 	my @all_databases = @{$master_dbh->selectcol_arrayref("SHOW DATABASES")};
-	my $databases_string = join(' ', grep { $_ !~ m{^(mysql|information_schema|performance_schema)$}sgio } @all_databases );
+	my $databases_string = join(' ', grep { $_ !~ m{^(rqg|mysql|information_schema|performance_schema)$}sgio } @all_databases );
 	
 	my @dump_ports = ($master_port , $slave_port);
 	my @dump_files;
