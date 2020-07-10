@@ -2,7 +2,7 @@
 
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2016,2019 MariaDB Corporation Ab
+# Copyright (c) 2016,2020 MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -526,17 +526,38 @@ sub doGenTest {
 
    if ($reporter_died == 0) {
       # Wait for periodic process to return the status of its last execution.
-      # FIXME:
-      # 1. I have doubts if a sleep of 1 second is all time sufficient for catching a last status
-      #    of some already ongoing execution. But otherwise: He had his chances before.
-      # 2. Like for the threads: What if a "Reporter" does not react on SIGTERM etc.?
+      # Observation 2020-07-20
+      # 1. The process of the last worker thread exited with STATUS_OK.
+      # 2. A monitoring round ended with GenTest::ReporterManager::monitor: Will return the (maximum) status 0
+      # 3. I guess we were than leaving OUTER, no activity required for worker threads.
+      # 4. 12:33:18 [18207] Killing periodic reporting process with pid 108110...
+      #    12:33:18 [108110] ERROR: Reporter 'Deadlock': Actual test duration(548s) is more than ACTUAL_TEST_DURATION_EXCEED(240s) ....
+      #    12:33:18 [108110] INFO: Reporter 'Deadlock': monitor... delivered status 0. == Connectable+Processlist content is OK!
+      #    12:33:18 [108110] INFO: Reporter 'Deadlock': Killing mysqld with pid 22558 with SIGHUP in order to force debug output.
+      # 5. 15s (value is now raised to 60) waiting for the Reporter 'Deadlock' to terminate.
+      #    12:33:33 [18207] Kill GenTest::ErrorFilter(108108)
+      #    12:33:33 [18207] INFO: GenTest: Effective duration in s : 563
+      # 6. total_status is currently STATUS_OK (Deadlock has not yet finished)
+      #    reportResults starts and SUCCESS reporter get used
+      #    12:33:33 [18207] INFO: Reporter 'RestartConsistency': At begin of report.
+      #    12:33:33 [18207] INFO: Reporter 'RestartConsistency': Dumping the server before restart
+      #    12:33:35 [108110] INFO: Reporter 'Deadlock': Killing mysqld with pid 22558 with SIGSEGV in order to capture core.
+      # 7. 12:33:54 [18207] ERROR: Reporter 'RestartConsistency': Dumping the server before restart failed with 768.
+      #    == Collision of periodic reporter activity with SUCCESS/End reporter.
+      #    12:33:54 [18207] ERROR: Reporter 'RestartConsistency': Dumping the database failed with status 110. Will return STATUS_CRITICAL_FAILURE
+      #
+      # Conclusions:
+      # 1. ACTUAL_TEST_DURATION_EXCEED(240s) is at least for some grammars and the usual
+      #    excessive load too small.
+      # 2. Increase the waiting for termination of periodic reporting process to 60s.
+      # 3. SIGKILL the periodic reporting process in case he does not react fast enough.
       Time::HiRes::sleep(1);
       say("Killing periodic reporting process with pid $reporter_pid...");
       kill(15, $reporter_pid);
 
-      my $end_time = Time::HiRes::time() + 15;
+      my ($reaped, $reporter_status) = reapChild($reporter_pid, "Periodic reporting process");
+      my $end_time = Time::HiRes::time() + 60;
       while ($end_time > Time::HiRes::time()) {
-         my ($reaped, $reporter_status) = reapChild($reporter_pid, "Periodic reporting process");
          if (0 == $reaped) {
             if ($reporter_status > STATUS_OK) {
                 say("INTERNAL ERROR: Inconsistency that a reporter_status $reporter_status was " .
@@ -569,6 +590,10 @@ sub doGenTest {
             $total_status = $reporter_status if $reporter_status > $total_status;
             last;
          }
+      }
+      if (0 == $reaped) {
+         say("Killing (KILL) periodic reporting process with pid $reporter_pid...");
+         kill(9, $reporter_pid);
       }
    }
 
@@ -805,7 +830,8 @@ sub workerProcess {
     foreach my $i (0..2) {
         last if $self->config->property('upgrade-test') and $i>0;
         next unless $self->config->dsn->[$i];
-        my $executor = GenTest::Executor->newFromDSN($self->config->dsn->[$i], osWindows() ? undef : $self->channel());
+        my $executor = GenTest::Executor->newFromDSN($self->config->dsn->[$i],
+                                                     osWindows() ? undef : $self->channel());
         $executor->sqltrace($self->config->sqltrace);
         $executor->setId($i+1);
         $executor->setRole($worker_role);
@@ -823,11 +849,12 @@ sub workerProcess {
         role => $worker_role
     );
 
-   if (not defined $mixer) {
-      sayError("GenTest failed to create a Mixer for $worker_role. Status will be set to ENVIRONMENT_FAILURE");
-      # Hint: stopChild exits
-      $self->stopChild(STATUS_ENVIRONMENT_FAILURE);
-   }
+    if (not defined $mixer) {
+        sayError("GenTest failed to create a Mixer for $worker_role. " .
+                 "Status will be set to ENVIRONMENT_FAILURE");
+        # Hint: stopChild exits
+        $self->stopChild(STATUS_ENVIRONMENT_FAILURE);
+    }
 
    while (time() < $self->[GT_TEST_START]) {
       sleep 1;
@@ -839,7 +866,7 @@ sub workerProcess {
       my $query_result = $mixer->next();
       $worker_result = $query_result if $query_result > $worker_result && $query_result > STATUS_TEST_FAILURE;
 
-      if ($query_result > STATUS_CRITICAL_FAILURE) {
+      if ($query_result >= STATUS_CRITICAL_FAILURE) {
          say("GenTest: Server crash or critical failure (" . status2text($query_result) .
              ") was reported.\n" .
              "         The child process for $worker_role will be stopped.");
