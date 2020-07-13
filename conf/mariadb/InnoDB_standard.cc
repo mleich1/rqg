@@ -132,8 +132,10 @@ our $grammars =
 
   "$test_compression_encryption                                                                                               ",
   "$test_compression_encryption                                                                --reporters=RestartConsistency ",
+  "$test_compression_encryption                                                                --reporters=CrashRecovery1     ",
   "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables                                ",
   "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables --reporters=RestartConsistency ",
+  "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables --reporters=CrashRecovery1     ",
 ];
 
 
@@ -202,15 +204,11 @@ $combinations = [ $grammars,
     --mysqld=--log_output=none
     --mysqld=--log-bin
     --mysqld=--log_bin_trust_function_creators=1
-    --mysqld=--loose-max-statement-time=30
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
     --restart_timeout=120
     ' .
-    "
-    --duration=$duration
-    --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=$duration
-    "
+    " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=$duration "
   ],
   [
     ' --mysqld=--loose-innodb-sync-debug ',
@@ -219,6 +217,10 @@ $combinations = [ $grammars,
   [
     ' --mysqld=--innodb_stats_persistent=off ',
     ' --mysqld=--innodb_stats_persistent=on ',
+  ],
+  [
+    ' --redefine=conf/mariadb/redefine_innodb_undo.yy ',
+    '',
   ],
   [
     # Warning (mleich 2020-06):
