@@ -767,7 +767,7 @@ sub register_result {
              $verdict eq Verdict::RQG_VERDICT_INTEREST         or
              $verdict eq Verdict::RQG_VERDICT_REPLAY           or
              $verdict eq Verdict::RQG_VERDICT_INIT               ) {
-        # Its most likely that any repetition will fail again.
+        # We valuate it as finished run.
         $order_array[$order_id][ORDER_EFFORTS_INVESTED]++;
         $order_array[$order_id][ORDER_EFFORTS_LEFT]--;
         Batch::add_to_try_over($order_id);
@@ -803,11 +803,16 @@ sub register_result {
 
     $arrival_number++;
 
-    say("DEBUG: Combinator::register_result : left_over_trials : $left_over_trials")
-        if Auxiliary::script_debug("C4");
     # Batch::check_try_hashes();
     if ($left_over_trials) {
-        return Batch::REGISTER_GO_ON;
+        if (Batch::report_bad_state()) {
+            say("WARN: Combinator: Initiate aborting the run because of too many bad results.");
+            return Batch::REGISTER_END;
+        } else {
+            say("DEBUG: Combinator::register_result : left_over_trials : $left_over_trials")
+                if Auxiliary::script_debug("C4");
+            return Batch::REGISTER_GO_ON;
+        }
     } else {
         return Batch::REGISTER_END;
     }

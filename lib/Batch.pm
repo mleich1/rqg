@@ -1980,6 +1980,30 @@ sub get_orders_in_work {
 }
 
 
+sub report_bad_state {
+# Purpose (for Combinator only)
+# -----------------------------
+# In case of meeting some quite "ill" server or RQG the following issues should get prevented
+# 1. Serious space consumption of the archives within the filesystem where the rqg_batch
+#    workdir is located. The rqg_batch LoadControl will prevent a filesystem full.
+#    But many of the archives just show the same bug or siblings of it.
+# 2. Serious amount of writes to permanent storage which is quite bad in case of some SSD.
+#    A strong box could produce 100 - 200 GB in 0.5h.
+# 3. Some amount of wasted elapsed time.
+#
+# $verdict_replay     -- bad run counting
+# $verdict_interest   -- bad run counting
+# $verdict_ignore     -- STATUS_OK or not counting bad run
+# $verdict_collected  -- roughly finished runs
+    if ($verdict_collected > 100 and
+        ($verdict_replay + $verdict_interest) > 0.3 * $verdict_collected) {
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+
 sub reactivate_orders {
     push @try_queue, sort {$a <=> $b} keys %try_replayer_hash;
     push @try_queue, sort {$a <=> $b} keys %try_over_hash;     undef %try_over_hash;
