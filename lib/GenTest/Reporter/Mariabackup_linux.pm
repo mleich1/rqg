@@ -191,7 +191,7 @@ sub monitor {
     # need these files not modified by mariabackup --prepare.
     my $rqg_backup_dir = $server0->datadir() . '_backup';
     # We let the copy operation create the directory $rqg_backup_dir later.
-    my $source_port = $reporter->serverVariable('port');
+    my $source_port    = $reporter->serverVariable('port');
     # FIXME:
     # This port computation is unsafe. There might be some already running server there.
     my $clone_port    = $source_port + 4;

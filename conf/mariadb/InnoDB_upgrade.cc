@@ -31,15 +31,13 @@
 #
 
 our $grammars;
-# require 'conf/mariadb/combo.grammars';
-
 $grammars =
 [
 
   # Suffers in old releases massive from https://jira.mariadb.org/browse/MDEV-19449
   '--gendata=conf/mariadb/oltp.zz --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy',    # This looked once like a dud.
 # TOO MUCH for the 32 GB of my notebook
-  '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --grammar=conf/percona_qa/BT-16274/BT-16274.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
+# '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --grammar=conf/percona_qa/BT-16274/BT-16274.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
 # TOO MUCH for the 32 GB of my notebook
   # No --redefine=conf/mariadb/versioning.yy in the moment 2020-03-23
   # '--gendata=conf/percona_qa/percona_qa.zz --grammar=conf/percona_qa/percona_qa.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
@@ -161,7 +159,6 @@ $combinations = [ $grammars,
     --mysqld=--loose-max-statement-time=30
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
-    --mysqld=--innodb-buffer-pool-size=256M
     --upgrade-test
     '
   ],

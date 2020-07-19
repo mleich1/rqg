@@ -476,7 +476,7 @@ resize_varchar:
 #   Next lock can be taken directly after this lock.
 #   While waiting for the next lock mariabackup can start copying all non transactional tables that
 #   are not in use. This list of used tables can be found in information schema.
-# BACKUP STAGE WAIT_FOR_FLUSH (former stage 3)
+# BACKUP STAGE BLOCK_DDL (former stage 3)
 #   Wait for all statements using write locked non-transactional tables to end. This should be
 #   done as we do with FTWRL, which aborts any current locks.
 #   This solves the deadlock that Sergei commented upon.
@@ -497,7 +497,7 @@ resize_varchar:
 #   Copy changes to system log tables (this is easy as these are append only)
 #   If there is a lot of new tables to copy, one should be able to go back to BACKUP STAGE 2
 #   from STAGE to allow ddl's to proceed while copying and then retrying stage 3.
-# BACKUP STAGE LOCK_COMMIT
+# BACKUP STAGE BLOCK_COMMIT
 #   Lock the binary log and commit/rollback to ensure that no changes are committed to any tables.
 #   If there are active data copied to the binary log this will be copied before the lock is
 #   granted. This doesn't lock temporary tables that are not used by replication.

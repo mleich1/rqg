@@ -26,7 +26,7 @@
 # -------
 # 1. The initial set of tests (2018-05) was developed by Elena and covers roughly everything of
 #    MariaDB. When testing MDEVs fixing or enhancing features usually a sub set of tests were used.
-# 2. I disabled certain tests, aded some new one and shifted the focus towards InnoDB.
+# 2. I disabled certain tests, added some new one and shifted the focus towards InnoDB.
 #
 #
 # The suite contains certain adjustments in order to avoid critical areas with known but

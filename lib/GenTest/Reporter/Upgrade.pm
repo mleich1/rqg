@@ -113,7 +113,7 @@ sub report {
         }
     }
     if (kill(0, $pid)) {
-        sayError("Could not shut down/kill the old server with pid $pid; sending SIGBART to get a stack trace");
+        sayError("Could not shut down/kill the old server with pid $pid; sending SIGABRT to get a stack trace");
         kill('ABRT', $pid);
         if ($upgrade_mode eq 'recovery') {
           return report_and_return(STATUS_SERVER_DEADLOCKED);

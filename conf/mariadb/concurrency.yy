@@ -911,12 +911,12 @@ backup_stage:
    backup_stage_diced           ;
 
 backup_stage_sequence:
-   BACKUP STAGE START ; small_sleep BACKUP STAGE FLUSH ; small_sleep BACKUP STAGE WAIT_FOR_FLUSH ; small_sleep BACKUP STAGE LOCK_COMMIT; small_sleep BACKUP STAGE END ;
+   BACKUP STAGE START ; small_sleep BACKUP STAGE FLUSH ; small_sleep BACKUP STAGE BLOCK_DDL ; small_sleep BACKUP STAGE BLOCK_COMMIT; small_sleep BACKUP STAGE END ;
 backup_stage_diced:
    BACKUP STAGE START           |
    BACKUP STAGE FLUSH           |
-   BACKUP STAGE WAIT_FOR_FLUSH  |
-   BACKUP STAGE LOCK_COMMIT     |
+   BACKUP STAGE BLOCK_DDL       |
+   BACKUP STAGE BLOCK_COMMIT    |
    BACKUP STAGE END             ;
 
 small_sleep:
