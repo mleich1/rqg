@@ -1995,7 +1995,13 @@ sub report_bad_state {
 # $verdict_interest   -- bad run counting
 # $verdict_ignore     -- STATUS_OK or not counting bad run
 # $verdict_collected  -- roughly finished runs
-    if ($verdict_collected > 100 and
+    if      ($verdict_collected >  30 and
+        ($verdict_replay + $verdict_interest) > 0.7 * $verdict_collected) {
+        return 1;
+    } elsif ($verdict_collected >  50 and
+        ($verdict_replay + $verdict_interest) > 0.5 * $verdict_collected) {
+        return 1;
+    } elsif ($verdict_collected > 100 and
         ($verdict_replay + $verdict_interest) > 0.3 * $verdict_collected) {
         return 1;
     } else {
