@@ -485,11 +485,16 @@ use constant WORKER_ORDER_LENGTH =>  8;
         # Omit inactive workers.
         next if -1 == $worker_array[$worker_num][WORKER_START];
         $message = $message . Auxiliary::lfill($worker_num, WORKER_ID_LENGTH) .
-           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_PID],      WORKER_PID_LENGTH)   .
-           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_START],    WORKER_START_LENGTH) .
-           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_END],      WORKER_START_LENGTH) .
-           " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_ORDER_ID], WORKER_ORDER_LENGTH) ;
-        foreach my $index (WORKER_EXTRA1, WORKER_EXTRA2, WORKER_EXTRA3, WORKER_VERDICT, WORKER_LOG, WORKER_COMMAND) {
+            " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_PID],
+                                                                 WORKER_PID_LENGTH)   .
+            " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_START],
+                                                                 WORKER_START_LENGTH) .
+            " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_END],
+                                                                 WORKER_START_LENGTH) .
+            " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_ORDER_ID],
+                                                                 WORKER_ORDER_LENGTH) ;
+        foreach my $index (WORKER_EXTRA1, WORKER_EXTRA2, WORKER_EXTRA3, WORKER_VERDICT,
+                           WORKER_LOG, WORKER_COMMAND) {
             my $val = $worker_array[$worker_num][$index];
             if (not defined $val) {
                 $val = "<undef>";
@@ -707,11 +712,11 @@ sub stop_worker_till_phase {
                     }
                     if ($phase_from_list eq $phase) {
                         last;
-                }
+                    }
                     $phase_from_list = shift @phase_list;
+                }
             }
         }
-    }
     }
     say("DEBUG: Batch::stop_worker_young: $stop_count RQG workers with phase <= '$phase' stopped.")
         if Auxiliary::script_debug("T6");
@@ -1991,9 +1996,9 @@ sub report_bad_state {
 #    A strong box could produce 100 - 200 GB in 0.5h.
 # 3. Some amount of wasted elapsed time.
 #
-# $verdict_replay     -- bad run counting
-# $verdict_interest   -- bad run counting
-# $verdict_ignore     -- STATUS_OK or not counting bad run
+# $verdict_replay     -- bad run (counting)
+# $verdict_interest   -- bad run (counting)
+# $verdict_ignore     -- STATUS_OK or bad run (not counting)
 # $verdict_collected  -- roughly finished runs
     if      ($verdict_collected >  30 and
         ($verdict_replay + $verdict_interest) > 0.7 * $verdict_collected) {

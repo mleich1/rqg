@@ -26,6 +26,8 @@
 # This is some extended clone of GenTest::Reporter::CrashRecovery
 package GenTest::Reporter::CrashRecovery1;
 
+# It is intentional that most failures are declared to be STATUS_RECOVERY_FAILURE.
+
 require Exporter;
 @ISA = qw(GenTest::Reporter);
 
@@ -151,11 +153,11 @@ sub report {
         # say($_);
         if ($_ =~ m{registration as a STORAGE ENGINE failed.}sio) {
             say("ERROR: $who_am_i Storage engine registration failed");
-            $recovery_status = STATUS_DATABASE_CORRUPTION;
+            $recovery_status = STATUS_RECOVERY_FAILURE;
         } elsif ($_ =~ m{corrupt|crashed}) {
             say("WARN: $who_am_i Log message '$_' might indicate database corruption");
         } elsif ($_ =~ m{exception}sio) {
-            $recovery_status = STATUS_DATABASE_CORRUPTION;
+            $recovery_status = STATUS_RECOVERY_FAILURE;
         } elsif ($_ =~ m{ready for connections}sio) {
             if ($recovery_status == STATUS_OK) {
                 say("INFO: $who_am_i Server Recovery was apparently successfull.");
@@ -171,7 +173,7 @@ sub report {
             ($_ =~ m{segmentation fault}sio)
         ) {
             say("ERROR: $who_am_i Recovery has apparently crashed.");
-            $recovery_status = STATUS_DATABASE_CORRUPTION;
+            $recovery_status = STATUS_RECOVERY_FAILURE;
         }
     }
     close(RECOVERY);
@@ -198,8 +200,8 @@ sub report {
 
     if (not defined $dbh or $recovery_status > STATUS_OK) {
         sayFile($server->errorlog);
-        say("ERROR: $who_am_i Recovery has failed. Will return status STATUS_DATABASE_CORRUPTION");
-        return STATUS_DATABASE_CORRUPTION;
+        say("ERROR: $who_am_i Recovery has failed. Will return status STATUS_RECOVERY_FAILURE");
+        return STATUS_RECOVERY_FAILURE;
     }
 
     #
@@ -313,7 +315,7 @@ sub report {
 
             if (keys %rows > 1) {
                 say("ERROR: $who_am_i Table $table_to_check is inconsistent. " .
-                    "Will return STATUS_DATABASE_CORRUPTION later.");
+                    "Will return STATUS_RECOVERY_FAILURE later.");
                 print Dumper \%rows;
 
                 my @rows_sorted = grep { $_ > 0 } sort keys %rows;
@@ -334,7 +336,7 @@ sub report {
 
                 say(GenTest::Comparator::dumpDiff($least_result_obj, $most_result_obj));
 
-                $recovery_status = STATUS_DATABASE_CORRUPTION;
+                $recovery_status = STATUS_RECOVERY_FAILURE;
             }
 
             # Should not do CHECK etc., and especially ALTER, on a view
@@ -377,7 +379,7 @@ sub report {
 
                     # mleich 2019-05-15 Observation
                     # 1. No report of error number or string
-                    # 2. STATUS_DATABASE_CORRUPTION thrown for harmless/natural states
+                    # 2. STATUS_RECOVERY_FAILURE thrown for harmless/natural states
                     my $err    = $sth->err();
                     my $errstr = '';
                     $errstr    = $sth->errstr() if defined $sth->errstr();
@@ -394,9 +396,9 @@ sub report {
                             next;
                         } else {
                             say("ERROR: $sql harvested $err: $errstr. " .
-                                "Will return STATUS_DATABASE_CORRUPTION later.");
+                                "Will return STATUS_RECOVERY_FAILURE later.");
                             sayFile($server->errorlog);
-                            return STATUS_DATABASE_CORRUPTION;
+                            return STATUS_RECOVERY_FAILURE;
                         }
                     }
 
@@ -472,16 +474,16 @@ sub report {
                         if ($result =~ m{error'|corrupt|repaired|invalid|crashed}sio) {
                             print $result;
                             say("ERROR: Failures found in the output above. " .
-                                "Will return STATUS_DATABASE_CORRUPTION");
-                            return STATUS_DATABASE_CORRUPTION
+                                "Will return STATUS_RECOVERY_FAILURE");
+                            return STATUS_RECOVERY_FAILURE
                         }
                     };
 
                     $sth->finish();
                 } else {
                     say("ERROR: $who_am_i Prepare failed: " . $dbh->errrstr() .
-                        "Will return STATUS_DATABASE_CORRUPTION");
-                    return STATUS_DATABASE_CORRUPTION;
+                        "Will return STATUS_RECOVERY_FAILURE");
+                    return STATUS_RECOVERY_FAILURE;
                 }
             }
         }
