@@ -209,7 +209,9 @@ sub nativeReport {
         say("INFO: Most probably false alarm. Will return STATUS_OK, undef.");
         say("INFO: Reporter 'Backtrace' ------------------------------ End");
         return STATUS_OK, undef;
-    };
+    } else {
+        say("ERROR: $who_am_i The server process has disappeared.");
+    }
 
     # Starting from here only the cases with disappeared server pid are left over.
     # Hence we need to report the status STATUS_SERVER_CRASHED whenever we return.
@@ -236,7 +238,6 @@ sub nativeReport {
     # The message within the server error log "Writing a core file..." describes the intention
     # but not if that really happened.
     my $found = Auxiliary::search_in_file($error_log, 'core dumped');
-    say("MLML: found ->$found<-");
     if      (not defined $found) {
         say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. Will return " .
             "STATUS_ENVIRONMENT_FAILURE, undef");
