@@ -76,6 +76,14 @@ sub nativeReport {
     my $error_log = $reporter->serverInfo('errorlog');
     say("error_log is $error_log");
 
+    my $vardir = $reporter->properties->servers->[0]->vardir();
+    # /dev/shm/vardir/SINGLE_RQG/1  <---- We get this.
+    # /dev/shm/vardir/SINGLE_RQG/2
+    # /dev/shm/vardir/SINGLE_RQG/rr_trace
+    # /dev/shm/vardir/SINGLE_RQG/rr_trace/last_trace
+    # /dev/shm/vardir/SINGLE_RQG/rr_trace/mysqld-0
+    # /dev/shm/vardir/SINGLE_RQG/rr_trace/mysqld-1
+
     my $pid_file = $reporter->serverVariable('pid_file');
     say("pid_file is $pid_file");
 
@@ -237,7 +245,8 @@ sub nativeReport {
     # Note:
     # The message within the server error log "Writing a core file..." describes the intention
     # but not if that really happened.
-    my $found = Auxiliary::search_in_file($error_log, 'core dumped');
+    my $core_dumped_pattern = 'core dumped';
+    my $found = Auxiliary::search_in_file($error_log, $core_dumped_pattern);
     if      (not defined $found) {
         say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. Will return " .
             "STATUS_ENVIRONMENT_FAILURE, undef");
@@ -245,20 +254,22 @@ sub nativeReport {
     } elsif (1 == $found) {
         # Go on
     } else {
+        say("INFO: $who_am_i The pattern '$core_dumped_pattern' was not found in '$error_log'.");
+        if (defined $reporter->properties->rr) {
+            # We try to generate a backtrace form the rr trace.
+            my $rr_trace_dir = $vardir . '/rr';
+            my $backtrace =    $vardir . '/backtrace.txt';
+            # Note: STDERR just shows the content of the server error log which we have anyway.
+            my $command = '_RR_TRACE_DIR="' . $rr_trace_dir . '" rr replay >"' . $backtrace .
+                          '" 2>/dev/null < backtrace-rr.gdb';
+            # say("DEBUG: $who_am_i rr backtrace command -->" . $command . "<--");
+            system('bash -c "set -o pipefail; '. $command .'"');
+            sayFile($backtrace);
+        }
         say("INFO: $who_am_i No core file to be expected. Will return " .
                 "STATUS_SERVER_CRASHED, undef");
         return STATUS_SERVER_CRASHED, undef;
     }
-
-#   if (defined $reporter->properties->rr) {
-#       # It is a run with 'rr' and their cores are disabled intentionally.
-#       # FIXME: Check what the server error log says.
-#       say("INFO: The server was running under 'rr' with core file disabled.");
-#       say("Will return STATUS_SERVER_CRASHED, undef");
-#       say("INFO: Reporter 'Backtrace' ------------------------------ End");
-#       return STATUS_SERVER_CRASHED, undef;
-#
-#   }
 
     $wait_timeout   = 270;
     $start_time     = Time::HiRes::time();

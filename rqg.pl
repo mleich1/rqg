@@ -360,6 +360,8 @@ if (not GetOptions(
     'vcols1:s'                    => \$vcols[1],
     'vcols2:s'                    => \$vcols[2],
     'vcols3:s'                    => \$vcols[3],
+    # Hint:
+    # views is NOT a boolean because assigning some view type is supported.
     'views:s'                     => \$views[0],
     'views1:s'                    => \$views[1],
     'views2:s'                    => \$views[2],
@@ -399,6 +401,12 @@ if (not GetOptions(
     exit STATUS_CONFIG_ERROR;
 };
 # say("\@ARGV after : " . join(' ',@ARGV));
+
+# Example (independent of perl call with -w or not)
+# -------------------------------------------------
+# Call line          $debug_server[0]
+# --debug-server -->               1
+# <not set>      -->           undef
 
 # Support script debugging as soon as possible and print its value.
 $script_debug_value = Auxiliary::script_debug_init($script_debug_value);
@@ -1036,38 +1044,58 @@ $ENV{'TMP'} = $vardirs[0];
 say("tmpdir in GenTest ->" . GenTest::tmpdir() . "<-");
 say("tmpdir in DBServer ->" . DBServer::DBServer::tmpdir() . "<-");
 
-if (defined $rr) {
-    my $rr_trace_dir = $vardirs[0] . "/rr_trace";
-    if (not -d $rr_trace_dir) {
-        if (not mkdir $rr_trace_dir) {
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: Creating the 'rr' trace directory '$rr_trace_dir' failed : $!.");
-            run_end($status);
-        }
-    }
-    $ENV{_RR_TRACE_DIR} = $rr_trace_dir;
-    say("INFO: Environment variable _RR_TRACE_DIR set to '$rr_trace_dir'.");
-}
-
-
 ## Make sure that "default" values ([0]) are also set, for compatibility,
 ## in case they are used somewhere
 $basedirs[0] ||= $basedirs[1];
-#$vardirs[0]  ||= $vardirs[1];
-#Auxiliary::print_list("INFO: Now 1 RQG vardirs ",  @vardirs);
-#Auxiliary::print_list("INFO: Now 1 RQG basedirs ",  @basedirs);
+# All vardirs get exxplicite managed by rqg.pl or ingredients.
+# $vardirs[0]  ||= $vardirs[1];
+# Auxiliary::print_list("INFO: Now 1 RQG vardirs ",  @vardirs);
+# Auxiliary::print_list("INFO: Now 1 RQG basedirs ",  @basedirs);
 
 # Now sort out other options that can be set differently for different servers:
 # - mysqld_options
 # - debug_server
 # - views
+# - vcols
 # - engine
 # values[0] are those that are applied to all servers.
+# In case values[0] is not set but values[1] than values[0] = values[1]
 # values[N] expand or override values[0] for the server N
 
-@{$mysqld_options[0]} = () if not defined $mysqld_options[0];
+if (not defined $mysqld_options[0]) {
+    if (defined $mysqld_options[1]) {
+        $mysqld_options[0] = $mysqld_options[1];
+    } else {
+        $mysqld_options[0] = ();
+    }
+}
+# Call line          $debug_server[0]
+# --debug-server -->               1
+# <not set>      -->           undef
+
+if (not defined $debug_server[0]) {
+    if (defined $debug_server[1]) {
+        $debug_server[0] = $debug_server[1];
+    }
+}
+if (not defined $vcols[0]) {
+    if (defined $vcols[1]) {
+        $vcols[0] = $vcols[1];
+    }
+}
+if (not defined $views[0]) {
+    if (defined $views[1]) {
+        $views[0] = $views[1];
+    }
+}
+if (not defined $engine[0]) {
+    if (defined $engine[1]) {
+        $engine[0] = $engine[1];
+    }
+}
+
 push @{$mysqld_options[0]}, "--sql-mode=no_engine_substitution"
-                           if join(' ', @ARGV_saved) !~ m{(sql-mode|sql_mode)}io;
+    if join(' ', @ARGV_saved) !~ m{(sql-mode|sql_mode)}io;
 
 # FIXME: Clean up/make more safe
 foreach my $i (1..3) {
@@ -1075,10 +1103,10 @@ foreach my $i (1..3) {
             ? ( @{$mysqld_options[0]}, @{$mysqld_options[$i]} )
             : @{$mysqld_options[0]}
     );
-    $debug_server[$i]= $debug_server[0] if not defined $debug_server[$i] or $debug_server[$i] eq '';
-    $vcols[$i]       = $vcols[0]        if not defined $vcols[$i]        or $vcols[$i]        eq '';
-    $views[$i]       = $views[0]        if not defined $views[$i]        or $views[$i]        eq '';
-    $engine[$i]      = $engine[0]       if not defined $engine[$i]       or $engine[$i]       eq '';
+    $debug_server[$i]= $debug_server[0] if not defined $debug_server[$i];
+    $vcols[$i]       = $vcols[0]        if not defined $vcols[$i];
+    $views[$i]       = $views[0]        if not defined $views[$i];
+    $engine[$i]      = $engine[0]       if not defined $engine[$i];
 }
 
 shift @mysqld_options;
@@ -1109,6 +1137,7 @@ if (not defined $client_basedir) {
 # FIXME: Let a routine in Auxiliary figure out if its standard MariaDB replication.
 #
 # Master and slave get the same debug_server[1] applied.
+# FIXME: Is $debug_server[2] = $debug_server[1] right?
 if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
     (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
      ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
@@ -1512,6 +1541,13 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                                               general_log      => 1,
                                               config           => $cnf_array_ref,
                                               user             => $user);
+    if (not defined $server[0]) {
+        say("ERROR: Preparing the server[0] for the start failed.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("$0 will exit with exit status " . status2text($status) . "($status)");
+        exit_test($status);
+    }
+
 
     my $status = $server[0]->startServer;
 
@@ -1528,7 +1564,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         exit_test($status);
     }
 
-    $dsns[0] = $server[0]->dsn($database,$user);
+    $dsns[0] = $server[0]->dsn($database, $user);
 
     if ((defined $dsns[0]) && (defined $engine[0])) {
         my $dbh = DBI->connect($dsns[0], undef, undef, { mysql_multi_statements => 1, RaiseError => 1 } );
@@ -1537,6 +1573,13 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
 
     # server1 is the "new" server (after upgrade).
     # We will initialize it, but won't start it yet
+    if (not defined $mysqld_options[1]) {
+        # say("DEBUG: no mysqld_options for the to be upgraded server found.");
+        $mysqld_options[1] = $mysqld_options[0];
+        exit;
+    } else {
+        # say("DEBUG: mysqld_options for the to be upgraded server found.");
+    }
     $server[1] = DBServer::MySQL::MySQLd->new(
                    basedir           => $basedirs[2],
                    vardir            => $vardirs[1],        # Same vardir as for the first server!
@@ -1552,7 +1595,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                    config            => $cnf_array_ref,
                    user              => $user);
 
-    $dsns[1] = $server[1]->dsn($database,$user);
+    $dsns[1] = $server[1]->dsn($database, $user);
 
 } else {
 
@@ -1592,7 +1635,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
             say("ERROR: Preparing the server[$server_id] for the start failed.");
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("$0 will exit with exit status " . status2text($status) . "($status)");
-            exit_test(STATUS_ENVIRONMENT_FAILURE);
+            exit_test($status);
         }
 
         my $status = $server[$server_id]->startServer;
@@ -1922,7 +1965,7 @@ if (($final_result == STATUS_OK)                         and
     if ($status == DBSTATUS_OK) {
         my @dump_files;
         # For testing:
-        # system("killall -9 mysqld; killall -9 mariadbd; sleep 3");
+        # system("killall -9 mysqld mariadbd; sleep 3");
         foreach my $i (0..$#server) {
             # Any server needs his own exlusive dumpfile. This is ensured by the '$i'.
             # As soon as the caller takes care that any running rqg.pl uses his own exclusive
@@ -2045,7 +2088,7 @@ sub stopServers {
         return;
     }
     # For experimenting
-    # system("killall -11 mysqld; killall -11 mariadbd");
+    # system("killall -11 mysqld mariadbd");
     my $ret = STATUS_OK;
     say("Stopping server(s)...");
     if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
@@ -2056,7 +2099,11 @@ sub stopServers {
         ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         ) {
         $ret = $rplsrv->stopServer($status);
     } elsif (defined $upgrade_test) {
-        $ret = $server[1]->stopServer;
+        if (defined $server[1]) {
+            $ret = $server[1]->stopServer;
+        } else {
+            $ret = STATUS_OK;
+        }
     } else {
         foreach my $srv (@server) {
             if ($srv) {
@@ -2089,7 +2136,11 @@ sub killServers {
         ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         ) {
         $ret = $rplsrv->killServer();
     } elsif (defined $upgrade_test) {
-        $ret = $server[1]->killServer;
+        if (defined $server[1]) {
+            $ret = $server[1]->killServer;
+        } else {
+            $ret = STATUS_OK;
+        }
     } else {
         $ret = STATUS_OK;
         foreach my $srv (@server) {
@@ -2109,25 +2160,46 @@ sub killServers {
     }
 }
 
+sub help1 {
+    print <<EOF
+
+
+    basedir<m> : Specifies the base directory (== directory with binaries) for the m'th server.
+                 If (not defined basedir<m>) then
+                     basedir<m> = basedir
+                 fi
+    basedir    : Base directory for any server n if basedir<n> is not specified..
+                 If (not defined basedir) then
+                     If (defined basedir1) then
+                         basedir = basedir1
+                     else
+                         abort
+                     fi
+                 fi
+
+EOF
+  ;
+}
 
 sub help {
 
     print <<EOF
 Copyright (c) 2010,2011 Oracle and/or its affiliates. All rights reserved. Use is subject to license terms.
-Copyright (c) 2018,2019 MariaDB Corporation Ab.
+Copyright (c) 2018,2020 MariaDB Corporation Ab.
 
-$0 - Run a complete random query generation test, including server start with replication and master/slave verification
+$0 - Run a complete random query generation (RQG) test.
      Sorry, the description here is partially outdated.
 
-     How to catch output but also avoid trouble with the white and blacklist matching?
+     How to catch output:
      Sorry the shape of the command lines is not really satisfying.
-     perl rqg.pl ... --logfile=<RQG log> # Output to screen and logfile
-     perl rqg.pl ... --workdir="\$WORKDIR" > \$WORKDIR/rqg.log 2>&1
+     perl rqg.pl ... --logfile=<RQG log>                                # Output to screen and log file
+     perl rqg.pl ... --workdir="\$WORKDIR" > \$WORKDIR/rqg.log 2>&1     # Output to log file only
+     perl rqg.pl ... --workdir="\$WORKDIR"                     2>&1     # Output to screen only
 
-    Options related to one standalone MySQL server:
+    Options related to one standalone MariaDB server:
 
-    --basedir   : Specifies the base directory of the stand-alone MySQL installation;
-    --mysqld    : Options passed to the MySQL server
+    --basedir   : Specifies the base directory of the stand-alone MariaDB installation;
+    --mysqld    : Options passed to the MariaDB server
     --vardir    : vardir of the RQG run. The vardirs of the servers will get created within it.
                   Depending on certain requirements it is recommended to use
                   - a RAM based filesystem like tmpfs (/dev/shm/vardir) -- high IO speed but small filesystem
@@ -2135,22 +2207,22 @@ $0 - Run a complete random query generation test, including server start with re
                   The default \$workdir/vardir is frequent not that optimal.
     --debug-server: Use mysqld-debug server
 
-    Options related to two MySQL servers
+    Options related to two MariaDB servers
 
-    --basedir1  : Specifies the base directory of the first MySQL installation;
-    --basedir2  : Specifies the base directory of the second MySQL installation;
-    --mysqld    : Options passed to both MySQL servers
-    --mysqld1   : Options passed to the first MySQL server
-    --mysqld2   : Options passed to the second MySQL server
-    --debug-server1: Use mysqld-debug server for MySQL server1
-    --debug-server2: Use mysqld-debug server for MySQL server2
+    --basedir1  : Specifies the base directory of the first MariaDB installation
+    --basedir2  : Specifies the base directory of the second MariaDB installation
+    --mysqld    : Options passed to both MariaDB servers
+    --mysqld1   : Options passed to the first MariaDB server
+    --mysqld2   : Options passed to the second MariaDB server
+    --debug-server1: Use mysqld-debug server for MariaDB server1
+    --debug-server2: Use mysqld-debug server for MariaDB server2
     The options vardir1 and vardir2 are no more supported.
     RQG places the vardirs of the servers inside of the vardir of the RQG run (see --vardir).
 
     General options
 
-    --grammar      : Grammar file to use when generating queries (REQUIRED);
-    --redefine     : Grammar file(s) to redefine and/or add rules to the given grammar
+    --grammar      : Grammar file to use when generating queries (REQUIRED)
+    --redefine     : Grammar file(s) to redefine and/or add rules to the given grammar (OPTIONAL)
                      Write: --redefine='A B'    or    --redefine='A' --redefine='B'
     --rpl_mode     : Replication type to use (statement|row|mixed) (default: no replication).
                      The mode can contain modifier 'nosync', e.g. row-nosync. It means that at the end the test
@@ -2188,6 +2260,7 @@ $0 - Run a complete random query generation test, including server start with re
                      Different values can be provided to servers through --views1 | --views2 | --views3
     --valgrind     : Passed to gentest.pl
     --rr           : Passed to gentest.pl (start the DB server with rr)
+    --rr_options   : Passed to gentest.pl (start the DB server with rr and these options)
     --filter       : Passed to gentest.pl
     --mtr-build-thread:  Value used for MTR_BUILD_THREAD when servers are started and accessed
     --debug        : Debug mode

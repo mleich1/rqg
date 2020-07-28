@@ -99,10 +99,19 @@ sub new {
                                    'rr' => MYSQLD_RR,
                                    'rr_options' => MYSQLD_RR_OPTIONS},@_);
 
-    # FIXME: Inform about error + return undef so that the caller can clean up
-    croak "No valgrind support on windows" if osWindows() and $self->[MYSQLD_VALGRIND];
-    croak "No rr support on OS <> Linux"   if $self->[MYSQLD_RR] and not osLinux() and $self->[MYSQLD_RR];
-    croak "No support for using rr and valgrind together" if $self->[MYSQLD_RR] and $self->[MYSQLD_VALGRIND];
+    # Inform in case of error + return undef so that the caller can clean up.
+    if (osWindows() and $self->[MYSQLD_VALGRIND]) {
+        Carp::cluck("ERROR: No valgrind support on windows. Will return undef.");
+        return undef;
+    }
+    if (not osLinux() and $self->[MYSQLD_RR]) {
+        Carp::cluck("ERROR: No rr support on OS != Linux. Will return undef.");
+        return undef;
+    }
+    if ($self->[MYSQLD_RR] and $self->[MYSQLD_VALGRIND]) {
+        Carp::cluck("ERROR: No support for using rr and valgrind together. Will return undef.");
+        return undef;
+    }
 
     if (not defined $self->[MYSQLD_VARDIR]) {
         $self->[MYSQLD_VARDIR] = "mysql-test/var";
@@ -373,17 +382,17 @@ sub printServerOptions {
 sub createMysqlBase  {
     my ($self) = @_;
 
-    ## Clean old db if any
+    #### Clean old db if any
     if (-d $self->vardir) {
         rmtree($self->vardir);
     }
 
-    ## Create database directory structure
+    #### Create database directory structure
     mkpath($self->vardir);
     mkpath($self->tmpdir);
     mkpath($self->datadir);
 
-    ## Prepare config file if needed
+    #### Prepare config file if needed
     if ($self->[MYSQLD_CONFIG_CONTENTS] and ref $self->[MYSQLD_CONFIG_CONTENTS] eq 'ARRAY' and scalar(@{$self->[MYSQLD_CONFIG_CONTENTS]})) {
         $self->[MYSQLD_CONFIG_FILE] = $self->vardir."/my.cnf";
         # FIXME: Replace the 'die'
@@ -397,14 +406,12 @@ sub createMysqlBase  {
 
     my $defaults = ($self->[MYSQLD_CONFIG_FILE] ? "--defaults-file=$self->[MYSQLD_CONFIG_FILE]" : "--no-defaults");
 
-    ## Create boot file
-
+    #### Create boot file
     my $boot = $self->vardir . "/" . MYSQLD_BOOTSQL_FILE;
     open BOOT,">$boot";
     print BOOT "CREATE DATABASE test;\n";
 
-    ## Boot database
-
+    #### Boot database
     my $boot_options = [$defaults];
     push @$boot_options, @{$self->[MYSQLD_STDOPTS]};
     push @$boot_options, "--datadir=".$self->datadir; # Could not add to STDOPTS, because datadir could have changed
@@ -477,34 +484,29 @@ sub createMysqlBase  {
     }
     close BOOT;
 
-    if (not osWindows) {
-        my $rr = $self->[MYSQLD_RR];
-        if (defined $rr and $rr eq Auxiliary::RR_TYPE_EXTENDED) {
+    my $rr = $self->[MYSQLD_RR];
+    if (defined $rr) {
+        # Experiments showed that the rr trace directory must exist in advance.
+        my $rr_trace_dir = $self->vardir . '/rr';
+        if (not -d $rr_trace_dir) {
+            if (not mkdir $rr_trace_dir) {
+                my $status = DBSTATUS_FAILURE;
+                say("ERROR: createMysqlBase: Creating the 'rr' trace directory '$rr_trace_dir' " .
+                    "failed : $!. Will return status DBSTATUS_FAILURE" . "($status)");
+                return $status;
+            }
+        }
+        if ($rr eq Auxiliary::RR_TYPE_EXTENDED) {
             my $rr_options = '';
             if (defined $self->[MYSQLD_RR_OPTIONS]) {
                 $rr_options = $self->[MYSQLD_RR_OPTIONS];
             }
-
-            my $rr_trace_dir = $ENV{'_RR_TRACE_DIR'};
-            if (not defined $rr_trace_dir) {
-                my $status = DBSTATUS_FAILURE;
-                say("ERROR: startserver: The environment variable '_RR_TRACE_DIR' is not set. " .
-                    "Will return status DBSTATUS_FAILURE" . "($status)");
-                return $status;
-            }
-            if (not -d $rr_trace_dir) {
-                my $status = DBSTATUS_FAILURE;
-                say("ERROR: startserver: The 'rr' trace directory '$rr_trace_dir' does not exist. ".
-                    "Will return status DBSTATUS_FAILURE" . "($status)");
-                return $status;
-            }
-
             # $command = "rr record --mark-stdio $rr_options $command";
             # like used in sub startServer does not work well here.
             # Even though the content of boot.sql is 100% correct processing this file fails
             # on the first line ("CREATE database test;") because from whatever reason
-            # some "[rr <pid>] " gets prependet when pumping the file content into ist receiver.
-              $command = "rr record $rr_options $command";
+            # some "[rr <pid>] " gets prependet when pumping the file content into its receiver.
+              $command = "ulimit -c 0; _RR_TRACE_DIR=$rr_trace_dir rr record $rr_options $command";
         }
     }
     say("Bootstrap command: $command");
@@ -611,6 +613,7 @@ sub startServer {
                        $self->valgrind_suppressionfile . " " . $val_opt . " " . $command;
         }
 
+        my $rr_trace_dir;
         if ($self->[MYSQLD_RR]) {
             my $rr = $self->[MYSQLD_RR];
             my $rr_options = '';
@@ -618,20 +621,14 @@ sub startServer {
                 $rr_options = $self->[MYSQLD_RR_OPTIONS];
             }
 
-            my $rr_trace_dir = $ENV{'_RR_TRACE_DIR'};
-            if (not defined $rr_trace_dir) {
-                my $status = DBSTATUS_FAILURE;
-                say("ERROR: startserver: The environment variable '_RR_TRACE_DIR' is not set. " .
-                    "Will return status DBSTATUS_FAILURE" . "($status)");
-                return $status;
-            }
-            # Experiments showed that the rr trace directory must exist in advance.
-            # Bail out in case it does not exist. I hesitate to create it here if failing.
+            $rr_trace_dir = $self->vardir . '/rr';
             if (not -d $rr_trace_dir) {
-                my $status = DBSTATUS_FAILURE;
-                say("ERROR: startserver: The 'rr' trace directory '$rr_trace_dir' does not exist. ".
-                    "Will return status DBSTATUS_FAILURE" . "($status)");
-                return $status;
+                if (not mkdir $rr_trace_dir) {
+                    my $status = DBSTATUS_FAILURE;
+                    say("ERROR: startserver: Creating the 'rr' trace directory '$rr_trace_dir' " .
+                        "failed : $!. Will return status DBSTATUS_FAILURE" . "($status)");
+                    return $status;
+                }
             }
 
             # In case of using 'rr' core files
@@ -640,7 +637,7 @@ sub startServer {
             #   whatever unknown reason
             # - consume ~ 1 GB storage space in vardir (usually located in tmpfs) temporary
             # So we prevent the writing of core files via ulimit.
-              $command = "ulimit -c 0; rr record --mark-stdio $rr_options $command";
+              $command = "ulimit -c 0; _RR_TRACE_DIR=$rr_trace_dir rr record --mark-stdio $rr_options $command";
             # say("DEBUG: command with rr ->" . $command . "<-");
             # The rqg runner has to check in advance that 'rr' is installed on the current box.
             # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
@@ -858,6 +855,7 @@ sub startServer {
       } else {
          # Here is the child process who tries to become a running server
          # FIXME maybe: Replace Carp::cluck by returning something appropriate.
+         $ENV{'_RR_TRACE_DIR'} = $rr_trace_dir;
          exec("$command >> \"$errorlog\"  2>&1") || Carp::cluck("ERROR: Could not start mysql server");
       }
    }
