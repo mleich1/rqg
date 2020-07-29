@@ -1810,7 +1810,7 @@ $gentestProps->short_column_names($short_column_names) if defined $short_column_
 $gentestProps->strict_fields($strict_fields) if defined $strict_fields;
 $gentestProps->freeze_time($freeze_time) if defined $freeze_time;
 $gentestProps->valgrind(1) if $valgrind;
-$gentestProps->rr(1) if $rr;
+$gentestProps->rr($rr) if $rr;
 $gentestProps->rr_options($rr_options) if defined $rr_options;
 $gentestProps->property('ps-protocol',1) if $ps_protocol;
 $gentestProps->sqltrace($sqltrace) if $sqltrace;
@@ -2176,6 +2176,15 @@ sub help1 {
                          abort
                      fi
                  fi
+
+    debug-server<m> : Use mysqld-debug server for MariaDB server <m>
+    The "take over" mechanism is like for "basedir".
+
+
+                 If (not defined debug-server<m>) then
+                     debug-server<m> = debug-server
+                 fi
+
 
 EOF
   ;
