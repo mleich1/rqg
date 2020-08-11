@@ -84,7 +84,7 @@ sub report {
 
     my $datadir = $reporter->serverVariable('datadir');
     $datadir =~ s{[\\/]$}{}sgio;
-    my $orig_datadir = $datadir.'_orig';
+    my $datadir_copy = $datadir.'_copy';
     my $pid = $reporter->serverInfo('pid');
 
     # Docu 2019-05
@@ -112,12 +112,14 @@ sub report {
     my $server = $reporter->properties->servers->[0];
     say("INFO: $who_am_i Copying datadir... (interrupting the copy operation may cause " .
         "investigation problems later)");
+    say("INFO: $who_am_i Datadir used by the server all time is: $datadir");
+    say("INFO: $who_am_i Copy of that datadir after crash and before restart is: $datadir_copy");
     if (osWindows()) {
-        system("xcopy \"$datadir\" \"$orig_datadir\" /E /I /Q");
+        system("xcopy \"$datadir\" \"$datadir_copy\" /E /I /Q");
     } else {
-        system("cp -r $datadir $orig_datadir");
+        system("cp -r $datadir $datadir_copy");
     }
-    move($server->errorlog, $server->errorlog.'_orig');
+    move($server->errorlog, $server->errorlog.'_copy');
     unlink("$datadir/core*");    # Remove cores from any previous crash
 
     say("INFO: $who_am_i Attempting database recovery using the server ...");

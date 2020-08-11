@@ -40,6 +40,7 @@ sub report {
 	my $master_port = $reporter->serverVariable('port');
 	my $slave_port;
 
+    # FIXME: Can't call method "selectrow_arrayref" on an undefined value at lib/GenTest/Reporter/ReplicationConsistency.pm line 43, <CONF> line 72
 	my $slave_info = $master_dbh->selectrow_arrayref("SHOW SLAVE HOSTS");
 	if (defined $slave_info) {
 		$slave_port = $slave_info->[2];

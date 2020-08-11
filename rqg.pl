@@ -2180,7 +2180,6 @@ sub help1 {
     debug-server<m> : Use mysqld-debug server for MariaDB server <m>
     The "take over" mechanism is like for "basedir".
 
-
                  If (not defined debug-server<m>) then
                      debug-server<m> = debug-server
                  fi
