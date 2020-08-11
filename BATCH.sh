@@ -97,6 +97,10 @@ set +e
 # concurrency bug.
 PARALLEL=`nproc`
 PARALLEL=$(($PARALLEL * 3))
+if [ $PARALLEL -gt 250 ]
+then
+   PARALLEL=250
+fi
 
 
 # TRIALS is used as
@@ -132,7 +136,7 @@ MAX_RUNTIME=3600
 # - current rqg_batch run ---- ongoing MTR run
 # clash on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files) or
 # suffer from tmpfs full etc.
-killall -9 perl ; killall -9 mysqld ; killall -9 mariadbd
+killall -9 perl ; killall -9 mysqld mariadbd
 rm -rf /dev/shm/var*
 
 ############################################################

@@ -91,6 +91,10 @@ set +e
 # concurrency bug.
 PARALLEL=`nproc`
 PARALLEL=$(($PARALLEL * 3))
+if [ $PARALLEL -gt 250 ]
+then
+   PARALLEL=250
+fi
 
 TRIALS=64
 

@@ -50,7 +50,16 @@ sub monitor {
 			my $reporter_result = $reporter->monitor();
 			$max_result = $reporter_result if $reporter_result > $max_result;
             if ($reporter_result != STATUS_OK) {
-                say("INFO: $who_am_i Reporter '" . $reporter->name() . "' reported $reporter_result ");
+                say("INFO: $who_am_i Reporter '" . $reporter->name() .
+                    "' reported $reporter_result ");
+                if (STATUS_SERVER_KILLED == $reporter_result or
+                    STATUS_SERVER_DEADLOCKED == $reporter_result) {
+                    # The server was just now target of SIGKILL or SIGSEGV or maybe SIGABRT.
+                    # Hence the remaining periodic reporters would observe effects of that
+                    # and probably report some misleading status.
+                    say("INFO: $who_am_i Omitting all other reporters because of that.");
+                    last;
+                }
             }
 		}
 	}
@@ -70,7 +79,8 @@ sub report {
 			my $reporter_result = shift @reporter_results;
 			push @incidents, @reporter_results if $#reporter_results > -1;
             if ($reporter_result >= STATUS_CRITICAL_FAILURE) {
-               say("ERROR: ReporterManager : Reporter '" . $reporter->name() . "' reported $reporter_result ");
+               say("ERROR: ReporterManager : Reporter '" . $reporter->name() .
+                   "' reported $reporter_result ");
             }
 			$max_result = $reporter_result if $reporter_result > $max_result;
 		}
