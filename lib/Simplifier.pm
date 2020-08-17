@@ -339,6 +339,7 @@ use constant THREADS_DEFAULT        => 10;
 #      possible and free of clashes with concurrent RQG runs.
 #    Example: --basedir... --vardir=... --mtr-build-thread=... etc.
 #    This snip is not "known" to lib/Simplifier.pm.
+#
 # 2. The second snip which is mostly (*) valid(static) for all Simplification phases.
 #    Example: "--gendata...." (But only as long as gendata is not target of a simplification phase.)
 #    There are currently two reasons for handling this here:
@@ -348,9 +349,11 @@ use constant THREADS_DEFAULT        => 10;
 #    2. Also certain options might become in future also target of some simplification phase.
 #       Than we need to handle that option here anyway.
 my $cl_snip_all   = '';
+#
 # 3. The third snip is valid(static) for all steps in one Simplification phase except THREAD_REDUCE
 #    Example: PHASE_THREAD1_REPLAY --> "--threads=1"
 my $cl_snip_phase = '';
+#
 # 4. The forth snip is valid for one simplification step/job within a simplification phase given.
 #    Example: PHASE_GRAMMAR_SIMP and job M --> "--grammar=c<n>.yy"
 my $cl_snip_step  = '';
@@ -972,7 +975,7 @@ sub init {
             safe_exit($status);
         }
     }
-    $cl_snip_all .= " --threads=" . $threads;
+########    $cl_snip_all .= " --threads=" . $threads;
 
     # This parameter could be part of the command line snip.
     $algorithm = $config->algorithm;
@@ -1916,13 +1919,12 @@ sub register_result {
                 $first_replay_success   = 1;
                 # Attention:
                 # There was a replay but this is not a success in simplification.
-
                 # Hence $simp_success must not be touched.
             } elsif (PHASE_THREAD1_REPLAY eq $phase) {
                 say("INFO: We had a replay in phase '$phase'. " .
                     "Will adjust the parent grammar and the number of threads used to 1.");
                 $threads = 1;
-                $cl_snip_all .= " --threads=1";
+            #   $cl_snip_all .= " --threads=1";
                 reload_grammar($child_grammar);
                 $simp_success           = 1;
                 $thread1_replay_success = 1;
@@ -1946,13 +1948,13 @@ sub register_result {
                 #    'replay' or 'interest'.
                 Batch::stop_worker_on_order_except($order_id);
                 # 2. Stop all worker fiddling with the same $order_id in case they have reached
-                #    a replay because we are already processing a replayer.
+                #    a replay because we are already processing a replayer who has finished.
                 Batch::stop_worker_on_order_replayer($order_id);
 
                 Batch::add_to_try_never($order_id);
 
-                # 3. The "$threads = $grammar_used;" above makes all jobs/orders going with some higher
-                #    number of threads obsolete.
+                # 3. The "$threads = $grammar_used;" above makes all jobs/orders going with some
+                #    higher number of threads obsolete.
                 # Stop all workers having some $order_id fiddling with a higher number of threads.
                 my @orders_in_work = Batch::get_orders_in_work;
                 say("DEBUG: orders currently in work: " . join(" - ", @orders_in_work))
@@ -2108,11 +2110,18 @@ sub register_result {
         if (PHASE_GRAMMAR_SIMP eq $phase or
             PHASE_RVT_SIMP     eq $phase   ) {
             $campaign_duds_since_replay++;
-            my $max_value = GenTest::Simplifier::Grammar_advanced::estimate_cut_steps();
-            $max_value = $trials if $max_value < $trials;
+            my $max_value;
+            if (PHASE_GRAMMAR_SIMP eq $phase) {
+                $max_value = GenTest::Simplifier::Grammar_advanced::estimate_cut_steps();
+                $max_value = $trials if $max_value < $trials;
+            }
+            if (PHASE_RVT_SIMP eq $phase) {
+                $max_value = rvt_cut_steps();
+                $max_value = $trials / 2 if $max_value < $trials / 2;
+            }
             if ($campaign_duds_since_replay >= 2 * $max_value) {
                 # The current campaign should abort. Depending on the success of the current
-                # campaign we should get some additional campaign or a switch of to the next
+                # campaign we should get some additional campaign or a switch to the next
                 # simplification phase.
                 $phase_switch = 1;
                 Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW);
@@ -2133,19 +2142,11 @@ sub register_result {
         Batch::emergency_exit($status);
     }
 
-    if ($left_over_trials <= 0) {
+    if (0 == $left_over_trials) {
         $phase_switch = 1;
         Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW);
         if (PHASE_GRAMMAR_SIMP  eq $phase or
-            PHASE_RVT_SIMP      eq $phase or
-            PHASE_THREAD_REDUCE eq $phase   ) {
-            # In case of PHASE_RVT_SIMP and PHASE_GRAMMAR_SIMP $left_over_trials gets
-            # precharged with 9999 at begin of campaign.
-            # Per experience a proper campaign could reach up till ~ 2000 finished RQG runs.
-            # The oversized 9999 serves for indentifying possible defects in the simplifier
-            # and having some limit at all.
-            # Caused by the fact that I am not sufficient sure if we could ever reach 9999
-            # without defect simplifier I emit here a warning and abort the campaign only.
+            PHASE_RVT_SIMP      eq $phase    ) {
             say("WARN: left_over_trials is no more > 0. And that even though we are in phase " .
                 "'$phase'. Giving up with the current campaign.");
         } else {
@@ -2195,6 +2196,8 @@ sub switch_phase {
         Batch::emergency_exit($status);
     }
 
+    ####### $cl_snip_phase      = " $rvt_snip --grammar=$target --threads=$threads";
+
     # Treat phases consisting of maybe repeated campaigns first
     # == The cases where we maybe stay in the current phase and do not shift.
     if ((PHASE_GRAMMAR_SIMP eq $phase) and ($campaign_success)) {
@@ -2203,7 +2206,7 @@ sub switch_phase {
             $campaign_number++;
             $campaign_duds_since_replay = 0;
             $left_over_trials  = TRIALS_SIMP;
-            $cl_snip_phase     = " $rvt_snip";
+            $cl_snip_phase     = " $rvt_snip                   --threads=$threads";
             Batch::write_result("$iso_ts ---------- $phase campaign $campaign_number ----------\n" .
                                 $iso_ts . $title_line_part);
 
@@ -2230,7 +2233,7 @@ sub switch_phase {
             $have_rvt_generated = 0;
             my $target          = $workdir . "/" . $child_grammar;
             $left_over_trials   = TRIALS_SIMP;
-            $cl_snip_phase      = " --grammar=" . $target ;
+            $cl_snip_phase      = "           --grammar=$target --threads=$threads";
             Batch::write_result("$iso_ts ---------- $phase campaign $campaign_number ---------- " .
                                 "($child_grammar)\n" .
                                 $iso_ts . $title_line_part);
@@ -2247,7 +2250,6 @@ sub switch_phase {
                 "that phase was reached was reached.");
         }
     }
-
 
     $phase = shift @simp_chain;
     say("INFO: Simplification phase switched to '$phase'.");
@@ -2346,6 +2348,7 @@ sub switch_phase {
     }
 
 
+    ### $cl_snip_phase          = " $rvt_snip --grammar=$target --threads=$threads";
     # Hint:
     # At least some phases could occur more than one time within @simp_chain. (handling is above)
     # Therefore the    $var = 0 -->if -1 == $var<--   is required because otherwise we
@@ -2355,7 +2358,7 @@ sub switch_phase {
         $left_over_trials       = $trials;
         make_child_from_parent();
         my $target              = $workdir . "/" . $child_grammar;
-        $cl_snip_phase          = " $rvt_snip --grammar=" . $target;
+        $cl_snip_phase          = " $rvt_snip --grammar=$target --threads=$threads";
         Batch::write_result("$iso_ts ---------- $phase ---------- ($child_grammar)\n" .
                             $iso_ts . $title_line_part);
     } elsif (PHASE_THREAD_REDUCE eq $phase)     {
@@ -2365,7 +2368,7 @@ sub switch_phase {
         $left_over_trials       = $trials;
         make_child_from_parent();
         my $target              = $workdir . "/" . $child_grammar;
-        $cl_snip_phase          = " $rvt_snip --grammar=" . $target;
+        $cl_snip_phase          = " $rvt_snip --grammar=$target                   ";
         Batch::write_result("$iso_ts ---------- $phase ---------- ($child_grammar)\n" .
                             $iso_ts . $title_line_part);
     } elsif (PHASE_RVT_SIMP eq $phase)   {
@@ -2377,8 +2380,7 @@ sub switch_phase {
         make_child_from_parent();
         # $rvt_snip = "";
         my $target              = $workdir . "/" . $child_grammar;
-        # $cl_snip_phase        = " $rvt_snip --grammar=" . $target ;
-        $cl_snip_phase          = " --grammar=" . $target ;
+        $cl_snip_phase          = "           --grammar=$target --threads=$threads";
         Batch::write_result("$iso_ts ---------- $phase campaign $campaign_number ---------- ($child_grammar)\n" .
                             $iso_ts . $title_line_part);
     } elsif (PHASE_THREAD1_REPLAY eq $phase)   {
@@ -2387,7 +2389,8 @@ sub switch_phase {
         $left_over_trials       = $trials;
         make_child_from_parent();
         my $target              = $workdir . "/" . $child_grammar;
-        $cl_snip_phase          = " $rvt_snip --grammar=" . $target . " --threads=1";
+        # Deviation from ....
+        $cl_snip_phase          = " $rvt_snip --grammar=$target --threads=1";
         Batch::write_result("$iso_ts ---------- $phase ---------- ($child_grammar)\n" .
                             $iso_ts . $title_line_part);
     } elsif (PHASE_GRAMMAR_SIMP eq $phase) {
@@ -2396,7 +2399,7 @@ sub switch_phase {
         $campaign_number        = 1;
         $campaign_duds_since_replay = 0;
         $left_over_trials       = TRIALS_SIMP;
-        $cl_snip_phase          = " $rvt_snip";
+        $cl_snip_phase          = " $rvt_snip                   --threads=$threads";
         load_grammar($parent_grammar, 10);
         Batch::write_result("$iso_ts ---------- $phase campaign $campaign_number ----------\n" .
                             $iso_ts . $title_line_part);
@@ -2405,7 +2408,7 @@ sub switch_phase {
         $left_over_trials       = $trials;
         make_child_from_parent();
         my $target              = $workdir . "/" . $child_grammar;
-        $cl_snip_phase          = " $rvt_snip --grammar=" . $target;
+        $cl_snip_phase          = " $rvt_snip --grammar=$target --threads=$threads";
         Batch::write_result("$iso_ts ---------- $phase ---------- ($child_grammar)\n" .
                             $iso_ts . $title_line_part);
     } elsif (PHASE_SIMP_END eq $phase)   {
@@ -2413,7 +2416,9 @@ sub switch_phase {
         say("");
         if (1 <= $simp_success) {
             say("\n\nSUMMARY: RQG test simplification achieved");
-            say("SUMMARY: simplified number of threads : $threads") if 1 <= $thread1_replay_success;
+            if (1 <= $thread1_replay_success or 1 <= $thread_reduce_success) {
+                say("SUMMARY: simplified number of threads : $threads");
+            }
             say("SUMMARY: simplified RVT setting : '" . $rvt_snip . "'") if 1 <= $rvt_simp_success;
             if (1 <= $grammar_simp_success) {
                 $grammar_string = GenTest::Simplifier::Grammar_advanced::init(
@@ -2432,8 +2437,8 @@ sub switch_phase {
         my $status = STATUS_INTERNAL_ERROR;
         Batch::emergency_exit($status);
     }
-    Batch::init_order_management();   # ??? Why here?
-    Batch::init_load_control();       # ??? Why here?
+    Batch::init_order_management();
+    Batch::init_load_control();
     say("DEBUG: Simplifier::switch_phase: Leaving routine. Current phase is '$phase'.")
         if Auxiliary::script_debug("S4");
     $campaign_success = 0;
@@ -3117,6 +3122,16 @@ sub get_shrinked_rvt_options {
     }
 
     return $rvt_option_snip;
+}
+
+sub rvt_cut_steps {
+# We just want some rough number for avoiding most probably failing replay attempts.
+    # FIXME:
+    # Maybe refine more.
+    # Only one reporter and that with a name != 'None' could be replaced by 'None etc.
+    my $cut_steps = (keys %reporter_hash) + (keys %validator_hash) + (keys %transformer_hash) - 3;
+    say("DEBUG: RVT cut steps estimation : $cut_steps") if Auxiliary::script_debug("S5");
+    return $cut_steps;
 }
 
 sub make_parent_from_string {
