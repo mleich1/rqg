@@ -22,6 +22,7 @@
 # interrupted by intentional server crash followed by restart with recovery and checks.
 #
 
+our $duration = 300;
 our $test_compression_encryption =
   '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz ' .
   '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
@@ -43,6 +44,7 @@ our $grammars =
 
     # DDL/DML mix
     '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql ',
+    '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql ',
     '--gendata --vcols --views --grammar=conf/mariadb/instant_add.yy',
     '--gendata=conf/mariadb/concurrency.zz --gendata_sql=conf/mariadb/concurrency.sql --grammar=conf/mariadb/concurrency.yy',
     '--grammar=conf/mariadb/table_stress_innodb.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
@@ -50,9 +52,11 @@ our $grammars =
     '--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz',
     '--grammar=conf/mariadb/partitions_innodb.yy',
     '--grammar=conf/runtime/metadata_stability.yy --gendata=conf/runtime/metadata_stability.zz',
-
-  "$test_compression_encryption                                                                ",
-  "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables ",
+    # That encryption stuff was/is error prone.
+    "$test_compression_encryption                                                                ",
+    "$test_compression_encryption --mysqld=--innodb-encrypt-log                                  ",
+    "$test_compression_encryption                               --mysqld=--innodb-encrypt-tables ",
+    "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables ",
 
 ];
 
@@ -97,7 +101,6 @@ $combinations = [ $grammars,
   [
     '
     --mysqld=--innodb_use_native_aio=1
-    --mysqld=--innodb_stats_persistent=off
     --mysqld=--innodb_lock_schedule_algorithm=fcfs
     --mysqld=--loose-idle_write_transaction_timeout=0
     --mysqld=--loose-idle_transaction_timeout=0
@@ -113,7 +116,6 @@ $combinations = [ $grammars,
     --mysqld=--innodb-lock-wait-timeout=50
     --no-mask
     --queries=10000000
-    --duration=300
     --seed=random
     --reporters=Backtrace --reporters=ErrorLog --reporters=Deadlock1 --reporters=CrashRecovery1
     --validators=None
@@ -124,7 +126,9 @@ $combinations = [ $grammars,
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
     --restart_timeout=120
-    '
+    ' .
+    " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=$duration ",
+    # --reporters=Backtrace --reporters=ErrorLog --reporters=Deadlock1 --reporters=CrashRecovery2
   ],
   [
     ' --threads=1  ',
@@ -151,6 +155,5 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=256M ',
   ],
 ];
-
 
 
