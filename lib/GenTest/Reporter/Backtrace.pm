@@ -211,14 +211,17 @@ sub nativeReport {
 
     my $wait_time     = Time::HiRes::time() - $start_time;
     my $message_begin = "ALARM: $who_am_i $wait_time" . "s waited but the server";
-    if ( $server_running ) {
-        say("$message_begin process has not disappeared.");
+    if (not defined $server_running) {
+        say("ERROR: $who_am_i kill 0 on server process $pid delivered undef.");
+        system("ps -elf | egrep 'mysqld|mariadbd' | grep $pid");
+    } elsif ( $server_running ) {
+        say("$message_begin process $pid has not disappeared.");
         # It does not make sense to wait longer.
         say("INFO: Most probably false alarm. Will return STATUS_OK, undef.");
         say("INFO: Reporter 'Backtrace' ------------------------------ End");
         return STATUS_OK, undef;
     } else {
-        say("ERROR: $who_am_i The server process has disappeared.");
+        say("ERROR: $who_am_i The server process $pid has disappeared.");
     }
 
     # Starting from here only the cases with disappeared server pid are left over.

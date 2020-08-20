@@ -144,9 +144,8 @@ my $grammar_simp_success   = -1;
 # 4. Run tests which follow with gendata_sql using (new) rqg.sql only (no other kind of gendata)
 # 5. Find a good point of time when to shrink (new) rqg.sql with a parallelized version
 #    of the algorithm by Andreas Zeller (simplify_mysqltest goes without parallelization).
-#    Maybe after GRAMMAR_CLONE?
 use constant PHASE_GENDATA_SIMP     => 'gendata_simp';
-# Given the fact that too many tests do not use zz files I hesitate to implement a
+# Given the fact that too many tests do not use zz files at all I hesitate to implement a
 # simplifier for zz files.
 
 #
@@ -177,12 +176,23 @@ my @simp_chain_default = ( # PHASE_SIMP_BEGIN,
                            # PHASE_SIMP_END,
                          );
 
-# Attack_mode     --- not to be set from outside
+# To be implemented later if ever
+# Attack_mode  --- not to be set from outside
 # with (most probably) impact on
 # - generate_order
 # - validate_order
 # - process_result
 # - get_job   (deliver cl_snip for rqg.pl)
+# Example:
+# Lets assume we have some rule X, containing x components/alternatives, which is n times called.
+# Hence we would have in the phase PHASE_GRAMMAR_CLONE n variants of it which leads in the worst
+# case to ~ n * x simplification orders.
+# Therefore it might be useful to have specialized simplification campaigns attacking
+# 1. Only rules which would be cloned -- Goal is to make x smaller
+# 2. Only the components of rules which use X -- Goal is to make n smaller
+# Advantage compared to just running some additional conventional simplification before cloning:
+#    We omit the less effective attacks on just once used rules.
+#
 #
 # rqg_batch extracts workdir/vardir/build thread/bwlists
 # Simplifier + combinator do not to know that except workdir if at all.
@@ -198,7 +208,7 @@ use constant SIMP_ALGO_MASKING      => 'masking'; # not yet implemented
 # - strict required
 #   SIMP_ALGO_WEIGHT seems to be matured enough for not having some fall back position.
 # nor
-# - expected to be at least sometimes more powerful than SIMP_ALGO_WEIGHT.
+# - in average more powerful than SIMP_ALGO_WEIGHT.
 #   Per experience with historic implementations:
 #   - SIMP_ALGO_RANDOM is all time serious slower than SIMP_ALGO_WEIGHT but serious less complex.
 #   - SIMP_ALGO_MASKING is
@@ -206,8 +216,9 @@ use constant SIMP_ALGO_MASKING      => 'masking'; # not yet implemented
 #     - sometimes roughly as fast as SIMP_ALGO_WEIGHT up till a bit faster
 #     - most times serious faster than SIMP_ALGO_RANDOM
 #     - sometimes serious slower than SIMP_ALGO_WEIGHT
-#     In average over different simplification setups (especially different grammars)
-#     SIMP_ALGO_WEIGHT was faster than SIMP_ALGO_MASKING.
+#     In average over different simplification setups (especially different grammars) the historic
+#     SIMP_ALGO_WEIGHT was faster than the historic SIMP_ALGO_MASKING.
+#     The current SIMP_ALGO_WEIGHT two major additional improvements.
 # So if SIMP_ALGO_RANDOM and/or SIMP_ALGO_MASKING get ever implemented than for academic and/or
 # research purposes only.
 #
@@ -236,7 +247,7 @@ use constant SIMP_ALGO_MASKING      => 'masking'; # not yet implemented
 #      - the order had success on the previous execution but it was a second "winner", so its
 #        simplification could be not applied. But trying again is highly recommended.
 #    - tries to get a faster simplification via bookkeeping about efforts invested in orders.
-# 2. Independent of the goal of the batch run the parent might be forced to stop some ongoing
+# 2. Independent of the goal of the batch run the batch tool might be forced to stop some ongoing
 #    RQG worker in order to avoid to run into trouble with resources (free space in vardir etc.).
 #    In case of
 #    - grammar simplification we would have stopped some of the in theory most promising
@@ -350,8 +361,9 @@ use constant THREADS_DEFAULT        => 10;
 #       Than we need to handle that option here anyway.
 my $cl_snip_all   = '';
 #
-# 3. The third snip is valid(static) for all steps in one Simplification phase except THREAD_REDUCE
-#    Example: PHASE_THREAD1_REPLAY --> "--threads=1"
+# 3. The third snip is valid(static) for all steps in one Simplification phase
+#    Example1: PHASE_THREAD1_REPLAY --> "--threads=1"
+#    Example2: PHASE_GRAMMAR_SIMP   --> "--threads=$threads"
 my $cl_snip_phase = '';
 #
 # 4. The forth snip is valid for one simplification step/job within a simplification phase given.
@@ -409,7 +421,9 @@ my $campaign_number  = 0;
 # Just for the following case (up till today never seen):
 # Caused by some defect within the code of PHASE_RVT_SIMP or PHASE_GRAMMAR_SIMP we get
 # roughly endless additional campaigns.
-# Per experience: Mid 2019 with sub optimal simplification code 21 campaigns observed.
+# Per experience:
+# - Mid 2019 with sub optimal simplification code 21 campaigns observed.
+# - 2020 usually less than 10 campaigns.
 my $campaign_number_max = 30;
 #
 # $campaign_success
@@ -438,10 +452,14 @@ my $campaign_success = 0;
 # - observed
 #   The previous campaign had success and so we started a new one.
 #   This lasted ~ 1700 (unfortunate config) RQG runs without any replay till it ended.
-# - never observed but thinkable because somehow a sibling of the observation above
+# - observed and somehow a sibling of the observation above
 #   We had during the current campaign some replays but the last one was too long ago.
-# Solution: Stop the campaign in case $campaign_duds_since_replay
-# >= 2 * Maximum of ($cut_steps , $trials).
+# So basically we might have reached the smallest grammar with the current simplification approach.
+#
+#
+# Solution:
+# Stop the campaign in case $campaign_duds_since_replay >= 2 * Maximum of ($cut_steps , $trials)
+# or similar.
 my $campaign_duds_since_replay = 0;
 #
 #
@@ -518,10 +536,8 @@ my $refill_number    = 0;
 #      SQL causing the assert.
 #    ==~ There is no (automatic) simplification idea left over.
 # 4. We had 9999 RQG runs within that campaign.
-#    ==~ Its not unlikely that
-#        - we suffered from a defect within the simplifier.
-#          So extending the current campaign is quite questionable.
-#        Its not unlikely that we suffered from a defect within the simplifier.
+#    ==~ Its not unlikely that we suffered from a defect within the simplifier.
+#        So extending the current campaign is quite questionable.
 #
 
 
@@ -533,10 +549,6 @@ my @transformer_array;
 my %transformer_hash;
 my @validator_array;
 my %validator_hash;
-
-
-# Replay Runtime fifo
-# Replay duration fifo
 
 
 $| = 1;
@@ -2628,7 +2640,7 @@ sub replay_runtime_adapt {
             #   predictions we have some benefit.
             # - DURATION_ADAPTION_EXP shows compared to DURATION_ADAPTION_MAX
             #   - a more smooth adaptation with less drastic jumps
-            #   - some more aggressive adaptation --> in average better speedup but without
+            #   - some more aggressive adaptation --> in average better speedup
             my ($r_mean, $r_value) = estimation(@replay_runtime_fifo);
             my ($e_mean, $e_value) = estimation(@estimate_runtime_fifo);
             if ($r_value > $duration) {
@@ -2667,10 +2679,9 @@ sub report_replay {
 # Purpose
 # -------
 # Try to
-# - make progress  (have a better parent grammar as base for new jobs)
+# - make progress  (like have a better parent grammar as base for new jobs)
 # - free resources (stop obsolete concurrent RQG runs)
 # as soon as possible.
-# This applies to the phases PHASE_GRAMMAR_SIMP and PHASE_RVT_SIMP only.
 #
 # Please be aware that some RQG Worker which has signalled that he replayed does not need
 # to have already finished his work. This means simply stopping all RQG Workers executing a job
@@ -2704,21 +2715,13 @@ sub report_replay {
         my $status = STATUS_INTERNAL_ERROR;
         Batch::emergency_exit($status);
     }
-    # FIXME:
-    # Activate the code below in case FIRST_REPLAY and maybe others are adjusted to it.
-#   if (not defined $replay_grammar or not defined $replay_grammar_parent or
-#       not defined $order_id                                               ) {
-#       Carp::cluck("INTERNAL ERROR: All values must be defined.");
-#       my $status = STATUS_INTERNAL_ERROR;
-#       Batch::emergency_exit($status);
-#   }
 
     my $response = Batch::REGISTER_GO_ON;
 
     if (PHASE_GRAMMAR_SIMP eq $phase) {
         # The update for $campaign_duds_since_replay (set to 0) comes in register_result.
         if ($parent_grammar eq $replay_grammar_parent) {
-            # Its a first replayer == Winner based on the current parent grammar.
+            # Its a replayer based on the current parent grammar == The winner.
 
             # After reloading the grammar of the winner we get a new parent grammar.
             # Hereby all already running worker do something based on an outdated parent grammar.
