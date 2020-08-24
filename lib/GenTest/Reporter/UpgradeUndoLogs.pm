@@ -1,4 +1,4 @@
-# Copyright (C) 2016 MariaDB Corporation Ab
+# Copyright (C) 2016, 2020 MariaDB Corporation Ab
 # 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -140,7 +140,7 @@ sub crash_recovery_and_upgrade {
     }
 
     if (kill(0, $pid)) {
-        sayError("Could not kill the old server with pid $pid; sending SIGBART to get a stack trace");
+        sayError("Could not kill the old server with pid $pid; sending SIGABRT to get a stack trace");
         kill('ABRT', $pid);
         if ($upgrade_mode eq 'undo-recovery') {
           return report_and_return(STATUS_SERVER_DEADLOCKED);
@@ -183,7 +183,7 @@ sub crash_recovery_and_upgrade {
     }
 
     if (kill(0, $pid)) {
-        sayError("Could not shut down the old server with pid $pid; sending SIGBART to get a stack trace");
+        sayError("Could not shut down the old server with pid $pid; sending SIGABRT to get a stack trace");
         kill('ABRT', $pid);
         if ($upgrade_mode eq 'undo-recovery') {
           return report_and_return(STATUS_SERVER_DEADLOCKED);
@@ -300,7 +300,7 @@ sub crash_recovery_and_upgrade {
     }
 
     if (kill(0, $pid)) {
-        sayError("Could not shut down the new server with pid $pid; sending SIGBART to get a stack trace");
+        sayError("Could not shut down the new server with pid $pid; sending SIGABRT to get a stack trace");
         kill('ABRT', $pid);
         return report_and_return(STATUS_SERVER_DEADLOCKED);
     } else {

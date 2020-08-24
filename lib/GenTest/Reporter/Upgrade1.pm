@@ -59,23 +59,26 @@ my $vardir;
 my $version_numeric_old;
 my %detected_known_bugs;
 
+my $who_am_i = "Reporter 'Upgrade1':";
+
 sub report {
     my $reporter = shift;
 
-    my $who_am_i = "Reporter 'Upgrade1'";
 
     $first_reporter = $reporter if not defined $first_reporter;
     return STATUS_OK if $reporter ne $first_reporter;
 
     my $upgrade_mode= $reporter->properties->property('upgrade-test');
     if ($upgrade_mode eq 'normal') {
-        say("The test will perform normal server upgrade");
+        say("INFO: $who_am_i The test will perform normal server upgrade");
     } elsif ($upgrade_mode eq 'crash') {
-        say("The test will perform server crash-upgrade");
+        say("INFO: $who_am_i The test will perform server crash-upgrade");
     } elsif ($upgrade_mode eq 'recovery') {
-        say("The test will perform server crash-recovery");
+        say("INFO: $who_am_i The test will perform server crash-recovery");
     }
     $who_am_i .= " with mode '$upgrade_mode':";
+    say("DEBUG: basedir before upgrade ->" . $reporter->properties->servers->[0]->basedir() . "<-");
+    say("DEBUG: basedir after upgrade ->" . $reporter->properties->servers->[1]->basedir() . "<-");
 
     say("INFO: $who_am_i -------------------- Begin");
     say("-- Old server info: --");
@@ -100,30 +103,34 @@ sub report {
     $table_autoinc{'old'} = collect_autoincrements($dbh,'old');
 
     if ($upgrade_mode eq 'normal') {
-        say("Shutting down the old server...");
+        say("INFO: $who_am_i Shutting down (send SIGTERM) the old server...");
         kill(15, $pid);
-        foreach (1..60) {
+        my $end_time = time() + 60;
+        while (time() < $end_time) {
             last if not kill(0, $pid);
             sleep 1;
         }
     } else {
-        say("Killing the old server...");
+        say("INFO: $who_am_i Killing (send SIGKILL) the old server...");
         kill(9, $pid);
-        foreach (1..60) {
+        my $end_time = time() + 60;
+        while (time() < $end_time) {
             last if not kill(0, $pid);
             sleep 1;
         }
     }
+    # (mleich): FIXME      Why is there a branch with STATUS_SKIP?
     if (kill(0, $pid)) {
-        sayError("Could not shut down/kill the old server with pid $pid; sending SIGBART to get a stack trace");
+        sayError("INFO: $who_am_i Could not shut down/kill the old server with pid $pid; sending SIGABRT to get a stack trace");
         kill('ABRT', $pid);
         if ($upgrade_mode eq 'recovery') {
-          return report_and_return(STATUS_SERVER_DEADLOCKED);
+            return report_and_return(STATUS_SERVER_DEADLOCKED);
         } else { # $upgrade_mode eq 'crash', we'll ignore hang on old server shutdown
-          return report_and_return(STATUS_SKIP);
+            say("MLML $who_am_i We will set STATUS_SKIP!");
+            return report_and_return(STATUS_SKIP);
         }
     } else {
-        say("Old server with pid $pid has been shut down/killed");
+        say("INFO: $who_am_i Old server with pid $pid has been shut down/killed");
     }
     # Example of code which helps when meeting some already locked file.
     # my $maybe_locked_file = $vardir . "/data/aria_log_control";
@@ -134,7 +141,7 @@ sub report {
     my $orig_datadir = $datadir.'_orig';
 
     # FIXME: Replace with routine in lib/Auxiliary.pm
-    say("Copying datadir... (interrupting the copy operation may cause investigation problems later)");
+    say("INFO: $who_am_i Copying datadir... (interrupting the copy operation may cause investigation problems later)");
     if (osWindows()) {
         system("xcopy \"$datadir\" \"$orig_datadir\" /E /I /Q");
     } else {
@@ -144,18 +151,18 @@ sub report {
     move($errorlog, $server->errorlog.'_orig');
     unlink("$datadir/core*");    # Remove cores from any previous crash
 
-    say("Starting the new server...");
+    say("INFO: $who_am_i Starting the new server...");
 
     $server = $reporter->properties->servers->[1];
     $server->setStartDirty(1);
     my $upgrade_status = $server->startServer();
 
     if ($upgrade_status != STATUS_OK) {
-        sayError("New server failed to start");
+        sayError("INFO: $who_am_i New server failed to start");
     }
 
     # FIXME:
-    # 1. Replace with routine in lib/Auxiliary.pm
+    # 1. Replace with routine in lib/Auxiliary.pm or rather DBServer/Mysqld.pm
     # 2. Certain bugs like MDEV-13112 are reported for 10.1 only.
     #    Figure out if they are valid for higher versions.
     # 3. Try to minimize the dependency on error messages which might depend on server version.
@@ -224,7 +231,7 @@ sub report {
 
     if ($upgrade_status != STATUS_OK) {
         $upgrade_status = STATUS_UPGRADE_FAILURE if $upgrade_status == STATUS_POSSIBLE_FAILURE;
-        sayError("Upgrade has apparently failed");
+        sayError("$who_am_i Upgrade has apparently failed");
         return report_and_return($upgrade_status);
     }
 
@@ -235,7 +242,7 @@ sub report {
 
     $dbh = DBI->connect($server->dsn);
     if (not defined $dbh) {
-        sayError("Could not connect to the new server after upgrade");
+        sayError("$who_am_i Could not connect to the new server after upgrade");
         return report_and_return(STATUS_UPGRADE_FAILURE);
     }
 
@@ -261,7 +268,7 @@ sub report {
                     while (<UPGRADE_LOG>) {
                         if (/^\s*Error/) {
                             $res= STATUS_UPGRADE_FAILURE;
-                            sayError("Found errors in mysql_upgrade output");
+                            sayError("$who_am_i Found errors in mysql_upgrade output");
                             sayFile("$datadir/mysql_upgrade.log");
                             last OUTER_READ;
                         }
@@ -269,7 +276,7 @@ sub report {
                 }
                 close (UPGRADE_LOG);
             } else {
-                sayError("Could not find mysql_upgrade.log");
+                sayError("$who_am_i Could not find mysql_upgrade.log");
                 $res= STATUS_UPGRADE_FAILURE;
             }
         }
@@ -327,6 +334,7 @@ sub report_and_return {
     my $res= shift;
     my @detected_known_bugs = map { 'MDEV-'. $_ . '('.$detected_known_bugs{$_}.')' } keys %detected_known_bugs;
     say("Detected possible appearance of known bugs: @detected_known_bugs");
+    say("INFO: $who_am_i ---------------------- End");
     return $res;
 }
 
