@@ -143,7 +143,9 @@ my $who_am_i = "Reporter 'Deadlock':";
 sub monitor {
     my $reporter = shift;
 
-    my $actual_test_duration = time() - $reporter->testStart();
+    if (STATUS_OK != server_dead($reporter)) {
+        exit STATUS_SERVER_CRASHED;
+    }
 
     # 2019-09 Observation (mleich)
     # The simplifier computed finally some adapted durations of 5s.
@@ -173,6 +175,7 @@ sub monitor {
     # Reason: gendata loads a lot and the box is heavy loaded. No defect in RQG or here.
     #
 
+    my $actual_test_duration = time() - $reporter->testStart();
     if ($actual_test_duration > ACTUAL_TEST_DURATION_EXCEED + $reporter->testDuration()) {
         say("ERROR: $who_am_i Actual test duration($actual_test_duration" . "s) is more than "     .
             "ACTUAL_TEST_DURATION_EXCEED(" . ACTUAL_TEST_DURATION_EXCEED  . "s) + the desired "    .
@@ -446,11 +449,52 @@ sub dbh_thread {
 
 sub kill_with_core {
     if (defined $ENV{RQG_CALLBACK}) {
+        # (mleich1): Sorry, but I do not know if this works.
         return callbackReport(@_);
     } else {
         return nativeReport(@_);
     }
 }
+
+sub server_dead {
+    if (defined $ENV{RQG_CALLBACK}) {
+        # (mleich1): Sorry, but I do not know if this works.
+        return callbackDead(@_);
+    } else {
+        return nativeDead(@_);
+    }
+}
+
+# (mleich1): Sorry, but I do not know if this works.
+sub callbackDead {
+    my $output = GenTest::CallbackPlugin::run("dead");
+    say("$output");
+    return STATUS_OK;
+}
+
+sub nativeDead {
+    my $reporter = shift;
+
+    my $error_log = $reporter->serverInfo('errorlog');
+    say("error_log is $error_log");
+
+    my $pid_file = $reporter->serverVariable('pid_file');
+    say("pid_file is $pid_file");
+
+    my $pid = $reporter->serverInfo('pid');
+
+    my $server_running = kill (0, $pid);
+    if ($server_running) {
+        # say("INFO: $who_am_i:server_dead: The process of the DB server $pid is running. " .
+        #     "Will return STATUS_OK.");
+        return STATUS_OK;
+    } else {
+        say("INFO: $who_am_i:server_dead: The process of the DB server $pid is no more running. " .
+            "Will return STATUS_SERVER_CRASHED.");
+        return STATUS_SERVER_CRASHED;
+    }
+}
+
 
 sub report {
     # When hitting during monitoring
