@@ -30,6 +30,7 @@ require Exporter;
 @ISA = qw(GenTest::Reporter);
 
 use strict;
+use Auxiliary;
 use DBI;
 use GenTest;
 use GenTest::Constants;
@@ -196,6 +197,7 @@ sub monitor {
     # This port computation is unsafe. There might be some already running server there.
     my $clone_port    = $source_port + 4;
     my $plugin_dir    = $reporter->serverVariable('plugin_dir');
+    my $fkm_file      = $reporter->serverVariable('file_key_management_filename');
     my $plugins       = $reporter->serverPlugins();
     my ($version)     = ( $reporter->serverVariable('version') =~ /^(\d+\.\d+)\./ ) ;
 
@@ -215,10 +217,22 @@ sub monitor {
         $backup_binary = $backup_binary . " --innodb-use-native-aio=0 ";
     }
 
+    my $rr =          $reporter->properties->rr();
+    my $rr_options =  '';
+    my $rr_addition = '';
+    if (defined $rr and $rr eq Auxiliary::RR_TYPE_EXTENDED) {
+        # Its the rr trace sub directory of the first server.
+        my $rr_trace_dir = $server0->vardir() . '/rr';
+        if (defined $reporter->properties->rr_options()) {
+            $rr_options =   $reporter->properties->rr_options();
+        }
+        $rr_addition =     "_RR_TRACE_DIR=$rr_trace_dir rr record $rr_options";
+    }
+
     # For experimenting:
     # $backup_binary = "not_exists ";
     # my $backup_backup_cmd = "$backup_binary --port=$source_port --hickup " .
-    my $backup_backup_cmd = "$backup_binary --port=$source_port --backup " .
+    my $backup_backup_cmd = $rr_addition . " $backup_binary --port=$source_port --backup " .
                             "--datadir=$datadir --target-dir=$clone_datadir";
     say("Executing backup: $backup_backup_cmd");
 
@@ -232,6 +246,7 @@ sub monitor {
         # Set the error_exit_message before setting the alarm.
         say("ERROR: $msg_snip $exit_msg" .
             " Will exit with STATUS_BACKUP_FAILURE.");
+        sayFile($reporter_prt);
         exit STATUS_BACKUP_FAILURE;
     } or die "ERROR: $msg_snip Error setting SIGALRM handler: $!\n";
     # my $con_get_start = Time::HiRes::time();
@@ -239,7 +254,7 @@ sub monitor {
     $exit_msg      = "Backup operation did not finish in " . $alarm_timeout . "s.";
     alarm ($alarm_timeout);
 
-    system($backup_backup_cmd);
+    system("$backup_backup_cmd");
     my $res = $?;
     alarm (0);
     if ($res != 0) {
@@ -278,7 +293,7 @@ sub monitor {
         exit $status;
     }
 
-    my $backup_prepare_cmd = "$backup_binary --port=$clone_port --prepare " .
+    my $backup_prepare_cmd = $rr_addition . " $backup_binary --port=$clone_port --prepare " .
                              "--target-dir=$clone_datadir";
     say("Executing first prepare: $backup_prepare_cmd");
     $exit_msg      = "Prepare operation 1 did not finish in " . $alarm_timeout . "s.";
@@ -305,7 +320,7 @@ sub monitor {
         exit $status;
     }
 
-    $backup_prepare_cmd = "$backup_binary --port=$clone_port --prepare " .
+    $backup_prepare_cmd = $rr_addition . " $backup_binary --port=$clone_port --prepare " .
                           "--target-dir=$clone_datadir";
     say("Executing second prepare: $backup_prepare_cmd");
     $exit_msg      = "Prepare operation 2 did not finish in " . $alarm_timeout . "s.";
@@ -351,16 +366,15 @@ sub monitor {
         '--core-file',
         '--loose-console',
         '--language='.$language,
-        '--loose-lc-messages-dir='.$lc_messages_dir,
-        '--datadir="'.$clone_datadir.'"',
+        '--loose-lc-messages-dir="' . $lc_messages_dir . '"',
+        '--datadir="' . $clone_datadir . '"',
         '--log-output=file',
         '--general-log',
-        '--datadir='.$clone_datadir,
+        '--datadir="' . $clone_datadir . '"',
         '--port='.$clone_port,
-        '--loose-plugin-dir="'.$plugin_dir.'"',
+        '--loose-plugin-dir="' . $plugin_dir . '"',
         '--max-allowed-packet=20M',
         '--innodb',
-        '--innodb_page_size="' . $innodb_page_size . '"',
         '--loose_innodb_use_native_aio=0',
         '--sql_mode=NO_ENGINE_SUBSTITUTION',
     );
@@ -368,6 +382,10 @@ sub monitor {
     foreach my $plugin (@$plugins) {
         push @mysqld_options, '--plugin-load=' . $plugin->[0] . '=' . $plugin->[1];
     };
+    push @mysqld_options, '--loose-file-key-management-filename="' . $fkm_file . '"'
+        if defined $fkm_file;
+    push @mysqld_options, '--innodb_page_size="' . $innodb_page_size . '"'
+        if defined $innodb_page_size;
 
     $|=1;
 
@@ -381,6 +399,8 @@ sub monitor {
                             start_dirty        => 1,
                             valgrind           => undef,
                             valgrind_options   => undef,
+                            rr                 => $rr,
+                            rr_options         => $rr_options,
                             server_options     => \@mysqld_options,
                             general_log        => 1,
                             config             => undef,
@@ -392,7 +412,8 @@ sub monitor {
     my $status = $clone_server->startServer();
     if ($status != STATUS_OK) {
         direct_to_std();
-        $status = STATUS_ENVIRONMENT_FAILURE;
+        # It is intentional to exit with STATUS_BACKUP_FAILURE.
+        $status = STATUS_BACKUP_FAILURE;
         say("ERROR: $msg_snip : Starting a DB server on the cloned data failed.");
         sayFile($clone_err);
         sayFile($reporter_prt);
@@ -410,7 +431,10 @@ sub monitor {
     }
     if (not defined $clone_dbh) {
         direct_to_std();
-        $status = STATUS_ENVIRONMENT_FAILURE;
+        # It is intentional to exit with STATUS_BACKUP_FAILURE.
+        $status = STATUS_BACKUP_FAILURE;
+        sayFile($clone_err);
+        sayFile($reporter_prt);
         say("ERROR: $msg_snip : Could not connect to the clone server on port $clone_port. " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
@@ -443,7 +467,10 @@ sub monitor {
                 say("ERROR: $msg_snip : '$sql' failed with : " . $clone_dbh->err());
                 sayFile($clone_err);
                 sayFile($reporter_prt);
-                my $status = STATUS_DATABASE_CORRUPTION;
+                # The damage is some corruption.
+                # Based on the fact that this is found in the server running on the backupedd data
+                # I prefer to return STATUS_BACKUP_FAILURE and not STATUS_DATABASE_CORRUPTION.
+                my $status = STATUS_BACKUP_FAILURE;
                 say("ERROR: $msg_snip : Will exit with status " . status2text($status) . "($status)");
                 exit $status;
             }
