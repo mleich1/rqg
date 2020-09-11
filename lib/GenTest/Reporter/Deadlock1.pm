@@ -89,6 +89,7 @@ use constant PROCESSLIST_PROCESS_COMMAND     => 4;
 use constant PROCESSLIST_PROCESS_TIME        => 5;
 use constant PROCESSLIST_PROCESS_INFO        => 7;
 
+# FIXME: Add a dependency from the number of threads.
 # The time, in seconds, we will wait for a connect before we declare the server hanged.
 use constant CONNECT_TIMEOUT_THRESHOLD       => 45;   # Seconds
 
@@ -132,6 +133,7 @@ use constant ACTUAL_TEST_DURATION_EXCEED     => 300;  # Seconds
 # before we declare the server hanged.
 use constant REPORTER_QUERY_THRESHOLD        => 30;   # Seconds
 
+# FIXME: Add a dependency from the number of threads.
 # The time, in seconds, we will wait in addition for connect or a some query response in order
 # to compensate for some heavy overloaded box and maybe unfortunate OS scheduling before we declare
 # the server hanged.
@@ -222,7 +224,11 @@ sub monitor_nonthreaded {
 
     sigaction SIGALRM, new POSIX::SigAction sub {
         # Concept:
-        # Set the error_exit_message before setting the alarm.
+        # 1. Check first if the server process is gone.
+        # 2. Set the error_exit_message for deadlock/freeze before setting the alarm.
+        if (STATUS_OK != server_dead($reporter)) {
+            exit STATUS_SERVER_CRASHED;
+        }
         say("ERROR: $who_am_i $exit_msg " .
             "Will exit with STATUS_SERVER_DEADLOCKED later.");
         $reporter->kill_with_core;
@@ -247,6 +253,9 @@ sub monitor_nonthreaded {
                     "Will exit with STATUS_INTERNAL_ERROR");
                 exit STATUS_INTERNAL_ERROR;
             }
+            if (STATUS_OK != server_dead($reporter)) {
+                exit STATUS_SERVER_CRASHED;
+            }
         } else {
             last;
         }
@@ -254,11 +263,20 @@ sub monitor_nonthreaded {
         sleep 3;
     }
     alarm (0);
+
+    if (STATUS_OK != server_dead($reporter)) {
+        exit STATUS_SERVER_CRASHED;
+    }
+    # The DB server process is running.
+    # Hence we have either a server freeze (STATUS_SERVER_DEADLOCKED) or
+    # the timeouts are too short.
     if (not defined $dbh) {
         say("ERROR: $who_am_i All $round connect attempts to dsn $dsn failed. " .
-            "Will return STATUS_SERVER_CRASHED");
-        # FIXME: Why not STATUS_CRITICAL_ERROR ?
-        return STATUS_SERVER_CRASHED;
+            "But the server process is running.");
+        say("ERROR: $who_am_i Assuming a server freeze. " .
+            "Will exit with STATUS_SERVER_DEADLOCKED later.");
+        $reporter->kill_with_core;
+        exit STATUS_SERVER_DEADLOCKED;
     }
 
     # We should have now a connection.
@@ -273,6 +291,9 @@ sub monitor_nonthreaded {
     alarm (0);
     # The query could have failed.
     if (not defined $processlist) {
+        if (STATUS_OK != server_dead($reporter)) {
+            exit STATUS_SERVER_CRASHED;
+        }
         say("ERROR: $who_am_i The query '$query' failed with " . $DBI::err);
         my $return = GenTest::Executor::MySQL::errorType($DBI::err);
         if (not defined $return) {
@@ -476,12 +497,8 @@ sub nativeDead {
     my $reporter = shift;
 
     my $error_log = $reporter->serverInfo('errorlog');
-    say("error_log is $error_log");
-
-    my $pid_file = $reporter->serverVariable('pid_file');
-    say("pid_file is $pid_file");
-
-    my $pid = $reporter->serverInfo('pid');
+    my $pid_file =  $reporter->serverVariable('pid_file');
+    my $pid =       $reporter->serverInfo('pid');
 
     my $server_running = kill (0, $pid);
     if ($server_running) {
