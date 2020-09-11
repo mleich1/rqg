@@ -321,4 +321,19 @@ sub killServer {
     return $total_ret;
 }
 
+sub crashServer {
+    my ($self) = @_;
+
+    my $total_ret = DBSTATUS_OK;
+    if ($self->slave->crashServer != DBSTATUS_OK) {
+        say("WARN: Killing the slave with core made trouble.");
+        $total_ret = DBSTATUS_FAILURE;
+    }
+    if ($self->master->crashServer != DBSTATUS_OK) {
+        say("WARN: Killing the master with core made trouble.");
+        $total_ret = DBSTATUS_FAILURE;
+    }
+    return $total_ret;
+}
+
 1;

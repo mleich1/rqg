@@ -429,6 +429,8 @@ if ( defined $help ) {
 }
 
 # FIXME: Maybe move into Auxiliary.pm
+my $rr_rules = 0;
+# $rr_rules is used for deciding if a SIGKILL of the server is acceptable or not.
 if (defined $rr) {
     my $status = STATUS_OK;
     if (STATUS_OK != Auxiliary::find_external_command("rr")) {
@@ -453,6 +455,7 @@ if (defined $rr) {
         safe_exit($status);
     }
     say("INFO: The 'rr' invocation type '$rr'.");
+    $rr_rules = 1;
 } else {
     if (defined $rr_options) {
         say("WARN: Setting rr_options('$rr_options') to undef because 'rr' is not defined.");
@@ -472,6 +475,7 @@ if (defined $env_var) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         safe_exit($status);
     }
+    $rr_rules = 1;
 }
 
 # FIXME if a solution was found.
@@ -2126,6 +2130,11 @@ sub killServers {
 # If the status is already bad than the final status must be not
 # influenced by if a smooth shutdown is possible or not.
 # Hence harsh and therefore reliable+fast treatment is best.
+# --> SIGKILL whereever without harm
+#     Positive example: No use of "rr" and all relevant is already in the RQG log.
+# --> SIGABRT whenever "rr" is involved in order to avoid that "rr" traces are incomplete.
+#     Negative example: We run under "rr", found a data corruption, SIGKILL and get a rotten trace.
+
     say("Killing server(s)...");
     my $ret;
     if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
@@ -2134,7 +2143,11 @@ sub killServers {
         ($rpl_mode eq Auxiliary::RQG_RPL_MIXED_NOSYNC)     or
         ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
         ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         ) {
-        $ret = $rplsrv->killServer();
+        if ($rr_rules) {
+            $ret = $rplsrv->crashServer();
+        } else {
+            $ret = $rplsrv->killServer();
+        }
     } elsif (defined $upgrade_test) {
         if (defined $server[1]) {
             $ret = $server[1]->killServer;
@@ -2145,7 +2158,12 @@ sub killServers {
         $ret = STATUS_OK;
         foreach my $srv (@server) {
             if ($srv) {
-                my $single_ret = $srv->killServer;
+                my $single_ret = STATUS_OK;
+                if ($rr_rules) {
+                    $single_ret = $srv->crashServer;
+                } else {
+                    $single_ret = $srv->killServer;
+                }
                 if (not defined $single_ret) {
                     say("ALARM: \$single_ret is not defined.");
                     $ret = STATUS_FAILURE;
