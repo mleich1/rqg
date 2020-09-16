@@ -7,7 +7,7 @@
 export LANG=C
 
   USAGE="USAGE: $0 <Config file for the RQG test Combinator> <Basedir1 == path to MariaDB binaries> [<Basedir2>] "
-EXAMPLE="EXAMPLE: $0 conf/mariadb/InnoDB_standard.cc /work_m/bb-10.2-marko/bld_debug table_stress.yy"
+EXAMPLE="EXAMPLE: $0 conf/mariadb/InnoDB_standard.cc /Server_bin/bb-10.2-marko_asan_Og table_stress.yy"
 USAGE="\n$USAGE\n\n$EXAMPLE\n"
 
 CALL_LINE="$0 $*"
@@ -67,7 +67,6 @@ then
 fi
 
 PROT="$CASE""-""$BASEDIR1_NAME"".prt"
-rm -f $PROT
 
 # My standard work directory for rqg_batch.pl.
 # The workdirs for ongoing RQG runs are in its sub directories.
@@ -97,6 +96,7 @@ set +e
 # concurrency bug.
 PARALLEL=`nproc`
 PARALLEL=$(($PARALLEL * 3))
+# If $PARALLEL > ~250 than we get trouble on Ubuntu 18 Server.
 if [ $PARALLEL -gt 250 ]
 then
    PARALLEL=250
@@ -116,14 +116,14 @@ fi
 #     you get an earlier end with less resource consumption.
 # - used for limiting certain phases during RQG test simplification if running that at all.
 # TRIALS means regular finished (!= stopped by rqg_batch.pl because of whatever reason) RQG runs.
-TRIALS=$(($PARALLEL * 10))
+TRIALS=10000
 
 # MAX_RUNTIME is a better limit than TRIALS for defining the size of a testing campaign
 # when running 'production' == QA.
 # Please be aware that the runtime of util/issue_grep.sh is not included.
 # RQG batch run elapsed runtime =
 #    assigned max_runtime
-# +  time for stopping the active RQG Worker (less than 3 seconds)
+# +  time for stopping the active RQG Workers (usually less than 3 seconds)
 # +  util/issue_grep.sh elapsed time =
 #       no of logs in last_batch_workdir * (1 till 3 seconds depending on log size)
 MAX_RUNTIME=3600
@@ -172,7 +172,7 @@ rm -rf $BATCH_VARDIR/1*
 export ASAN_OPTIONS=abort_on_error=1,disable_coredump=0
 echo "Have set "`env | grep ASAN`
 
-
+rm -f $PROT
 
 set -o pipefail
 # Options
@@ -202,18 +202,17 @@ set -o pipefail
 #    Warning: Significant more output of especially rqg_batch.pl and partially rqg.pl.
 # --script_debug=_all_                                                \
 #
-# 5. "--no-mask", old stuff.
-#    combinations.pl had the default to apply some masking except ??? assigned some other one.
-#    Hence assigning "--no-mask" was required in order to switch any masking off.
+# 5. "--no-mask", but not "--mask" or "--mask_level", could be assigned to combinations.pl
+#    in command line. combinations.pl had also the default to apply some masking except some other
+#    one was assigned in the config file.
+#    Hence assigning "--no-mask" to combinations.pl was required in order to switch any masking off.
 #    rqg_batch.pl
-#    - does not support "--mask=...", "--mask_level=..." on command line
+#    - also does not support "--mask=...", "--mask_level=..." on command line
 #    - accepts any "--no-mask" from command line but passes it through to Combinator or Simplifier
-#    The Simplifier
-#    - ignores any "--no-mask", "--mask=...", "--mask_level=..." got from whereever
-#    - assigns all time "--no-mask" to any call of a RQG runner
 #    The Combinator
 #    - generates a snippet (might contain no-mask, mask, mask-level) of the call of a RQG runner
-#    - adds "--no-mask" to the end of that snippet if having got "--no-mask" from somewhere.
+#      based on the config file
+#    - adds "--no-mask" to the end of that snippet if having got "--no-mask" in the command line.
 # --no-mask                                                            \
 #
 # 6. rqg_batch.pl prints how it would start RQG Workers and the RQG Worker started "fakes" that
@@ -262,10 +261,8 @@ set -o pipefail
 #    Please becareful with the single and double quotes.
 # --rr_options="\'--microarch='Intel Kabylake'\'"                     \
 #
-# Use this grammar in all test variants
-# GRAMMAR=conf/mariadb/table_stress.yy
-# vi $GRAMMAR
-# --grammar=$GRAMMAR                                                  \
+#    One rr option which seems to be recommended anywhere
+# --rr_options="--chaos"                                              \
 #
 
 # In case you distrust the rqg_batch.pl mechanics or the config file etc. than going with some
@@ -277,7 +274,7 @@ set -o pipefail
 #
 
 # nohup perl -w ./rqg_batch.pl                                           \
-nohup perl ./rqg_batch.pl                                           \
+nohup perl ./rqg_batch.pl                                              \
 --workdir=$BATCH_WORKDIR                                               \
 --vardir=$BATCH_VARDIR                                                 \
 --parallel=$PARALLEL                                                   \
