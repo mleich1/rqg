@@ -41,42 +41,42 @@ my $field_pos;
 my $cwd = cwd();
 
 sub new {
-   my $class     = shift;
-   my $generator = $class->SUPER::new(@_);
+    my $class     = shift;
+    my $generator = $class->SUPER::new(@_);
 
-   if (not defined $generator->grammar()) {
-   #  say("DEBUG: Loading grammar file '" . $generator->grammarFile() . "' ...");
-      $generator->[GENERATOR_GRAMMAR] = GenTest::Grammar->new(
+    if (not defined $generator->grammar()) {
+    #   say("DEBUG: Loading grammar file '" . $generator->grammarFile() . "' ...");
+        $generator->[GENERATOR_GRAMMAR] = GenTest::Grammar->new(
             grammar_file    => $generator->grammarFile(),
-            grammar_string	=> $generator->grammarString()
-      );
-      return undef if not defined $generator->[GENERATOR_GRAMMAR];
-   }
+            grammar_string  => $generator->grammarString()
+        );
+        return undef if not defined $generator->[GENERATOR_GRAMMAR];
+    }
 
-   if (not defined $generator->prng()) {
-      $generator->[GENERATOR_PRNG] = GenTest::Random->new(
+    if (not defined $generator->prng()) {
+        $generator->[GENERATOR_PRNG] = GenTest::Random->new(
             seed           => $generator->[GENERATOR_SEED] || 0,
             varchar_length => $generator->[GENERATOR_VARCHAR_LENGTH]
-      );
-   }
+        );
+    }
 
-   if (not defined $generator->maskLevel()) {
-      $generator->[GENERATOR_MASK_LEVEL] = 1;
-   }
+    if (not defined $generator->maskLevel()) {
+        $generator->[GENERATOR_MASK_LEVEL] = 1;
+    }
 
-   $generator->[GENERATOR_SEQ_ID]    = 0;
-   $generator->[GENERATOR_RECONNECT] = 1;
+    $generator->[GENERATOR_SEQ_ID]    = 0;
+    $generator->[GENERATOR_RECONNECT] = 1;
 
-   if (defined $generator->mask() and $generator->mask() > 0) {
-      my $grammar = $generator->grammar();
-      my $top     = $grammar->topGrammar($generator->maskLevel(),
+    if (defined $generator->mask() and $generator->mask() > 0) {
+        my $grammar = $generator->grammar();
+        my $top     = $grammar->topGrammar($generator->maskLevel(),
                                          "thread" . $generator->threadId(),
                                          "query");
-      my $maskedTop                          = $top->mask($generator->mask());
-      $generator->[GENERATOR_MASKED_GRAMMAR] = $grammar->patch($maskedTop);
-   }
+        my $maskedTop                          = $top->mask($generator->mask());
+        $generator->[GENERATOR_MASKED_GRAMMAR] = $grammar->patch($maskedTop);
+    }
 
-   return $generator;
+    return $generator;
 }
 
 sub globalFrame {
@@ -102,30 +102,36 @@ sub next {
     # Original code harvesting a warning like
     #     Variable "$generator" will not stay shared
     # because the inner sub "expand" fiddles with $generator and $executors too.
-	# my ($generator, $executors) = @_;
-	our ($generator, $executors) = @_;
+    # my ($generator, $executors) = @_;
+    our ($generator, $executors) = @_;
 
-	# Suppress complaints "returns its argument for UTF-16 surrogate".
-	# We already know that our UTFs in some grammars are ugly.
-	no warnings 'surrogate';
+    # Suppress complaints "returns its argument for UTF-16 surrogate".
+    # We already know that our UTFs in some grammars are ugly.
+    no warnings 'surrogate';
 
-	my $grammar = $generator->[GENERATOR_GRAMMAR];
-	# my $grammar_rules = $grammar->rules();
-	our $grammar_rules = $grammar->rules();
+    our $who_am_i = "GenTest::Generator::FromGrammar::next:";
 
-	# my $prng = $generator->[GENERATOR_PRNG];
-	our $prng = $generator->[GENERATOR_PRNG];
-	my %rule_invariants = ();
+    my $grammar = $generator->[GENERATOR_GRAMMAR];
+    # my $grammar_rules = $grammar->rules();
+    # Used in expand
+    our $grammar_rules = $grammar->rules();
 
-	my %rule_counters;
-	my %invariants;
+    # my $prng = $generator->[GENERATOR_PRNG];
+    # Used in expand
+    our $prng = $generator->[GENERATOR_PRNG];
+    my %rule_invariants = ();
 
-	our $last_field;
-	our $last_table;
-	our $last_database;
 
-	my $stack = GenTest::Stack::Stack->new();
-	my $global = $generator->globalFrame();
+    my %rule_counters;
+    # our because the inner sub "expand" fiddles with %invariants.
+    our %invariants = ();
+
+    our $last_field;
+    our $last_table;
+    our $last_database;
+
+    my $stack = GenTest::Stack::Stack->new();
+    my $global = $generator->globalFrame();
 
     # 2018-11-15 observation (mleich):
     # Masses of ... occured more than ... times. Possible endless loop in grammar. Aborting."
@@ -174,7 +180,7 @@ sub next {
     #    C) Print "Possible endless loop in grammar." and let the thread go on with working.
     #       Free (reused by perl!) memory as much and as early as possible.
     #       Do not blacklist "Possible endless loop in grammar." and let threads finally exit with
-    #       a status < STATUS_CRITICAL_FAILURE except something eval happened.
+    #       a status < STATUS_CRITICAL_FAILURE except something evil happened.
     # Half experimental solution:
     # Try to detect that problem as early as possible and react immediate with
     # 1. Warn about the possible endless loop in grammar
@@ -183,7 +189,19 @@ sub next {
     # 4. Go on with the test and do not set a status because of the problem.
     #
 
-	sub expand {
+    our $print_num = 0;
+    sub print_sentence {
+        my ($sentence_ptr) = @_;
+        $print_num++;
+        if (not defined $sentence_ptr) {
+            say("WARNING: $who_am_i print_sentence: sentence_ptr is not defined");
+        } else {
+            say("DEBUG: $who_am_i \@sentence has " . scalar @{$sentence_ptr} . " elements");
+            say("DEBUG: $who_am_i $print_num \@sentence: ->" . join(" ", @{$sentence_ptr}) . "<-");
+        }
+    }
+
+    sub expand {
     # Warning:
     # Expand returns on
     # - success some not empty array
@@ -192,91 +210,101 @@ sub next {
     #   The latter leads to
     #       @blabla = undef --> @blabla has one element and that is undef
     #
-		my ($rule_counters, $rule_invariants, @sentence) = @_;
+         my ($rule_counters, $rule_invariants, @sentence) = @_;
 
         # Comment (mleich1)
         # A sentence is an array of words and spaces.
-        # They all together form a statement.
+        # They all together form a query which consists of one till several statements.
 
-		my $item_nodash;
-		my $orig_item;
+        my $item_nodash;   # FIXME: This variable belongs to old code and is currently unused.
+                           # Is that right?
+        my $orig_item;
 
+        # For debugging
         if (0) {
             foreach my $sentence_part (@sentence) {
                 say("DEBUG: sentence_part ->$sentence_part<-");
             }
             say("DEBUG: sentence_end -------");
+            print_sentence(\@sentence);
+
         }
 
         # Define some standard message because blacklist_patterns matching needs it.
-        my $warn_message_part = "WARN: Possible endless loop in grammar. Will return an empty array.";
+        my $warn_message_part = "WARN: Possible endless loop in grammar. " .
+                                "Will return an empty array.";
 
-		if ($#sentence > GENERATOR_MAX_LENGTH) {
-			say("WARN: GenTest::Generator::FromGrammar : Sentence is now longer than " .
+        if ($#sentence > GENERATOR_MAX_LENGTH) {
+            say("WARN: $who_am_i Sentence is now longer than " .
                 GENERATOR_MAX_LENGTH() . " symbols.\n" . $warn_message_part);
             @sentence = ();
             return ();
-		}
-		
-		for (my $pos = 0; $pos <= $#sentence; $pos++) {
-			$orig_item = $sentence[$pos];
+        }
 
-			next if not defined $orig_item;
-			next if $orig_item eq ' ';
-			next if $orig_item eq uc($orig_item);
+        for (my $pos = 0; $pos <= $#sentence; $pos++) {
+            $orig_item = $sentence[$pos];
 
-			my $item = $orig_item;
-			my $invariant = 0;
-			my @expansion = ();
+            # For debugging
+            if (0) {
+                say("DEBUG: orig_item ->$orig_item<-");
+                print_sentence(\@sentence);
+            }
 
-			if ($item =~ m{^([a-z0-9_]+)\[invariant\]}sio) {
-				($item, $invariant) = ($1, 1);
-			}
+            next if not defined $orig_item;
+            next if $orig_item eq ' ';
+            next if $orig_item eq uc($orig_item);
 
-			if (exists $grammar_rules->{$item}) {
+            my $item =      $orig_item;
+            my $invariant = 0;
+            my @expansion = ();
 
-				if (++($rule_counters->{$orig_item}) > GENERATOR_MAX_OCCURRENCES) {
-			        say("WARN: GenTest::Generator::FromGrammar : Rule '$orig_item' occured more " .
-                        "than ".GENERATOR_MAX_OCCURRENCES()." times.\n" . $warn_message_part);
+            if ($item =~ m{^([a-z0-9_]+)\[invariant\]}sio) {
+                ($item, $invariant) = ($1, 1);    # $item is for example '_table'
+                # say("DEBUG: invariant in ->" . $orig_item . "<-");
+            }
+
+            if (exists $grammar_rules->{$item}) {
+
+                if (++($rule_counters->{$orig_item}) > GENERATOR_MAX_OCCURRENCES) {
+                    say("WARN: $who_am_i Rule '$orig_item' occured more " .
+                        "than " . GENERATOR_MAX_OCCURRENCES() . " times.\n" . $warn_message_part);
                     @sentence  = ();
                     return ();
-				}
+                }
 
-				if ($invariant) {
-					@{$rule_invariants->{$item}} = expand($rule_counters,$rule_invariants,($item)) unless defined $rule_invariants->{$item};
-					@expansion = @{$rule_invariants->{$item}};
+                if ($invariant) {
+                    @{$rule_invariants->{$item}} = expand($rule_counters,$rule_invariants,($item)) unless defined $rule_invariants->{$item};
+                    @expansion = @{$rule_invariants->{$item}};
                   # if ( 0 == scalar @expansion ) {
                   #     say("DEBUG: Empty array got 1.");
                   # }
-				} else {
+                } else {
                     @expansion = expand($rule_counters,$rule_invariants,@{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]->[
                         $prng->uint16(0, $#{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]})
                     ]});
-                  # if ( 0 == scalar @expansion ) {
-                  #     say("DEBUG: Empty array got 2.");
-                  # }
-				}
-				if ($generator->[GENERATOR_ANNOTATE_RULES]) {
-					@expansion = ("/* rule: $item */ ", @expansion);
-				}
+                }
+                if ($generator->[GENERATOR_ANNOTATE_RULES]) {
+                    @expansion = ("/* rule: $item */ ", @expansion);
+                }
 			} else {
+                my $non_mangled_item;
 				if (
 					(substr($item,  0, 1) eq '{') &&
 					(substr($item, -1, 1) eq '}')
 				) {
-                    # The no strict is because grammars could fiddle with undef perl variables.
+                    # The "no strict" is because grammars could fiddle with undef perl variables.
 					$item = eval("no strict;\n".$item);		# Code
 
 					if ($@ ne '') {
 						if ($@ =~ m{at .*? line}o) {
-							say("Internal grammar error: $@");
+							say("ERROR: Internal grammar error: $@");
                             @sentence  = ();
                             @expansion = ();
 							# the original code called here die()
                             return ();
 						} else {
-			                say("WARN: GenTest::Generator::FromGrammar : Syntax error in Perl snippet rule '$orig_item': $@");
-			                say("WARN: GenTest::Generator::FromGrammar : Will return an empty array.");
+							say("WARN: $who_am_i Syntax error in Perl snippet rule '$orig_item': $@");
+							say("WARN: $who_am_i Will return an empty array.");
                             @sentence  = ();
                             @expansion = ();
                             return ();
@@ -285,9 +313,27 @@ sub next {
 				} elsif (substr($item, 0, 1) eq '$') {
 					$item = eval("no strict;\n".$item.";\n");	# Variable
 				} else {
-					my $field_type = (substr($item, 0, 1) eq '_' ? $prng->isFieldType(substr($item, 1)) : undef);
 
-                    # say("DEBUG: Item is ->" . $item . "<-");
+                    # Check for expressions such as _tinyint[invariant]
+                    $invariant = 0; # Unclear if a $invariant == 1 from top would be good.
+                    if ($orig_item =~ m{^(_[a-z_]*?)\[invariant\]$}sio) {
+                        # say("DEBUG: invariant in ->" . $orig_item . "<-");
+                        $non_mangled_item = $item;
+                        if (exists $invariants{$item}) {
+                            $item = $invariants{$item};
+                            # say("DEBUG: orig_item ->$orig_item<- value found in invariant " .
+                            #     "hash ->$item<-");
+                        } else {
+                            $invariants{$item} = $item;
+                            # say("DEBUG: orig_item ->$orig_item<- value stored in invariant " .
+                            #     "hash ->$item<-");
+                        }
+                        $invariant = 1;
+                    }
+
+                    # print_sentence(\@sentence);
+
+					my $field_type = (substr($item, 0, 1) eq '_' ? $prng->isFieldType(substr($item, 1)) : undef);
 
 					if ($item eq '_letter') {
 						$item = $prng->letter();
@@ -434,13 +480,23 @@ sub next {
 
 				}
 				@expansion = ($item);
+
+                if ($invariant) {
+                    if (not exists $invariants{$non_mangled_item}) {
+                        say("ALARM: invariant hash member ->" . $non_mangled_item .
+                            "<- is missing.");
+                    }
+                    $invariants{$non_mangled_item} = $item;
+                    $invariant = 0;
+                }
+
 			}
 			splice(@sentence, $pos, 1, @expansion);
 
-		}
+        }
 
-		return @sentence;
-	} # end of sub expand
+        return @sentence;
+    } # end of sub expand
 
 	#
 	# If a temporary file has been left from a previous statement, unlink it.
@@ -534,9 +590,7 @@ sub next {
 	}
 
 	my @sentence = expand(\%rule_counters,\%rule_invariants,($starting_rule));
-    # if ( 0 == scalar @sentence ) {
-    #   say("DEBUG: Empty array got 3.");
-    # }
+
 
 	$generator->[GENERATOR_SEQ_ID]++;
 
@@ -646,9 +700,9 @@ sub next {
 			@sentences = split (';', $sentence);
 		}
 		return \@sentences;
-	} else {
+    } else {
 		return [ $sentence ];
     }
-}
+} # End of sub next
 
 1;
