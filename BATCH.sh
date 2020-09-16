@@ -7,7 +7,7 @@
 export LANG=C
 
   USAGE="USAGE: $0 <Config file for the RQG test Combinator> <Basedir1 == path to MariaDB binaries> [<Basedir2>] "
-EXAMPLE="EXAMPLE: $0 conf/mariadb/InnoDB_standard.cc /Server_bin/bb-10.2-marko_asan_Og table_stress.yy"
+EXAMPLE="EXAMPLE: $0 conf/mariadb/InnoDB_standard.cc /Server_bin/bb-10.2-marko_asan_Og "
 USAGE="\n$USAGE\n\n$EXAMPLE\n"
 
 CALL_LINE="$0 $*"

@@ -7,7 +7,7 @@
 export LANG=C
 
   USAGE="USAGE:   $0 <Config file for the RQG test Simplifier> <Basedir == path to MariaDB binaries> [<YY grammar>]"
-EXAMPLE="EXAMPLE: $0 simp_1.cfg /work_m/bb-10.2-marko/bld_debug table_stress.yy"
+EXAMPLE="EXAMPLE: $0 simp_1.cfg /Server_bin/bb-10.2-marko_asan_Og table_stress.yy"
 USAGE="\n$USAGE\n\n$EXAMPLE\n"
 CALL_LINE="$0 $*"
 
@@ -30,6 +30,9 @@ then
    exit
 fi
 
+CASE=`basename $CONFIG .cfg`
+
+
 # Path to MariaDB binaries
 BASEDIR1="$2"
 if [ "$BASEDIR1" = "" ]
@@ -44,6 +47,7 @@ then
    echo "BASEDIR1 '$BASEDIR1' does not exist."
    exit
 fi
+BASEDIR1_NAME=`basename "$BASEDIR1"`
 BASEDIR2="$BASEDIR1"
 
 # Optional YY grammar
@@ -63,6 +67,8 @@ else
    GRAMMAR_PART=""
 fi
 
+PROT="$CASE""-""$BASEDIR1_NAME"".prt"
+
 set -e
 # My standard work directory for rqg_batch.pl.
 # The workdirs for ongoing RQG runs are in its sub directories.
@@ -81,6 +87,7 @@ if [ ! -d "$BATCH_VARDIR" ]
 then
    mkdir $BATCH_VARDIR
 fi
+
 set +e
 
 
@@ -91,6 +98,7 @@ set +e
 # concurrency bug.
 PARALLEL=`nproc`
 PARALLEL=$(($PARALLEL * 3))
+# If $PARALLEL > ~250 than we get trouble on Ubuntu 18 Server.
 if [ $PARALLEL -gt 250 ]
 then
    PARALLEL=250
@@ -98,8 +106,14 @@ fi
 
 TRIALS=64
 
-CASE=`basename $CONFIG .cfg`
-PROT="$CASE"".prt"
+# MAX_RUNTIME is a limit for defining the size of a simplification campaign.
+# Please be aware that the runtime of util/issue_grep.sh is not included.
+# RQG batch run elapsed runtime =
+#    assigned max_runtime
+# +  time for stopping the active RQG Workers (usually less than 3 seconds)
+# +  util/issue_grep.sh elapsed time =
+#       no of logs in last_batch_workdir * (1 till 3 seconds depending on log size)
+MAX_RUNTIME=72000
 
 # Only one temporary 'God' (rqg_batch.pl vs. concurrent MTR, single RQG or whatever) on testing box
 # -------------------------------------------------------------------------------------------------
@@ -108,7 +122,7 @@ PROT="$CASE"".prt"
 # - current rqg_batch run ---- ongoing MTR run
 # clash on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files) or
 # suffer from tmpfs full etc.
-killall -9 perl ; killall -9 mysqld ; killall -9 mariadbd
+killall -9 perl ; killall -9 mysqld mariadbd
 rm -rf /dev/shm/var*
 
 ############################################################
@@ -150,22 +164,45 @@ then
    vi "$GRAMMAR"
 fi
 
+rm -f $PROT
 
 set -o pipefail
-# Remove the logs of RQG runs achieving STATUS_OK/verdict 'ignore_*'.
-# Their stuff grammar/datadir was not archived and is already thrown away.
-# So basically:
-# Remove the --discard_logs in case you want to see logs of RQG runs which achieved
-# the verdict 'ignore_*' (blacklist match or STATUS_OK or stopped by rqg_batch.pl)
+# Options
+# -------
+# 0. Please take care that there must be a '\' at line end.
+#
+# 1. Remove the logs of RQG runs achieving STATUS_OK/verdict 'ignore_*'.
+#    Their stuff grammar/datadir was not archived and is already thrown away.
+#    So basically:
+#    Do not assign '--discard_logs' in case you want to see logs of RQG runs which achieved
+#    the verdict 'ignore_*' (blacklist match or STATUS_OK or stopped by rqg_batch.pl)
 # --discard_logs                                                         \
 #
-# Do not abort if hitting Perl errors or STATUS_ENVIRONMENT_FAILURE. IMHO rather questionable
-# --force
+# 2. Per default the data (data dir of server, core etc.) of some RQG replaying or being at least
+#    of interest gets archived.
+#    In case you do not want that archiving than you can disable it.
+#    But thats is rather suitable for runs of the test simplifier only.
+# --noarchiving                                                        \
 #
-# Old stuff. In history required.
-# --no-mask  Unclear if ./rqg_batch.pl and rqg.pl will mask at all.
+# 3. Do not abort if hitting Perl errors or STATUS_ENVIRONMENT_FAILURE. IMHO some rather
+#    questionable option. I am unsure if that option gets correct handled in rqg_batch.pl.
+# --force                                                              \
 #
-# rqg_batch.pl prints how it would start RQG Workers and the RQG Worker started "fakes" that
+# 4. Debugging of the rqg_batch.pl tool machinery and rqg.pl
+#    Default: Minimal debug output.
+#    Assigning '_all_' causes maximum debug output.
+#    Warning: Significant more output of especially rqg_batch.pl and partially rqg.pl.
+# --script_debug=_all_                                                 \
+#
+# 5. "--no-mask", "--mask", "--mask_level"
+#    rqg_batch.pl
+#    - does not support "--mask=...", "--mask_level=..." on command line
+#    - accepts any "--no-mask" from command line but passes it through to Combinator or Simplifier
+#    The Simplifier
+#    - ignores any "--no-mask", "--mask=...", "--mask_level=..." got from whereever
+#    - assigns all time "--no-mask" to any call of a RQG runner
+#
+# 6. rqg_batch.pl prints how it would start RQG Workers and the RQG Worker started "fakes" that
 # it has achieved the verdict assigned. == There all no "real" RQG runs at all.
 # Example:
 # --dryrun=replay --> All RQG Worker started "tell" that they have achieved some replay.
@@ -176,11 +213,44 @@ set -o pipefail
 # --dryrun=ignore_blacklist                                            \
 # --dryrun=replay                                                      \
 #
-# rqg_batch stops immediate if hitting a 'replay'
+# 7. rqg_batch stops immediate all RQG runner if reaching the assigned number of replays
+#    Stop after the first replay
 # --stop_on_replay                                                     \
+#    Stop after the n'th replay
+# --stop_on_replay=<n>                                                 \
 #
+# 8. Use "rr" (https://github.com/mozilla/rr/wiki/Usage) for tracing DB servers and other
+#    programs.
 #
-# perl -w -d:ptkdb ./rqg_batch.pl                                      \
+#    Get the default which is 'Server'
+# --rr                                                                 \
+#
+#    Preserve the 'rr' traces of all servers started
+#        lib/DBServer/MySQL/MySQLd.pm    sub startServer
+# --rr=Server                                                          \
+#
+#    Preserve the 'rr' traces of the bootstrap or server or soon mariabackup ... prepare ... started
+# --rr=Extended                                                        \
+#
+#    Make a 'rr' trace of the complete RQG run like even of the perl code of the RQG runner.
+#    This leads to a huge space consumption (example: 2.6 GB for traces + datadir) during the
+#    RQG test runtime but
+#    - gives a better overview of the interdependence of component activities
+#    - traces also the activities of MariaDB replication or Galera
+# --rr=RQG                                                             \
+#
+#    "rr" checks which CPU is used in your box.
+#    In case your version of "rr" is too old or your CPU is too new than the check might fail
+#    and cause that the call of 'rr' fails.
+#    Example:
+#    Box having "Intel Skylake" CPU's, "rr" version 4 contains the string "Intel Skylake" but
+#    claims to have met some unknown CPU.
+#    Please becareful with the single and double quotes.
+# --rr_options="\'--microarch='Intel Kabylake'\'"                     \
+#
+#    One rr option which seems to be recommended anywhere
+# --rr_options="--chaos"                                              \
+#
 
 # In case you distrust the rqg_batch.pl mechanics or the config file etc. than going with some
 # limited number of trials is often useful.
@@ -200,6 +270,7 @@ $GRAMMAR_PART                                                          \
   --trials=$TRIALS                                                     \
   --noarchiving                                                        \
   --discard_logs                                                       \
+  --stop_on_replay                                                     \
 --type=RQG_Simplifier                                                  \
 --no-mask                                                              \
 --script_debug=_nix_                                                   \
