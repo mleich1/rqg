@@ -138,7 +138,7 @@ my $grammar_simp_success   = -1;
 # Attempt to reduce the gendata stuff -- NOT YET IMPLEMENTED
 # ----------------------------------------------------------
 # Raw ideas:
-# 1. Run RQG tests based on same setup with sqltrace = MarkErrors till getting a replay.
+# 1. Run RQG tests based on same setup with   sqltrace=MarkErrors   till getting a replay.
 # 2. Extract the SQLs executed with success maybe already in rqg.pl before archiving --> rqg.gds
 #    cat rqg.gds rqg.sql > (new) rqg.sql
 # 4. Run tests which follow with gendata_sql using (new) rqg.sql only (no other kind of gendata)
@@ -1357,15 +1357,6 @@ sub get_job {
                     my @oid_list;
                     unshift @oid_list, $order_id;
 
-                    # FIXME:
-                    # I guess that the following concept would be better.
-                    # Early simplification campaigns
-                    #     More trials than just $trials, $trials serves mostly the first replay
-                    # Late simplification campaigns
-                    #     Just $trials trials
-                    # Number of OIDs in list ~ 1 + INT($cut_steps / 30)
-                    #
-
                     my $cut_steps = GenTest::Simplifier::Grammar_advanced::estimate_cut_steps();
                     my $oids_to_add = abs(int($cut_steps / 30));
                     if (not defined $oids_to_add or $oids_to_add > 3000) {
@@ -1922,7 +1913,7 @@ sub register_result {
             PHASE_FINAL_REPLAY   eq $phase   ) {
             # The fate of the phase is decided.
             $phase_switch = 1;
-            Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW);
+            Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW . ' 6');
             # In the current phase we have used all time the same grammar and that is the
             # current $child_grammar.
             my $source = $workdir . "/" . $child_grammar;
@@ -2004,7 +1995,7 @@ sub register_result {
             if ($grammar_parent eq $rvt_now) {
                 # Its a first replayer based on the current parent rvt options.
                 my $stop_count = Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA,
-                                                               Batch::STOP_REASON_WORK_FLOW);
+                                                               Batch::STOP_REASON_WORK_FLOW . ' 7');
                 Batch::stop_worker_on_order_except($order_id);
                 my $rvt_options = get_shrinked_rvt_options($order_array[$order_id][ORDER_PROPERTY2],
                                          $order_array[$order_id][ORDER_PROPERTY3], 1);
@@ -2035,7 +2026,7 @@ sub register_result {
                 # report_replay --> get new parent grammar.
 
                 my $stop_count = Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA,
-                                                               Batch::STOP_REASON_WORK_FLOW);
+                                                               Batch::STOP_REASON_WORK_FLOW . ' 8');
                 Batch::stop_worker_on_order_except($order_id);
                 reload_grammar($grammar_used);
                 my $source = $workdir . "/" . $grammar_used;
@@ -2136,7 +2127,7 @@ sub register_result {
                 # campaign we should get some additional campaign or a switch to the next
                 # simplification phase.
                 $phase_switch = 1;
-                Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW);
+                Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW . ' 9');
                 say("DEBUG: Setting phase_switch to $phase_switch because we had " .
                     "$campaign_duds_since_replay finished trials since last " .
                     "replay. Assigned trials : $trials. Giving up with that campaign.")
@@ -2156,7 +2147,7 @@ sub register_result {
 
     if (0 == $left_over_trials) {
         $phase_switch = 1;
-        Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW);
+        Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW . ' 10');
         if (PHASE_GRAMMAR_SIMP  eq $phase or
             PHASE_RVT_SIMP      eq $phase    ) {
             say("WARN: left_over_trials is no more > 0. And that even though we are in phase " .
@@ -2720,6 +2711,7 @@ sub report_replay {
 
     if (PHASE_GRAMMAR_SIMP eq $phase) {
         # The update for $campaign_duds_since_replay (set to 0) comes in register_result.
+        my $rgp = $replay_grammar_parent;
         if ($parent_grammar eq $replay_grammar_parent) {
             # Its a replayer based on the current parent grammar == The winner.
 
@@ -2727,7 +2719,7 @@ sub report_replay {
             # Hereby all already running worker do something based on an outdated parent grammar.
             # Stop all where not much efforts were already invested.
             my $stop_count = Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA,
-                                                           Batch::STOP_REASON_WORK_FLOW);
+                                                           Batch::STOP_REASON_WORK_FLOW . ' 11');
             # Stop all worker with same order_id except verdict in (interest, replay).
             Batch::stop_worker_on_order_except($order_id);
 
@@ -2781,7 +2773,22 @@ sub report_replay {
 
             # In order to "make room" stop the longest running worker with verdict not yet
             # in (interest, replay).
-            Batch::stop_worker_oldest();
+            # FIXME:
+            # Refine like
+            # - <no of active workers> <= $workersmid --> do nothing (last)
+            # - inspected worker uses a parent grammar == $rgp --> do nothing
+            #   different implies even older
+            # Batch::stop_worker_too_obsolete($rgp)
+            # my $active_workers = count_active_workers();
+            # while (1) {
+            #    last if $active_workers <= $workers_mid;
+            #    for my $worker_num (1..$workers_max) {
+            #        next if -1 == $worker_array[$worker_num][WORKER_START];
+            #
+            #
+            #
+
+            Batch::stop_worker_oldest_not_using_parent($replay_grammar_parent);
 
         } else {
             # Its a replayer with outdated grammar.
@@ -2845,7 +2852,7 @@ sub report_replay {
 
             # 3. Never run certain stop routines like PHASE_GRAMMAR_SIMP does
             #    - Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA
-            #    - Batch::stop_worker_oldest
+            #    - Batch::stop_worker_oldest_not_using_parent
             #    because they
             #    - do not use more threads than the current value $threads
             #    - use more threads than the current value $threads but have reached 'interest'.
@@ -2865,7 +2872,7 @@ sub report_replay {
                 Batch::emergency_exit($status);
             }
             my $stop_count = Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA,
-                                                           Batch::STOP_REASON_WORK_FLOW);
+                                                           Batch::STOP_REASON_WORK_FLOW . ' 12');
             Batch::stop_worker_on_order_except($order_id);
             Batch::add_to_try_never($order_id);
             $rvt_simp_success = 1;
@@ -2878,7 +2885,7 @@ sub report_replay {
              PHASE_FINAL_REPLAY eq $phase) {
         # Its a phase with end (after register_result) ahead.
         my $stop_count = Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA,
-                                                       Batch::STOP_REASON_WORK_FLOW);
+                                                       Batch::STOP_REASON_WORK_FLOW . ' 13');
         Batch::stop_worker_on_order_except($order_id);
         Batch::add_to_try_never($order_id);
     } else {

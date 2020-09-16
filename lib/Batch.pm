@@ -359,12 +359,17 @@ our $workers_mid;
 our $workers_min;
 sub set_workers_range {
     # Needed at begin of rqg_batch run
-    ($workers_max, $workers_mid, $workers_min) = @_;
+    ($workers_max, my $workers_mid_got, my $workers_min_got) = @_;
     for my $worker_num (1..$workers_max) {
         worker_reset($worker_num);
     }
-    say("DEBUG: Load range set : workers_max ($workers_max), workers_mid ($workers_mid), " .
-        "workers_min ($workers_min)") if Auxiliary::script_debug("T6");
+    $workers_mid = $workers_mid_got;
+    $workers_mid = $workers_max if $workers_mid > $workers_max;
+    $workers_min = $workers_min_got;
+    $workers_min = $workers_max if $workers_min > $workers_max;
+    say("INFO: Load range for concurrent RQGs set : workers_max ($workers_max), " .
+        "workers_mid ($workers_mid_got -> $workers_mid), " .
+        "workers_min ($workers_min_got -> $workers_min)");
 }
 sub adjust_workers_range {
     # Needed after getting LOAD_DECREASE, reducing the load till all is ok
@@ -378,7 +383,7 @@ sub adjust_workers_range {
         "workers_min ($workers_min)") if Auxiliary::script_debug("T6");
 }
 sub raise_workers_range {
-    $workers_mid++;
+    $workers_mid++ if $workers_mid < $workers_max;
     my $max_min = int(0.75 * $workers_mid);
     if ($workers_min < $max_min) {
         $workers_min = $max_min;
@@ -589,7 +594,7 @@ sub stop_worker_on_order_except {
         # Omit any worker which reached something of interest and is maybe during archiving.
         next if defined $worker_array[$worker_num][WORKER_VERDICT] and
                 Verdict::RQG_VERDICT_INTEREST eq $worker_array[$worker_num][WORKER_VERDICT];
-        stop_worker($worker_num, STOP_REASON_WORK_FLOW);
+        stop_worker($worker_num, STOP_REASON_WORK_FLOW . ' 1');
         $stop_count++;
     }
     say("DEBUG: Batch::stop_worker_on_order_except: $stop_count RQG worker running with orderid " .
@@ -615,7 +620,7 @@ sub stop_worker_on_order_replayer {
         # Omit any worker which did not replay.
         next if defined $worker_array[$worker_num][WORKER_VERDICT] and
                 Verdict::RQG_VERDICT_REPLAY ne $worker_array[$worker_num][WORKER_VERDICT];
-        stop_worker($worker_num, STOP_REASON_WORK_FLOW);
+        stop_worker($worker_num, STOP_REASON_WORK_FLOW . ' 2');
         $stop_count++;
     }
     say("DEBUG: Batch::stop_worker_on_order_replayer: $stop_count replaying RQG worker running " .
@@ -623,42 +628,91 @@ sub stop_worker_on_order_replayer {
     return $stop_count;
 }
 
-sub stop_worker_oldest {
-    # To be used only once.  Simplifier::report_replay
+sub stop_worker_oldest_not_using_parent {
+    # To be used only in Simplifier::report_replay
+    my ($replay_grammar_parent) = @_;
+
+    my $who_am_i = "Batch::stop_worker_oldest_not_using_parent";
+
+    if (not defined $replay_grammar_parent) {
+        emergency_exit(STATUS_INTERNAL_ERROR,
+                       "ERROR: $who_am_i was called with undef " .
+                       "grammar assigned. Will ask for emergency_exit.");
+    }
+    say("DEBUG: $who_am_i: replay_grammar_parent '$replay_grammar_parent'") if Auxiliary::script_debug("T7");
     my $stop_count            = 0;
     my $oldest_worker_num     = -1;
     my $oldest_worker_runtime = -1;
     my $current_time          = Time::HiRes::time();
-    my $active_not_stopped_workers = count_active_not_stopped_workers();
-    for my $worker_num (1..$workers_max) {
-        # Omit not running workers
-        next if -1 == $worker_array[$worker_num][WORKER_PID];
-        # Omit any worker which replayed and is maybe during archiving
-        next if defined $worker_array[$worker_num][WORKER_VERDICT] and
-                Verdict::RQG_VERDICT_REPLAY eq $worker_array[$worker_num][WORKER_VERDICT];
-        # Omit any worker which reached something of interest and is maybe during archiving
-        next if defined $worker_array[$worker_num][WORKER_VERDICT] and
-                Verdict::RQG_VERDICT_INTEREST eq $worker_array[$worker_num][WORKER_VERDICT];
-        # Omit any worker where stopping was already initiated.
-        next if defined $worker_array[$worker_num][WORKER_STOP_REASON];
+    my $emergency_limiter     = 0;
+    while(1) {
+        $emergency_limiter++;
+        my $not_stopped_active_workers = 0;
+        for my $worker_num (1..$workers_max) {
+            # Omit not running workers
+            next if -1 == $worker_array[$worker_num][WORKER_PID];
+            # Omit any worker which replayed/interests and is maybe during archiving
+            # say("DEBUG 0: " . $worker_num);
+            # say("DEBUG 1: " . $worker_array[$worker_num][WORKER_ORDER_ID]);
+            # say("DEBUG 2: " . $worker_array[$worker_num][WORKER_VERDICT])
+            #     if defined $worker_array[$worker_num][WORKER_VERDICT];
+            # say("DEBUG 3: " . $worker_array[$worker_num][WORKER_STOP_REASON])
+            #     if defined $worker_array[$worker_num][WORKER_STOP_REASON];
+            # say("DEBUG 4: " . $worker_array[$worker_num][WORKER_EXTRA1]);
+            # say("DEBUG 5: " . $worker_array[$worker_num][WORKER_EXTRA2])
+            #   if defined $worker_array[$worker_num][WORKER_EXTRA2];
+            if (defined $worker_array[$worker_num][WORKER_VERDICT] &&
+                (Verdict::RQG_VERDICT_REPLAY   eq $worker_array[$worker_num][WORKER_VERDICT]) or
+                (Verdict::RQG_VERDICT_INTEREST eq $worker_array[$worker_num][WORKER_VERDICT])) {
+                $not_stopped_active_workers++;
+                next;
+            }
+            # Omit any worker where stopping was already initiated.
+            next if defined $worker_array[$worker_num][WORKER_STOP_REASON];
 
-        # FIXME: In case that warning showed never up than remove the next 3 lines.
-        if (-1 == $worker_array[$worker_num][WORKER_START]) {
-            say("WARN: stop_worker_oldest: -1 == worker_start seen.");
+            # Omit any worker using that quite actual parent grammar.
+            if ($worker_array[$worker_num][WORKER_EXTRA2] eq $replay_grammar_parent) {
+                $not_stopped_active_workers++;
+                next;
+            }
+
+            # FIXME: In case that warning showed never up than remove the next 3 lines.
+            if (-1 == $worker_array[$worker_num][WORKER_START]) {
+                say("WARN: $who_am_i: -1 == worker_start seen.");
+            }
+            my $elapsed_runtime = $current_time - $worker_array[$worker_num][WORKER_START];
+            if ($elapsed_runtime > $oldest_worker_runtime) {
+                $oldest_worker_runtime = $elapsed_runtime;
+                $oldest_worker_num     = $worker_num;
+            }
         }
-        my $elapsed_runtime = $current_time - $worker_array[$worker_num][WORKER_START];
-        if ($elapsed_runtime > $oldest_worker_runtime) {
-            $oldest_worker_runtime = $elapsed_runtime;
-            $oldest_worker_num     = $worker_num;
+        # FIXME:
+        # The criterions need most probably a refinement.
+        # - In case the CPU load is already below 95% than stopping a job is questionable.
+        # - How evolve the values of active (not stopped) workers, workers_mid and workers_min
+        #   over simplification runtime?
+        if ($not_stopped_active_workers < $workers_min or
+            $oldest_worker_num == -1                  ) {
+            say("DEBUG: $who_am_i: $stop_count slightly obsolete RQG worker found and stopped.");
+                # if Auxiliary::script_debug("T6");
+            return $stop_count;
         }
-    }
-    if ($oldest_worker_num != -1) {
-        stop_worker($oldest_worker_num, STOP_REASON_WORK_FLOW);
+        # say("DEBUG 0: " . $oldest_worker_num);
+        # say("DEBUG 1: " . $worker_array[$oldest_worker_num][WORKER_ORDER_ID]);
+        # say("DEBUG 2: " . $worker_array[$oldest_worker_num][WORKER_VERDICT])
+        #     if defined $worker_array[$oldest_worker_num][WORKER_VERDICT];
+        # say("DEBUG 4: " . $worker_array[$oldest_worker_num][WORKER_EXTRA1]);
+        # say("DEBUG 5: " . $worker_array[$oldest_worker_num][WORKER_EXTRA2])
+        #     if defined $worker_array[$oldest_worker_num][WORKER_EXTRA2];
+        stop_worker($oldest_worker_num, STOP_REASON_WORK_FLOW . ' 3');
         $stop_count++;
+        $oldest_worker_num     = -1;
+        if ($emergency_limiter >= $workers_max) {
+            emergency_exit(STATUS_INTERNAL_ERROR,
+                           "ERROR: $who_am_i: Too many loops ($emergency_limiter). " .
+                           "Will ask for emergency_exit.");
+        }
     }
-    say("DEBUG: Batch::stop_worker_oldest: $stop_count long running RQG worker with verdict " .
-        "not yet in (replay,interest) stopped.") if Auxiliary::script_debug("T6");
-    return $stop_count;
 }
 
 
@@ -2216,7 +2270,7 @@ sub process_finished_runs {
                         $give_up = 1;
                     }
                 } elsif ($action eq REGISTER_END)        {
-                    stop_workers(STOP_REASON_WORK_FLOW);
+                    stop_workers(STOP_REASON_WORK_FLOW . ' 4');
                     if (2 > $give_up) {
                         $give_up = 2;
                     }
@@ -2232,7 +2286,7 @@ sub process_finished_runs {
             if ($stop_on_replay <= $verdict_replay and $verdict eq Verdict::RQG_VERDICT_REPLAY) {
                 say("INFO: OrderID $order_id achieved the verdict '$verdict' and stop_on_replay " .
                     "(number of replaying runs) is reached. Giving up.");
-                stop_workers(STOP_REASON_WORK_FLOW);
+                stop_workers(STOP_REASON_WORK_FLOW . ' 5');
                 if (2 > $give_up) {
                     $give_up = 2;
                 }
