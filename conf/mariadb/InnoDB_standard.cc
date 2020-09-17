@@ -124,6 +124,11 @@ our $grammars =
   '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=CrashRecovery1 ',
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --reporters=CrashRecovery1 ',
 
+  # Tests checking transactional properties
+  # FIXME: Add variations of the ISOLATION LEVEL is useful
+  ' --grammar=conf/transactions/transactions.yy --gendata=conf/transactions/transactions.zz --validators=DatabaseConsistency ',
+  ' --grammar=conf/transactions/repeatable_read.yy --gendata=conf/transactions/transactions.zz --validators=RepeatableRead ',
+
   # Most probably not relevant for InnoDB testing
   # '--grammar=conf/runtime/performance_schema.yy  --mysqld=--performance-schema --gendata-advanced --skip-gendata',
   # '--grammar=conf/runtime/information_schema.yy --gendata-advanced --skip-gendata',

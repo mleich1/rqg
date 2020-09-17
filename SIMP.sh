@@ -270,7 +270,6 @@ $GRAMMAR_PART                                                          \
   --trials=$TRIALS                                                     \
   --noarchiving                                                        \
   --discard_logs                                                       \
-  --stop_on_replay                                                     \
 --type=RQG_Simplifier                                                  \
 --no-mask                                                              \
 --script_debug=_nix_                                                   \

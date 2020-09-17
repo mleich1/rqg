@@ -284,7 +284,7 @@ sub update_generator {
 sub urand {
     use integer;
     update_generator($_[0]);
-    ## The lower bits are of bad statsictical quality in an LCG, so we
+    ## The lower bits are of bad statistical quality in an LCG, so we
     ## just use the higher bits.
 
     ## Unfortunetaly, >> is an arithemtic shift so we shift right 15
