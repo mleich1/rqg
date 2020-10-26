@@ -394,7 +394,7 @@ my $parent_number         = 0;  # The number of the next parent grammar to be ge
 my $parent_grammar;             # The name (no path) of the last parent grammar generated.
 my $parent_grammar_string = ''; # The content of the last valid parent grammar.
 my $grammar_string;
-my $grammar_structure;
+#    UNUSED ???  my $grammar_structure;
 #
 my $child_number  = 0;          # The number of the next last child grammar to be generated.
 my $child_grammar;              # The name (no path) of the last child grammar generated.
@@ -552,16 +552,6 @@ my %validator_hash;
 
 
 $| = 1;
-
-sub unset_variables {
-    @order_array       = undef;
-    @reporter_array    = undef;
-    undef %reporter_hash;
-    @transformer_array = undef;
-    undef %transformer_hash;
-    @validator_array   = undef;
-    undef %validator_hash;
-}
 
 sub init {
     ($config_file, $workdir, my $verdict_setup, my $basedir_info) = @_;
@@ -1338,27 +1328,38 @@ sub get_job {
                     }
                 } elsif (PHASE_GRAMMAR_SIMP eq $phase) {
 
-                    # $order_id is the id of the main order.
+                    # $order_id is the id of the main (bookkeeping is only for that) order.
                     # The main order is picked by upper level routines depending on the history
                     # of the orders.
                     # The maybe added extra order id's serve to accelerate the simplification
                     # process. They are picked random.
-                    # The order ids to be used are kept in @oid_list like
+                    # The order ids to be used are kept in @oid_list.
+                    # Thinkable bad scenario:
+                    # We get a replay for the job based on order id 13. But some other job was
+                    # faster and caused some new parent grammar. Therefore either
+                    # - (not likely) order id 13 becomes invalid or
+                    # - (likely) order id 13 gets promoted.
+                    # The promotion causes a disadvantage in case one of the random orders
+                    # - was the one and only reason for the replay
+                    # - caused that order id 13 had no impact on the grammar at all
+                    # Countermeasures:
+                    # 1. The last redefine in the generated grammar must belong to order id 13.
+                    #    Therefore none of the random order id's are able to change the rule
+                    #    affected by order id 13.
+                    # 2. All random order id's need to be >= 13.
+                    #    Assuming that the simplification algorithm RULE_WEIGHT is used
+                    #    its unlikely or maybe even impossible that a random order_id
+                    #    causes that order id 13 has no impact on the grammar.
+                    # I do not care about duplicate orders.
+                    # estimate_cut_steps just provides the maximum number of orders in the group.
                     # @oid_list = (random order_id n, ..., random order_id 1, $order_id)
-                    # It is essential that the id of the main order if valid is at the end.
-                    # Otherwise a random order might overrule the main order and than upper
-                    # level routines might do incorrect bookkeeping which has than negative
-                    # consequences for the simplification speed.
-                    # In case we have a replay where one of the random id orders caused that the
-                    # rule A the main order is changing gets removed than we might get some
-                    # incorrect bookkeeping for the main order too.
-                    # But after reloading the grammar the rule A will be no more contained and
-                    # the id of the main order will become invalid.
+                    #
                     my @oid_list;
-                    unshift @oid_list, $order_id;
 
                     my $cut_steps = GenTest::Simplifier::Grammar_advanced::estimate_cut_steps();
+                    # One per 30 does not seem to be too greedy.
                     my $oids_to_add = abs(int($cut_steps / 30));
+                    # Check for obvious errors in estimate_cut_steps().
                     if (not defined $oids_to_add or $oids_to_add > 3000) {
                         my $status = STATUS_INTERNAL_ERROR;
                         Carp::cluck("INTERNAL ERROR: Simplifier::get_job : \$oids_to_add is " .
@@ -1370,19 +1371,30 @@ sub get_job {
                         "\$oids_to_add : $oids_to_add") if Auxiliary::script_debug("S6");
                     while($oids_to_add > 0) {
                         my $extra_order = Batch::get_rand_try_all_id();
-                        unshift @oid_list, $extra_order if defined $extra_order;
+                        if      (not defined $extra_order) {
+                            last;
+                        } elsif ($extra_order > $order_id) {
+                            push @oid_list, $extra_order;
+                        } else {
+                            # Do nothing.
+                        }
                         $oids_to_add--;
                     }
+                    push @oid_list, $order_id;
+                      say("DEBUG: order_id($order_id), \@oid_list ->" . join(" ",@oid_list) . "<-");
+
+                    # Needed later for some debug message only.
+                    my $rule_name         = $order_array[$order_id][ORDER_PROPERTY2];
+                    my $component_string  = $order_array[$order_id][ORDER_PROPERTY3];
 
                     # Based on the order id's, their validity and their order within @oid_list
                     # a $redefine_string gets generated.
                     # And this string gets than appended to the child grammar to be tried.
-                    my $redefine_string = "################ Generated by grammar simplifier " .
-                                          "################\n" ;
+                    my $redefine_string =
+                        "################ Generated by grammar simplifier ################\n" .
+                        "# Order id list : " . join(" ", @oid_list) . "\n";
 
-                    my $rule_name;
-                    my $component_string;
-                    my $any_valid = 0;
+                    my $is_valid = 0;
                     foreach my $oid ( @oid_list ) {
                         my $curr_rule_name        = $order_array[$oid][ORDER_PROPERTY2];
                         my $curr_component_string = $order_array[$oid][ORDER_PROPERTY3];
@@ -1400,18 +1412,15 @@ sub get_job {
                         } else {
                             # Do not print $new_rule_string into the comment because it could
                             # contain line breaks.
-                            $any_valid++;
-                            $redefine_string .= "# Order Id $oid\n" . "# -------------- \n" .
+                            $is_valid = 1 if $oid == $order_id;
+                            $redefine_string .= "# Order id $oid\n" . "# -------------- \n" .
                                                 $new_rule_string . "\n\n";
-                            $rule_name        = $curr_rule_name;
-                            $component_string = $curr_component_string;
                         }
                     }
 
-                    if ($any_valid > 0) {
+                    if ($is_valid > 0) {
                         if (0) {
-                            say("DEBUG: last valid rule_name '$rule_name', redefine_string " .
-                                "->$redefine_string<-");
+                            say("DEBUG: Redefinestring ->$redefine_string<-");
                         }
                         $child_grammar = "c" . Auxiliary::lfill0($child_number,5) . ".yy";
                         Batch::make_file($workdir . "/" . $child_grammar, $grammar_string . "\n\n" .
@@ -1523,7 +1532,7 @@ sub help() {
 print("\n" .
 "The information here is only about the parameters/options which\n"                                .
 "- can be assigned to rqg_batch.pl at command line and\n"                                          .
-"- have an impact on the simplification process\n\n"                                               .
+"- have an impact on the simplification process.\n\n"                                               .
 "Information about other parameters/options which can be assigned within a config file (*.cfg) "   .
 "is provided in 'simplify_rqg_template.cfg' as comment.\n\n"                                       .
 "trials\n"                                                                                         .
@@ -3180,6 +3189,18 @@ sub make_child_from_parent {
     my $target     = $workdir . "/" . $child_grammar;
     Batch::copy_file($source, $target);
     $child_number++;
+}
+
+sub free_memory {
+    @order_array           = ();
+    @reporter_array        = ();
+    %reporter_hash         = ();
+    @transformer_array     = ();
+    %transformer_hash      = ();
+    @validator_array       = ();
+    %validator_hash        = ();
+    @replay_runtime_fifo   = ();
+    @estimate_runtime_fifo = ();
 }
 
 1;

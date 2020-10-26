@@ -68,14 +68,14 @@ my $script_debug_init;
 our $script_debug_value;
 sub script_debug_init {
     ($script_debug_value) = @_;
-    if (@_ != 1) {
+    if (1 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: script_debug_init : 1 Parameter (script_debug) is required.");
         safe_exit($status);
     }
     if (not defined $script_debug_value) {
         $script_debug_value = '';
-        }
+    }
     say("INFO: script_debug : '$script_debug_value'");
     $script_debug_init = 1;
     # In case I ever modify $script_debug_value here than the caller needs to
@@ -105,6 +105,25 @@ sub script_debug {
     }
 }
 
+our $rqg_home;
+sub check_and_set_rqg_home {
+    ($rqg_home) = @_;
+    if (1 != scalar @_) {
+        Carp::cluck("INTERNAL ERROR: Exact one parameter(rqg_home) needs to get assigned.");
+        exit INTERNAL_TOOL_ERROR;
+    } else {
+        if (not defined $rqg_home) {
+            Carp::cluck("INTERNAL ERROR: The value for rqg_home is undef.");
+            exit INTERNAL_TOOL_ERROR;
+        } else {
+            if (not -d $rqg_home) {
+                Carp::cluck("INTERNAL ERROR: rqg_home($rqg_home) does not exist or is not a directory.");
+                exit INTERNAL_TOOL_ERROR;
+            }
+        }
+    }
+    say("DEBUG: rqg_home set to ->$rqg_home<-");
+}
 
 sub check_value_supported {
 #
@@ -332,16 +351,16 @@ sub check_rqg_infrastructure {
 
 
 sub find_file_at_places {
-   my($basedirectory, $subdir_list_ref, $name) = @_;
+    my($basedirectory, $subdir_list_ref, $name) = @_;
 
-   foreach my $subdirectory (@$subdir_list_ref) {
-      my $path  = $basedirectory . "/" . $subdirectory . "/" . $name;
-      return $path if -f $path;
-   }
-   # In case we are here than we have nothing found.
-   say("DEBUG: We searched at various places below 'basedirectory' but '$name' was not found. " .
-       "Will return undef.");
-   return undef;
+    foreach my $subdirectory (@$subdir_list_ref) {
+        my $path  = $basedirectory . "/" . $subdirectory . "/" . $name;
+       return $path if -f $path;
+    }
+    # In case we are here than we have nothing found.
+    say("DEBUG: We searched at various places below '$basedirectory' but '$name' was not found. " .
+        "Will return undef.");
+    return undef;
 }
 
 
@@ -469,19 +488,19 @@ use constant RQG_PHASE_COMPLETE           => 'complete';
    # Set by RQG tool or extended RQG runner when all doable work is finished.
    # RQG tool point of view:
    # - The RQG runner and his DB servers are no more running.
-   # - The storage space used by the remainings of the RQG run are minimal
+   # - The storage space used by the remains of the RQG run are minimal
    #   for the options given.
    #   Compressed archive + non compressed RQG log + a few small files.
    #   Data which could be freed was freed. (Especially destroy the vardir of the RQG runner).
    # - There is a verdict about the RQG run.
-   # - To be done by the tool: Move these remainings to an appropriate directory.
+   # - To be done by the tool: Move these remains to an appropriate directory.
    # - GenData + GenTest + ... done == Serious loss if stuff about a failing run gets thrown away.
 # Notes about the wording used
 # ----------------------------
 # Resource use: Storage space (especially RQG vardir) + Virtual memory + current CPU load.
 # Will killing this RQG runner including his DB servers etc. + throwing vardir and workdir away
 # - free many currently occupied and usually critical resources -- "win if stopped"
-# - destroy a lot historic investments                           -- "loss if stopped"
+# - destroy a lot historic investments                          -- "loss if stopped"
 #      Here I mean: We invested CPU's/RAM/storage space not available for other stuff etc.
 # Background:
 # Some smart tool managing multiple RQG tests in parallel and one after the other should
@@ -1341,7 +1360,12 @@ sub get_git_info {
     my $val= `$cmd`;
     say("INFO: GIT on $parameter_name('$directory') $val");
 
-    chdir($cwd);
+    if (not chdir($cwd)) {
+        say("ALARM: chdir to '$cwd' failed with : $!\n" .
+            "       Will return STATUS_ENVIRONMENT_FAILURE");
+        return STATUS_ENVIRONMENT_FAILURE;
+    }
+
     return STATUS_OK;
 
     # Note:
@@ -1382,7 +1406,11 @@ sub get_basedir_info {
         return STATUS_ENVIRONMENT_FAILURE;
     }
     my $status = get_git_info($directory, $parameter_name);
-    chdir($cwd);
+    if (not chdir($cwd)) {
+        say("ALARM: chdir to '$cwd' failed with : $!\n" .
+            "       Will return STATUS_ENVIRONMENT_FAILURE");
+        return STATUS_ENVIRONMENT_FAILURE;
+    }
 
     my $build_prt = $directory . "/build.prt";
     if (-f $build_prt) {
@@ -1541,10 +1569,22 @@ sub help_rqg_home {
     print(
 "HELP: About the RQG home directory used and the RQG tool/runner called.\n"                        .
 "      In order to ensure the consistency of the RQG tool/runner called and the ingredients\n"     .
-"      picked from the libraries only two variants for the call are supported.\n"                  .
-"      a) The current working directory is whereever.\n"                                           .
-"         The environment variable RQG_HOME is set and pointing to the top level directory\n"      .
-"         of some RQG install.\n"                                                                  .
+"      picked from the libraries the following example call\n\n"                                   .
+"          [RQG_HOME=<path_A>] perl <path_B>/<tool>.pl [-I<path_C>/lib] ...\n\n"                   .
+"      will get handled like:\n\n"                                                                 .
+"      1. Perl tries to start <path_B>/<tool_pl> ...\n"                                            .
+"      2. <tool>.pl determines the real/absolute path (of <path_A>) and takes that as\n"           .
+"         'rqg_home' before loading any RQG specific includes located in 'lib'.\n"                 .
+"      3. <tool>.pl prepends a '\$rqg_home/lib' to the path \@INC for searching includes.\n"       .
+"      4. <tool>.pl loads RQG related includes.\n"                                                 .
+"      5. <tool>.pl sets environment variable RQG_HOME=\$rqg_home\n\n"                             .
+"      The search for Grammar-, Redefine, Gendata- and Gendata_sql files works like\n"             .
+"      assigned                          | search for\n"                                           .
+"      ----------------------------------+----------------------------------------\n"              .
+"      /RQG/conf/mariadb/table_stress.yy | /RQG/conf/mariadb/table_stress.yy\n"                    .
+"      conf/mariadb/table_stress.yy      | \$rqg_home/conf/mariadb/table_stress.yy\n\n"            .
+"      Justification:\n"                                                                           .
+"      - made assignment for includes like '-I<path_B>/lib' might have less till no impact.\n"     .
 "         The RQG tool/runner called is inside that RQG_HOME.\n"                                   .
 "         Example\n"                                                                               .
 "            RQG_HOME=\"/work/rqg\"\n"                                                             .
@@ -1846,6 +1886,7 @@ sub unify_gendata {
     if ($gendata eq '' or $gendata eq '1' or $gendata eq 'None') {
         # Do nothing.
     } else {
+        $gendata = $rqg_home . "/" . $gendata if not $gendata =~ m {^/};
         # We run gendata with a ZZ grammar. So the value in $gendata is a file which must exist.
         if (not -f $gendata) {
             sayError("The file '$gendata' assigned to gendata does not exist or is no plain file.");
@@ -1917,6 +1958,7 @@ sub unify_gendata_sql {
         my $is_used   = 0;
         foreach my $file (@gendata_sql_files) {
             $is_used   = 1;
+            $file = $rqg_home . "/" . $file if not $file =~ m {^/};
             if (not -f $file) {
                 say("ERROR: The gendata_sql file '$file' does not exist or is not a plain file.");
                 $not_found = 1;
@@ -1930,6 +1972,7 @@ sub unify_gendata_sql {
         my $gendata_sql_file = $workdir . "/rqg.sql";
         if (not -f $gendata_sql_file and $is_used) {
             foreach my $file (@gendata_sql_files) {
+                $file = $rqg_home . "/" . $file if not $file =~ m {^/};
                 if (not -f $gendata_sql_file) {
                     if (not File::Copy::copy($file, $gendata_sql_file)) {
                         say("ERROR: Copying '$file' to '$gendata_sql_file' failed: $!");
@@ -2000,6 +2043,7 @@ sub unify_redefine {
         my $is_used   = 0;
         foreach my $file (@redefine_files) {
             $is_used   = 1;
+            $file = $rqg_home . "/" . $file if not $file =~ m {^/};
             if (not -f $file) {
                 say("ERROR: The redefine file '$file' does not exist or is not a plain file.");
                 $not_found = 1;
@@ -2013,6 +2057,7 @@ sub unify_redefine {
         my $redefine_file = $workdir . "/tmp_rqg_redefine.yy";
         if (not -f $redefine_file and $is_used) {
             foreach my $file (@redefine_files) {
+                $file = $rqg_home . "/" . $file if not $file =~ m {^/};
                 if (not -f $redefine_file) {
                     if (not File::Copy::copy($file, $redefine_file)) {
                         say("ERROR: Copying '$file' to '$redefine_file' failed: $!");
@@ -2054,6 +2099,7 @@ sub unify_grammar {
         Carp::cluck("INTERNAL ERROR: unify_grammar : Parameter grammar is not defined.");
         safe_exit($status);
     } else {
+        $grammar_file = $rqg_home . "/" . $grammar_file if not $grammar_file =~ m {^/};
         if (! -f $grammar_file) {
             my $status = STATUS_INTERNAL_ERROR;
             Carp::cluck("ERROR: Grammar file '$grammar_file' does not exist or is not a plain file.");

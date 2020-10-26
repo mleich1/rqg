@@ -970,7 +970,7 @@ sub term {
 } # End sub term
 
 sub crashServer {
-    my ($self) = @_;
+    my ($self, $tolerant) = @_;
 
     my $who_am_i = "DBServer::MySQL::MySQLd::crashServer:";
     if (osWindows()) {
@@ -1012,9 +1012,15 @@ sub crashServer {
                 return DBSTATUS_OK;
             }
         } else {
-            Carp::cluck("FATAL ERROR: $who_am_i Crashing the server process impossible because " .
-                       "no server pid found.");
-            return DBSTATUS_FAILURE;
+            if (not defined $tolerant) {
+                Carp::cluck("WARN: $who_am_i Crashing the server process impossible because " .
+                           "no server pid found.");
+                return DBSTATUS_FAILURE;
+            } else {
+                say("INFO: $who_am_i Crashing the server process impossible because " .
+                    "no server pid found.");
+                return DBSTATUS_OK;
+            }
         }
     }
 

@@ -40,14 +40,24 @@
 
 use strict;
 use Carp;
-use Cwd;
+use File::Basename; # We use dirname , make_path
+use Cwd;            # We use abs_path , getcwd
+my $rqg_home;
+BEGIN {
+    # Cwd::abs_path reports the target of a symlink.
+    $rqg_home = File::Basename::dirname(Cwd::abs_path($0));
+    print("# DEBUG: rqg_home computed is '$rqg_home'.\n");
+    my $rqg_libdir = $rqg_home . '/lib';
+    unshift @INC , $rqg_libdir;
+    print("# DEBUG: '$rqg_libdir' added to begin of \@INC\n");
+    print("# DEBUG \@INC is ->" . join("---", @INC) . "<-\n");
+    $ENV{'RQG_HOME'} = $rqg_home;
+    print("# INFO: Environment variable 'RQG_HOME' set to '$rqg_home'.\n");
+}
 use Time::HiRes;
 use POSIX ":sys_wait_h"; # for nonblocking read
-use File::Basename;
 use File::Path qw(make_path);
 use File::Copy;
-use lib 'lib';
-use lib "$ENV{RQG_HOME}/lib";
 use Auxiliary;
 use Verdict;
 use Batch;
@@ -115,28 +125,8 @@ $| = 1;
 
 my $batch_start_time = time();
 
-
-#---------------------
-my $rqg_home;
-my $rqg_home_call = Cwd::abs_path(File::Basename::dirname($0));
-my $rqg_home_env  = $ENV{'RQG_HOME'};
+# Currently unused
 my $start_cwd     = Cwd::getcwd();
-#---------------------
-
-# FIXME: Harden that
-# rqg_batch.pl and RQG_HOME if assigned must be from the same universe
-if (defined $rqg_home_env) {
-    print("WARNING: The variable RQG_HOME with the value '$rqg_home_env' was found in the " .
-          "environment.\n");
-    if (osWindows()) {
-        $ENV{RQG_HOME} = $ENV{RQG_HOME}.'\\';
-    } else {
-        $ENV{RQG_HOME} = $ENV{RQG_HOME}.'/';
-    }
-} else {
-    $ENV{RQG_HOME} = dirname(Cwd::abs_path($0));
-}
-$rqg_home = $rqg_home_call;
 
 if ( osWindows() )
 {
@@ -174,7 +164,7 @@ my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar
     $seed, $testname, $xml_output, $report_xml_tt, $report_xml_tt_type, $max_runtime,
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
     $parallel, $servers, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
-    $help, $help_simplifier, $help_combinator, $help_verdict, $help_rr, $help_archiving, $runner, $noarchiving,
+    $help, $help_simplifier, $help_combinator, $help_verdict, $help_rr, $help_archiving, $help_rqg_home, $runner, $noarchiving,
     $rr, $rr_options,
     $stop_on_replay, $script_debug_value, $runid, $threads, $type, $algorithm, $resource_control);
 
@@ -265,6 +255,7 @@ if (not GetOptions(
            'help_verdict'              => \$help_verdict,
            'help_rr'                   => \$help_rr,
            'help_archiving'            => \$help_archiving,
+           'help_rqg_home'             => \$help_rqg_home,
            ### type == Which type of campaign to run
            # pass_through: no
            'type=s'                    => \$type,        # Swallowed and handled by rqg_batch
@@ -373,6 +364,9 @@ if (defined $help) {
     safe_exit(0);
 } elsif (defined $help_simplifier) {
     Simplifier::help();
+    safe_exit(0);
+} elsif (defined $help_rqg_home) {
+    Auxiliary::help_rqg_home();
     safe_exit(0);
 } elsif (defined $help_verdict) {
     Verdict::help();
@@ -891,7 +885,8 @@ while($Batch::give_up <= 1) {
             #  But backtraces are detailed.
 
 
-            $command = "perl " . ($Carp::Verbose?"-MCarp=verbose ":"") . " $rqg_home" .
+            # $command = "perl " . ($Carp::Verbose?"-MCarp=verbose ":"") . " $rqg_home" .
+            $command = "perl -w " . ($Carp::Verbose?"-MCarp=verbose ":"") . " $rqg_home" .
                        "/" . $runner . ' ' . $command;
 
             if (defined $rr) {
@@ -949,6 +944,20 @@ while($Batch::give_up <= 1) {
                 my $who_am_i = "RQG Worker [$free_worker]:";
                 say("$who_am_i Taking over.");
 
+                # MLML new!
+                # In case the RQG runner gets started and its $rqg_vardir is unknown than the
+                # $rqg_vardir gets computed, created + chdir into it is made.
+                # == The first working phase is not that perfect because happening in whatever
+                #    current working directory most probably != $rqg_vardir.
+                # But here $rqg_vardir is already known + created.
+                # And so we change into that $rqg_vardir.
+                if (not chdir($rqg_vardir)) {
+                    say("INTERNAL ERROR: $who_am_i : chdir to '$rqg_vardir' failed with : $!\n" .
+                        "         Will return STATUS_INTERNAL_ERROR.");
+                    return STATUS_INTERNAL_ERROR;
+                }
+                say("DEBUG: $who_am_i : chdir to rqg_vardir '$rqg_vardir' made.");
+
                 # We use "system" and not "exec" later. So set certain memory structures inherited
                 # from the parent to undef.
                 # Reason:
@@ -959,11 +968,11 @@ while($Batch::give_up <= 1) {
                 # - (more sure) anything else
                 # Batch queues: @try_queue, @try_first_queue, @try_later_queue, @try_over_queue
                 # Combinator/simplifier structure: @order_array
-# FIXME         undef @worker_array;
+                Batch::free_memory();
                 if      ($Batch::batch_type eq Batch::BATCH_TYPE_COMBINATOR) {
-                    Combinator::unset_variables;
+                    Combinator::free_memory;
                 } elsif ($Batch::batch_type eq Batch::BATCH_TYPE_RQG_SIMPLIFIER) {
-                    Simplifier::unset_variables;
+                    Simplifier::free_memory;
                 } else {
                     say("INTERNAL ERROR: $who_am_i The batch type '$Batch::batch_type' is " .
                         "unknown. Abort");
@@ -1011,6 +1020,8 @@ while($Batch::give_up <= 1) {
                 #
 
                 $ENV{'TMP'} = $rqg_vardir;
+                # mleich: I have doubts if this should be set here.
+                $ENV{'RQG_HOME'} = $rqg_home;
 
                 if ($dryrun) {
                     say("LIST: ==>$command<==");
@@ -1050,7 +1061,7 @@ while($Batch::give_up <= 1) {
                     # 2. Verdict computation
                     # 3. Archiving
                     # via "system" compared to the alternative that we start the RQG runner
-                    # via "exec" and that the runner computes the verdict and archives.
+                    # via "exec" and that the RQG runner (like rqg.pl) computes the verdict and archives.
                     # Reason:
                     #    The RQG runner does no more need to check his own protocol
                     #    == Knowing the storage place in advance is not needed
@@ -1127,6 +1138,12 @@ while($Batch::give_up <= 1) {
                                     "/archive.tgz' created.") if Auxiliary::script_debug("W2");
                             }
                         }
+                        # 2020-10-21
+                        # cannot remove path when cwd is /dev/shm/vardir/1603279578/1 for
+                        # /dev/shm/vardir/1603279578/1:  at ./rqg_batch.pl line 1141.
+                        # So this looks like we cannot remove a directory tree in case
+                        # our current working directory is in it.
+                        chdir($rqg_workdir);
                         if(not File::Path::rmtree($rqg_vardir)) {
                             say("ERROR: Removal of the tree '$rqg_vardir' failed. : $!.");
                             safe_exit(STATUS_ENVIRONMENT_FAILURE);

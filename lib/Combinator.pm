@@ -163,8 +163,8 @@ $| = 1;
 
 1;
 
-sub unset_variables {
-    @order_array       = undef;
+sub free_memory {
+    @order_array = ();
 }
 
 sub init {

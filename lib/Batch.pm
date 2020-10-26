@@ -840,7 +840,8 @@ sub check_resources {
         my $divisor;
         if (0 == $workers_mid - $workers_min) {
             $divisor = 1;
-            say("WARNING: workers_mid - workers_min is 0");
+            # Most likely caused by $workers_max set to exceptional low value by intention.
+            # say("DEBUG: workers_mid - workers_min is 0");
         } else {
             $divisor = $workers_mid - $workers_min;
         }
@@ -2297,11 +2298,25 @@ sub process_finished_runs {
 
 sub help_archiving {
        print(
-   "\nSorry, under construction and partially different or not yet implemented.\n\n"               .
-   "Default\n"                                                                                     .
-   "      What you get in case you do not assign some corresponding --<parameter>=<value>.\n"      .
-   "  will be taken according to their setting with absolute path or relative to the current "     .
-   "Description currently missing. Sorry.\n");
+    "\nSorry, under construction and partially different or not yet implemented.\n\n"              .
+    "Default\n"                                                                                    .
+    "      What you get in case you do not assign some corresponding --<parameter>=<value>.\n"     .
+    "  will be taken according to their setting with absolute path or relative to the current "    .
+    "Description currently missing. Sorry.\n");
+}
+
+sub free_memory {
+    %extra_info_hash =    ();
+    @worker_array =       ();
+    @order_array =        ();
+    %try_first_hash =     ();
+    @try_queue =          ();
+    %try_over_bl_hash =   ();
+    %try_over_hash =      ();
+    %try_replayer_hash =  ();
+    %try_all_hash =       ();
+    %try_never_hash =     ();
+    %try_exhausted_hash = ();
 }
 
 1;

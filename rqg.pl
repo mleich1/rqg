@@ -41,6 +41,20 @@
 # 7. Introduce a config file for the RQG runner
 
 use Carp;
+use File::Basename; # We use dirname
+use Cwd;            # We use abs_path , getcwd
+my $rqg_home;
+BEGIN {
+    # Cwd::abs_path reports the target of a symlink.
+    $rqg_home = File::Basename::dirname(Cwd::abs_path($0));
+    print("# DEBUG: rqg_home computed is '$rqg_home'.\n");
+    my $rqg_libdir = $rqg_home . '/lib';
+    unshift @INC , $rqg_libdir;
+    print("# DEBUG: '$rqg_libdir' added to begin of \@INC\n");
+    print("# DEBUG \@INC is ->" . join("---", @INC) . "<-\n");
+    $ENV{'RQG_HOME'} = $rqg_home;
+    print("# INFO: Environment variable 'RQG_HOME' set to '$rqg_home'.\n");
+}
 
 my $rqg_start_time = time();
 
@@ -82,70 +96,15 @@ my $rqg_start_time = time();
 #    and than to run RQG.
 #
 
-# use File::Basename qw(dirname);
-# use Cwd qw(abs_path);
-use File::Basename; # We use dirname
-use Cwd;            # We use abs_path , getcwd
-my $rqg_home;
-my $rqg_home_call = Cwd::abs_path(File::Basename::dirname($0));
-my $rqg_home_env;
-my $env_val       = $ENV{'RQG_HOME'};
-if (defined $env_val) {
-    $rqg_home_env = Cwd::abs_path($env_val);
-} else {
-    $env_val      = "<undef>";
-}
 my $start_cwd     = Cwd::getcwd();
 
-use lib 'lib'; # In case we are in the root of a RQG install than we have at least a chance.
-
-# Note:
-# In case the RQG runner was started like "rr record .... perl rqg.pl ..." than we get
-#      [rr 18745 3119]# DEBUG: $0 ->/work/RQG_mleich2/rqg.pl<-
-# This means $0 cannot be used in an easy way for figuring out if we run under 'rr'.
-print("# DEBUG: \$0 ->$0<-\n" .
-      "# DEBUG: rqg_home_call ->$rqg_home_call<-\n" .
-      "# DEBUG: rqg_home_env  ->$env_val<-\n"  .
-      "# DEBUG: start_cwd     ->$start_cwd<-\n");
-
-if (defined $rqg_home_env) {
-    if ($rqg_home_env ne $rqg_home_call) {
-        print("ERROR: RQG_HOME found in environment ('$rqg_home_env') and RQG_HOME computed from " .
-              "the RQG call ('$rqg_home_call') differ.\n");
-        Auxiliary::help_rqg_home();
-        exit 2;
-    } else {
-        $rqg_home = $rqg_home_env;
-        # say("DEBUG: rqg_home '$rqg_home' taken from environment might be usable.\n");
-    }
-} else {
-    # RQG_HOME is not set
-    if ($rqg_home_call ne $start_cwd) {
-        # We will maybe not able to find the libs and harvest
-        # Perl BEGIN failed--compilation aborted ... immediate.
-        print("ERROR: RQG_HOME was not found in environment and RQG_HOME computed from the "  .
-              "RQG call ('$rqg_home_call') is not equal to the current working directory.\n");
-        Auxiliary::help_rqg_home();
-        exit 2;
-    } else {
-        $rqg_home = $start_cwd;
-        print("# DEBUG: rqg_home '$rqg_home' computed usable\n");
-    }
-}
-say("DEBUG: rqg_home might be ->$rqg_home<-");
 if (not -e $rqg_home . "/lib/GenTest.pm") {
     print("ERROR: The rqg_home ('$rqg_home') determined does not look like the root of a " .
           "RQG install.\n");
     exit 2;
 }
-$ENV{'RQG_HOME'} = $rqg_home;
-say("INFO: Environment variable 'RQG_HOME' set to '$rqg_home'");
 
-# use lib 'lib';
-use lib $rqg_home . "/lib";
-$rqg_home_env = $ENV{'RQG_HOME'};
 
-use Carp;
 # How many characters of each argument to a function to print.
 $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
@@ -168,6 +127,8 @@ use DBServer::DBServer;
 use DBServer::MySQL::MySQLd;
 use DBServer::MySQL::ReplMySQLd;
 use DBServer::MySQL::GaleraMySQLd1; # My version
+
+Auxiliary::check_and_set_rqg_home($rqg_home);
 
 
 #--------------------
@@ -217,7 +178,6 @@ if (defined $ENV{RQG_HOME}) {
 use Getopt::Long;
 use GenTest::Constants;
 use DBI;
-use Cwd;
 
 my $message;
 
@@ -589,6 +549,25 @@ if (defined $logfile && defined $logger) {
     }
 }
 
+say("Copyright (c) 2010,2011 Oracle and/or its affiliates. All rights reserved. Use is subject to license terms.");
+say("Please see http://forge.mysql.com/wiki/Category:RandomQueryGenerator for more information on this test framework.");
+# Note:
+# We print here a roughly correct command line call like
+# 2018-11-16T10:28:26 [200006] Starting
+# 2018-11-16T10:28:26 [200006] # /mnt/r0/mleich/RQG_new/rqg.pl \
+# 2018-11-16T10:28:26 [200006] # --gendata=conf/mariadb/concurrency.zz \
+# 2018-11-16T10:28:26 [200006] # --gendata_sql=conf/mariadb/concurrency.sql \
+# 2018-11-16T10:28:26 [200006] # --grammar=conf/mariadb/concurrency.yy \
+# 2018-11-16T10:28:26 [200006] # --engine=Innodb \
+# 2018-11-16T10:28:26 [200006] # --reporters=Deadlock,ErrorLog,Backtrace \
+# 2018-11-16T10:28:26 [200006] # --mysqld=--loose_innodb_use_native_aio=0 \
+# 2018-11-16T10:28:26 [200006] # --mysqld=--connect_timeout=60 \
+# 1. Do not add a space after the '\' around line end. Otherwise when converting the printout to
+#    a shell script the shell assumes command end after the '\ '.
+# 2. The style of printing is imperfect in case of the parameters
+#    whitelist_patterns and blacklist_patterns.
+say("Starting \n# $0 \\ \n# " . join(" \\\n# ", @ARGV_saved));
+
 # FIXME:
 # $gendata gets precharged with '' at begin.
 # Could it flipped to undef at all?
@@ -635,6 +614,7 @@ if (not defined $grammar_file) {
     say("$0 will exit with exit status " . status2text($status) . "($status)");
     run_end($status);
 } else {
+    $grammar_file = $rqg_home . "/" . $grammar_file if not $grammar_file =~ m {^/};
     if (! -f $grammar_file) {
         say("ERROR: Grammar file '$grammar_file' does not exist or is not a plain file.");
         help();
@@ -754,25 +734,6 @@ if (defined $sqltrace) {
     }
 }
 
-
-say("Copyright (c) 2010,2011 Oracle and/or its affiliates. All rights reserved. Use is subject to license terms.");
-say("Please see http://forge.mysql.com/wiki/Category:RandomQueryGenerator for more information on this test framework.");
-# Note:
-# We print here a roughly correct command line call like
-# 2018-11-16T10:28:26 [200006] Starting
-# 2018-11-16T10:28:26 [200006] # /mnt/r0/mleich/RQG_new/rqg.pl \
-# 2018-11-16T10:28:26 [200006] # --gendata=conf/mariadb/concurrency.zz \
-# 2018-11-16T10:28:26 [200006] # --gendata_sql=conf/mariadb/concurrency.sql \
-# 2018-11-16T10:28:26 [200006] # --grammar=conf/mariadb/concurrency.yy \
-# 2018-11-16T10:28:26 [200006] # --engine=Innodb \
-# 2018-11-16T10:28:26 [200006] # --reporters=Deadlock,ErrorLog,Backtrace \
-# 2018-11-16T10:28:26 [200006] # --mysqld=--loose_innodb_use_native_aio=0 \
-# 2018-11-16T10:28:26 [200006] # --mysqld=--connect_timeout=60 \
-# 1. Do not add a space after the '\' around line end. Otherwise when converting the printout to
-#    a shell script the shell assumes command end after the '\ '.
-# 2. The style of printing is imperfect in case of the parameters
-#    whitelist_patterns and blacklist_patterns.
-say("Starting \n# $0 \\ \n# " . join(" \\\n# ", @ARGV_saved));
 
 #
 # Calculate master and slave ports based on MTR_BUILD_THREAD (MTR Version 1 behaviour)
@@ -1837,6 +1798,10 @@ $gentestProps->debug_server(\@debug_server) if @debug_server;
 $gentestProps->servers(\@server) if @server;
 $gentestProps->property('annotate-rules',$annotate_rules) if defined $annotate_rules;
 $gentestProps->property('upgrade-test',$upgrade_test) if $upgrade_test;
+# Basically anything added via $gentestProps->property(<whatever name>,<value>)
+# can be later found via $<object>->properties-><whatever name>
+# vardir might be required for a validator reporter starts there some program
+# which might end up with core (Example: Mariabackup_linux)
 
 say("---------------------------------------------------------------");
 $gentestProps->printProps;
@@ -2133,7 +2098,8 @@ sub killServers {
 # --> SIGKILL whereever without harm
 #     Positive example: No use of "rr" and all relevant is already in the RQG log.
 # --> SIGABRT whenever "rr" is involved in order to avoid that "rr" traces are incomplete.
-#     Negative example: We run under "rr", found a data corruption, SIGKILL and get a rotten trace.
+#     Negative example:
+#     We run under "rr", found a data corruption, SIGKILL and get a rotten trace.
 
     say("Killing server(s)...");
     my $ret;
@@ -2160,7 +2126,7 @@ sub killServers {
             if ($srv) {
                 my $single_ret = STATUS_OK;
                 if ($rr_rules) {
-                    $single_ret = $srv->crashServer;
+                    $single_ret = $srv->crashServer(1);
                 } else {
                     $single_ret = $srv->killServer;
                 }
