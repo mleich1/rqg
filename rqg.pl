@@ -2140,7 +2140,7 @@ sub killServers {
         }
     }
     if ($ret != STATUS_OK) {
-        say("DEBUG: killServers(rqg.pl) failed with : ret : $ret");
+        say("DEBUG: killServers in rqg.pl failed with : ret : $ret");
     }
 }
 

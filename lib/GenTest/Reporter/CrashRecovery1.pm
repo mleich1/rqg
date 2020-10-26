@@ -253,9 +253,8 @@ sub report {
                     next;
                 } else {
                     say("ERROR: $who_am_i $stmt harvested $err: $errstr. " .
-                        "Will return status STATUS_RECOVERY_FAILURE");
+                        "Will return status STATUS_RECOVERY_FAILURE later.");
                     sayFile($server->errorlog);
-                    say("ERROR: Will return status STATUS_RECOVERY_FAILURE");
                     return STATUS_RECOVERY_FAILURE;
                 }
             }
@@ -305,7 +304,8 @@ sub report {
 
                 if (defined $sth_rows->err()) {
                     say("ERROR: $walk_query harvested $err: $errstr. " .
-                        "Will return status STATUS_RECOVERY_FAILURE");
+                        "Will return status STATUS_RECOVERY_FAILURE later.");
+                    sayFile($server->errorlog);
                     return STATUS_RECOVERY_FAILURE;
                 }
 

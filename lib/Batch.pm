@@ -661,9 +661,9 @@ sub stop_worker_oldest_not_using_parent {
             # say("DEBUG 4: " . $worker_array[$worker_num][WORKER_EXTRA1]);
             # say("DEBUG 5: " . $worker_array[$worker_num][WORKER_EXTRA2])
             #   if defined $worker_array[$worker_num][WORKER_EXTRA2];
-            if (defined $worker_array[$worker_num][WORKER_VERDICT] &&
-                (Verdict::RQG_VERDICT_REPLAY   eq $worker_array[$worker_num][WORKER_VERDICT]) or
-                (Verdict::RQG_VERDICT_INTEREST eq $worker_array[$worker_num][WORKER_VERDICT])) {
+            if ((defined $worker_array[$worker_num][WORKER_VERDICT]) and
+                ((Verdict::RQG_VERDICT_REPLAY   eq $worker_array[$worker_num][WORKER_VERDICT]) or
+                 (Verdict::RQG_VERDICT_INTEREST eq $worker_array[$worker_num][WORKER_VERDICT]))) {
                 $not_stopped_active_workers++;
                 next;
             }

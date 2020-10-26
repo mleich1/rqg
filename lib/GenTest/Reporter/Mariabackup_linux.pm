@@ -128,6 +128,10 @@ sub monitor {
     # return STATUS_OK if $last_call + 15 > time();
     # $last_call = time();
 
+#   my $workdir = $reporter->properties->workdir;
+#   say("MLML: workdir ->$workdir<-");
+#   exit 999;
+
     # Access data about the first server
     my $server0 = $reporter->properties->servers->[0];
     my $basedir = $server0->basedir();
@@ -259,7 +263,8 @@ sub monitor {
     alarm (0);
     if ($res != 0) {
         direct_to_std();
-        # Let's check first the not unlikely.
+        # It is quite likely that the source DB server does no more react because of
+        # crash, server freeze or similar.
         my $dbh = DBI->connect($dsn, undef, undef, {
             mysql_connect_timeout  => CONNECT_TIMEOUT,
             PrintError             => 0,
@@ -269,7 +274,7 @@ sub monitor {
             mysql_auto_reconnect   => 0
         });
         if (not defined $dbh) {
-            my $status = STATUS_SERVER_CRASHED;
+            my $status = STATUS_CRITICAL_FAILURE;
             say("ERROR: $msg_snip : Connect to dsn '" . $dsn . "'" . " failed: " . $DBI::errstr .
                 " Will exit with status " . status2text($status) . "($status)");
             exit $status;

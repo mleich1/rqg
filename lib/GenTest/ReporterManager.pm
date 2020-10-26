@@ -45,10 +45,10 @@ sub monitor {
     my $who_am_i = "GenTest::ReporterManager::monitor:";
 	my $max_result = STATUS_OK;
 
-	foreach my $reporter (@{$manager->reporters()}) {
-		if ($reporter->type() & $desired_type) {
-			my $reporter_result = $reporter->monitor();
-			$max_result = $reporter_result if $reporter_result > $max_result;
+    foreach my $reporter (@{$manager->reporters()}) {
+        if ($reporter->type() & $desired_type) {
+            my $reporter_result = $reporter->monitor();
+            $max_result = $reporter_result if $reporter_result > $max_result;
             if ($reporter_result != STATUS_OK) {
                 say("INFO: $who_am_i Reporter '" . $reporter->name() .
                     "' reported $reporter_result ");
@@ -61,10 +61,10 @@ sub monitor {
                     last;
                 }
             }
-		}
-	}
-    say("DEBUG: $who_am_i Will return the (maximum) status $max_result");
-	return $max_result;
+        }
+    }
+    # say("DEBUG: $who_am_i Will return the (maximum) status $max_result");
+    return $max_result;
 }
 
 sub report {
