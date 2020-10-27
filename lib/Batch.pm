@@ -522,7 +522,7 @@ use constant WORKER_ORDER_LENGTH =>  8;
 sub stop_worker {
     my ($worker_num, $stop_reason) = @_;
     my $pid = $worker_array[$worker_num][WORKER_PID];
-    if (-1 != $pid) {
+    if (defined $pid and -1 != $pid) {
         # Per last update of bookkeeping the RQG Woorker was alive.
         # We ask to kill the processgroup of the RQG Worker.
         kill '-9', $pid;
