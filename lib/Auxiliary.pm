@@ -2554,6 +2554,32 @@ sub search_in_file {
 
 # Check if basedir contains a mysqld and clients
 
+sub get_pid_from_file {
+# Variants
+# 1. File does not or no more exist --> undef
+# 2. File exists but no sufficient permission --> undef
+# 3. File exists with sufficient permission but value found is not numeric
+#    not at all/incomplete/wrong written or wrong file --> undef
+# 4. all ok and value numeric --> return it
+#
+    my $fname= shift;
+    my $who_am_i = "new_get_pid_from_file:";
+    if (not open(PID, $fname)) {
+        say("ERROR: $who_am_i Could not open pid file '$fname' for reading, Will return undef");
+        return undef;
+    }
+    my $pid = <PID>;
+    close(PID);
+    chomp $pid;
+    $pid =~ s/.*?([0-9]+).*/$1/;
+    if ($pid =~ /^[0-9]+$/) {
+        # say("DEBUG: $who_am_i \$pid ($pid) is numeric");
+        return $pid;
+    } else {
+        say("ERROR: $who_am_i Value '$pid' found in pid file '$fname' is not numeric. Will return undef");
+        return undef;
+    }
+}
 
 
 1;
