@@ -34,10 +34,8 @@
 #
 
 our $test_compression_encryption =
-  '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz ' .
-  '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
+  '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz ';
 
-# FIXME: Use that variable where useful.
 our $encryption_setup =
   '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
 
@@ -219,6 +217,8 @@ $combinations = [ $grammars,
     --engine=InnoDB
     --restart_timeout=120
     ' .
+    # Some grammars need encryption, file key management
+    " $encryption_setup " .
     " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=$duration "
   ],
   [
