@@ -208,7 +208,12 @@ sub next {
             # FIXME:
             # The SQL could fail because of good (KILL CONNECTION/QUERY)
             # and bad (server crash) reasons. So handle that.
+            # Known danger:
+            # MDEV-18082 Assertion `! is_set()' failed in Diagnostics_area::disable_status
+            #            upon EXPLAIN SELECT INTO OUTFILE executed via prepared statement
+            # Inspection of existing filter files shows that basically the query is the source.
             my $explain = Dumper $executors->[0]->execute("EXPLAIN $query") if $query =~ m{^\s*SELECT}sio;
+            $explain = '' if not defined $explain;
             my $filter_result = $filter->filter($query . " " . $explain);
             next query if $filter_result == STATUS_SKIP;
          }
