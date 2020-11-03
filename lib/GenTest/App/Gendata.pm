@@ -313,12 +313,14 @@ sub run {
                 $old_field;	# Retain old field, no permutations at this stage.
             } elsif (
                 ($cycle == FIELD_SIGN) &&
-                ($old_field->[FIELD_TYPE] !~ m{int|float|double|dec|numeric|fixed}sio) 
+                # ($old_field->[FIELD_TYPE] !~ m{int|float|double|dec|numeric|fixed}sio)
+                ((defined $old_field->[FIELD_TYPE]) and ($old_field->[FIELD_TYPE] !~ m{int|float|double|dec|numeric|fixed}sio))
                 ) {
                 $old_field;	# Retain old field, sign does not apply to non-integer types
             } elsif (
                 ($cycle == FIELD_CHARSET) &&
-                ($old_field->[FIELD_TYPE] =~ m{bit|int|bool|float|double|dec|numeric|fixed|blob|date|time|year|binary}sio)
+                # ($old_field->[FIELD_TYPE] =~ m{bit|int|bool|float|double|dec|numeric|fixed|blob|date|time|year|binary}sio)
+                ((defined $old_field->[FIELD_TYPE]) and ($old_field->[FIELD_TYPE] =~ m{bit|int|bool|float|double|dec|numeric|fixed|blob|date|time|year|binary}sio))
                 ) {
                 $old_field;	# Retain old field, charset does not apply to integer types
             } else {
