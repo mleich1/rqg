@@ -132,7 +132,7 @@ sub report {
     my $datadir = $reporter->serverVariable('datadir');
     $datadir =~ s{[\\/]$}{}sgio;
     my $orig_datadir = $datadir.'_orig';
-    my $pid = $reporter->serverInfo('pid');
+    $pid = $reporter->serverInfo('pid');
 
     my $engine = $reporter->serverVariable('storage_engine');
 
@@ -227,7 +227,7 @@ sub report {
     #
     # Phase 3 - dump the server again and compare dumps
     #
-    my $dump_return = dump_database($reporter,$dbh,'after');
+    $dump_return = dump_database($reporter,$dbh,'after');
     if ($dump_return > STATUS_OK) {
         say("WARNING: $who_am_i Dumping the database failed with status $dump_return.");
     }
