@@ -45,7 +45,7 @@ then
     exit 16
 fi
 
-INSTALL_PREFIX="$GENERAL_BIN_DIR""/""$RELEASE""_asan_Og"
+INSTALL_PREFIX="$GENERAL_BIN_DIR""/""$RELEASE""_msan_O1"
 
 RQG_ARCH_DIR="$GENERAL_RQG_WORK_DIR""/bin_archs"
 if [ ! -d "$RQG_ARCH_DIR" ]
@@ -115,26 +115,38 @@ rm -f CMakeCache.txt
 cd "$OOS_DIR"
 
 START_TS=`date '+%s'`
-# -DCMAKE_BUILD_TYPE=Debug -DWITH_INNODB_EXTRA_DEBUG:BOOL=ON                                         \
-cmake -DCONC_WITH_{UNITTEST,SSL}=OFF -DWITH_EMBEDDED_SERVER=OFF -DWITH_UNIT_TESTS=OFF              \
--DWITH_WSREP=ON                                                                                    \
--DPLUGIN_TOKUDB=NO -DPLUGIN_MROONGA=NO -DPLUGIN_OQGRAPH=NO -DPLUGIN_SPHINX=NO -DPLUGIN_SPIDER=NO   \
--DPLUGIN_ROCKSDB=NO -DPLUGIN_CONNECT=NO -DWITH_SAFEMALLOC=OFF -DWITH_SSL=bundled                   \
--DPLUGIN_COLUMNSTORE=NO                                                                            \
--DCMAKE_BUILD_TYPE=Debug                                                                           \
--DWITH_ASAN:BOOL=ON                                                                                \
--DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" "$SOURCE_DIR"    2>&1   | tee -a "$BLD_PROT"
+#--------------------------
+# See https://jira.mariadb.org/browse/MDEV-20377
+# Marko:
+# -DHAVE_LIBAIO_H=0 prevents false positives at runtime in case libaio-dev exists
+# -DWITH_INNODB_{BZIP2,LZ4,LZMA,LZO,SNAPPY}=OFF because otherwise we would need MSAN specific libs etc.
+# -O1 instead of -Og because clang ignores -Og
+cmake -DCMAKE_{C_COMPILER=clang,CXX_COMPILER=clang++}-10                                           \
+-DCMAKE_C_FLAGS='-O1 -Wno-unused-command-line-argument -fdebug-macro'                              \
+-DCMAKE_CXX_FLAGS='-stdlib=libc++ -O1 -Wno-unused-command-line-argument -fdebug-macro'             \
+-DWITH_EMBEDDED_SERVER=OFF -DWITH_UNIT_TESTS=OFF -DCMAKE_BUILD_TYPE=Debug                          \
+-DWITH_INNODB_{BZIP2,LZ4,LZMA,LZO,SNAPPY}=OFF                                                      \
+-DPLUGIN_{ARCHIVE,TOKUDB,MROONGA,OQGRAPH,ROCKSDB,CONNECT,SPIDER,SPHINX,COLUMNSTORE}=NO             \
+-DWITH_SAFEMALLOC=OFF                                                                              \
+-DWITH_{ZLIB,SSL,PCRE}=bundled                                                                     \
+-DHAVE_LIBAIO_H=0                                                                                  \
+-DWITH_MSAN=ON                                                                                     \
+-DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" "$SOURCE_DIR"   2>&1   | tee -a "$BLD_PROT"
 END_TS=`date '+%s'`
 RUNTIME=$(($END_TS - $START_TS))
 echo -e "\nElapsed time for cmake: $RUNTIME\n\n"                        | tee -a "$BLD_PROT"
 
-# Append in order to not mangle the file maybe too much
-OTHER_VAL="-Og -g"
-echo -e "\nAppending CMAKE_ASM_FLAGS_DEBUG, CMAKE_CXX_FLAGS_DEBUG, CMAKE_C_FLAGS_DEBUG" \
-     "=$OTHER_VAL to CMakeCache.txt\n\n"                              | tee -a "$BLD_PROT"
-echo "CMAKE_ASM_FLAGS_DEBUG:STRING=$OTHER_VAL"                          >> CMakeCache.txt
-echo "CMAKE_CXX_FLAGS_DEBUG:STRING=$OTHER_VAL"                          >> CMakeCache.txt
-echo "CMAKE_C_FLAGS_DEBUG:STRING=$OTHER_VAL"                            >> CMakeCache.txt
+#--------------------------
+# cmake -DCONC_WITH_{UNITTEST,SSL}=OFF             \
+# -DWITH_WSREP=ON                                                                                    \
+# -DWITH_ASAN:BOOL=ON                                                                                \
+# # Append in order to not mangle the file maybe too much
+# OTHER_VAL="-Og -g"
+# echo -e "\nAppending CMAKE_ASM_FLAGS_DEBUG, CMAKE_CXX_FLAGS_DEBUG, CMAKE_C_FLAGS_DEBUG" \
+#      "=$OTHER_VAL to CMakeCache.txt\n\n"                              | tee -a "$BLD_PROT"
+# echo "CMAKE_ASM_FLAGS_DEBUG:STRING=$OTHER_VAL"                          >> CMakeCache.txt
+# echo "CMAKE_CXX_FLAGS_DEBUG:STRING=$OTHER_VAL"                          >> CMakeCache.txt
+# echo "CMAKE_C_FLAGS_DEBUG:STRING=$OTHER_VAL"                            >> CMakeCache.txt
 
 rm -f sql/mysqld
 rm -f sql/mariadbd
@@ -177,6 +189,7 @@ then
 fi
 
 echo "#--------------------------------------------------------------"  | tee -a "$BLD_PROT"
+export LD_LIBRARY_PATH=/home/mleich/llvm-toolchain-10-10.0.0/libc++msan/lib
 cd mysql-test
 # Assigning a MTR_BUILD_THREAD serves to avoid collisions with RQG (starts at 730) and
 # especially other bld_*.sh running in parallel for the same or other source trees.

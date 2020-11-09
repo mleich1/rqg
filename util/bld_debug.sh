@@ -10,7 +10,7 @@ then
 fi
 if [ "$GENERAL_SOURCE_DIR" = "" ]
 then
-    GENERAL_SOURCE_DIR="/home/mleich/Server"
+    GENERAL_SOURCE_DIR="/Server"
 fi
 if [ ! -d "$GENERAL_SOURCE_DIR" ]
 then
@@ -20,7 +20,7 @@ fi
 
 if [ "$GENERAL_BIN_DIR" = "" ]
 then
-    GENERAL_BIN_DIR="/home/mleich/Server_bin"
+    GENERAL_BIN_DIR="/Server_bin"
 fi
 if [ ! -d "$GENERAL_BIN_DIR" ]
 then
@@ -30,7 +30,7 @@ fi
 
 if [ "$GENERAL_RQG_WORK_DIR" = "" ]
 then
-    GENERAL_RQG_WORK_DIR="/home/mleich/RQG/storage"
+    GENERAL_RQG_WORK_DIR="/RQG/storage"
 fi
 if [ ! -d "$GENERAL_RQG_WORK_DIR" ]
 then
