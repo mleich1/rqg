@@ -1890,8 +1890,7 @@ sub unify_gendata {
         # We run gendata with a ZZ grammar. So the value in $gendata is a file which must exist.
         if (not -f $gendata) {
             sayError("The file '$gendata' assigned to gendata does not exist or is no plain file.");
-            return undef;
-            help();
+            # return undef;
             my $status = STATUS_ENVIRONMENT_FAILURE;
             safe_exit($status);
         } else {
@@ -2196,6 +2195,43 @@ sub unify_rvt_array {
     return \@rvt_array, \%rvt_hash;
 }
 
+# -----------------------------------------------------------------------------------
+sub check_filter {
+    my ($filter, $workdir) = @_;
+    my $who_am_i = "Auxiliary::check_filter:";
+    if (@_ != 2) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: $who_am_i : 2 Parameters (filter, " .
+                      "workdir) are required.");
+        safe_exit($status);
+    }
+    if (not defined $filter) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: $who_am_i : Parameter filter is not defined.");
+        safe_exit($status);
+    }
+    if (not defined $workdir) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: $who_am_i : Parameter workdir is not defined.");
+        safe_exit($status);
+    } else {
+        if (! -d $workdir) {
+            my $status = STATUS_INTERNAL_ERROR;
+            Carp::cluck("INTERNAL ERROR: $who_am_i : workdir '$workdir' does not exist " .
+                        "or is not a directory.");
+            safe_exit($status);
+        }
+    }
+
+    $filter = $rqg_home . "/" . $filter if not $filter =~ m {^/};
+    # It is very unlikey that a duplicate $workdir/rqg.ff makes sense.
+    if (not -f $filter) {
+        sayError("The file '$filter' assigned to --filter does not exist or is no plain file." .
+                 " Will return undef.");
+        return undef;
+    }
+    return $filter;
+}
 # -----------------------------------------------------------------------------------
 
 # *_status_text
@@ -2565,7 +2601,8 @@ sub get_pid_from_file {
     my $fname= shift;
     my $who_am_i = "new_get_pid_from_file:";
     if (not open(PID, $fname)) {
-        say("ERROR: $who_am_i Could not open pid file '$fname' for reading, Will return undef");
+        say("ERROR: $who_am_i Could not open pid file '$fname' for reading, " .
+            "Will return undef");
         return undef;
     }
     my $pid = <PID>;
@@ -2576,7 +2613,8 @@ sub get_pid_from_file {
         # say("DEBUG: $who_am_i \$pid ($pid) is numeric");
         return $pid;
     } else {
-        say("ERROR: $who_am_i Value '$pid' found in pid file '$fname' is not numeric. Will return undef");
+        say("ERROR: $who_am_i Value '$pid' found in pid file '$fname' is not numeric. " .
+            "Will return undef");
         return undef;
     }
 }
