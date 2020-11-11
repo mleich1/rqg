@@ -41,6 +41,7 @@
 use Carp;
 use File::Basename; # We use dirname
 use Cwd;            # We use abs_path , getcwd
+use POSIX;          # For sigalarm
 my $rqg_home;
 BEGIN {
     # Cwd::abs_path reports the target of a symlink.
@@ -70,7 +71,7 @@ $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
 $Carp::MaxArgNums= 8;
 
-use constant RQG_RUNNER_VERSION  => 'Version 3.2.0 (2020-11)';
+use constant RQG_RUNNER_VERSION  => 'Version 3.2.1 (2020-11)';
 use constant STATUS_FAILURE      => 2;
 use constant STATUS_CONFIG_ERROR => 199;
 
@@ -169,7 +170,7 @@ my (@basedirs, @mysqld_options, @vardirs, $rpl_mode,
     $skip_gendata, $skip_shutdown, $galera, $use_gtid, $annotate_rules,
     $restart_timeout, $gendata_advanced, $scenario, $upgrade_test,
     $ps_protocol, @gendata_sql_files, $config_file,
-    $workdir, $queries, $script_debug_value, $rr, $rr_options,
+    $workdir, $queries, $script_debug_value, $rr, $rr_options, $max_gd_duration,
     $options);
 
 my $gendata   = ''; ## default simple gendata
@@ -182,6 +183,7 @@ my $default_threads  = 10;
 my $default_queries  = 100000000;
 my $duration;
 my $default_duration = 3600;
+my $default_max_gd_duration = 300;
 
 my @ARGV_saved = @ARGV;
 
@@ -306,6 +308,7 @@ if (not GetOptions(
     'upgrade-test:s'              => \$upgrade_test,
     'upgrade_test:s'              => \$upgrade_test,
     'scenario:s'                  => \$scenario,
+    'max_gd_duration=i'           => \$max_gd_duration,
     'ps-protocol'                 => \$ps_protocol,
     'ps_protocol'                 => \$ps_protocol,
     'script_debug:s'              => \$script_debug_value,
@@ -327,6 +330,7 @@ $script_debug_value = Auxiliary::script_debug_init($script_debug_value);
 $queries =         $default_queries         if not defined $queries;
 $threads =         $default_threads         if not defined $threads;
 $duration =        $default_duration        if not defined $duration;
+$max_gd_duration = $default_max_gd_duration if not defined $max_gd_duration;
 
 # say("DEBUG: After reading command line options");
 
@@ -679,6 +683,13 @@ if (defined $sqltrace) {
     }
 }
 
+if (defined $filter) {
+    $filter = Auxiliary::check_filter($filter, $workdir);
+    if (not defined $filter) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        run_end($status);
+    }
+}
 
 #
 # Calculate master and slave ports based on MTR_BUILD_THREAD (MTR Version 1 behaviour)
@@ -1641,6 +1652,7 @@ my $gentestProps = GenTest::Properties->new(
               'restart-timeout',
               'upgrade-test',
               'ps-protocol',
+              'max_gd_duration'
     ]
 );
 
@@ -1708,6 +1720,7 @@ $gentestProps->debug_server(\@debug_server) if @debug_server;
 $gentestProps->servers(\@server) if @server;
 $gentestProps->property('annotate-rules',$annotate_rules) if defined $annotate_rules;
 $gentestProps->property('upgrade-test',$upgrade_test) if $upgrade_test;
+$gentestProps->property('max_gd_duration',$max_gd_duration) if defined $max_gd_duration;
 
 #
 # Basically anything added via $gentestProps->property(<whatever name>,<value>)
@@ -1754,9 +1767,31 @@ my $final_result   = STATUS_OK;
 
 # The branch is just for the optics :-).
 if ($final_result == STATUS_OK) {
+    # Experimental BEGIN
+    # Attempt to handle the following problem seen 2020-11
+    #    The test in is phase 'gendata'.
+    #    rqg_batch detects that max_rqg_runtime (1800s) was exceeded by this test
+    #    and runs a SIGKILL on the complete processgroup of the corresponding RQG runner.
+    #    The server was started with "rr" hence the core file generation is switched off.
+    #    But the SIGKILL causes that rr trace will be incomplete.
+    #    We need that rr trace.
+    sigaction SIGALRM, new POSIX::SigAction sub {
+        my $status = STATUS_ALARM;
+        say("ERROR: rqg.pl: max_gd_duration(" . $max_gd_duration . "s) was exceeded. " .
+            "Will kill DB servers and exit with STATUS_ALARM(" . $status . " later.");
+        killServers();
+        exit_test($status);
+    } or die "ERROR: rqg.pl: Error setting SIGALRM handler: $!\n";
+
     my $start_time = time();
     $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENDATA);
+    alarm ($max_gd_duration);
+    # For debugging
+    # alarm (1);
     $gentest_result = $gentest->doGenData();
+    alarm (0);
+    # Experimental END
+
     say("GenData returned status " . status2text($gentest_result) . " ($gentest_result)");
     $final_result = $gentest_result;
     $message = "RQG GenData runtime in s : " . (time() - $start_time);
@@ -2147,6 +2182,7 @@ $0 - Run a complete random query generation (RQG) test.
     --reporters    : The reporters to use
     --transformers : The transformers to use (turns on --validator=transformer). Accepts comma separated list
     --querytimeout : The timeout to use for the QueryTimeout reporter
+    --max_gd_duration : Abort the RQG run in case the work phase Gendata lasts longer than max_gd_duration
     --gendata      : Generate data option. Passed to gentest.pl / GenTest. Takes a data template (.zz file)
                      as an optional argument. Without an argument, indicates the use of GendataSimple (default)
     --gendata-advanced: Generate the data using GendataAdvanced instead of default GendataSimple
