@@ -31,11 +31,9 @@
 # 3. vardir must be assigned but it is only a directory where the RQG runner itself will
 #    handle all vardirs for servers required.
 # 4. Zero ambiguity.
-#    The tool calling the RQG runner, the RQG runner and all ingredients taken by it must
+#    The tool calling the RQG runner, the RQG runner itself and all ingredients taken by it must
 #    must belong to the same version.
-#    So either RQG_HOME is in the environment and that dictates from where ingredients are
-#    taken or the call to the RQG runner was with absolute path and that allows to compute
-#    RQG_HOME.
+#    We focus on  File::Basename::dirname(Cwd::abs_path($0)) only and ignore RQG_HOME!
 # 5. workdir is rather mandatory
 # 6. Maybe reduce the horrible flood of options
 # 7. Introduce a config file for the RQG runner
@@ -58,44 +56,6 @@ BEGIN {
 
 my $rqg_start_time = time();
 
-# FIXME: I AM QUITE UNSURE IF THE RQG_HOME CHECKING AND SETTING WORKS LIKE INTENDED.
-#
-# Results of experiments performed mid 2018
-# - /work/RQG_mleich1 is the one and only RQG source directory
-# - RQG_HOME is not set
-# - Symlink /home/mleich/bin/rqg.pl points to /work/RQG_mleich1/rqg.pl
-#
-# cwd               | Command line call              | $0                       | abs_path(dirname($0))
-# -----------------------------------------------------------------------------------------------------
-# /work/RQG_mleich1 | perl /work/RQG_mleich1/rqg.pl  | /work/RQG_mleich1/rqg.pl | /work/RQG_mleich1
-# /work/RQG_mleich1 | perl rqg.pl                    | rqg.pl                   | /work/RQG_mleich1
-# /work/RQG_mleich1 | perl ./rqg.pl                  | ./rqg.pl                 | /work/RQG_mleich1
-# /work/RQG_mleich1 | ./rqg.pl                       | ./rqg.pl                 | /work/RQG_mleich1
-# /work/RQG_mleich1 | rqg.pl                         | /home/mleich/bin/rqg.pl  | /home/mleich/bin
-# -----------------------------------------------------------------------------------------------------
-# /home/mleich      | rqg.pl                         | Perl BEGIN failed--compilation aborted ...
-# /home/mleich      | <variants>/rqg.pl              | Perl BEGIN failed--compilation aborted ...
-#
-# 1. The RQG runner must be found via path in the command line call or via $PATH.
-# 2. Variants which work are
-#    a) Current working directory is whereever. RQG_HOME is already set and pointing to the root of
-#       some RQG install.
-#    b) RQG_HOME is not already set. The current working directory is the root of some RQG install.
-# The problems with the variants:
-# a) In case the RQG runner called is not located in RQG_HOME assigned than we might get consistency
-#    issues like the runner expects some routine or behavior offered by the libs which $RQG_HOME/lib
-#    does not satisfy.
-#    Hence the RQG runner must be located in that RQG_HOME.
-# b) It is quite common to have the current working directory in the root of some RQG install and
-#    than to start some start RQG tool or runner being located in that install.
-#    In case the RQG tool or runner start to write into or below that root directory than we might
-#    hit the following issues
-#    - The permissions set do not allow to write there. (unlikely but at least possible)
-#    - We more or less pollute the RQG install which annoys when using that RQG install with GIT.
-#    Hence there should be a way to have a current working directory outside of the RQG install
-#    and than to run RQG.
-#
-
 my $start_cwd     = Cwd::getcwd();
 
 if (not -e $rqg_home . "/lib/GenTest.pm") {
@@ -110,7 +70,7 @@ $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
 $Carp::MaxArgNums= 8;
 
-use constant RQG_RUNNER_VERSION  => 'Version 3.1.3 (2020-03)';
+use constant RQG_RUNNER_VERSION  => 'Version 3.2.0 (2020-11)';
 use constant STATUS_FAILURE      => 2;
 use constant STATUS_CONFIG_ERROR => 199;
 
@@ -207,9 +167,8 @@ my (@basedirs, @mysqld_options, @vardirs, $rpl_mode,
     $notnull, $logfile, $logconf, $report_tt_logdir, $querytimeout, $no_mask,
     $short_column_names, $strict_fields, $freeze_time, $wait_debugger, @debug_server,
     $skip_gendata, $skip_shutdown, $galera, $use_gtid, $annotate_rules,
-    $restart_timeout, $gendata_advanced, $scenario, $upgrade_test, $store_binaries,
+    $restart_timeout, $gendata_advanced, $scenario, $upgrade_test,
     $ps_protocol, @gendata_sql_files, $config_file,
-    @whitelist_statuses, @whitelist_patterns, @blacklist_statuses, @blacklist_patterns,
     $workdir, $queries, $script_debug_value, $rr, $rr_options,
     $options);
 
@@ -349,12 +308,6 @@ if (not GetOptions(
     'scenario:s'                  => \$scenario,
     'ps-protocol'                 => \$ps_protocol,
     'ps_protocol'                 => \$ps_protocol,
-    'store-binaries'              => \$store_binaries,
-    'store_binaries'              => \$store_binaries,
-    'whitelist_statuses:s@'       => \@whitelist_statuses,
-    'whitelist_patterns:s@'       => \@whitelist_patterns,
-    'blacklist_statuses:s@'       => \@blacklist_statuses,
-    'blacklist_patterns:s@'       => \@blacklist_patterns,
     'script_debug:s'              => \$script_debug_value,
     )) {
     help();
@@ -371,17 +324,11 @@ if (not GetOptions(
 # Support script debugging as soon as possible and print its value.
 $script_debug_value = Auxiliary::script_debug_init($script_debug_value);
 
-if (not defined $queries) {
-    $queries = $default_queries;
-}
-if (not defined $threads) {
-    $threads = $default_threads;
-}
-if (not defined $duration) {
-    $duration = $default_duration;
-}
+$queries =         $default_queries         if not defined $queries;
+$threads =         $default_threads         if not defined $threads;
+$duration =        $default_duration        if not defined $duration;
 
-say("DEBUG: After reading command line options");
+# say("DEBUG: After reading command line options");
 
 if ( defined $help ) {
     help();
@@ -562,10 +509,8 @@ say("Please see http://forge.mysql.com/wiki/Category:RandomQueryGenerator for mo
 # 2018-11-16T10:28:26 [200006] # --reporters=Deadlock,ErrorLog,Backtrace \
 # 2018-11-16T10:28:26 [200006] # --mysqld=--loose_innodb_use_native_aio=0 \
 # 2018-11-16T10:28:26 [200006] # --mysqld=--connect_timeout=60 \
-# 1. Do not add a space after the '\' around line end. Otherwise when converting the printout to
+#    Do not add a space after the '\' around line end. Otherwise when converting the printout to
 #    a shell script the shell assumes command end after the '\ '.
-# 2. The style of printing is imperfect in case of the parameters
-#    whitelist_patterns and blacklist_patterns.
 say("Starting \n# $0 \\ \n# " . join(" \\\n# ", @ARGV_saved));
 
 # FIXME:
@@ -839,26 +784,6 @@ if ((not defined $basedirs[0] or $basedirs[0] eq '') and
     my $status = STATUS_ENVIRONMENT_FAILURE;
     run_end($status);
 }
-# Attention:
-# We cannot treat basedirs like for example blacklist_patterns because of the following reasons:
-# 1. blacklist_patterns has only one option "--blacklist_patterns" which can be assigned.
-#    There is no --blacklist_patterns1, --blacklist_patterns2 etc.
-#    To be handled clashes like between
-#    - '--blacklist_patterns' got as value a string which would be decomposed and than filling
-#      blacklist_patterns[0], blacklist_patterns[1], ...
-#    - '--blacklist_patterns1' got a value assigned too and usually goes into blacklist_patterns[1]
-#    cannot happen.
-#    Not assigned values, lets assume a blacklist_patterns[7] is not defined have
-#    - no impact on "How the RQG test is executed" (gendata with views or not or ...)
-#    - only an impact which final result leads to some information that pattern matched or not
-# 2. basedirs has 4 options basedirs, basedirs1, basedirs2, basedirs3 which get than immediate
-#    pushed into the corresponding variables basedirs[0], basedirs[1], ...
-#    - To be handled clashes
-#    - Historic comfort features like take basedir1 if basedirs2 not assigned but needed.
-#   'basedir=s@'                  => \$basedirs[0],
-#   'blacklist_patterns:s@'       => \@blacklist_patterns,
-# Treat the case that only $basedirs[0] was assigned
-# FIXME: Is what follows correct?
 if ($#basedirs == 0) {
     if (not defined $basedirs[0] or $basedirs[0] eq '') {
         say("\nERROR: Neither basedir nor basedir1 is defined\n.");
@@ -1012,7 +937,7 @@ say("tmpdir in DBServer ->" . DBServer::DBServer::tmpdir() . "<-");
 ## Make sure that "default" values ([0]) are also set, for compatibility,
 ## in case they are used somewhere
 $basedirs[0] ||= $basedirs[1];
-# All vardirs get exxplicite managed by rqg.pl or ingredients.
+# All vardirs get explicite managed by rqg.pl or ingredients.
 # $vardirs[0]  ||= $vardirs[1];
 # Auxiliary::print_list("INFO: Now 1 RQG vardirs ",  @vardirs);
 # Auxiliary::print_list("INFO: Now 1 RQG basedirs ",  @basedirs);
@@ -1715,32 +1640,17 @@ my $gentestProps = GenTest::Properties->new(
               'annotate-rules',
               'restart-timeout',
               'upgrade-test',
-              'ps-protocol'
+              'ps-protocol',
     ]
 );
 
 
-# What follows happens far way to late because one server is already running.
-# Experimental begin
-# Move all that up and disable it here
-# FIXME: Replace with some general routine in Auxiliary
-if (0) {
-if ($#validators == 0 and $validators[0] =~ m/,/) {
-    @validators = split(/,/,$validators[0]);
-}
-
-if ($#reporters == 0 and $reporters[0] =~ m/,/) {
-    @reporters = split(/,/,$reporters[0]);
-}
-
-if ($#transformers == 0 and $transformers[0] =~ m/,/) {
-    @transformers = split(/,/,$transformers[0]);
-}
-}
-
 $gentestProps->property('generator','FromGrammar') if not defined $gentestProps->property('generator');
 
 $gentestProps->property('start-dirty',1) if defined $start_dirty;
+# FIXME or document:
+# --gendata-advanced --skip_gendata --gendata_sql=... --> run gendata-advanced and gendata_sql
+# --gendata-advanced                --gendata_sql=... --> run gendata-advanced, gendata_simple and gendata_sql
 $gentestProps->gendata($gendata) unless defined $skip_gendata;
 $gentestProps->property('gendata-advanced',1) if defined $gendata_advanced;
 $gentestProps->gendata_sql(\@gendata_sql_files) if @gendata_sql_files;
@@ -1798,10 +1708,15 @@ $gentestProps->debug_server(\@debug_server) if @debug_server;
 $gentestProps->servers(\@server) if @server;
 $gentestProps->property('annotate-rules',$annotate_rules) if defined $annotate_rules;
 $gentestProps->property('upgrade-test',$upgrade_test) if $upgrade_test;
+
+#
 # Basically anything added via $gentestProps->property(<whatever name>,<value>)
-# can be later found via $<object>->properties-><whatever name>
-# vardir might be required for a validator reporter starts there some program
-# which might end up with core (Example: Mariabackup_linux)
+# can be later found via $<object>->properties-><whatever name>.
+#
+# vardir might be required for a validator or reporter which starts some program.
+# In case that program fails than some core file might show up within the current working
+# directory. And that should be specific to the RQG run like vardir.
+# Example: Mariabackup_linux
 
 say("---------------------------------------------------------------");
 $gentestProps->printProps;
