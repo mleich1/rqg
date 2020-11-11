@@ -1778,9 +1778,8 @@ if ($final_result == STATUS_OK) {
     sigaction SIGALRM, new POSIX::SigAction sub {
         my $status = STATUS_ALARM;
         say("ERROR: rqg.pl: max_gd_duration(" . $max_gd_duration . "s) was exceeded. " .
-            "Will kill DB servers and exit with STATUS_ALARM(" . $status . " later.");
+            "Will kill DB servers and exit with STATUS_ALARM(" . $status . ") later.");
         killServers();
-        exit_test($status);
     } or die "ERROR: rqg.pl: Error setting SIGALRM handler: $!\n";
 
     my $start_time = time();
