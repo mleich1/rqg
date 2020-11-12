@@ -944,7 +944,6 @@ while($Batch::give_up <= 1) {
                 my $who_am_i = "RQG Worker [$free_worker]:";
                 say("$who_am_i Taking over.");
 
-                # MLML new!
                 # In case the RQG runner gets started and its $rqg_vardir is unknown than the
                 # $rqg_vardir gets computed, created + chdir into it is made.
                 # == The first working phase is not that perfect because happening in whatever
@@ -956,7 +955,6 @@ while($Batch::give_up <= 1) {
                         "         Will return STATUS_INTERNAL_ERROR.");
                     return STATUS_INTERNAL_ERROR;
                 }
-                say("DEBUG: $who_am_i : chdir to rqg_vardir '$rqg_vardir' made.");
 
                 # We use "system" and not "exec" later. So set certain memory structures inherited
                 # from the parent to undef.

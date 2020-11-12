@@ -743,7 +743,8 @@ sub add_order {
     print_order($order_id_now) if Auxiliary::script_debug("C5");
 }
 
-my $arrival_number   = 1;
+my $arrival_number       = 1;
+my $have_initiated_abort = 0;
 sub register_result {
 # order_id
 # verdict
@@ -805,8 +806,9 @@ sub register_result {
 
     # Batch::check_try_hashes();
     if ($left_over_trials) {
-        if (Batch::report_bad_state()) {
+        if (Batch::report_bad_state() and not $have_initiated_abort) {
             say("WARN: Combinator: Initiate aborting the run because of too many bad results.");
+            $have_initiated_abort = 1;
             return Batch::REGISTER_END;
         } else {
             say("DEBUG: Combinator::register_result : left_over_trials : $left_over_trials")

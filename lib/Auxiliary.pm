@@ -1547,7 +1547,16 @@ sub archive_results {
     #   would get materialized.
     # Failing cmd for experimenting
     # $cmd = "cd $workdir ; tar csf $archive rqg* $vardir 2>$archive_err";
-
+    #
+    # Some thoughts about why not prepending a nice -19 to the tar command.
+    # ---------------------------------------------------------------------
+    # 1. Less elapsed time for tar with compression means shorter remaining lifetime for the
+    #    voluminous data on vardir. The latter is usual on fast storage like tmpfs with
+    #    limited storage space. And it is frequent a bottleneck for increasing the load.
+    # 2. Not using nice -19 for some auxiliary task like archiving means also less CPU for
+    #    for RQG runner, especially involved DB server. This increases the time required
+    #    for any work phase. And that makes more capable to reveal phases where locks or
+    #    similar are missing or wrong handled.
     $cmd = "cd $workdir 2>>$archive_err; tar czf $archive rqg* $vardir 2>>$archive_err";
     say("DEBUG: cmd : ->$cmd<-") if script_debug("A5");
     $rc = system($cmd);
