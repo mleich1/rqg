@@ -1535,7 +1535,7 @@ sub help() {
    "    touch " . BATCH_WORKDIR_SYMLINK . "/exit\n"                                                .
    "rqg_batch.pl will stop all active RQG runners, cleanup and give a summary.\n\n"                .
    "What to do on Linux in the rare case (RQG core or runner broken) that this somehow fails?\n"   .
-   "    killall -9 perl ; killall -9 mysqld ; killall -9 mariadbd ; rm -rf /dev/shm/vardir/*\n"    .
+   "    killall -9 perl mysqld mariadbd rr ; rm -rf /dev/shm/vardir/*\n"                           .
    "-------------------------------------------------------------------------------------------\n" .
    "How to get the roughly 'smallest' rqg_batch.pl run possible for config file checking?\n"       .
    "Just assign\n"                                                                                 .

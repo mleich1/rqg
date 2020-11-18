@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, MariaDB
+#  Copyright (c) 2018,2020 MariaDB
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -66,6 +66,6 @@ sql_mode_list:
       STRICT_ALL_TABLES
       STRICT_TRANS_TABLES
       TIME_ROUND_FRACTIONAL
-    ); $length=$prng->int(1,scalar(@modes)); "'" . (join ',', @{$prng->shuffleArray(\@modes)}[0..$length]) . "'"
+    ); $length=$prng->int(1,scalar(@modes) - 1); "'" . (join ',', @{$prng->shuffleArray(\@modes)}[0..$length]) . "'"
   }
 ;
