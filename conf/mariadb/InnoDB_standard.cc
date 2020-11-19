@@ -14,6 +14,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301
 # USA
+#
 
 
 # InnoDB_standard.cc
@@ -216,6 +217,7 @@ $combinations = [ $grammars,
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
     --restart_timeout=120
+    --max_gd_duration=1000
     ' .
     # Some grammars need encryption, file key management
     " $encryption_setup " .
@@ -254,8 +256,6 @@ $combinations = [ $grammars,
     # 2. An innodb-buffer-pool-size=5M should work well with innodb_page_size < 32K
     # 3. A huge innodb-buffer-pool-size will not give an advantage if the tables are small.
     # 4. Small innodb-buffer-pool-size and small innodb_page_size stress Purge more.
-    # Some settings need to be temporary disabled in order to reduce the fraction of false positives.
-    # Reporter "QueryTimeout" not used, max-statement-time=30, certain DDL does not honor max-statement-time
     ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=5M   ',
     ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=8M   ',
     ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=256M ',

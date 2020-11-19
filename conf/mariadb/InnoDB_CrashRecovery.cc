@@ -22,12 +22,14 @@
 # interrupted by intentional server crash followed by restart with recovery and checks.
 #
 
-our $duration = 300;
 our $test_compression_encryption =
-  '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz ' .
+  '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz ';
+
+our $encryption_setup =
   '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
 
-our $grammars = 
+our $duration = 300;
+our $grammars =
 [
 
 # '--grammar=conf/replication/replication.yy --gendata=conf/replication/replication-5.1.zz',
@@ -122,13 +124,28 @@ $combinations = [ $grammars,
     --mysqld=--log_output=none
     --mysqld=--log-bin
     --mysqld=--log_bin_trust_function_creators=1
-    --mysqld=--loose-max-statement-time=30
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
     --restart_timeout=120
+    --max_gd_duration=1000
     ' .
+    # Some grammars need encryption, file key management
+    " $encryption_setup " .
     " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=$duration ",
     # --reporters=Backtrace --reporters=ErrorLog --reporters=Deadlock1 --reporters=CrashRecovery2
+  ],
+  [
+    # Warning (mleich 2020-06):
+    # It might look as if max-statement-time is a good alternative to using the reporter
+    # "Querytimeout". I fear that the latter is not that reliable.
+    # But certain RQG tests showed that especially DDL's could run several minutes
+    # without being stopped by max-statement-time.
+    # Conclusion:
+    # If facing frequent STATUS_SERVER_DEADLOCKED and assuming its false alarm
+    # (= long runtime because of "natural" reason) than using
+    # max-statement-time and the reporter Querytimeout makes sense.
+    #
+    ' --mysqld=--loose-max-statement-time=30 ',
   ],
   [
     ' --threads=1  ',
