@@ -509,7 +509,7 @@ sub doGenTest {
    # 1. The box might be under heavy load --> Delay in reaction on TERM
    # 2. The worker might be in whatever state and temporary or permanent not reactive.
    my $end_time = Time::HiRes::time() + 15;
-   while ($end_time > Time::HiRes::time()) {
+   while ((0 < scalar (keys %worker_pids)) and ($end_time > Time::HiRes::time())) {
       foreach my $worker_pid (keys %worker_pids) {
          my $message_begin = "Process with pid $worker_pid ";
          my ($reaped, $child_exit_status) = reapChild($worker_pid, $worker_pids{$worker_pid});
@@ -527,7 +527,7 @@ sub doGenTest {
             delete $worker_pids{$worker_pid};
          }
       }
-      sleep 1;
+      sleep 0.1;
    }
    foreach my $worker_pid (keys %worker_pids) {
       say("Killing (KILL) remaining worker process with pid $worker_pid...");
