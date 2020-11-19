@@ -314,6 +314,9 @@ sub doGenTest {
    # runall-new.pl will exit with exit status STATUS_ENVIRONMENT_FAILURE(110)
 
    # Cache metadata and other info that may be needed later
+   # Observation 2020-07:
+   # This might last quite long on some heavy loaded box.
+   # Hence we do it now before computing when worker threads should start their activity.
    my @log_files_to_report;
    foreach my $i (0..2) {
       # FIXME:
@@ -367,6 +370,7 @@ sub doGenTest {
           return STATUS_ENVIRONMENT_FAILURE;
       }
 
+      # Guessing the error log file name relative to datadir (lacking safer methods).
       my $errorlog;
       foreach my $errorlog_path (
             "../log/master.err",  # MTRv1 regular layout
@@ -480,7 +484,7 @@ sub doGenTest {
                delete $worker_pids{$spawned_pid};
             }
             last OUTER if $child_exit_status >= STATUS_CRITICAL_FAILURE;
-            last OUTER if keys %worker_pids == 0;
+            last OUTER if 0 == scalar (keys %worker_pids);
          }
       }
       sleep 5;
@@ -558,7 +562,7 @@ sub doGenTest {
       # 2. Increase the waiting for termination of periodic reporting process to 60s.
       # 3. SIGKILL the periodic reporting process in case he does not react fast enough.
       Time::HiRes::sleep(1);
-      say("Killing periodic reporting process with pid $reporter_pid...");
+      say("Killing (TERM) periodic reporting process with pid $reporter_pid...");
       kill(15, $reporter_pid);
 
       my ($reaped, $reporter_status) = reapChild($reporter_pid, "Periodic reporting process");
@@ -678,8 +682,9 @@ sub reportResults {
     }
 
     if (STATUS_SERVER_KILLED == $total_status) {
-       say("INFO: The total status $total_status means that there was an intentional server kill.");
-       say("INFO: Therefore reducing the total status from $total_status to STATUS_OK.");
+       my $status_name = status2text($total_status);
+       say("INFO: The total status $status_name($total_status) means that there was an " .
+           "intentional server kill. Therefore reducing the total status to STATUS_OK.");
        $total_status = STATUS_OK;
     } elsif (STATUS_SERVER_CRASHED == $report_status and STATUS_SERVER_DEADLOCKED == $total_status) {
        # Scenario is:
@@ -1527,6 +1532,7 @@ sub reapChild {
         #    other value != $spawned_pid == Unexpected behaviour of waitpid on current box
         say("ERROR: waitpid for $spawned_pid ($info) returned $waitpid_return which we cannot " .
             "handle. Will return STATUS_INTERNAL_ERROR.");
+        Carp::cluck;
         return 0, STATUS_INTERNAL_ERROR;
     }
 
