@@ -915,7 +915,12 @@ sub doGenData {
     # my $i = -1; The server numbers reported should be 1 2 3 ...
     foreach my $dsn (@{$self->config->dsn}) {
         $i++;
-        last if $self->config->property('upgrade-test') and $i > 0; # FIXME: ???????????
+        if ($self->config->property('upgrade-test') and $i > 1) {
+            say("INFO: Omitting whatever Gendata on the non first server because its " .
+                "an 'upgrade-test'.");
+            last;
+        }
+        # Avoid Gendata on slave server in replication.
         next unless $dsn;
         if (defined $self->config->property('gendata-advanced')) {
             $gendata_result = GenTest::App::GendataAdvanced->new(
