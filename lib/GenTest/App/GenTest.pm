@@ -388,10 +388,16 @@ sub doGenTest {
 
    $self->[GT_LOG_FILES_TO_REPORT] = \@log_files_to_report;
 
-   if (defined $self->config->filter) {
-      $self->[GT_QUERY_FILTERS] = [ GenTest::Filter::Regexp->new(
-           file => $self->config->filter
-      ) ];
+    if (defined $self->config->filter) {
+        # $self->[GT_QUERY_FILTERS] = [ GenTest::Filter::Regexp->new( file => $self->config->filter) ];
+        my $result = GenTest::Filter::Regexp->new( file => $self->config->filter);
+        if (defined $result) {
+            $self->[GT_QUERY_FILTERS] = [ $result ];
+        } else {
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i Will return status : " . status2text($status) . "($status).");
+            return $status;
+        }
    }
 
    say("Starting " . $self->config->threads . " processes, " .
