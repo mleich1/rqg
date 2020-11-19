@@ -246,6 +246,8 @@ sub doGenTest {
 
    my $self = shift;
 
+   my $who_am_i = "doGenTest:";
+
    $self->do_init();
 
    # Give 1.0 seconds delay per worker/thread configured.
