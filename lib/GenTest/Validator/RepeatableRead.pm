@@ -1,4 +1,5 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
+# Copyright (C) 2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -47,7 +48,8 @@ sub validate {
 	my $orig_query = $orig_result->query();
 
 	return STATUS_OK if $orig_query !~ m{^\s*select}io;
-	return STATUS_OK if $orig_result->err() > 0;
+    my $err = $orig_result->err();
+	return STATUS_OK if defined $err and $err > 0;
 
 	foreach my $predicate (@predicates) {
 		my $new_query = $orig_query." ".$predicate;
