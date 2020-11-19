@@ -89,14 +89,15 @@ use POSIX;
 #    - stops DB servers
 #    - makes a cleanup in the vardir
 # 4. Any message to be squeezed into the RQG protocol (all ERROR: ..., rare INFO: ... success)
-#    must contain $msg_snip in order to make easy readable "who says what".
-#    All other messages (going first into $reporter_prt) might omit $msg_snip.
+#    must contain $who_am_i in order to make easy readable "who says what".
+#    All other messages (going first into $reporter_prt) might omit $who_am_i.
 # 5. Sorry for throwing STATUS_BACKUP_FAILURE maybe to excessive.
 #    Quite often parts of the server or the RQG core could be also guilty.
 #
 
 use constant CONNECT_TIMEOUT => 30;
 use constant BACKUP_TIMEOUT  => 180;
+use constant PREPARE_TIMEOUT => 600;
 
 my $first_reporter;
 my $client_basedir;
@@ -107,10 +108,33 @@ $|=1;
 
 # tmpdir() has a '/' at end.
 my $reporter_prt = tmpdir() . "reporter_tmp.prt";
-my $msg_snip     = 'Reporter Mariabackup';
+my $who_am_i     = 'Reporter Mariabackup';
+my $connect_timeout;
+my $backup_timeout;
+my $prepare_timeout;
+
+sub init {
+    my $reporter = shift;
+    if (exists $ENV{'RUNNING_UNDER_RR'} or
+        defined $reporter->properties->rr) {
+        $connect_timeout    = 1.5 * CONNECT_TIMEOUT;
+        $backup_timeout     = 1.5 * BACKUP_TIMEOUT;
+        $prepare_timeout    = 1.5 * PREPARE_TIMEOUT;
+    } elsif (defined $reporter->properties->valgrind) {
+        $connect_timeout    = 2.0 * CONNECT_TIMEOUT;
+        $backup_timeout     = 2.0 * BACKUP_TIMEOUT;
+        $prepare_timeout    = 2.0 * PREPARE_TIMEOUT;
+    } else {
+        $connect_timeout    = 1.0 * CONNECT_TIMEOUT;
+        $backup_timeout     = 1.0 * BACKUP_TIMEOUT;
+        $prepare_timeout    = 1.0 * PREPARE_TIMEOUT;
+    }
+}
 
 sub monitor {
     my $reporter = shift;
+
+    $reporter->init if not defined $prepare_timeout;
 
     # In case of several servers, we get called or might be called for any of them.
     # We perform only
@@ -128,9 +152,7 @@ sub monitor {
     # return STATUS_OK if $last_call + 15 > time();
     # $last_call = time();
 
-#   my $workdir = $reporter->properties->workdir;
-#   say("MLML: workdir ->$workdir<-");
-#   exit 999;
+    my $mariabackup_timeout = $backup_timeout;
 
     # Access data about the first server
     my $server0 = $reporter->properties->servers->[0];
@@ -148,7 +170,7 @@ sub monitor {
     if (not defined $client_basedir) {
         direct_to_std();
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $msg_snip : Can't determine client_basedir. basedir is '$basedir'. " .
+        say("ERROR: $who_am_i : Can't determine client_basedir. basedir is '$basedir'. " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
         # We run this that early because in case of failure the game is over anyway.
@@ -171,7 +193,7 @@ sub monitor {
         if (not mkdir($dir)) {
             direct_to_std();
             my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: $msg_snip : mkdir($dir) failed with : $!. " .
+            say("ERROR: $who_am_i : mkdir($dir) failed with : $!. " .
                 "Will exit with status " . status2text($status) . "($status)");
             exit $status;
         }
@@ -211,7 +233,7 @@ sub monitor {
     if (not -e $backup_binary) {
         direct_to_std();
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $msg_snip : Calculated mariabackup binary '$backup_binary' not found. " .
+        say("ERROR: $who_am_i : Calculated mariabackup binary '$backup_binary' not found. " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
@@ -248,13 +270,13 @@ sub monitor {
         direct_to_std();
         # Concept:
         # Set the error_exit_message before setting the alarm.
-        say("ERROR: $msg_snip $exit_msg" .
+        say("ERROR: $who_am_i $exit_msg" .
             " Will exit with STATUS_BACKUP_FAILURE.");
         sayFile($reporter_prt);
         exit STATUS_BACKUP_FAILURE;
-    } or die "ERROR: $msg_snip Error setting SIGALRM handler: $!\n";
+    } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
     # my $con_get_start = Time::HiRes::time();
-    $alarm_timeout = BACKUP_TIMEOUT;
+    $alarm_timeout = $backup_timeout;
     $exit_msg      = "Backup operation did not finish in " . $alarm_timeout . "s.";
     alarm ($alarm_timeout);
 
@@ -266,7 +288,7 @@ sub monitor {
         # It is quite likely that the source DB server does no more react because of
         # crash, server freeze or similar.
         my $dbh = DBI->connect($dsn, undef, undef, {
-            mysql_connect_timeout  => CONNECT_TIMEOUT,
+            mysql_connect_timeout  => $connect_timeout,
             PrintError             => 0,
             RaiseError             => 0,
             AutoCommit             => 0,
@@ -275,13 +297,13 @@ sub monitor {
         });
         if (not defined $dbh) {
             my $status = STATUS_CRITICAL_FAILURE;
-            say("ERROR: $msg_snip : Connect to dsn '" . $dsn . "'" . " failed: " . $DBI::errstr .
+            say("ERROR: $who_am_i : Connect to dsn '" . $dsn . "'" . " failed: " . $DBI::errstr .
                 " Will exit with status " . status2text($status) . "($status)");
             exit $status;
         }
         $dbh->disconnect();
         my $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $msg_snip : Backup returned $res. The command output is around end of " .
+        say("ERROR: $who_am_i : Backup returned $res. The command output is around end of " .
             "'$reporter_prt'. Will exit with status " . status2text($status) . "($status)");
         sayFile($reporter_prt);
         exit $status;
@@ -293,7 +315,7 @@ sub monitor {
     if ($res != 0) {
         direct_to_std();
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $msg_snip : 'cp -R $clone_datadir $rqg_backup_dir' returned $res. " .
+        say("ERROR: $who_am_i : 'cp -R $clone_datadir $rqg_backup_dir' returned $res. " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
@@ -302,14 +324,14 @@ sub monitor {
                              "--target-dir=$clone_datadir";
     say("Executing first prepare: $backup_prepare_cmd");
     $exit_msg      = "Prepare operation 1 did not finish in " . $alarm_timeout . "s.";
-    alarm ($alarm_timeout);
+    alarm ($prepare_timeout);
     system($backup_prepare_cmd);
     $res = $?;
     alarm (0);
     if ($res != 0) {
         direct_to_std();
         my $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $msg_snip : First prepare returned $res. The command output is around end of " .
+        say("ERROR: $who_am_i : First prepare returned $res. The command output is around end of " .
             "'$reporter_prt'. Will exit with status " . status2text($status) . "($status)");
         sayFile($reporter_prt);
         exit $status;
@@ -320,7 +342,7 @@ sub monitor {
     if (0 != $filesize) {
         direct_to_std();
         my $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $msg_snip : Size of '$ib_logfile0' is $filesize bytes but not 0 like expected. " .
+        say("ERROR: $who_am_i : Size of '$ib_logfile0' is $filesize bytes but not 0 like expected. " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
@@ -329,14 +351,15 @@ sub monitor {
                           "--target-dir=$clone_datadir";
     say("Executing second prepare: $backup_prepare_cmd");
     $exit_msg      = "Prepare operation 2 did not finish in " . $alarm_timeout . "s.";
-    alarm ($alarm_timeout);
+    # Less time because its the second prepare.
+    alarm ($backup_timeout);
     system($backup_prepare_cmd);
     $res = $?;
     alarm (0);
     if ($res != 0) {
         direct_to_std();
         my $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $msg_snip : Second prepare returned $res. The command output is around end of " .
+        say("ERROR: $who_am_i : Second prepare returned $res. The command output is around end of " .
             "'$reporter_prt'. Will exit with status " . status2text($status) . "($status)");
         sayFile($reporter_prt);
         exit $status;
@@ -346,7 +369,7 @@ sub monitor {
     if (0 != $filesize) {
         direct_to_std();
         my $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $msg_snip : Size of '$ib_logfile0' is $filesize bytes but not 0 like expected. " .
+        say("ERROR: $who_am_i : Size of '$ib_logfile0' is $filesize bytes but not 0 like expected. " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
@@ -419,10 +442,10 @@ sub monitor {
         direct_to_std();
         # It is intentional to exit with STATUS_BACKUP_FAILURE.
         $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $msg_snip : Starting a DB server on the cloned data failed.");
+        say("ERROR: $who_am_i : Starting a DB server on the cloned data failed.");
         sayFile($clone_err);
         sayFile($reporter_prt);
-        say("ERROR: $msg_snip : Will exit with status " . status2text($status) . "($status)");
+        say("ERROR: $who_am_i : Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
 
@@ -440,7 +463,7 @@ sub monitor {
         $status = STATUS_BACKUP_FAILURE;
         sayFile($clone_err);
         sayFile($reporter_prt);
-        say("ERROR: $msg_snip : Could not connect to the clone server on port $clone_port. " .
+        say("ERROR: $who_am_i : Could not connect to the clone server on port $clone_port. " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
@@ -449,7 +472,7 @@ sub monitor {
         " and is connectable.");
 
     # Code taken from lib/GenTest/Reporter/RestartConsistency.pm
-    say("INFO: $msg_snip : Testing database consistency");
+    say("INFO: $who_am_i : Testing database consistency");
 
     my $databases = $clone_dbh->selectcol_arrayref("SHOW DATABASES");
     foreach my $database (@$databases) {
@@ -469,19 +492,19 @@ sub monitor {
             # return STATUS_DATABASE_CORRUPTION if $clone_dbh->err() > 0 && $clone_dbh->err() != 1178;
             if (defined $clone_dbh->err() and $clone_dbh->err() > 0) {
                 direct_to_std();
-                say("ERROR: $msg_snip : '$sql' failed with : " . $clone_dbh->err());
+                say("ERROR: $who_am_i : '$sql' failed with : " . $clone_dbh->err());
                 sayFile($clone_err);
                 sayFile($reporter_prt);
                 # The damage is some corruption.
                 # Based on the fact that this is found in the server running on the backupedd data
                 # I prefer to return STATUS_BACKUP_FAILURE and not STATUS_DATABASE_CORRUPTION.
                 my $status = STATUS_BACKUP_FAILURE;
-                say("ERROR: $msg_snip : Will exit with status " . status2text($status) . "($status)");
+                say("ERROR: $who_am_i : Will exit with status " . status2text($status) . "($status)");
                 exit $status;
             }
         }
     }
-    say("INFO: $msg_snip : The tables in the schemas (except information_schema, " .
+    say("INFO: $who_am_i : The tables in the schemas (except information_schema, " .
         "performance_schema) of the cloned server did not look corrupt.");
     $clone_dbh->disconnect();
 
@@ -501,9 +524,9 @@ sub monitor {
     if (STATUS_OK != $status) {
         direct_to_std();
         $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $msg_snip : Shutdown of DB server on cloned data made trouble.");
+        say("ERROR: $who_am_i : Shutdown of DB server on cloned data made trouble.");
         sayFile($clone_err);
-        say("ERROR: $msg_snip : Will return status " . status2text($status) . "($status)");
+        say("ERROR: $who_am_i : Will return status " . status2text($status) . "($status)");
         return $status;
     }
     # The other $clone_* are subdirectories of $clone_vardir.
@@ -511,14 +534,14 @@ sub monitor {
         if(not File::Path::rmtree($dir)) {
             direct_to_std();
             my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: $msg_snip : rmtree($dir) failed with : $!. " .
+            say("ERROR: $who_am_i : rmtree($dir) failed with : $!. " .
                 "Will exit with status " . status2text($status) . "($status)");
             exit $status;
         }
     }
     direct_to_std();
     unlink ($reporter_prt);
-    say("DEBUG: $msg_snip : Pass") if $script_debug;
+    say("DEBUG: $who_am_i : Pass") if $script_debug;
 
     return STATUS_OK;
 }
@@ -532,28 +555,28 @@ sub direct_to_file {
 
     if (not open($stdout_save, ">&", STDOUT)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $msg_snip : Getting STDOUT failed with '$!' " .
+        say("ERROR: $who_am_i : Getting STDOUT failed with '$!' " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
     if (not open($stderr_save, ">&", STDERR)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $msg_snip : Getting STDERR failed with '$!' " .
+        say("ERROR: $who_am_i : Getting STDERR failed with '$!' " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
-    say("DEBUG: $msg_snip : Redirecting all output to '$reporter_prt'.") if $script_debug;
+    say("DEBUG: $who_am_i : Redirecting all output to '$reporter_prt'.") if $script_debug;
     unlink ($reporter_prt);
     if (not open(STDOUT, ">>", $reporter_prt)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $msg_snip : Opening STDOUT failed with '$!' " .
+        say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
     # Redirect STDERR to the log of the RQG run.
     if (not open(STDERR, ">>", $reporter_prt)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $msg_snip : Opening STDERR failed with '$!' " .
+        say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
@@ -565,13 +588,13 @@ sub direct_to_std {
     # I hope that in case of error the error messages will end up in $reporter_prt.
     if (not open(STDOUT, ">&" , $stdout_save)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $msg_snip : Opening STDOUT failed with '$!' " .
+        say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
     if (not open(STDERR, ">&" , $stderr_save)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $msg_snip : Opening STDERR failed with '$!' " .
+        say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
