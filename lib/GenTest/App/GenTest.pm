@@ -565,9 +565,11 @@ sub doGenTest {
       say("Killing (TERM) periodic reporting process with pid $reporter_pid...");
       kill(15, $reporter_pid);
 
-      my ($reaped, $reporter_status) = reapChild($reporter_pid, "Periodic reporting process");
+      my $reaped = 0;
+      my $reporter_status = STATUS_OK;
       my $end_time = Time::HiRes::time() + 60;
       while ($end_time > Time::HiRes::time()) {
+         ($reaped, $reporter_status) = reapChild($reporter_pid, "Periodic reporting process");
          if (0 == $reaped) {
             if ($reporter_status > STATUS_OK) {
                 say("INTERNAL ERROR: Inconsistency that a reporter_status $reporter_status was " .
