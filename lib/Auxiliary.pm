@@ -2603,11 +2603,10 @@ sub get_pid_from_file {
 # Variants
 # 1. File does not or no more exist --> undef
 # 2. File exists but no sufficient permission --> undef
-# 3. File exists with sufficient permission but value found is not numeric
-#    not at all/incomplete/wrong written or wrong file --> undef
-# 4. all ok and value numeric --> return it
+# 3. File exists with sufficient permission but value found does not look reasonable --> undef
+# 4. all ok and looking like a DB server pid --> return it
 #
-    my $fname= shift;
+    my $fname = shift;
     my $who_am_i = "new_get_pid_from_file:";
     if (not open(PID, $fname)) {
         say("ERROR: $who_am_i Could not open pid file '$fname' for reading, " .
@@ -2617,14 +2616,50 @@ sub get_pid_from_file {
     my $pid = <PID>;
     close(PID);
     chomp $pid;
+    # MariaDB 10.5 if the server is running.
+    # Exact one line and no preceding or trailing chars around the pid.
     $pid =~ s/.*?([0-9]+).*/$1/;
-    if ($pid =~ /^[0-9]+$/) {
-        # say("DEBUG: $who_am_i \$pid ($pid) is numeric");
-        return $pid;
-    } else {
-        say("ERROR: $who_am_i Value '$pid' found in pid file '$fname' is not numeric. " .
-            "Will return undef");
+    return check_if_reasonable_pid($pid);
+}
+
+sub check_if_reasonable_pid {
+    my ($pid) =    @_;
+    my $who_am_i = "check_if_reasonable_pid:";
+    # The input is just what got extracted from file with preceding or trailing chars removed.
+    # Thinkable content:
+    # - undef              Never observed and if occuring at all than an internal error.
+    # - empty string       Non rare and pid_file exists but is empty/not yet filled with pid.
+    #                      The same was never observed for the err log line
+    #                      [Note] <path>/mysqld (mysqld <version>) starting as process <pid> ...
+    # - a too short value  Never observed but given that fact that not full written lines
+    #                      were observed at least thinkable.
+    if      (not defined $pid) {
+        say("INTERNAL ERROR: value for \$pid is undef. Will return undef.");
         return undef;
+    } elsif ($pid eq '') {
+        say("DEBUG: value for \$pid is empty string. Will return undef.");
+        return undef;
+    } elsif ($pid =~ /^0.*/) {
+        say("ERROR: value for \$pid ->" . $pid . "<- starts with 0. Will return undef.");
+        return undef;
+    } elsif (not $pid =~ /^[0-9]+$/) {
+        say("ERROR: value for \$pid ->" . $pid . "<- contains non digits. Will return undef.");
+        return undef;
+    } elsif ($pid =~ /^[0-9]?$/) {
+        say("WARN: value for \$pid ->" . $pid . "<- is suspicious small. Will return undef.");
+        return undef;
+    } else {
+        # say("DEBUG: value for \$pid ->" . $pid . "<- is ok. Will return it.");
+        return $pid;
+    }
+}
+
+sub print_ps_tree {
+    my ($start_pid) = @_;
+    Carp::cluck if not defined $start_pid;
+    if (STATUS_OK == find_external_command('pstree')) {
+        my $pstree = `pstree --show-pids $start_pid`;
+        say($pstree);
     }
 }
 
