@@ -171,7 +171,7 @@ sub nativeReport {
     # Do not look for a core file in case the server pid exists.
     # Observation on ASAN build but weak statistics
     # - If '(core dumped)' shows up in server error log than the timestamp in the log is 0 to 1s
-    #   before Backtrace.pm detects that the server process disappered.
+    #   before Backtrace.pm detects that the server process disappeared.
     # - A high fraction of the crashes cause the usual block of related entries in the error log
     #   and
     #   - none of these entries look like made by ASAN
@@ -245,6 +245,14 @@ sub nativeReport {
             # Do nothing
         }
     }
+    my $rqg_homedir = $ENV{RQG_HOME} . "/";
+    # For testing:
+    # $rqg_homedir = undef;
+    if (not defined $rqg_homedir) {
+        say("ERROR: $who_am_i The RQG runner has not set RQG_HOME in environment. Will return " .
+            "STATUS_ENVIRONMENT_FAILURE, undef");
+        return STATUS_ENVIRONMENT_FAILURE, undef;
+    }
     # Note:
     # The message within the server error log "Writing a core file..." describes the intention
     # but not if that really happened.
@@ -262,10 +270,9 @@ sub nativeReport {
             # We try to generate a backtrace form the rr trace.
             my $rr_trace_dir = $vardir . '/rr';
             my $backtrace =    $vardir . '/backtrace.txt';
+            my $backtrace_cfg = $rqg_homedir . "backtrace-rr.gdb";
             # Note: STDERR just shows the content of the server error log which we have anyway.
-            my $command = '_RR_TRACE_DIR="' . $rr_trace_dir . '" rr replay >"' . $backtrace .
-                          '" 2>/dev/null < backtrace-rr.gdb';
-            # say("DEBUG: $who_am_i rr backtrace command -->" . $command . "<--");
+            my $command = "_RR_TRACE_DIR=$rr_trace_dir rr replay >$backtrace 2>/dev/null < $backtrace_cfg";
             system('bash -c "set -o pipefail; '. $command .'"');
             sayFile($backtrace);
         }
@@ -368,10 +375,6 @@ sub nativeReport {
         ## Assume all other systems are gdb-"friendly" ;-)
         # We should not expect that our RQG Runner has some current working directory
         # containing the RQG to be used or some RQG at all.
-        my $rqg_homedir = "./";
-        if (defined $ENV{RQG_HOME}) {
-            $rqg_homedir = $ENV{RQG_HOME} . "/";
-        }
         my $command_part = "gdb --batch --se=$binary --core=$core --command=$rqg_homedir";
         push @commands, "$command_part" . "backtrace.gdb";
         push @commands, "$command_part" . "backtrace-all.gdb";
@@ -395,7 +398,6 @@ sub nativeReport {
         #   --> Add it to the default black list patterns
 
     }
-
 
     my $incident = GenTest::Incident->new(
         result   => 'fail',
