@@ -1,4 +1,5 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
+# Copyright (C) 2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -28,39 +29,75 @@ use GenTest::Constants;
 use constant FILTER_REGEXP_FILE		=> 0;
 use constant FILTER_REGEXP_RULES	=> 1;
 
+# FIXME: Place in Constants.pm
+use constant STATUS_FAILURE    => 1; # Just the opposite of STATUS_OK
+
+
 my $total_queries;
 my $filtered_queries;
 
 sub new {
-        my $class = shift;
+    my $class = shift;
 
 	my $filter = $class->SUPER::new({
 		file	=> FILTER_REGEXP_FILE,
 		rules	=> FILTER_REGEXP_RULES
 	}, @_);
 
-	$filter->readFromFile($filter->[FILTER_REGEXP_FILE]) if defined $filter->[FILTER_REGEXP_FILE];
-	
-	return $filter;
+    if (defined $filter->[FILTER_REGEXP_FILE]) {
+	    if (STATUS_OK != $filter->readFromFile($filter->[FILTER_REGEXP_FILE])) {
+            return undef;
+        } else {
+            return $filter;
+        }
+    } else {
+	    return undef;
+    }
 }
 
 sub readFromFile {
 	my ($filter, $file) = @_;
-	
-	my $rules;
-        open(CONF , $file) or die "unable to open Filter::Regexp file '$file': $!";
+
+    my $who_am_i = "GenTest::Filter::Regexp::readFromFile:";
+
+    # For experimenting
+    #==================
+    # $file = '/tmp/OMO';
+    # system("rm $file");          # --> $file is missing, open fails
+    #
+    # $file = '/tmp/OMO';
+    # system("echo '{[' > $file"); # --> Syntax error
+    #
+    # $file = '/tmp/OMO';
+    # system("echo '\$rules = {' >  $file");
+    # system("echo '    \'test' => sub { \$_ =~ m{SELECT}s},' >> $file");
+    # system("echo '}' >> $file");  --> Filter all SELECTs out
+
+    my $rules;
+    if(not open(CONF , $file)) {
+        say("ERROR: $who_am_i Unable to open file '$file': $!");
+        say("Will return STATUS_FAILURE.");
+        return STATUS_FAILURE;
+    } else {
         read(CONF, my $regexp_text, -s $file);
         eval ($regexp_text);
-        die "Unable to load Filter::Regexp file '$file': $@" if $@;
-	$filter->[FILTER_REGEXP_RULES] = $rules;
-
-	say("Loaded ".(keys %$rules)." filtering rules from '$file'");
-
-	return STATUS_OK;
+        # If there was no error, $@ is set to the empty string.
+        if ($@) {
+            say("ERROR: $who_am_i Unable to load file '$file': $@");
+            say("Will return STATUS_FAILURE.");
+            return STATUS_FAILURE;
+        } else {
+            $filter->[FILTER_REGEXP_RULES] = $rules;
+            say("Loaded ".(keys %$rules)." filtering rules from '$file'");
+            return STATUS_OK;
+        }
+    }
 }
 
 sub filter {
 	my ($filter, $query) = @_;
+    # Hint:
+    # The content of $query is <the query> <explain output>
 	$total_queries++;
 
 	foreach my $rule_name (keys %{$filter->[FILTER_REGEXP_RULES]}) {
