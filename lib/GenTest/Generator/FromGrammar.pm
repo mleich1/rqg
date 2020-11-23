@@ -196,12 +196,32 @@ sub next {
         if (not defined $sentence_ptr) {
             say("WARNING: $who_am_i print_sentence: sentence_ptr is not defined");
         } else {
-            say("DEBUG: $who_am_i \@sentence has " . scalar @{$sentence_ptr} . " elements");
-            say("DEBUG: $who_am_i $print_num \@sentence: ->" . join(" ", @{$sentence_ptr}) . "<-");
+            # say("DEBUG: $who_am_i \@sentence has " . scalar @{$sentence_ptr} . " elements");
+            # say("DEBUG: $who_am_i $print_num \@sentence: ->" . join(" ", @{$sentence_ptr}) . "<-");
         }
     }
 
     sub expand {
+
+    # How to hunt a Perl warning like
+    #     Deep recursion on subroutine "GenTest::Generator::FromGrammar::expand"
+    #     at /work/RQG_mleich3/lib/GenTest/Generator/FromGrammar.pm line 297.
+    local $SIG{__WARN__} = sub {
+        my $message = shift;
+        # Print like perl would print it without the SIG{__WARN__}.
+        print($message . "\n");
+        if ($message =~ /Deep recursion on subroutine/) {
+            # Pick a status >= STATUS_CRITICAL_FAILURE which does not cause that Reporters
+            # assume that they have to do further analysis.
+            # Negative example:
+            # STATUS_CRITICAL_FAILURE, STATUS_SERVER_CRASHED, STATUS_ALARM ...
+            # Backtrace kicks in and waits a long timespan for the DB server process dying.
+            my $status = STATUS_RSS_DOUBLED;
+            say("ERROR: We have just hit the perl warning. Will return STATUS_RSS_DOUBLED");
+            exit $status;
+        }
+    };
+
     # Warning:
     # Expand returns on
     # - success some not empty array
@@ -222,10 +242,10 @@ sub next {
 
         # For debugging
         if (0) {
-            foreach my $sentence_part (@sentence) {
-                say("DEBUG: sentence_part ->$sentence_part<-");
-            }
-            say("DEBUG: sentence_end -------");
+        #   foreach my $sentence_part (@sentence) {
+        #       say("DEBUG: sentence_part ->$sentence_part<-");
+        #   }
+        #   say("DEBUG: sentence_end -------");
             print_sentence(\@sentence);
 
         }
@@ -279,6 +299,7 @@ sub next {
                   #     say("DEBUG: Empty array got 1.");
                   # }
                 } else {
+                    # say("DEBUG: item ->$item<-");
                     @expansion = expand($rule_counters,$rule_invariants,@{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]->[
                         $prng->uint16(0, $#{$grammar_rules->{$item}->[GenTest::Grammar::Rule::RULE_COMPONENTS]})
                     ]});
@@ -294,7 +315,6 @@ sub next {
 				) {
                     # The "no strict" is because grammars could fiddle with undef perl variables.
 					$item = eval("no strict;\n".$item);		# Code
-
 					if ($@ ne '') {
 						if ($@ =~ m{at .*? line}o) {
 							say("ERROR: Internal grammar error: $@");
@@ -303,7 +323,7 @@ sub next {
 							# the original code called here die()
                             return ();
 						} else {
-							say("WARN: $who_am_i Syntax error in Perl snippet rule '$orig_item': $@");
+							say("WARN: $who_am_i Eval error of Perl snippet ->" . $item . "<- : $@");
 							say("WARN: $who_am_i Will return an empty array.");
                             @sentence  = ();
                             @expansion = ();
@@ -312,6 +332,9 @@ sub next {
 					}
 				} elsif (substr($item, 0, 1) eq '$') {
 					$item = eval("no strict;\n".$item.";\n");	# Variable
+                    if ($@ ne '') {
+                        say("WARN: $who_am_i Eval error of Perl snippet ->" . $item . "<- : $@");
+                    }
 				} else {
 
                     # Check for expressions such as _tinyint[invariant]
@@ -331,6 +354,7 @@ sub next {
                         $invariant = 1;
                     }
 
+                    # For debugging:
                     # print_sentence(\@sentence);
 
 					my $field_type = (substr($item, 0, 1) eq '_' ? $prng->isFieldType(substr($item, 1)) : undef);
