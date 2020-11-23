@@ -355,7 +355,7 @@ sub find_file_at_places {
 
     foreach my $subdirectory (@$subdir_list_ref) {
         my $path  = $basedirectory . "/" . $subdirectory . "/" . $name;
-       return $path if -f $path;
+        return $path if -f $path;
     }
     # In case we are here than we have nothing found.
     say("DEBUG: We searched at various places below '$basedirectory' but '$name' was not found. " .
@@ -2662,6 +2662,68 @@ sub print_ps_tree {
         say($pstree);
     }
 }
+
+use POSIX;
+
+sub reapChild {
+# Usage
+# -----
+# Try to reap that child.
+#
+# Input
+# -----
+# $spawned_pid -- Pid of the process to check
+# $info        -- Some text to be used for whatever messages
+#
+# Return
+# ------
+# $reaped -- 0 (not reaped) or 1 (reaped)
+# $status -- exit status of the process if reaped,
+#            otherwise STATUS_OK or STATUS_INTERNAL_ERROR
+#     0, STATUS_INTERNAL_ERROR -- most probably already reaped == Defect in RQG logics
+#
+
+    my ($spawned_pid, $info) = @_;
+    my $reaped = 0;
+    my $status = STATUS_OK;
+
+    #---------------------------
+    my $waitpid_return = waitpid($spawned_pid, POSIX::WNOHANG);
+    my $child_exit_status = $? > 0 ? ($? >> 8) : 0;
+    # Returns observed:
+    if      (not defined $waitpid_return) {
+        # 1. !!! undef !!!
+        #    In case of excessive load we could harvest that.
+        #    Observations with a lot debugging code showed
+        #    1.1 childs which have not initiated to exit and have not got a TERM or KILL ..
+        #        did never show an undef here ~ no undef if child process is active
+        #    1.2 never a case where the next call of waitpid ... delivered undef again.
+        #        The next call returned all time $spawned_pid.
+        #    Hence we do nothing here and "hope" that some next call of reapChild follows.
+        say("WARN: waitpid for $spawned_pid ($info) returned undef.");
+        return 0, STATUS_OK;
+    } elsif (0 == $waitpid_return) {
+        # 2. 0 == Process is running
+        # say("DEBUG: waitpid for $spawned_pid ($info) returned 0. Process is running.");
+        return 0, STATUS_OK;
+    } elsif ($spawned_pid == $waitpid_return) {
+        # 3. $spawned_pid == The process was a zombie and we have just reaped.
+        # say("DEBUG: Process $spawned_pid ($info) was reaped. Status was $child_exit_status.");
+        return 1, $child_exit_status;
+    } else {
+        # 3. -1 == Defect in RQG mechanics because we should not try to reap
+        #          - an already reaped process
+        #          - a process which is not our child
+        #          Both would point to a heavy mistake in bookkeeping.
+        #    or
+        #    other value != $spawned_pid == Unexpected behaviour of waitpid on current box
+        say("ERROR: waitpid for $spawned_pid ($info) returned $waitpid_return which we cannot " .
+            "handle. Will return STATUS_INTERNAL_ERROR.");
+        Carp::cluck;
+        return 0, STATUS_INTERNAL_ERROR;
+    }
+
+} # End sub reapChild
 
 
 1;
