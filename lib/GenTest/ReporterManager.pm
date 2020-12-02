@@ -29,6 +29,7 @@ use constant MANAGER_REPORTERS		=> 0;
 1;
 
 sub new {
+# "new" itself does not seem to cause running a connect.
 	my $class = shift;
 	my $manager = $class->SUPER::new({
 		reporters => MANAGER_REPORTERS
@@ -91,18 +92,19 @@ sub report {
 sub addReporter {
     my ($manager, $reporter, $params) = @_;
 
+    my $who_am_i = "ReporterManager::addReporter:";
     if (ref($reporter) eq '') {
         my $reporter_name = $reporter;
         my $module = "GenTest::Reporter::" . $reporter;
         eval "use $module";
         if ('' ne $@) {
-            say("ERROR: in ReporterManager : Loading Reporter '$module' failed : $@. Status will " .
-                "be set to ENVIRONMENT_FAILURE");
+            say("ERROR: $who_am_i Loading Reporter '$module' failed : $@");
+            say("ERROR: $who_am_i Will return status STATUS_ENVIRONMENT_FAILURE.");
             return STATUS_ENVIRONMENT_FAILURE;
         }
         $reporter = $module->new(%$params, 'name' => $reporter_name);
         if (not defined $reporter) {
-            sayError("Reporter '$module' could not be added. Status will be set to " .
+            sayError("$who_am_i Reporter '$module' could not be added. Status will be set to " .
                      "ENVIRONMENT_FAILURE");
             return STATUS_ENVIRONMENT_FAILURE;
         } else {
