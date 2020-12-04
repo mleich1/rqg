@@ -168,7 +168,7 @@ my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar
     $rr, $rr_options,
     $stop_on_replay, $script_debug_value, $runid, $threads, $type, $algorithm, $resource_control);
 
-$max_rqg_runtime = 1800;
+use constant DEFAULT_MAX_RQG_RUNTIME => 3600;
 
 # my @basedirs    = ('', '');
 my @basedirs;
@@ -422,6 +422,7 @@ if (defined $rr_options) {
 # Set in call line --> apply to all RQG runs started. What if duration in config file and bigger?
 # Set in config file                 --> apply in general ?
 # Set in config file for one variant --> apply how ?
+$max_rqg_runtime = DEFAULT_MAX_RQG_RUNTIME if not defined $max_rqg_runtime;
 say("INFO: Maximum runtime of a single RQG run $max_rqg_runtime" . "s.");
 
 check_and_set_config_file();
