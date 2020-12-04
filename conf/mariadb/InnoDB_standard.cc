@@ -35,7 +35,7 @@
 #
 
 our $test_compression_encryption =
-  '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz ';
+  '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz --max_gd_duration=1800 ';
 
 our $encryption_setup =
   '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
@@ -59,13 +59,13 @@ our $grammars =
   #    or specific features if possible.
   #
   # Suffers in old releases massive from https://jira.mariadb.org/browse/MDEV-19449
-  '--gendata=conf/mariadb/oltp.zz --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy',    # This looked once like a dud.
+  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy',    # This looked once like a dud.
 # Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
 # '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --grammar=conf/percona_qa/BT-16274/BT-16274.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
 # Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
 # '--gendata=conf/percona_qa/percona_qa.zz --grammar=conf/percona_qa/percona_qa.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
   '--views --grammar=conf/mariadb/partitions_innodb.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/userstat.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy',
-  '--gendata=conf/engines/innodb/full_text_search.zz --short_column_names --grammar=conf/engines/innodb/full_text_search.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/redefine_temporary_tables.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy',
+  '--gendata=conf/engines/innodb/full_text_search.zz --max_gd_duration=1200 --short_column_names --grammar=conf/engines/innodb/full_text_search.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/redefine_temporary_tables.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy',
   '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/sp.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/userstat.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy',
 
   # This can run even without "extra" main grammar
@@ -75,8 +75,8 @@ our $grammars =
   '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz',
   '--grammar=conf/mariadb/partitions_innodb.yy',
   '--grammar=conf/mariadb/partitions_innodb.yy --gendata-advanced --skip-gendata',
-  '--grammar=conf/replication/replication.yy --gendata=conf/replication/replication-5.1.zz',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz',
+  '--grammar=conf/replication/replication.yy --gendata=conf/replication/replication-5.1.zz --max_gd_duration=900',
+  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=600 ',
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata-advanced --skip-gendata',
   '--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz',
 
@@ -108,20 +108,20 @@ our $grammars =
   # '--grammar=table_stress.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
 
   # DML only together with Mariabackup
-  '--gendata=conf/mariadb/oltp.zz --grammar=conf/mariadb/oltp.yy --reporters=Mariabackup_linux ',
+  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --grammar=conf/mariadb/oltp.yy --reporters=Mariabackup_linux ',
   '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=Mariabackup_linux ',
   '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=Mariabackup_linux ',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --reporters=Mariabackup_linux ',
+  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --reporters=Mariabackup_linux ',
   # DML only together with RestartConsistency
-  '--gendata=conf/mariadb/oltp.zz --grammar=conf/mariadb/oltp.yy --reporters=RestartConsistency ',
+  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --grammar=conf/mariadb/oltp.yy --reporters=RestartConsistency ',
   '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=RestartConsistency ',
   '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=RestartConsistency ',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --reporters=RestartConsistency ',
+  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --reporters=RestartConsistency ',
   # DML only together with CrashRecovery1
-  '--gendata=conf/mariadb/oltp.zz --grammar=conf/mariadb/oltp.yy --reporters=CrashRecovery1 ',
+  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --grammar=conf/mariadb/oltp.yy --reporters=CrashRecovery1 ',
   '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=CrashRecovery1 ',
   '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=CrashRecovery1 ',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --reporters=CrashRecovery1 ',
+  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --reporters=CrashRecovery1 ',
 
   # Tests checking transactional properties
   # FIXME: Add variations of the ISOLATION LEVEL is useful
@@ -217,7 +217,6 @@ $combinations = [ $grammars,
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
     --restart_timeout=120
-    --max_gd_duration=1000
     ' .
     # Some grammars need encryption, file key management
     " $encryption_setup " .
