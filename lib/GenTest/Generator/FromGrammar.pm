@@ -38,7 +38,8 @@ use constant GENERATOR_MAX_OCCURRENCES  => 3500;
 use constant GENERATOR_MAX_LENGTH       => 10000;
 
 my $field_pos;
-my $cwd = cwd();
+my $rqg_home = $ENV{'RQG_HOME'};
+my $cwd      = cwd();
 
 sub new {
     my $class     = shift;
@@ -202,35 +203,45 @@ sub next {
     }
 
     sub expand {
+        # Warning:
+        # Expand returns on
+        # - success some not empty array
+        # - failure some empty array
+        #   The old solution was exiting with die or returning undef.
+        #   The latter leads to
+        #       @blabla = undef --> @blabla has one element and that is undef
+        #
 
-    # How to hunt a Perl warning like
-    #     Deep recursion on subroutine "GenTest::Generator::FromGrammar::expand"
-    #     at /work/RQG_mleich3/lib/GenTest/Generator/FromGrammar.pm line 297.
-    local $SIG{__WARN__} = sub {
-        my $message = shift;
-        # Print like perl would print it without the SIG{__WARN__}.
-        print($message . "\n");
-        if ($message =~ /Deep recursion on subroutine/) {
-            # Pick a status >= STATUS_CRITICAL_FAILURE which does not cause that Reporters
-            # assume that they have to do further analysis.
-            # Negative example:
-            # STATUS_CRITICAL_FAILURE, STATUS_SERVER_CRASHED, STATUS_ALARM ...
-            # Backtrace kicks in and waits a long timespan for the DB server process dying.
-            my $status = STATUS_RSS_DOUBLED;
-            say("ERROR: We have just hit the perl warning. Will return STATUS_RSS_DOUBLED");
-            exit $status;
-        }
-    };
+        my ($rule_counters, $rule_invariants, @sentence) = @_;
 
-    # Warning:
-    # Expand returns on
-    # - success some not empty array
-    # - failure some empty array
-    #   The old solution was exiting with die or returning undef.
-    #   The latter leads to
-    #       @blabla = undef --> @blabla has one element and that is undef
-    #
-         my ($rule_counters, $rule_invariants, @sentence) = @_;
+        # How to hunt a Perl warning like
+        #     Deep recursion on subroutine "GenTest::Generator::FromGrammar::expand"
+        #     at /work/RQG_mleich3/lib/GenTest/Generator/FromGrammar.pm line ....
+        # --------------------------------------------------------------------------
+        # The example code was used for analysis but needs to be deactivated.
+        # Reason:
+        # - "Deep recursion on subroutine" gets reportet as soon as a limit of 100 was exceeded.
+        #   But we prefer to go with our own limit GENERATOR_MAX_OCCURRENCES.
+        # - RQG aborts the test when observing STATUS_RSS_DOUBLED.
+        #   This accelerated the analysis where I used the RQG test simplifier.
+        #   But this harsh reaction does not fit well to RQG testing with certain grammars.
+        #
+        # local $SIG{__WARN__} = sub {
+        #     my $message = shift;
+        #     # Print like perl would print it without the SIG{__WARN__}.
+        #     print($message . "\n");
+        #     if ($message =~ /Deep recursion on subroutine/) {
+        #         # Pick a status >= STATUS_CRITICAL_FAILURE which does not cause that Reporters
+        #         # assume that they have to do further analysis.
+        #         # Negative example:
+        #         # STATUS_CRITICAL_FAILURE, STATUS_SERVER_CRASHED, STATUS_ALARM ...
+        #         # Backtrace kicks in and waits a long timespan for the DB server process dying.
+        #         # STATUS_RSS_DOUBLED does not fit to the problem but it causes a fine reaction.
+        #         my $status = STATUS_RSS_DOUBLED;
+        #         say("ERROR: We have just hit the perl warning. Will return STATUS_RSS_DOUBLED");
+        #         exit $status;
+        #     }
+        # };
 
         # Comment (mleich1)
         # A sentence is an array of words and spaces.
@@ -238,7 +249,6 @@ sub next {
 
         my $item_nodash;   # FIXME: This variable belongs to old code and is currently unused.
                            # Is that right?
-        my $orig_item;
 
         # For debugging
         if (0) {
@@ -250,7 +260,7 @@ sub next {
 
         }
 
-        # Define some standard message because blacklist_patterns matching needs it.
+        # Define some standard message because blacklist_patterns matching might need it.
         my $warn_message_part = "WARN: Possible endless loop in grammar. " .
                                 "Will return an empty array.";
 
@@ -261,6 +271,7 @@ sub next {
             return ();
         }
 
+        my $orig_item;
         for (my $pos = 0; $pos <= $#sentence; $pos++) {
             $orig_item = $sentence[$pos];
 
@@ -284,7 +295,9 @@ sub next {
             }
 
             if (exists $grammar_rules->{$item}) {
-
+                # $orig_item is an element of the array $sentence --> query.
+                # $item which is a copy of $orig_item is a rule.
+                # ....[invariant] counts as a rule.
                 if (++($rule_counters->{$orig_item}) > GENERATOR_MAX_OCCURRENCES) {
                     say("WARN: $who_am_i Rule '$orig_item' occured more " .
                         "than " . GENERATOR_MAX_OCCURRENCES() . " times.\n" . $warn_message_part);
@@ -470,7 +483,7 @@ sub next {
 						my $charsets = $executors->[0]->metaCharactersets();
 						$item = $prng->arrayElement($charsets);
 					} elsif ($item eq '_data') {
-						$item = $prng->file($cwd."/data");
+						$item = $prng->file($rqg_home."/data");
 					} elsif ( defined $field_type and
 						(($field_type == FIELD_TYPE_NUMERIC) ||
 						 ($field_type == FIELD_TYPE_BLOB))

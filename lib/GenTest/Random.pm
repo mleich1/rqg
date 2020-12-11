@@ -21,27 +21,27 @@ package GenTest::Random;
 require Exporter;
 @ISA = qw(GenTest);
 @EXPORT = qw(
-	FIELD_TYPE_NUMERIC
-	FIELD_TYPE_STRING
-	FIELD_TYPE_DATE
-	FIELD_TYPE_TIME
-	FIELD_TYPE_DATETIME
-	FIELD_TYPE_TIMESTAMP
-	FIELD_TYPE_ENUM
-	FIELD_TYPE_SET
-	FIELD_TYPE_YEAR
-	FIELD_TYPE_BLOB
-  FIELD_TYPE_TEXT
-	FIELD_TYPE_DICT
-	FIELD_TYPE_DIGIT
-	FIELD_TYPE_LETTER
-	FIELD_TYPE_NULL
-	FIELD_TYPE_ASCII
-	FIELD_TYPE_EMPTY
+    FIELD_TYPE_NUMERIC
+    FIELD_TYPE_STRING
+    FIELD_TYPE_DATE
+    FIELD_TYPE_TIME
+    FIELD_TYPE_DATETIME
+    FIELD_TYPE_TIMESTAMP
+    FIELD_TYPE_ENUM
+    FIELD_TYPE_SET
+    FIELD_TYPE_YEAR
+    FIELD_TYPE_BLOB
+    FIELD_TYPE_TEXT
+    FIELD_TYPE_DICT
+    FIELD_TYPE_DIGIT
+    FIELD_TYPE_LETTER
+    FIELD_TYPE_NULL
+    FIELD_TYPE_ASCII
+    FIELD_TYPE_EMPTY
 
-	FIELD_TYPE_HEX
-	FIELD_TYPE_QUID
-	FIELD_TYPE_JSON
+    FIELD_TYPE_HEX
+    FIELD_TYPE_QUID
+    FIELD_TYPE_JSON
 );
 
 #RV 15/9/14 - Disabled permanently as bugs reported with maxigen
@@ -198,7 +198,7 @@ my %name2type = (
 	'jsonobject'    => FIELD_TYPE_JSONOBJECT
 );
 
-my $cwd = cwd();
+my $rqg_home = $ENV{'RQG_HOME'};
 
 # Min and max values for integer data types
 
@@ -306,6 +306,9 @@ sub uint16 {
     use integer;
     # urand() is manually inlined for efficiency
     update_generator($_[0]);
+    # Hint:
+    # In case GendataAdvanced.pm is used than I get masses of
+    # Use of uninitialized value $_[2] in integer subtraction (-)
     return $_[1] +
         ((($_[0]->[RANDOM_GENERATOR] >> 15) & 0xFFFF) % ($_[2] - $_[1] + 1));
 }
@@ -333,6 +336,23 @@ sub float {
 	# Since this may be a 64-bit platform, we mask down to 16 bit
 	# to ensure the division below becomes correct.
 	$rand = ($_[0]->[RANDOM_GENERATOR] >> 15) & 0xFFFF;
+    # Hint:
+    # In case GendataAdvanced.pm is used than I get masses of
+    # $_[1] and $_[2] are undef. The reason is currently unknown.
+    # This does not happen in case of ZZ grammars.
+    # if (not defined $_[1]) {
+    #     say("DEBUG \$_1... is undef");
+    # } else {
+    #     say("DEBUG \$_1... is ->" . $_[1] . "<-");
+    # }
+    # if (not defined $_[2]) {
+    #     say("DEBUG \$_2... is undef");
+    # } else {
+    #     say("DEBUG \$_2... is ->" . $_[2] . "<-");
+    # }
+    # say("DEBUG rand ... is undef") if not defined $rand;
+    # my $final_val = $_[1] + (($rand / 0x10000) * ($_[2] - $_[1] + 1));
+    # say("DEBUG final_val ... is defined and ->$final_val<-") if defined $final_val;
 	return $_[1] + (($rand / 0x10000) * ($_[2] - $_[1] + 1));
 }
 
@@ -666,7 +686,7 @@ sub fieldType {
 	} elsif ($field_type == FIELD_TYPE_SET) {
 		return $rand->set();
 	} elsif ($field_type == FIELD_TYPE_BLOB) {
-		return $rand->file("$cwd/data");
+		return $rand->file("$rqg_home/data");
 	} elsif ($field_type == FIELD_TYPE_NULL) {
 		return undef;
 	} elsif ($field_type == FIELD_TYPE_ASCII) {
@@ -696,7 +716,7 @@ sub fieldType {
 	} elsif ($field_type == FIELD_TYPE_JSONOBJECT) {
 		return $rand->json_object();
 	} else {
-		croak ("unknown field type $field_def");
+		Carp::confess ("unknown field type $field_def");
 	}
 }
 
