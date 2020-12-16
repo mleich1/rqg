@@ -81,7 +81,9 @@ How to make a single RQG run
 ----------------------------
 Please make a copy of the script RQG.sh and adjust it to your needs.
 The log of the RQG run will be storage/SINGLE_RQG/rqg.log
-The remains of the RQG run will be in /dev/shm/vardir/SINGLE_RQG
+The remains of the RQG run will be in /dev/shm/vardir/SINGLE_RQG .
+Warning:
+The next run with RQG.sh will drop and recreate storage/SINGLE_RQG and /dev/shm/vardir/SINGLE_RQG .
 
 
 How to run a batch of RQG runs with massive parallelization
@@ -102,6 +104,11 @@ Content of that workdir
 
 The verdict is made based on verdict_for_combinations.cfg.
 Feel free to edit your version of it but never push that to the official repository.
+
+
+How to get a verdict about the the result of some RQG run
+---------------------------------------------------------
+perl verdict.pl --config=verdict_for_combinations.cfg --log_file=last_batch_workdir/000001.log
 
 
 Collection of hints (under construction)
