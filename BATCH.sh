@@ -94,14 +94,23 @@ set +e
 # Per experience:
 # More general load on the testing raises the likelihood to find or replay a
 # concurrency bug.
-PARALLEL=`nproc`
-PARALLEL=$(($PARALLEL * 3))
-# If $PARALLEL > ~250 than we get trouble on Ubuntu 18 Server.
-if [ $PARALLEL -gt 250 ]
+NPROC=`nproc`
+GUEST_ON_BOX=`who | grep -v $USER| wc -l`
+echo "Number of guests logged into the box: $GUEST_ON_BOX"
+# GUEST_ON_BOX=0
+if [ $GUEST_ON_BOX -gt 0 ]
 then
-   PARALLEL=250
+   # Colleagues are on the box and most probably running rr replay.
+   # So do not raise the load too much.
+   PARALLEL=$((8 * $NPROC / 10))
+else
+   PARALLEL=$(($NPROC * 3))
 fi
-
+# If $PARALLEL > ~250 than we get trouble on Ubuntu 18 Server.
+if [ $PARALLEL -gt 270 ]
+then
+   PARALLEL=270
+fi
 
 # TRIALS is used as
 # - one of two limits (TRIALS and MAX_RUNTIME) for the size of a testing campaign
@@ -184,23 +193,23 @@ set -o pipefail
 #    So basically:
 #    Do not assign '--discard_logs' in case you want to see logs of RQG runs which achieved
 #    the verdict 'ignore_*' (blacklist match or STATUS_OK or stopped by rqg_batch.pl)
-# --discard_logs                                                      \
+# --discard_logs                                                       \
 #
 # 2. Per default the data (data dir of server, core etc.) of some RQG replaying or being at least
 #    of interest gets archived.
 #    In case you do not want that archiving than you can disable it.
 #    But thats is rather suitable for runs of the test simplifier only.
-# --noarchiving                                                       \
+# --noarchiving                                                        \
 #
 # 3. Do not abort if hitting Perl errors or STATUS_ENVIRONMENT_FAILURE. IMHO some rather
 #    questionable option. I am unsure if that option gets correct handled in rqg_batch.pl.
-# --force                                                             \
+# --force                                                              \
 #
 # 4. Debugging of the rqg_batch.pl tool machinery and rqg.pl
 #    Default: Minimal debug output.
 #    Assigning '_all_' causes maximum debug output.
 #    Warning: Significant more output of especially rqg_batch.pl and partially rqg.pl.
-# --script_debug=_all_                                                \
+# --script_debug=_all_                                                 \
 #
 # 5. "--no-mask", but not "--mask" or "--mask_level", could be assigned to combinations.pl
 #    in command line. combinations.pl had also the default to apply some masking except some other
@@ -259,10 +268,10 @@ set -o pipefail
 #    Box having "Intel Skylake" CPU's, "rr" version 4 contains the string "Intel Skylake" but
 #    claims to have met some unknown CPU.
 #    Please becareful with the single and double quotes.
-# --rr_options="\'--microarch='Intel Kabylake'\'"                     \
+# --rr_options="\'--microarch='Intel Kabylake'\'"                      \
 #
 #    One rr option which seems to be recommended anywhere
-# --rr_options="--chaos"                                              \
+# --rr_options="--chaos"                                               \
 #
 
 # In case you distrust the rqg_batch.pl mechanics or the config file etc. than going with some
@@ -273,6 +282,8 @@ set -o pipefail
 # PARALLEL=1
 #
 
+# --rr=Extended                                                        \
+# --rr_options="--chaos"                                               \
 # nohup perl -w ./rqg_batch.pl                                           \
 nohup perl ./rqg_batch.pl                                              \
 --workdir=$BATCH_WORKDIR                                               \
