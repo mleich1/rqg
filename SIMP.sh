@@ -96,12 +96,22 @@ set +e
 # Per experience:
 # More general load on the testing raises the likelihood to find or replay a
 # concurrency bug.
-PARALLEL=`nproc`
-PARALLEL=$(($PARALLEL * 3))
-# If $PARALLEL > ~250 than we get trouble on Ubuntu 18 Server.
-if [ $PARALLEL -gt 250 ]
+NPROC=`nproc`
+GUEST_ON_BOX=`who | grep -v $USER| wc -l`
+echo "Number of guests logged into the box: $GUEST_ON_BOX"
+# GUEST_ON_BOX=0
+if [ $GUEST_ON_BOX -gt 0 ]
 then
-   PARALLEL=250
+   # Colleagues are on the box and most probably running rr replay.
+   # So do not raise the load too much.
+   PARALLEL=$((2 * $NPROC / 3))
+else
+   PARALLEL=$(($NPROC * 3))
+fi
+# If $PARALLEL > ~250 than we get trouble on Ubuntu 18 Server.
+if [ $PARALLEL -gt 270 ]
+then
+   PARALLEL=270
 fi
 
 TRIALS=64
@@ -203,13 +213,13 @@ set -o pipefail
 #    - assigns all time "--no-mask" to any call of a RQG runner
 #
 # 6. rqg_batch.pl prints how it would start RQG Workers and the RQG Worker started "fakes" that
-# it has achieved the verdict assigned. == There all no "real" RQG runs at all.
-# Example:
-# --dryrun=replay --> All RQG Worker started "tell" that they have achieved some replay.
-# Use cases:
-# a) When using the Combinator see which combinations would get generated.
-# b) When using the Simplifier see how it would be tried to shrink the grammar.
-# c) --dryrun=ignore_blacklist see how TRIALS would be the limiter.
+#    it has achieved the verdict assigned. == There all no "real" RQG runs at all.
+#    Example:
+#    --dryrun=replay --> All RQG Worker started "tell" that they have achieved some replay.
+#    Use cases:
+#    a) When using the Combinator see which combinations would get generated.
+#    b) When using the Simplifier see how it would be tried to shrink the grammar.
+#    c) --dryrun=ignore_blacklist see how TRIALS would be the limiter.
 # --dryrun=ignore_blacklist                                            \
 # --dryrun=replay                                                      \
 #

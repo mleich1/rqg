@@ -27,6 +27,7 @@ require Exporter;
 
 @EXPORT = qw(
    STATUS_OK
+   STATUS_FAILURE
    STATUS_INTERNAL_ERROR
    STATUS_UNKNOWN_ERROR
    STATUS_ANY_ERROR
@@ -96,8 +97,9 @@ require Exporter;
 use strict;
 
 use constant STATUS_OK                         => 0;    # Suitable for exit code
-use constant STATUS_INTERNAL_ERROR             => 160;  # Apparently seen with certain Perl coding errors; check RQG log carefully for exact error
-                                                        # This was in history '1'. But its very critical failure and must serious attention.
+use constant STATUS_FAILURE                    => 1;    # Used as opposite of STATUS_OK by certain routines
+use constant STATUS_INTERNAL_ERROR             => 200;  # Apparently seen with certain Perl coding errors; check RQG log carefully for exact error
+                                                        # This was in history '1'. But its a very critical failure and must serious attention.
 use constant STATUS_UNKNOWN_ERROR              => 2;
 
 use constant STATUS_ANY_ERROR                  => 3;    # Used in util/simplify* to not differentiate based on error code
@@ -171,7 +173,7 @@ use constant DB_DRIZZLE                        => 5;
 # use constant DEFAULT_MTR_BUILD_THREAD          => 930; ## Legacy...
 # On extreme testing boxes (temporary more than 200 RQG runner) than ports > 32000 get computed.
 # And they tend to be sometimes already occupied by whatever.
-# The critical ones start ~ 1140
+# The critical ones start around build_thread > ~ 1140
 use constant DEFAULT_MTR_BUILD_THREAD          => 730;
 
 

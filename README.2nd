@@ -36,6 +36,74 @@ Please excuse
     into my tree.
 
 
+Preparations for using RQG and my batch tool
+--------------------------------------------
+- Stuff needed for plain RQG and the mysqltest simplifier
+  sudo apt-get install libdbi-perl
+  sudo apt-get install libdbd-mariadb-perl
+  sudo apt-get install libdbd-mysql
+  sudo apt-get install libdbd-mysql-perl
+  sudo apt-get install libtext-csv-perl
+
+- Stuff needed for my batch tool rqg_batch.pl
+  sudo apt-get install libfilesys-df-perl
+  sudo apt-get install libsys-statistics-linux-perl
+  sudo apt-get install liblog-log4perl-perl
+
+  Prevent swapping because the resource control in rqg_batch.pl fears swapping goes towards
+  on SSD and wants to avoid a wear out of that device by excessive writing.
+  As root:
+  - Solution which will disappear after the next reboot
+    echo 0 > /proc/sys/vm/swappiness
+    or
+    swapoff -a
+
+  - Solution which will survive the next reboot
+    Edit /etc/sysctl.conf and add
+    ###################################################################
+    # For rqg_batch.pl
+    # Make using the swap rare.
+    #
+    vm.swappiness = 0
+
+    or remove the swap device.
+
+  - Edit /etc/sysctl.conf and add for example
+        fs.aio-max-nr=99999999
+    and similar
+        /etc/security/limits.conf
+        * hard nofile 102400
+        * soft nofile 20480
+    in case the actual numbers for no of open files, aio, processes etc. are too low.
+
+
+How to make a single RQG run
+----------------------------
+Please make a copy of the script RQG.sh and adjust it to your needs.
+The log of the RQG run will be storage/SINGLE_RQG/rqg.log
+The remains of the RQG run will be in /dev/shm/vardir/SINGLE_RQG
+
+
+How to run a batch of RQG runs with massive parallelization
+-----------------------------------------------------------
+Please make a copy of
+- the script BATCH.sh and adjust it to your needs
+- the batch configuration file conf/mariadb/InnoDB_standard.cc and adjust it to your needs
+
+The workdir of the last rqg_bat.pl run is
+    last_batch_workdir == symlink pointing to storage/<highest timestamp>
+
+Content of that workdir
+    result.txt   Tabellaric overview about the RQG runs performed + the final verdict
+    setup.txt    Tabellaric overview ... with full setup of the single RQG runs
+    <number>.log rqg log of run <number>
+    <number>.tgz compressed archive with the remains (data files, core,...) of run <number>
+    some additional files
+
+The verdict is made based on verdict_for_combinations.cfg.
+Feel free to edit your version of it but never push that to the official repository.
+
+
 Collection of hints (under construction)
 ----------------------------------------
 1. Please be aware that the name of the exit statuses of the RQG runner (rqg.pl, runall*.pl ...)
@@ -470,7 +538,7 @@ TODO (incomplete list):
      rqg_batch.pl could process that file and preserve binaries and whatever information if
      not already done for some finished RQG run.
      IMHO acceptable weak point: Modification of binary during rqg_batch.pl runtime.
--- checker.pl needs to be made capable to check config (cc and cfg) files.
+-- checker.pl or needs to be made capable to check config (cc and cfg) files.
 -- Let rqg_batch.pl run mysqltest simplification
 -- Implement several optional "strangler" which cause that some ongoing simplifications attempt
    is stopped in case it is extreme likely that we will get no more a replay with this one.
@@ -848,5 +916,5 @@ How to use "rr" (https://github.com/mozilla/rr) in combination with RQG
 
 
 
-Matthias 2020-01
+Matthias 2020-12
 

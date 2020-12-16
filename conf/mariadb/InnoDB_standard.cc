@@ -75,7 +75,7 @@ our $grammars =
   '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz',
   '--grammar=conf/mariadb/partitions_innodb.yy',
   '--grammar=conf/mariadb/partitions_innodb.yy --gendata-advanced --skip-gendata',
-  '--grammar=conf/replication/replication.yy --gendata=conf/replication/replication-5.1.zz --max_gd_duration=900',
+  '--grammar=conf/replication/replication.yy --gendata=conf/replication/replication-5.1.zz --max_gd_duration=1200', # rr on asan_Og exceeded 900 * 1.5
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=600 ',
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata-advanced --skip-gendata',
   '--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz',

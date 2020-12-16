@@ -190,14 +190,6 @@ sub init {
         safe_exit(STATUS_ENVIRONMENT_FAILURE);
     }
 
-    if ($rc_type eq RC_NONE) {
-        say("WARN: Automatic ResourceControl is disabled. This is risky because increasing the " .
-            "load is all time allowed.");
-        return LOAD_INCREASE, undef, undef;
-    } else {
-        say("INFO: Automatic ResourceControl is enabled. Report type '$rc_type'.");
-    }
-
     if (not defined $vardir) {
         Carp::cluck("INTERNAL ERROR: vardir is undef.");
         safe_exit(STATUS_INTERNAL_ERROR);
@@ -215,6 +207,23 @@ sub init {
         safe_exit(STATUS_INTERNAL_ERROR);
     }
 
+    if ($rc_type eq RC_NONE) {
+        say("WARN: Automatic ResourceControl is disabled. This is risky because increasing the " .
+            "load is all time allowed.");
+        my $nproc = `nproc`;
+        if (not defined $nproc) {
+            say("ERROR: The command 'nproc' gave some undef result.");
+            safe_exit(STATUS_ENVIRONMENT_FAILURE);
+        }
+        chomp $nproc; # Remove the '\n'
+        say("INFO: Number of CPU's reported by the OS (nproc): $nproc");
+        my $workers_mid = int($nproc / 2);
+        my $workers_min = int($nproc / 4);
+        return LOAD_INCREASE, $workers_mid, $workers_min;
+    } else {
+        say("INFO: Automatic ResourceControl is enabled. Report type '$rc_type'.");
+    }
+
     if ($module_missing) {
         say("ERROR: ResourceControl::init: Required functionality is missing.\n"                   .
             "HINT: Please\n"                                                                       .
@@ -225,10 +234,11 @@ sub init {
             "HINT:      sudo apt-get install libfilesys-df-perl libsys-statistics-linux-perl\n"    .
             "HINT: or\n"                                                                           .
             "HINT: - more or less RISKY\n"                                                         .
-            "HINT:   1. Append '--no_resource_control' to your call of rqg_batch.pl\n"             .
+            "HINT:   1. Append '--resource_control=" . RC_NONE . "' to your call of rqg_batch.pl\n".
             "HINT:   2. Assign at begin a small value to the parameter 'parallel'\n"               .
             "HINT:   3. Observe the system behaviour during the rqg_batch run and raise "          .
-            "HINT:      the value assigned to 'parallel' slowly.");
+            " the value assigned to 'parallel' slowly.\n");
+            safe_exit(STATUS_ENVIRONMENT_FAILURE);
     }
 
     $book_keeping_file = $workdir . "/" . "resource.txt";
@@ -279,13 +289,6 @@ sub init {
     $lxs->init;
 
     measure();
-
-#   my $nproc = `nproc`;
-#   if (not defined $nproc) {
-#       say("ERROR: The command 'nproc' gave some undef result.");
-#       return LOAD_GIVE_UP, undef;
-#   }
-#   chomp $nproc; # Remove the '\n'
 
 
     $vardir_free_init   = $vardir_free;
