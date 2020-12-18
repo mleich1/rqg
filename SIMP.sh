@@ -104,7 +104,7 @@ if [ $GUEST_ON_BOX -gt 0 ]
 then
    # Colleagues are on the box and most probably running rr replay.
    # So do not raise the load too much.
-   PARALLEL=$((2 * $NPROC / 3))
+   PARALLEL=$((8 * $NPROC / 10))
 else
    PARALLEL=$(($NPROC * 3))
 fi
@@ -186,7 +186,7 @@ set -o pipefail
 #    So basically:
 #    Do not assign '--discard_logs' in case you want to see logs of RQG runs which achieved
 #    the verdict 'ignore_*' (blacklist match or STATUS_OK or stopped by rqg_batch.pl)
-# --discard_logs                                                         \
+# --discard_logs                                                       \
 #
 # 2. Per default the data (data dir of server, core etc.) of some RQG replaying or being at least
 #    of interest gets archived.
