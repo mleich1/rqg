@@ -1,6 +1,6 @@
 # Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights
 # reserved.
-# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2020 MariaDB Corporation Ab.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -49,14 +49,14 @@ use Auxiliary;
 
 use Data::Dumper;
 
-use constant PROPS_NAME => 0;
-use constant PROPS_DEFAULTS => 1; ## Default values
-use constant PROPS_OPTIONS => 2;  ## Legal options to check for
-use constant PROPS_HELP => 3;     ## Help text
-use constant PROPS_LEGAL => 4;    ## List of legal properies
-use constant PROPS_LEGAL_HASH => 5; ## Hash of legal propertis
-use constant PROPS_REQUIRED => 6; ## Required properties
-use constant PROPS_PROPS => 7;    ## the actual properties
+use constant PROPS_NAME             => 0;
+use constant PROPS_DEFAULTS         => 1; ## Default values
+use constant PROPS_OPTIONS          => 2; ## Legal options to check for
+use constant PROPS_HELP             => 3; ## Help text
+use constant PROPS_LEGAL            => 4; ## List of legal properies
+use constant PROPS_LEGAL_HASH       => 5; ## Hash of legal propertis
+use constant PROPS_REQUIRED         => 6; ## Required properties
+use constant PROPS_PROPS            => 7; ## the actual properties
 
 1;
 
@@ -96,7 +96,7 @@ sub AUTOLOAD {
 sub new {
     my $class = shift;
     
-	my $props = $class->SUPER::new({
+    my $props = $class->SUPER::new({
 	    'name' => PROPS_NAME,
 	    'defaults'	=> PROPS_DEFAULTS,
 	    'required'	=> PROPS_REQUIRED,
