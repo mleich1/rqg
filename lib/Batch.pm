@@ -50,10 +50,6 @@ use Verdict;
 use ResourceControl;
 use POSIX qw( WNOHANG );
 
-# use constant STATUS_OK       => 0;
-use constant STATUS_FAILURE    => 1; # Just the opposite of STATUS_OK
-
-
 # Constants serving for more convenient printing of results in table layout
 # -------------------------------------------------------------------------
 use constant RQG_NO_TITLE        => 'Number';

@@ -28,6 +28,7 @@ package Auxiliary;
 # slashes etc.. Check closer and use more often.
 #
 
+# use Runtime;
 
 use strict;
 use GenTest::Constants;
@@ -35,11 +36,6 @@ use GenTest;
 use GenTest::Grammar;
 use File::Copy;
 use Cwd;
-
-# use constant STATUS_OK         => 0;
-use constant STATUS_FAILURE      => 1; # Just the opposite of STATUS_OK
-use constant INTERNAL_TOOL_ERROR => 200;
-
 
 # The script debugging "system"
 # -----------------------------
@@ -91,11 +87,11 @@ sub script_debug {
 
     if (not defined $pattern) {
         Carp::cluck("INTERNAL ERROR: The parameter pattern is undef.");
-        exit INTERNAL_TOOL_ERROR;
+        exit STATUS_INTERNAL_ERROR;
     }
     if (not defined $script_debug_init) {
         Carp::cluck("INTERNAL ERROR: script debug was not initialized.");
-        exit INTERNAL_TOOL_ERROR;
+        exit STATUS_INTERNAL_ERROR;
     }
     $pattern = '_' . $pattern . '_';
     if (($script_debug_value =~ /$pattern/) or ($script_debug_value eq '_all_')) {
@@ -110,15 +106,15 @@ sub check_and_set_rqg_home {
     ($rqg_home) = @_;
     if (1 != scalar @_) {
         Carp::cluck("INTERNAL ERROR: Exact one parameter(rqg_home) needs to get assigned.");
-        exit INTERNAL_TOOL_ERROR;
+        exit STATUS_INTERNAL_ERROR;
     } else {
         if (not defined $rqg_home) {
             Carp::cluck("INTERNAL ERROR: The value for rqg_home is undef.");
-            exit INTERNAL_TOOL_ERROR;
+            exit STATUS_INTERNAL_ERROR;
         } else {
             if (not -d $rqg_home) {
                 Carp::cluck("INTERNAL ERROR: rqg_home($rqg_home) does not exist or is not a directory.");
-                exit INTERNAL_TOOL_ERROR;
+                exit STATUS_INTERNAL_ERROR;
             }
         }
     }
@@ -135,7 +131,7 @@ sub check_value_supported {
 # -------------
 # STATUS_OK           -- Value is supported
 # STATUS_FAILURE      -- Value is not supported.
-# INTERNAL_TOOL_ERROR -- Looks like error in RQG code
+# STATUS_INTERNAL_ERROR -- Looks like error in RQG code
 #
 # Typical use case
 # ----------------
@@ -156,16 +152,16 @@ sub check_value_supported {
 
    if (not defined $parameter or $parameter eq '') {
       Carp::cluck("INTERNAL ERROR: The parameter name is not defined or ''.");
-      return INTERNAL_TOOL_ERROR;
+      return STATUS_INTERNAL_ERROR;
    }
    if (not defined $value_list_ref) {
       Carp::cluck("INTERNAL ERROR: The value_list is not defined.");
-      return INTERNAL_TOOL_ERROR;
+      return STATUS_INTERNAL_ERROR;
    }
    if (not defined $assigned_value or $assigned_value eq '') {
       Carp::cluck("ERROR: The value assigned to the parameter '$parameter' is not defined.");
       # ??? This might be also a error in the test config. -> User error
-      return INTERNAL_TOOL_ERROR;
+      return STATUS_INTERNAL_ERROR;
    }
 
    my (@value_list) = @$value_list_ref;
@@ -197,6 +193,34 @@ sub check_value_supported {
    return STATUS_FAILURE; # The opposite of STATUS_OK;
 
 } # End of sub check_value_supported
+
+sub list_values_supported {
+#
+# Purpose
+# -------
+# Return a string with a list of supported values.
+#
+# Return values
+# -------------
+# string
+# undef
+#
+# A typical use case is enriching help text
+# my $string = Auxiliary::list_values_supported(Auxiliary::RR_TYPE_ALLOWED_VALUE_LIST);
+#
+
+    my ($value_list_ref) = @_;
+
+    if (not defined $value_list_ref) {
+       Carp::cluck("INTERNAL ERROR: The value_list is not defined.");
+       return undef;
+    }
+
+    my (@value_list) = @$value_list_ref;
+    return "'" . join("' or '", @value_list) . "'";
+
+} # End of sub list_values_supported
+
 
 
 sub append_string_to_file {
@@ -1295,7 +1319,7 @@ sub check_git_support {
     # $cmd = "git --caramba 2>&1";      # == installed but wrong option or typo
     ## -> DEBUG: ... exited with value 0 but messages 'cannot open .... Permission denied'
     # $cmd = "fdisk -l 2>&1";
-    my  $cmd = "git --version 2>&1";
+    my $cmd = "git --version 2>&1";
     my $return = `$cmd`;
     my $rc = $?;
     if ($rc == -1) {
@@ -1527,9 +1551,10 @@ sub archive_results {
     # Even though using umask 002 the directories data/mysql and data/test lack often the 'x'.
     $cmd .= "; find rqg* $vardir -type d -print0 | xargs --null chmod g+x 2>>$archive_err";
     say("DEBUG: cmd : ->$cmd<-") if script_debug("A5");
-    $rc = system($cmd);
+    system($cmd);
+    $rc = $? >> 8;
     if ($rc != 0) {
-        say("ERROR: Preparation for archiving '$cmd' failed with exit status " . ($? >> 8));
+        say("ERROR: Preparation for archiving '$cmd' failed with exit status $rc");
         sayFile($archive_err);
         return STATUS_FAILURE;
     }
@@ -1559,9 +1584,10 @@ sub archive_results {
     #    similar are missing or wrong handled.
     $cmd = "cd $workdir 2>>$archive_err; tar czf $archive rqg* $vardir 2>>$archive_err";
     say("DEBUG: cmd : ->$cmd<-") if script_debug("A5");
-    $rc = system($cmd);
+    system($cmd);
+    $rc = $? >> 8;
     if ($rc != 0) {
-        say("ERROR: The command for archiving '$cmd' failed with exit status " . ($? >> 8));
+        say("ERROR: The command for archiving '$cmd' failed with exit status $rc");
         sayFile($archive_err);
         return STATUS_FAILURE;
     } else {
@@ -1660,8 +1686,9 @@ sub check_and_set_build_thread {
 # }
 #
 # lib/GenTest/Constants.pm contains
-# use constant DEFAULT_MTR_BUILD_THREAD          => 930; ## Legacy...
-#
+# use constant DEFAULT_MTR_BUILD_THREAD          => 730;
+#     The old value was 930 and causes trouble with the OS around port numbers when for one of
+#     the many parallel RQG workers a build thread >~ 1140 gets computed.
 
     my ($build_thread) = @_;
     if (not defined $build_thread) {
@@ -2093,6 +2120,7 @@ sub unify_redefine {
     return \@redefine_files;
 }
 
+# Move to grammar.pm?
 sub unify_grammar {
     my ($grammar_file, $redefine_ref, $workdir, $skip_recursive_rules, $mask, $mask_level) = @_;
 
@@ -2606,11 +2634,17 @@ sub get_pid_from_file {
 # 3. File exists with sufficient permission but value found does not look reasonable --> undef
 # 4. all ok and looking like a DB server pid --> return it
 #
-    my $fname = shift;
-    my $who_am_i = "new_get_pid_from_file:";
+# If $silent is defined than do not lament about expected events like undef pids or missing files.
+# This makes RQG logs after passing
+#    MATCHING: Region end   =====================
+# less noisy.
+
+    my $fname  = shift;
+    my $silent = shift;
+    my $who_am_i = "get_pid_from_file:";
     if (not open(PID, $fname)) {
         say("ERROR: $who_am_i Could not open pid file '$fname' for reading, " .
-            "Will return undef");
+            "Will return undef") if not defined $silent;
         return undef;
     }
     my $pid = <PID>;
@@ -2724,6 +2758,18 @@ sub reapChild {
     }
 
 } # End sub reapChild
+
+
+sub build_wrs {
+# Just generate a frequent used sentence like "Will return status STATUS_SERVER_CRASHED(101)."
+# Sample code sequence
+#    my $status = STATUS_ENVIRONMENT_FAILURE;
+#    say("ERROR: Dates and times are severly broken ..." . Auxiliary::build_wrs($status));
+#    return $status;
+#
+    my ($status) = @_;
+    return "Will return status " . status2text($status) . "($status).";
+}
 
 
 1;

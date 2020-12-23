@@ -23,9 +23,6 @@ use GenTest;
 use File::Copy;
 use Cwd;
 
-# use constant STATUS_OK           => 0;
-use constant STATUS_FAILURE        => 1; # Just the opposite of STATUS_OK
-
 use constant SEARCH_PATTERN        => 1;
 use constant EXTRA_INFO            => 0;
 
