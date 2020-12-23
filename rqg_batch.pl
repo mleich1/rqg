@@ -467,6 +467,7 @@ if (not defined $workdir) {
     safe_exit($status);
 }
 
+
 if (not defined $resource_control) {
     say("DEBUG: resource_control is not defined") if Auxiliary::script_debug("T2");
 }
@@ -477,6 +478,12 @@ if($load_status ne ResourceControl::LOAD_INCREASE) {
     say("ERROR: ResourceControl reported the load status '$load_status' but around begin the " .
         "status '" . ResourceControl::LOAD_INCREASE . "' must be valid.");
     safe_exit($status);
+}
+if (not defined $parallel) {
+    say("WARN: There was no upper limit for the number of parallel RQG runners (--parallel=...) " .
+        "assigned.");
+    $parallel = $workers_mid;
+    say("INFO: Setting the upper limit for the number of parallel RQG runners to $parallel.");
 }
 Batch::set_workers_range($parallel, $workers_mid, $workers_min);
 
@@ -512,8 +519,10 @@ $cl_end .= " --script_debug=" . $script_debug_value
     if $script_debug_value ne '';
 
 my $cl_begin = '';
+
+use constant DEFAULT_RQG_RUNNER => 'rqg.pl';
 if (not defined $runner) {
-    $runner = "rqg.pl";
+    $runner = DEFAULT_RQG_RUNNER;
     say("INFO: RQG runner was not assigned. Taking the default '$runner'.");
 }
 if (defined $runner) {
@@ -706,8 +715,9 @@ say("DEBUG: Command line options to be appended to the call of the RQG runner: -
     $cl_end . "<-") if Auxiliary::script_debug("T1");
 
 
+use constant DEFAULT_MAX_RUNTIME => 432000;
 if (not defined $max_runtime) {
-    $max_runtime = 432000;
+    $max_runtime = DEFAULT_MAX_RUNTIME;
     my $max_days = $max_runtime / 24 / 3600;
     say("INFO: rqg_batch.pl : Setting the maximum runtime to the default of $max_runtime" .
         "s ($max_days days).");
@@ -1447,12 +1457,15 @@ sub help() {
    "--help_archiving\n"                                                                            .
    "      Information about how and when archives of the binaries used and results are made\n"     .
    "\n"                                                                                            .
-   "--type=<Which type of work ('Combinator' or 'Simplifier') to do>\n"                            .
+   "--type=<Which type of work ("                                                                  .
+   Auxiliary::list_values_supported(Batch::BATCH_TYPE_ALLOWED_VALUE_LIST) . "') to do>\n"          .
+   "      (Default) '" . Batch::BATCH_TYPE_COMBINATOR . "'\n"                                      .
    "--config=<config file with path absolute or path relative to top directory of RQG install>\n"  .
    "      Assigning this file is mandatory.\n"                                                     .
    "--max_runtime=<n>\n"                                                                           .
    "      Stop ongoing RQG runs if the total runtime in seconds has exceeded this value, give "    .
    "a summary and exit.\n"                                                                         .
+   "      (Default) " . DEFAULT_MAX_RUNTIME . "\n"                                                 .
    "--parallel=<n>\n"                                                                              .
    "      Maximum number of parallel RQG Workers performing RQG runs.\n"                           .
    "      (Default) All OS: If supported <return of OS command nproc> otherwise 1.\n\n"            .
@@ -1462,21 +1475,19 @@ sub help() {
    "         in some very slow reacting testing box up till OS crashes.\n"                         .
    "         Critical candidates: open files, max user processes, free space in tmpfs\n"           .
    "         Future improvement of rqg_batch.pl will reduce these risks drastic.\n\n"              .
-   "also not passed through to the RQG runner.\n"                                                  .
-   "          If neither --no_mask, --mask or --mask-level is in the combination string than "     .
-   "a --mask=.... will be appended to it.\n"                                                       .
-   "          Impact of the latter in the RQG runner: mask-level=1 and that --mask=...\n"          .
+   "--build_thread=<n> Begin of the range of build threads assigned to RQG runs.\n"                .
+   "      (Recommendation) Do not assign this parameter.\n"                                        .
+   "      (Default) " .  DEFAULT_MTR_BUILD_THREAD . "\n"                                           .
    "--runner=...\n"                                                                                .
    "      The RQG runner to be used. The value assigned must be without path.\n"                   .
-   "      (Default) rqg.pl in RQG_HOME.\n"                                                         .
+   "      (Default) '" . DEFAULT_RQG_RUNNER . " in RQG_HOME.\n"                                    .
    "--discard_logs\n"                                                                              .
-   "      Remove even the logs of RQG runs with the verdict '" . Verdict::RQG_VERDICT_IGNORE       .
-   "'\n"                                                                                           .
+   "      Remove even the logs of RQG runs with the verdict '" .Verdict::RQG_VERDICT_IGNORE. "'\n" .
    "--stop_on_replay=<n>\n"                                                                        .
    "      As soon as <n> RQG runs achieved the verdict '" . Verdict::RQG_VERDICT_REPLAY            .
    " , stop all active RQG Worker, cleanup, give a summary and exit.\n"                            .
+   "      '--stop_on_replay '   in command line leads to use n = 1\n\n"                            .
    "      '--stop_on_replay...' not in command line n = " . Batch::MAX_BATCH_STARTS . "\n"         .
-   "      '--stop_on_replay '       in command line n = 1\n\n"                                     .
    "--dryrun=<verdict_value>\n"                                                                    .
    "      Run the complete mechanics except that the RQG worker processes forked\n"                .
    "      - print the RQG call which they would run\n"                                             .
@@ -1499,8 +1510,8 @@ sub help() {
    "      - optimizations (depend on progress) for grammar simplification\n"                       .
    "--resource_control=...  Automatic RQG BATCH resource control (Linux only)\n"                   .
    "      help_resource_control (FIXME: is missing)\n"                                             .
-   "      (Recommended) Empty string or '--resource_control=...' not assigned at all\n"            .
-   "         --> Get the Automatic resource control enabled\n"                                     .
+   "      (Recommended) Do not assign '--resource_control=...' at all\n"                           .
+   "         --> Get the Automatic resource control enabled.\n"                                    .
    "      (Quite risky if 'parallel' is high) '" . ResourceControl::RC_NONE . "'\n"                .
    "         --> No automatic resource control\n"                                                  .
    "--noarchiving\n"                                                                               .
@@ -1546,7 +1557,7 @@ sub help() {
    "Impact of RQG_HOME if found in environment and the current working directory:\n"               .
    "Around its start rqg_batch.pl searches for RQG components in <CWD>/lib and ENV(\$RQG_HOME)/lib\n" .
    "- rqg_batch.pl computes than a RQG_HOME based on its call and sets than some corresponding "   .
-   "  environment variable or aborts.\n"                                                           .
+   "environment variable or aborts.\n"                                                           .
    "  All required RQG components (runner/reporter/validator/...) will be taken from this \n"      .
    "  RQG_HOME 'Universe' in order to ensure consistency between these components.\n"              .
    "- All other ingredients with relationship to some filesystem like\n"                           .
