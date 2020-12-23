@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Copyright (c) 2019 MariaDB Corporation Ab.
+# Copyright (c) 2019, 2020 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -148,9 +148,6 @@ if (defined $help) {
     Verdict::help();
     safe_exit(0);
 }
-
-# use constant STATUS_OK       => 0;
-use constant STATUS_FAILURE    => 1; # Just the opposite of STATUS_OK
 
 my $variant;
 if (defined $workdir and not defined $config_file and not defined $log_file) {
