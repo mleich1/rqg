@@ -2671,7 +2671,7 @@ sub check_if_reasonable_pid {
         say("INTERNAL ERROR: value for \$pid is undef. Will return undef.");
         return undef;
     } elsif ($pid eq '') {
-        say("DEBUG: value for \$pid is empty string. Will return undef.");
+        # say("DEBUG: value for \$pid is empty string. Will return undef.");
         return undef;
     } elsif ($pid =~ /^0.*/) {
         say("ERROR: value for \$pid ->" . $pid . "<- starts with 0. Will return undef.");

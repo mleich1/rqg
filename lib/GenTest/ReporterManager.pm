@@ -48,11 +48,17 @@ sub monitor {
 
     foreach my $reporter (@{$manager->reporters()}) {
         if ($reporter->type() & $desired_type) {
+            # In case we have already exceeded $reporter->testEnd() abort running the current
+            # sequence of reporters.
+            my $test_end = $reporter->testEnd();
+            last if defined $test_end and $test_end <= time();
             my $reporter_result = $reporter->monitor();
             $max_result = $reporter_result if $reporter_result > $max_result;
             if ($reporter_result != STATUS_OK) {
                 say("INFO: $who_am_i Reporter '" . $reporter->name() .
                     "' reported $reporter_result ");
+                # What follows is not required in case the reporter itself exits.
+                # This is valid 2020-12 but maybe not in all reporters or whatever.
                 if (STATUS_SERVER_KILLED == $reporter_result or
                     STATUS_SERVER_DEADLOCKED == $reporter_result) {
                     # The server was just now target of SIGKILL or SIGSEGV or maybe SIGABRT.

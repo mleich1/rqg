@@ -87,7 +87,8 @@ sub sqlstate {
 }
 
 sub affectedRows {
-	return int($_[0]->[RESULT_AFFECTED_ROWS]);
+    Carp::cluck("ALARM: affectedRows is undef.") if not defined int($_[0]->[RESULT_AFFECTED_ROWS]);
+    return int($_[0]->[RESULT_AFFECTED_ROWS]);
 }
 
 sub matchedRows {

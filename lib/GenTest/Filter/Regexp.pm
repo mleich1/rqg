@@ -29,10 +29,6 @@ use GenTest::Constants;
 use constant FILTER_REGEXP_FILE		=> 0;
 use constant FILTER_REGEXP_RULES	=> 1;
 
-# FIXME: Place in Constants.pm
-use constant STATUS_FAILURE    => 1; # Just the opposite of STATUS_OK
-
-
 my $total_queries;
 my $filtered_queries;
 
