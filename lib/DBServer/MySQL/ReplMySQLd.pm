@@ -1,6 +1,6 @@
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2020, MariaDB Corporation Ab.
+# Copyright (c) 2020,2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -78,14 +78,14 @@ sub new {
                                    'rr_options'     => REPLMYSQLD_RR_OPTIONS,
                                    'user' => REPLMYSQLD_USER},@_);
 
-    if (defined $self->[REPLMYSQLD_USE_GTID] 
+    if (defined $self->[REPLMYSQLD_USE_GTID]
         and lc($self->[REPLMYSQLD_USE_GTID] ne 'no')
         and lc($self->[REPLMYSQLD_USE_GTID] ne 'current_pos')
         and lc($self->[REPLMYSQLD_USE_GTID] ne 'slave_pos')
     ) {
         croak("Invalid value $self->[REPLMYSQLD_USE_GTID] for use_gtid option");
     }
-    
+
     if (defined $self->master || defined $self->slave) {
         ## Repl pair defined from two predefined servers
 
@@ -100,13 +100,17 @@ sub new {
                                         "--report-host=127.0.0.1",
                                         "--report_port=".$self->slave->port]);
     } else {
-        ## Repl pair defined from parameters. 
+        ## Repl pair defined from parameters.
         if (not defined $self->[REPLMYSQLD_MASTER_PORT]) {
+            # FIXME:
+            # How many code files have their own definition/setting of this value?
+            # And if several than shouldn't the constant MYSQLD_DEFAULT_PORT be
+            # defined at one place only?
             $self->[REPLMYSQLD_MASTER_PORT] = DBServer::MySQL::MySQLd::MYSQLD_DEFAULT_PORT;
         }
-    
+
         if (not defined $self->[REPLMYSQLD_SLAVE_PORT]) {
-            $self->[REPLMYSQLD_SLAVE_PORT] = $self->[REPLMYSQLD_MASTER_PORT] + 2;        
+            $self->[REPLMYSQLD_SLAVE_PORT] = $self->[REPLMYSQLD_MASTER_PORT] + 2;
         }
 
         if (not defined $self->[REPLMYSQLD_MODE]) {
@@ -116,7 +120,7 @@ sub new {
           $self->[REPLMYSQLD_MODE]= $1;
           $self->[REPLMYSQLD_NOSYNC]= 1;
         }
-    
+
         if (not defined $self->[REPLMYSQLD_MASTER_VARDIR]) {
             $self->[REPLMYSQLD_MASTER_VARDIR] = "mysql-test/var";
         }
@@ -131,21 +135,21 @@ sub new {
         }
 
         my @master_options;
-        push(@master_options, 
+        push(@master_options,
              "--server_id=1",
              "--log-bin=mysql-bin",
              "--report-host=127.0.0.1",
              "--report_port=".$self->[REPLMYSQLD_MASTER_PORT]);
         if (defined $self->[REPLMYSQLD_SERVER_OPTIONS]) {
-            push(@master_options, 
+            push(@master_options,
                  @{$self->[REPLMYSQLD_SERVER_OPTIONS]});
         }
 
-        
-        $self->[REPLMYSQLD_MASTER] = 
+
+        $self->[REPLMYSQLD_MASTER] =
         DBServer::MySQL::MySQLd->new(basedir => $self->[REPLMYSQLD_MASTER_BASEDIR],
                                      vardir => $self->[REPLMYSQLD_MASTER_VARDIR],
-                                     debug_server => $self->[REPLMYSQLD_DEBUG_SERVER],                
+                                     debug_server => $self->[REPLMYSQLD_DEBUG_SERVER],
                                      port => $self->[REPLMYSQLD_MASTER_PORT],
                                      server_options => \@master_options,
                                      general_log => $self->[REPLMYSQLD_GENERAL_LOG],
@@ -156,26 +160,26 @@ sub new {
                                      rr_options     => $self->[REPLMYSQLD_RR_OPTIONS],
                                      config => $self->[REPLMYSQLD_CONFIG_CONTENTS],
                                      user => $self->[REPLMYSQLD_USER]);
-        
+
         if (not defined $self->master) {
             croak("Could not create master");
         }
-        
+
         my @slave_options;
-        push(@slave_options, 
+        push(@slave_options,
              "--server_id=2",
              "--report-host=127.0.0.1",
              "--report_port=".$self->[REPLMYSQLD_SLAVE_PORT]);
         if (defined $self->[REPLMYSQLD_SERVER_OPTIONS]) {
-            push(@slave_options, 
+            push(@slave_options,
                  @{$self->[REPLMYSQLD_SERVER_OPTIONS]});
         }
-        
-        
-        $self->[REPLMYSQLD_SLAVE] = 
+
+
+        $self->[REPLMYSQLD_SLAVE] =
         DBServer::MySQL::MySQLd->new(basedir => $self->[REPLMYSQLD_SLAVE_BASEDIR],
                                      vardir => $self->[REPLMYSQLD_SLAVE_VARDIR],
-                                     debug_server => $self->[REPLMYSQLD_DEBUG_SERVER],                
+                                     debug_server => $self->[REPLMYSQLD_DEBUG_SERVER],
                                      port => $self->[REPLMYSQLD_SLAVE_PORT],
                                      server_options => \@slave_options,
                                      general_log => $self->[REPLMYSQLD_GENERAL_LOG],
@@ -186,13 +190,13 @@ sub new {
                                      rr_options     => $self->[REPLMYSQLD_RR_OPTIONS],
                                      config => $self->[REPLMYSQLD_CONFIG_CONTENTS],
                                      user => $self->[REPLMYSQLD_USER]);
-        
+
         if (not defined $self->slave) {
             $self->master->stopServer;
             croak("Could not create slave");
         }
     }
-    
+
     return $self;
 }
 
@@ -227,25 +231,25 @@ sub startServer {
 		$master_dbh->do("SET GLOBAL BINLOG_FORMAT = '".$self->mode."'");
 		$slave_dbh->do("SET GLOBAL BINLOG_FORMAT = '".$self->mode."'");
 	}
-    
+
 	$slave_dbh->do("STOP SLAVE");
 
 #	$slave_dbh->do("SET GLOBAL storage_engine = '$engine'") if defined $engine;
 
-	my $master_use_gtid = ( 
-		defined $self->[REPLMYSQLD_USE_GTID] 
-		? ', MASTER_USE_GTID = ' . $self->[REPLMYSQLD_USE_GTID] 
-		: '' 
+	my $master_use_gtid = (
+		defined $self->[REPLMYSQLD_USE_GTID]
+		? ', MASTER_USE_GTID = ' . $self->[REPLMYSQLD_USE_GTID]
+		: ''
 	);
-    
+
 	$slave_dbh->do("CHANGE MASTER TO ".
                    " MASTER_PORT = ".$self->master->port.",".
                    " MASTER_HOST = '127.0.0.1',".
                    " MASTER_USER = 'root',".
                    " MASTER_CONNECT_RETRY = 1" . $master_use_gtid);
-    
+
 	$slave_dbh->do("START SLAVE");
-    
+
     return DBSTATUS_OK;
 }
 

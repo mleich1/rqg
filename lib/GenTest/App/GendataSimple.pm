@@ -1,5 +1,5 @@
 # Copyright (C) 2009 Sun Microsystems, Inc. All rights reserved.
-# Copyright (c) 2018, MariaDB Corporation Ab
+# Copyright (c) 2018,2021 MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -114,6 +114,7 @@ sub run {
    $executor->setId($self->server_id);
    $executor->sqltrace($self->sqltrace);
    $executor->setRole("GendataSimple");
+   $executor->setTask(GenTest::Executor::EXECUTOR_TASK_GENDATA);
    $executor->init();
 
    my $names = GDS_DEFAULT_NAMES;

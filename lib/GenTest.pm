@@ -113,6 +113,9 @@ sub say {
 	no warnings 'layer';
 
     defaultLogging();
+    if (not defined $text) {
+        Carp::cluck("ALARM: FIXME \$text is not defined");
+    }
     if ($text =~ m{[\r\n]}sio) {
         foreach my $line (split (m{[\r\n]}, $text)) {
             if (defined $logger) {
