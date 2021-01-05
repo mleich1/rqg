@@ -2,7 +2,7 @@
 
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2016,2020 MariaDB Corporation Ab
+# Copyright (c) 2016, 2021 MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -116,6 +116,16 @@ sub new {
     }
     if ($self->config->servers and not ref $self->config->servers eq 'ARRAY') {
         $self->config->servers([ split /,/, $self->config->servers ]);
+    }
+
+    # Initialize the reporters now because
+    # - running parts of Gendata/GenTest with success but failing later because of defect or missing
+    #   reporters is wasting of resources at runtime
+    # - at least the reporter Backtrace is useful when hitting trouble in Gendata
+    my $status = $self->initReporters;
+    if (STATUS_OK != $status) {
+        say("ERROR: GenTest: initReporters returned status $status. Will return undef.");
+        return undef;
     }
 
     if (not defined $self->config) {
@@ -244,155 +254,147 @@ sub run {
 
 sub doGenTest {
 
-   my $self = shift;
+    my $self = shift;
 
-   my $who_am_i = "doGenTest:";
+    my $who_am_i = "doGenTest:";
 
-   $self->do_init();
+    my $status;
 
-   # Give 1.0 seconds delay per worker/thread configured.
-   # Impact:
-   # 1. The reporting process has connected and all workers have connected + got their Mixer.
-   #    Exception:
-   #    The setup or server is "ill" and than STATUS_ENVIRONMENT_FAILURE would be right.
-   # 2. Hereby we hopefully mostly avoid the often seen wrong status code
-   #    STATUS_ENVIRONMENT_FAILURE. Some threads connect, get their mixer, start to run DDL/DML
-   #    and crash hereby the server. They all report STATUS_SERVER_CRASHED which is right.
-   #    The reporting process or some other threads are slower (box is heavy loaded), try to
-   #    connect first time after the crash, get no connection and report than
-   #    STATUS_ENVIRONMENT_FAILURE because its their first connect attempt.
+    $self->do_init();
 
-   $self->[GT_TEST_START] = time() + 1.0 * $self->config->threads;
-   # FIXME: This message comes too early
-   say("INFO: GenTest: Start of running queries : " . $self->[GT_TEST_START]);
-   $self->[GT_TEST_END] = $self->[GT_TEST_START] + $self->config->duration;
+    # Cache metadata and other info that may be needed later
+    # ------------------------------------------------------
+    # Observation 2020-07:
+    # This might last quite long on some heavy loaded box.
+    # Hence we do it now before computing when worker threads should start their activity.
+    my @log_files_to_report;
+    foreach my $i (0..2) {
+        # FIXME:
+        # IMHO MetaDataCaching for different servers is questionable.
+        # 1. What will be the impact on the SQL executed on the different servers
+        #    if the Metadata between these servers differ?
+        # 2. When using MySQL/MariaDB builtin replication than omitting to cache Metadata on
+        #    slave servers makes sense. But should that get triggered by some undef dsn?
+        # Wouldn't be Metadata caching only on the first server better.
+        # But we have also the view[0] ... view[3] etc
+        last if $self->config->property('upgrade-test') and $i > 0;
+        next unless $self->config->dsn->[$i];
+        if ($self->config->property('ps-protocol') and
+            $self->config->dsn->[$i] !~ /mysql_server_prepare/) {
+            $self->config->dsn->[$i] .= ';mysql_server_prepare=1';
+        }
+        next if $self->config->dsn->[$i] !~ m{mysql}sio;
+        my $metadata_executor = GenTest::Executor->newFromDSN($self->config->dsn->[$i],
+                                                              osWindows() ? undef : $self->channel());
+        $metadata_executor->setId($i + 1);
+        $metadata_executor->setRole("MetaDataCacher");
+        $metadata_executor->setTask(GenTest::Executor::EXECUTOR_TASK_CACHER);
 
-   $self->[GT_CHANNEL] = GenTest::IPC::Channel->new();
-
-   # Some crash here ends like the case below except that finally STATUS_ALARM(110) gets reported.
-
-   my $init_generator_result = $self->initGenerator();
-   return $init_generator_result if $init_generator_result != STATUS_OK;
-
-   # Some crash here ends in
-   # ... Reporters: Deadlock, Backtrace, ErrorLog
-   # DBI connect ... failed: Lost connection ... at lib/GenTest/Reporter.pm ...
-   # [ERROR] Reporter 'GenTest::Reporter::Deadlock' could not be added.
-   #         Status will be set to ENVIRONMENT_FAILURE
-   # GenTest exited with exit status STATUS_ENVIRONMENT_FAILURE (110)
-   # Stopping server(s)...
-   # Stopping server on port 11100
-   # Stale connection to 11100. Reconnecting
-   # [ERROR] (Re)connect to 11100 failed due to 2003: Can't connect to MySQL server on ...
-   # Server has been stopped
-   # runall-new.pl will exit with exit status STATUS_ENVIRONMENT_FAILURE(110)
-
-   my $init_reporters_result = $self->initReporters();
-   return $init_reporters_result if $init_reporters_result != STATUS_OK;
-
-   my $init_validators_result = $self->initValidators();
-   return $init_validators_result if $init_validators_result != STATUS_OK;
-
-   if ($debug_here) {
-       say("DEBUG: GenTest::App::GenTest::doGenTest: Reporters:    ->" .
-           join("<->", @{$self->config->reporters})    . "<-\n"        .
-           "DEBUG: GenTest::App::GenTest::doGenTest: Validators:   ->" .
-           join("<->", @{$self->config->validators})   . "<-\n"        .
-           "DEBUG: GenTest::App::GenTest::doGenTest: Transformers: ->" .
-           join("<->", @{$self->config->transformers}) . "<-");
-   }
-
-   # Some crash here ends in
-   # ERROR: connect() to dsn dbi:... failed: Lost connection ...
-   # ERROR: Will return STATUS_ENVIRONMENT_FAILURE
-   # ERROR: GenTest::Executor::MySQL::init : Getting a connection for MetaDataCacher failed
-   #        with 110. Will return that status.
-   # GenTest exited with exit status STATUS_ENVIRONMENT_FAILURE (110)
-   # Stopping server(s)...
-   # Stopping server on port 11100
-   # Stale connection to 11100. Reconnecting
-   # ERROR] (Re)connect to 11100 failed due to 2003: Can't connect to MySQL server on ...
-   # Server has been stopped
-   # runall-new.pl will exit with exit status STATUS_ENVIRONMENT_FAILURE(110)
-
-   # Cache metadata and other info that may be needed later
-   # Observation 2020-07:
-   # This might last quite long on some heavy loaded box.
-   # Hence we do it now before computing when worker threads should start their activity.
-   my @log_files_to_report;
-   foreach my $i (0..2) {
-      # FIXME:
-      # IMHO MetaDataCaching for different servers is questionable.
-      # 1. What will be the impact on the SQL executed on the different servers
-      #    if the Metadata between these servers differ?
-      # 2. When using MySQL/MariaDB builtin replication than omitting to cache Metadata on
-      #    slave servers makes sense. But should that get triggered by some undef dsn?
-      # Wouldn't be Metadata caching only on the first server better.
-      # But we have also the view[0] ... view[3] etc
-      last if $self->config->property('upgrade-test') and $i > 0;
-      next unless $self->config->dsn->[$i];
-      if ($self->config->property('ps-protocol') and $self->config->dsn->[$i] !~ /mysql_server_prepare/) {
-          $self->config->dsn->[$i] .= ';mysql_server_prepare=1';
-      }
-      next if $self->config->dsn->[$i] !~ m{mysql}sio;
-      my $metadata_executor = GenTest::Executor->newFromDSN($self->config->dsn->[$i], osWindows() ? undef : $self->channel());
-      $metadata_executor->setRole("MetaDataCacher");
-      $metadata_executor->setId($i + 1);
-      my $init_executor_result = $metadata_executor->init();
-      return $init_executor_result if $init_executor_result != STATUS_OK;
-
-      # FIXME: Are there really cases where this dbh does not exist?
-      if (defined $metadata_executor->dbh()) {
-          my $status = $metadata_executor->cacheMetaData();
-          if (STATUS_OK != $status) {
-              # The corresponding routines met trouble and we cannot live with that at all.
-              Carp::cluck("ERROR: metadata caching failed with status " .
-                          status2text($status) . ". Will return that status.");
-              return $status;
-          }
-      } else {
-          Carp::cluck("WARNING: metadata_executor->dbh is not defined. Please show mleich the RQG log");
-      }
-
-      # Some crash after here end with fine backtrace
         # For experimenting:
-        # system ("killall -6 mysqld");
+        # system ("killall -9 mysqld mariadbd");
+        # sleep 5;
+        $status = $metadata_executor->init();
+        last if $status != STATUS_OK;
 
-      # Cache log file names needed for result reporting at end-of-test
+        # We have now an executor with all features like a connection etc.
 
-      # We do not copy the general log, as it may grow very large for some tests.
-      #my $logfile_result = $metadata_executor->execute("SHOW VARIABLES LIKE 'general_log_file'");
-      #push(@log_files_to_report, $logfile_result->data()->[0]->[1]);
+        # For experimenting:
+        # system ("killall -9 mysqld mariadbd");
+        # sleep 5;
+        $status = $metadata_executor->cacheMetaData();
+        last if $status != STATUS_OK;
 
-      # Guessing the error log file name relative to datadir (lacking safer methods).
-      my $query = "SHOW VARIABLES LIKE 'datadir'";
-      my $datadir_result = $metadata_executor->execute($query);
-      if (not defined $datadir_result) {
-          Carp::cluck("FATAL ERROR: Failed to retrieve datadir. Will return STATUS_ENVIRONMENT_FAILURE");
-          return STATUS_ENVIRONMENT_FAILURE;
-      }
 
-      # Guessing the error log file name relative to datadir (lacking safer methods).
-      my $errorlog;
-      foreach my $errorlog_path (
+        # Cache log file names needed for result reporting at end-of-test
+        # ---------------------------------------------------------------
+        # We do not copy the general log, as it may grow very large for some tests.
+        # my $logfile_result = $metadata_executor->execute("SHOW VARIABLES LIKE 'general_log_file'");
+        # push(@log_files_to_report, $logfile_result->data()->[0]->[1]);
+
+        my $query = "SHOW VARIABLES LIKE 'datadir'" ;
+        # $metadata_executor->execute will
+        # - decorate the query by prepending
+        #   /* E_R <executor->role> QNO n CON_ID <executor->connectionId()> */
+        # - also write the sql trace.
+
+        # For experimenting:
+        # system ("killall -9 mysqld mariadbd");
+        # sleep 5;
+        my $datadir_result = $metadata_executor->execute($query);
+        $status = $datadir_result->status;
+        last if $status != STATUS_OK;
+
+        # Guessing the error log file name relative to datadir (lacking safer methods).
+        my $errorlog;
+        foreach my $errorlog_path (
             "../log/master.err",  # MTRv1 regular layout
             "../log/mysqld1.err", # MTRv2 regular layout
             "../mysql.err"        # DBServer::MySQL layout
-      ) {
+        ) {
             my $possible_path = File::Spec->catfile($datadir_result->data()->[0]->[1],
                                                     $errorlog_path);
-         if (-e $possible_path) {
-             $errorlog = $possible_path;
-             last;
-         }
-      }
-      push(@log_files_to_report, $errorlog) if defined $errorlog;
+            if (-e $possible_path) {
+                $errorlog = $possible_path;
+                last;
+            }
+        }
+        push(@log_files_to_report, $errorlog) if defined $errorlog;
 
-      $metadata_executor->disconnect();
-      undef $metadata_executor;
-   }
+        $metadata_executor->disconnect();
+        undef $metadata_executor;
+    }
+    $status = $self->check_for_crash($status);
+    return $status if $status != STATUS_OK;
 
-   $self->[GT_LOG_FILES_TO_REPORT] = \@log_files_to_report;
+    # Give 1.0s delay per worker/thread configured.
+    # Impact:
+    # 1. The reporting process has connected and all workers have connected + got their Mixer.
+    #    Exception:
+    #    The setup or server is "ill" and than STATUS_ENVIRONMENT_FAILURE would be right.
+    # 2. Hereby we hopefully mostly avoid the often seen wrong status codes STATUS_ALARM/
+    #    STATUS_ENVIRONMENT_FAILURE which are based on scenarios like
+    #    Some threads connect, get their mixer, start to run DDL/DML and crash hereby the server.
+    #    They all report STATUS_SERVER_CRASHED which is right.
+    #    But the periodic reporting process or some other threads are slower (box is heavy loaded),
+    #    try to connect first time after the crash, get no connection and report than
+    #    STATUS_ENVIRONMENT_FAILURE because its their first connect attempt.
+
+    $self->[GT_TEST_START] = time() + 1.0 * $self->config->threads;
+    say("INFO: GenTest: (Planned) Start of running queries : " . $self->[GT_TEST_START] .
+        " -- " . isoTimestamp($self->[GT_TEST_START]));
+    $self->[GT_TEST_END] = $self->[GT_TEST_START] + $self->config->duration;
+
+    $self->[GT_CHANNEL] = GenTest::IPC::Channel->new();
+
+    # For experimenting:
+    # system ("killall -9 mysqld mariadbd");
+    # sleep 5;
+    my $init_generator_result = $self->initGenerator();
+    return $init_generator_result if $init_generator_result != STATUS_OK;
+    # initGenerator does not connect hence check_for_crash makes no sense.
+
+    # For experimenting:
+    # system ("killall -9 mysqld mariadbd");
+    # sleep 5;
+    $status = $self->initReporters();
+    # initReporters tries to connect!
+    $status = $self->check_for_crash($status);
+    return $status if $status != STATUS_OK;
+
+    my $init_validators_result = $self->initValidators();
+    # initValidators does not seem to connect.
+    return $init_validators_result if $init_validators_result != STATUS_OK;
+
+    if ($debug_here) {
+        say("DEBUG: GenTest::App::GenTest::doGenTest: Reporters:    ->" .
+            join("<->", @{$self->config->reporters})    . "<-\n"        .
+            "DEBUG: GenTest::App::GenTest::doGenTest: Validators:   ->" .
+            join("<->", @{$self->config->validators})   . "<-\n"        .
+            "DEBUG: GenTest::App::GenTest::doGenTest: Transformers: ->" .
+            join("<->", @{$self->config->transformers}) . "<-");
+    }
+
+    $self->[GT_LOG_FILES_TO_REPORT] = \@log_files_to_report;
 
     if (defined $self->config->filter) {
         # $self->[GT_QUERY_FILTERS] = [ GenTest::Filter::Regexp->new( file => $self->config->filter) ];
@@ -401,215 +403,218 @@ sub doGenTest {
             $self->[GT_QUERY_FILTERS] = [ $result ];
         } else {
             my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: $who_am_i Will return status : " . status2text($status) . "($status).");
+            say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
             return $status;
         }
-   }
+    }
 
-   say("Starting " . $self->config->threads . " processes, " .
-       $self->config->queries  . " queries each, duration " .
-       $self->config->duration . " seconds.");
+    say("Starting " . $self->config->threads . " processes, " .
+        $self->config->queries  . " queries each, duration " .
+        $self->config->duration . " seconds.");
 
-   $self->initXMLReport();
+    # Disabled because
+    # - executed even if unwanted/being not asked/...
+    # - perl warnings about uninitialized variables in whatever XMLReport related code observed
+    # - I do not use it and have also not the time to fix that.
+    # $self->initXMLReport();
 
-   ### Start central reporting thread ####
+    ### Start central reporting thread ####
+    my $errorfilter   = GenTest::ErrorFilter->new(channel => $self->channel());
+    my $errorfilter_p = GenTest::IPC::Process->new(object => $errorfilter);
+    if (!osWindows()) {
+        $errorfilter_p->start($self->config->property('upgrade-test') ? [$self->config->servers->[0]] : $self->config->servers);
+    }
 
-   my $errorfilter   = GenTest::ErrorFilter->new(channel => $self->channel());
-   my $errorfilter_p = GenTest::IPC::Process->new(object => $errorfilter);
-   if (!osWindows()) {
-      $errorfilter_p->start($self->config->property('upgrade-test') ? [$self->config->servers->[0]] : $self->config->servers);
-   }
+    # For experimenting:
+    # system ("killall -9 mysqld mariadbd");
+    # sleep 5;
+    my $reporter_pid = $self->reportingProcess();
 
-   my $reporter_pid = $self->reportingProcess();
+    ### Start worker children ###
+    my %worker_pids;   # Hash with pairs: OS pid -- Task of that process inside RQG.
 
-   ### Start worker children ###
+    if ($self->config->threads > 0) {
+        foreach my $worker_id (1..$self->config->threads) {
+            my $worker_pid = $self->workerProcess($worker_id);
+            $worker_pids{$worker_pid} = "Thread" . $worker_id;
+        }
+    }
 
-   my %worker_pids;   # Hash with pairs: OS pid -- Task of that process inside RQG.
+    ### Main process
+    if (osWindows()) {
+        ## Important that this is done here in the parent after the last
+        ## fork since on windows Process.pm uses threads
+        $errorfilter_p->start();
+    }
 
-   if ($self->config->threads > 0) {
-      foreach my $worker_id (1..$self->config->threads) {
-         my $worker_pid = $self->workerProcess($worker_id);
-         $worker_pids{$worker_pid} = "Thread" . $worker_id;
-         # Experimental (mleich):
-         # What do we need to predict at all? Try removal of sleep.
-         # Time::HiRes::sleep(0.1); # fork slowly for more predictability
-      }
-   }
+    ## Parent thread does not use channel
+    $self->channel()->close;
 
-   ### Main process
+    # We are the parent process, wait for for all spawned processes to terminate
+    my $total_status   = STATUS_OK;
+    my $total_status_t = STATUS_OK;
+    my $total_status_r = STATUS_OK;
+    my $reporter_died  = 0;
+    OUTER: while (1) {
+        # Worker & Reporter processes that were spawned.
+        my @spawned_pids = (keys %worker_pids, $reporter_pid);
 
-   if (osWindows()) {
-      ## Important that this is done here in the parent after the last
-      ## fork since on windows Process.pm uses threads
-      $errorfilter_p->start();
-   }
+        # Wait for processes to complete, i.e only processes spawned by workers & reporters.
+        foreach my $spawned_pid (@spawned_pids) {
 
-   ## Parent thread does not use channel
-   $self->channel()->close;
+            my $message_begin = "Process with pid $spawned_pid ";
 
-   # We are the parent process, wait for for all spawned processes to terminate
-   my $total_status   = STATUS_OK;
-   my $total_status_t = STATUS_OK;
-   my $total_status_r = STATUS_OK;
-   my $reporter_died  = 0;
-   OUTER: while (1) {
-      # Worker & Reporter processes that were spawned.
-      my @spawned_pids = (keys %worker_pids, $reporter_pid);
-
-      # Wait for processes to complete, i.e only processes spawned by workers & reporters.
-      foreach my $spawned_pid (@spawned_pids) {
-
-         my $message_begin = "Process with pid $spawned_pid ";
-
-         my ($reaped, $child_exit_status) = reapChild($spawned_pid, $worker_pids{$spawned_pid});
-         if (0 == $reaped) {
-            if ($child_exit_status > STATUS_OK) {
-                say("INTERNAL ERROR: Inconsistency that child_exit_status $child_exit_status was " .
-                    "got though process [$spawned_pid] was not reaped.");
-                return STATUS_INTERNAL_ERROR;
+            my ($reaped, $child_exit_status) = Auxiliary::reapChild($spawned_pid,
+                                                                    $worker_pids{$spawned_pid});
+            if (0 == $reaped) {
+                if ($child_exit_status > STATUS_OK) {
+                    say("INTERNAL ERROR: Inconsistency that child_exit_status $child_exit_status " .
+                        "was got though process [$spawned_pid] was not reaped.");
+                    return STATUS_INTERNAL_ERROR;
+                } else {
+                    next;
+                }
             } else {
-                next;
+                $total_status = $child_exit_status if $child_exit_status > $total_status;
+                my $message_end   = " ended with status " . status2text($child_exit_status);
+                if ($spawned_pid == $reporter_pid ) {
+                    $total_status_r = $child_exit_status if $child_exit_status > $total_status_r;
+                    say($message_begin . "for periodic reporter" . $message_end);
+                    # There is only exact one reporter process. So we leave the loop.
+                    $reporter_died = 1;
+                    say("DEBUG: GenTest: Therefore leaving the 'OUTER' loop.") if $debug_here;
+                    last OUTER;
+                } else {
+                    $total_status_t = $child_exit_status if $child_exit_status > $total_status_t;
+                    say($message_begin . "for " . $worker_pids{$spawned_pid} . $message_end);
+                    delete $worker_pids{$spawned_pid};
+                }
+                last OUTER if $child_exit_status >= STATUS_CRITICAL_FAILURE;
+                last OUTER if 0 == scalar (keys %worker_pids);
             }
-         } else {
-            $total_status = $child_exit_status if $child_exit_status > $total_status;
-            my $message_end   = " ended with status " . status2text($child_exit_status);
-            if ($spawned_pid == $reporter_pid ) {
-               $total_status_r = $child_exit_status if $child_exit_status > $total_status_r;
-               say($message_begin . " for periodic reporter" . $message_end);
-               # There is only exact one reporter process. So we leave the loop.
-               $reporter_died = 1;
-               say("DEBUG: GenTest: Therefore leaving the 'OUTER' loop.") if $debug_here;
-               last OUTER;
-            } else {
-               $total_status_t = $child_exit_status if $child_exit_status > $total_status_t;
-               say($message_begin . "for " . $worker_pids{$spawned_pid} . $message_end);
-               delete $worker_pids{$spawned_pid};
-            }
-            last OUTER if $child_exit_status >= STATUS_CRITICAL_FAILURE;
-            last OUTER if 0 == scalar (keys %worker_pids);
-         }
-      }
-      sleep 5;
-   }
+        }
+        sleep 5;
+    }
 
-   # FIXME:
-   # What follows might be not sufficient.
-   # 1. What if a "Worker" does not react on SIGTERM?
-   # 2. What if a "Worker" has to report some bad status > current $total_status?
-   #    Warning:
-   #    There is a significant chance that this bad status is a sideeffect of the failure causing
-   #       a current bad $total_status.
-   #    And than this bad status is frequent
-   #       - less accurate/detailed than a current bad $total_status
-   #       - higher than a current bad $total_status
-   #    So in case we just take the maximum like usual than we destroy detail up to report a false
-   #    status.
-   foreach my $worker_pid (keys %worker_pids) {
-      say("Killing (TERM) remaining worker process with pid $worker_pid...");
-      kill(15, $worker_pid);
-   }
-   # 1. The box might be under heavy load --> Delay in reaction on TERM
-   # 2. The worker might be in whatever state and temporary or permanent not reactive.
-   my $end_time = Time::HiRes::time() + 15;
-   while ((0 < scalar (keys %worker_pids)) and ($end_time > Time::HiRes::time())) {
-      foreach my $worker_pid (keys %worker_pids) {
-         my $message_begin = "Process with pid $worker_pid ";
-         my ($reaped, $child_exit_status) = reapChild($worker_pid, $worker_pids{$worker_pid});
-         if (0 == $reaped) {
-            if ($child_exit_status > STATUS_OK) {
-                say("INTERNAL ERROR: Inconsistency that child_exit_status $child_exit_status was " .
-                    "got though process [$worker_pid] was not reaped.");
-                return STATUS_INTERNAL_ERROR;
+    foreach my $worker_pid (keys %worker_pids) {
+        say("Killing (TERM) remaining worker process with pid $worker_pid...");
+        kill(15, $worker_pid);
+    }
+    # 1. The box might be under heavy load --> Delay in reaction on TERM
+    # 2. The worker might be in whatever state and temporary or permanent not reactive.
+    my $end_time = Time::HiRes::time() + 15;
+    while ((0 < scalar (keys %worker_pids)) and ($end_time > Time::HiRes::time())) {
+        foreach my $worker_pid (keys %worker_pids) {
+            my $message_begin = "Process with pid $worker_pid ";
+            my ($reaped, $child_exit_status) = Auxiliary::reapChild($worker_pid,
+                                                                    $worker_pids{$worker_pid});
+            if (0 == $reaped) {
+                if ($child_exit_status > STATUS_OK) {
+                    say("INTERNAL ERROR: Inconsistency that child_exit_status $child_exit_status " .
+                        "was got though process [$worker_pid] was not reaped.");
+                    return STATUS_INTERNAL_ERROR;
+                } else {
+                    next;
+                }
             } else {
-                next;
+                # It is intentional to not touch $total_status at all.
+                # Just one historic example which shows why:
+                # The reporter Deadlock initiates that the server gets killed with core.
+                # Some worker is affected by the no more responding server and exits here with 110.
+                # And on the way which follows the knowledge about the intentional server kill
+                # because of assumed Deadlock/Freeze gets lost.
+                my $message_end   = " ended with status " . status2text($child_exit_status);
+                say($message_begin . "for " . $worker_pids{$worker_pid} . $message_end);
+                delete $worker_pids{$worker_pid};
             }
-         } else {
-            my $message_end   = " ended with status " . status2text($child_exit_status);
-            say($message_begin . "for " . $worker_pids{$worker_pid} . $message_end);
-            delete $worker_pids{$worker_pid};
-         }
-      }
-      sleep 0.1;
-   }
-   foreach my $worker_pid (keys %worker_pids) {
-      say("Killing (KILL) remaining worker process with pid $worker_pid...");
-      kill(9, $worker_pid);
-   }
+        }
+        sleep 0.1;
+    }
+    foreach my $worker_pid (keys %worker_pids) {
+        say("Killing (KILL) remaining worker processes with pid $worker_pid...");
+        kill(9, $worker_pid);
+    }
 
-   if ($reporter_died == 0) {
-      # Wait for periodic process to return the status of its last execution.
-      # Observation 2020-07-20
-      # 1. The process of the last worker thread exited with STATUS_OK.
-      # 2. A monitoring round ended with GenTest::ReporterManager::monitor: Will return the (maximum) status 0
-      # 3. I guess we were than leaving OUTER, no activity required for worker threads.
-      # 4. 12:33:18 [18207] Killing periodic reporting process with pid 108110...
-      #    12:33:18 [108110] ERROR: Reporter 'Deadlock': Actual test duration(548s) is more than ACTUAL_TEST_DURATION_EXCEED(240s) ....
-      #    12:33:18 [108110] INFO: Reporter 'Deadlock': monitor... delivered status 0. == Connectable+Processlist content is OK!
-      #    12:33:18 [108110] INFO: Reporter 'Deadlock': Killing mysqld with pid 22558 with SIGHUP in order to force debug output.
-      # 5. 15s (value is now raised to 60) waiting for the Reporter 'Deadlock' to terminate.
-      #    12:33:33 [18207] Kill GenTest::ErrorFilter(108108)
-      #    12:33:33 [18207] INFO: GenTest: Effective duration in s : 563
-      # 6. total_status is currently STATUS_OK (Deadlock has not yet finished)
-      #    reportResults starts and SUCCESS reporter get used
-      #    12:33:33 [18207] INFO: Reporter 'RestartConsistency': At begin of report.
-      #    12:33:33 [18207] INFO: Reporter 'RestartConsistency': Dumping the server before restart
-      #    12:33:35 [108110] INFO: Reporter 'Deadlock': Killing mysqld with pid 22558 with SIGSEGV in order to capture core.
-      # 7. 12:33:54 [18207] ERROR: Reporter 'RestartConsistency': Dumping the server before restart failed with 768.
-      #    == Collision of periodic reporter activity with SUCCESS/End reporter.
-      #    12:33:54 [18207] ERROR: Reporter 'RestartConsistency': Dumping the database failed with status 110. Will return STATUS_CRITICAL_FAILURE
-      #
-      # Conclusions:
-      # 1. ACTUAL_TEST_DURATION_EXCEED(240s) is at least for some grammars and the usual
-      #    excessive load too small.
-      # 2. Increase the waiting for termination of periodic reporting process to 60s.
-      # 3. SIGKILL the periodic reporting process in case he does not react fast enough.
-      Time::HiRes::sleep(1);
-      say("Killing (TERM) periodic reporting process with pid $reporter_pid...");
-      kill(15, $reporter_pid);
+    if ($reporter_died == 0) {
+        # Wait for periodic process to return the status of its last execution.
+        # Observation 2020-07-20
+        # 1. The process of the last worker thread exited with STATUS_OK.
+        # 2. A monitoring round ended with GenTest::ReporterManager::monitor: Will return the (maximum) status 0
+        # 3. I guess we were than leaving OUTER, no activity required for worker threads.
+        # 4. 12:33:18 [18207] Killing periodic reporting process with pid 108110...
+        #    12:33:18 [108110] ERROR: Reporter 'Deadlock': Actual test duration(548s) is more than ACTUAL_TEST_DURATION_EXCEED(240s) ....
+        #    12:33:18 [108110] INFO: Reporter 'Deadlock': monitor... delivered status 0. == Connectable+Processlist content is OK!
+        #    12:33:18 [108110] INFO: Reporter 'Deadlock': Killing mysqld with pid 22558 with SIGHUP in order to force debug output.
+        # 5. 15s (value is now raised to 60) waiting for the Reporter 'Deadlock' to terminate.
+        #    12:33:33 [18207] Kill GenTest::ErrorFilter(108108)
+        #    12:33:33 [18207] INFO: GenTest: Effective duration in s : 563
+        # 6. total_status is currently STATUS_OK (Deadlock has not yet finished)
+        #    reportResults starts and SUCCESS reporter get used
+        #    12:33:33 [18207] INFO: Reporter 'RestartConsistency': At begin of report.
+        #    12:33:33 [18207] INFO: Reporter 'RestartConsistency': Dumping the server before restart
+        #    12:33:35 [108110] INFO: Reporter 'Deadlock': Killing mysqld with pid 22558 with SIGSEGV in order to capture core.
+        # 7. 12:33:54 [18207] ERROR: Reporter 'RestartConsistency': Dumping the server before restart failed with 768.
+        #    == Collision of periodic reporter activity with SUCCESS/End reporter.
+        #    12:33:54 [18207] ERROR: Reporter 'RestartConsistency': Dumping the database failed with status 110. Will return STATUS_CRITICAL_FAILURE
+        #
+        # Conclusions:
+        # 1. ACTUAL_TEST_DURATION_EXCEED(240s) is at least for some grammars and the usual
+        #    excessive load too small.
+        # 2. Increase the waiting for termination of periodic reporting process to 60s.
+        # 3. SIGKILL the periodic reporting process in case he does not react fast enough.
 
-      my $reaped = 0;
-      my $reporter_status = STATUS_OK;
-      my $end_time = Time::HiRes::time() + 60;
-      while ($end_time > Time::HiRes::time()) {
-         ($reaped, $reporter_status) = reapChild($reporter_pid, "Periodic reporting process");
-         if (0 == $reaped) {
-            if ($reporter_status > STATUS_OK) {
-                say("INTERNAL ERROR: Inconsistency that a reporter_status $reporter_status was " .
-                    "got though process [$reporter_pid] was not reaped.");
-                return STATUS_INTERNAL_ERROR;
+        # The big problem with the reporter Crashrecovery
+        # Within the loop he calls killServer which might last a while if rr was invoked.
+        # But it needs to be killServer and not just SIGKILL server pid followed by exit
+        # with status 
+        Time::HiRes::sleep(1);
+        say("Killing (TERM) periodic reporting process with pid $reporter_pid...");
+        kill(15, $reporter_pid);
+
+        my $reaped = 0;
+        my $reporter_status = STATUS_OK;
+        my $end_time = Time::HiRes::time() + 60;
+        while ($end_time > Time::HiRes::time()) {
+            ($reaped, $reporter_status) = Auxiliary::reapChild($reporter_pid,
+                                                               "Periodic reporting process");
+            if (0 == $reaped) {
+                if ($reporter_status > STATUS_OK) {
+                    say("INTERNAL ERROR: Inconsistency that a reporter_status $reporter_status " .
+                        "was got though process [$reporter_pid] was not reaped.");
+                    return STATUS_INTERNAL_ERROR;
+                } else {
+                    # Process is running
+                    sleep(1);
+                    next;
+                }
             } else {
-                # Process is running
-                sleep(1);
-                next;
+                say("For pid $reporter_pid reporter status " . status2text($reporter_status));
+                # FIXME: See also/join with reportResults
+                # Some of the periodic reporters have capabilities to detect more precise than the
+                # threads running YY grammar what the state of the test is.
+                # But its too complicated to distill here something valuable.
+                # Q1: Which reporter reported what?
+                # Q2: What are the reliable capabilities of reporter X?
+                # Q3: Had the reporter a chance to detect a maybe bad state or was his last run too
+                #     long ago? STATUS_OK does not all time imply that the system state was good.
+                #     Per observation 2018-09-28 it is not guaranteed that some periodic reporter
+                #     must have detected that a server really (there was a core) crashed.
+                # So we cannot refine anything here even if
+                # - we get here STATUS_OK
+                # - we get here STATUS_SERVER_CRASHED and the maximum status got from the threads is
+                #   STATUS_CRITICAL_FAILURE (== Its bad but don't know + let the other decide)
+                #      than already the usual "take the maximum" mechanism does what is required.
+                #   STATUS_ALARM or STATUS_ENVIRONMENT_FAILURE are often also real server crashes
+                #   but they get their special treatment "look if its a real crash" in reportResults.
+                $total_status = $reporter_status if $reporter_status > $total_status;
+                last;
             }
-         } else {
-            say("For pid $reporter_pid reporter status " . status2text($reporter_status));
-            # FIXME: See also/join with reportResults
-            # Some of the periodic reporters have capabilities to detect more precise than the
-            # threads running YY grammar what the state of the test is.
-            # But its too complicated and to distill here something valuable.
-            # Q1: Which reporter reported what?
-            # Q2: What are the reliable capabilities of reporter X?
-            # Q3: Had the reporter a chance to detect a maybe bad state or was his last run too
-            #     long ago? STATUS_OK does not all time imply that the system state if good.
-            #     Per observation 2018-09-28 it is not guaranteed that some periodic reporter must
-            #     have detected that a server really (there was a core) crashed.
-            # So we cannot refine anything here even if
-            # - we get here STATUS_OK
-            # - we get here STATUS_SERVER_CRASHED and the maximum status got from the threads is
-            #   STATUS_CRITICAL_FAILURE (== Its bad but don't know + let the other decide)
-            #      than already the usual "take the maximum" mechanism does what is required.
-            #   STATUS_ALARM or STATUS_ENVIRONMENT_FAILURE are often also real server crashes but
-            #   they get their special treatment "look if its a real crash" in reportResults.
-            $total_status = $reporter_status if $reporter_status > $total_status;
-            last;
-         }
-      }
-      if (0 == $reaped) {
-         say("Killing (KILL) periodic reporting process with pid $reporter_pid...");
-         kill(9, $reporter_pid);
-      }
-   }
+        }
+        if (0 == $reaped) {
+            say("Killing (KILL) periodic reporting process with pid $reporter_pid...");
+            kill(9, $reporter_pid);
+        }
+    }
 
    $errorfilter_p->kill();
 
@@ -655,6 +660,9 @@ sub reportResults {
         say("Server deadlock reported, initiating analysis...");
         @report_results = $reporter_manager->report(REPORTER_TYPE_DEADLOCK | REPORTER_TYPE_ALWAYS | REPORTER_TYPE_END);
     } elsif ($total_status == STATUS_SERVER_KILLED) {
+        say("Server killed intentional reported, initiating analysis...");
+        # Making a backtrace from an rr trace is doable but makes most often no sense.
+        # @report_results = $reporter_manager->report(REPORTER_TYPE_CRASH);
         @report_results = $reporter_manager->report(REPORTER_TYPE_SERVER_KILLED | REPORTER_TYPE_ALWAYS | REPORTER_TYPE_END);
     } elsif ($total_status == STATUS_ENVIRONMENT_FAILURE or
              $total_status == STATUS_CRITICAL_FAILURE    or
@@ -677,7 +685,8 @@ sub reportResults {
 
     my $report_status = shift @report_results;
 
-    say("INFO: The reporters to be run at test end delivered status $report_status.");
+    say("INFO: The reporters to be run at test end delivered status " .
+        status2text($report_status) . "($report_status)");
 
     if ($report_status > $total_status) {
        say("DEBUG: GenTest::App::GenTest::reportResults: Raising the total status from " .
@@ -685,10 +694,11 @@ sub reportResults {
        $total_status = $report_status;
     }
 
+    my $report_status_name = status2text($report_status);
+    my $total_status_name  = status2text($total_status);
     if (STATUS_SERVER_KILLED == $total_status) {
-       my $status_name = status2text($total_status);
-       say("INFO: The total status $status_name($total_status) means that there was an " .
-           "intentional server kill. Therefore reducing the total status to STATUS_OK.");
+       say("INFO: The total status $total_status_name($total_status) means that there was an " .
+           "intentional server kill. Therefore reducing the total status to STATUS_OK(0).");
        $total_status = STATUS_OK;
     } elsif (STATUS_SERVER_CRASHED == $report_status and STATUS_SERVER_DEADLOCKED == $total_status) {
        # Scenario is:
@@ -697,12 +707,16 @@ sub reportResults {
        # STATUS_SERVER_CRASHED.
        # Hence we do nothing.
     } elsif (STATUS_SERVER_CRASHED == $report_status and STATUS_SERVER_CRASHED != $total_status) {
-       say("INFO: The reporter status $report_status is more reliable.");
-       say("INFO: Therefore setting the total status from $total_status to $report_status.");
+       say("INFO: The reporter status $report_status_name($report_status) is more reliable.");
+       say("INFO: Therefore setting the total status from $total_status_name($total_status) to " .
+           "$report_status_name($report_status).");
        $total_status = STATUS_SERVER_CRASHED;
-    } elsif (STATUS_OK == $report_status and STATUS_SERVER_CRASHED == $total_status) {
-       say("INFO: The reporter status $report_status is more reliable and does not claim a crash.");
-       say("INFO: Therefore reducing the total status to STATUS_CRITICAL_FAILURE.");
+    } elsif ((STATUS_OK == $report_status or STATUS_CRITICAL_FAILURE == $report_status)
+             and STATUS_SERVER_CRASHED == $total_status) {
+       say("INFO: The reporter status $report_status_name($report_status) is more reliable " .
+           "and does not claim a server crash.");
+       say("INFO: Therefore reducing the total status from $total_status_name($total_status) to " .
+           status2text(STATUS_CRITICAL_FAILURE) . "(" . STATUS_CRITICAL_FAILURE . ")");
        $total_status = STATUS_CRITICAL_FAILURE;
     }
 
@@ -718,7 +732,12 @@ sub reportResults {
     # In case a test causes damage intentionally, the server laments from good reason but the
     # lamenting is interpreted as unexpected bad effect than we get maybe false alarms.
 
-    $self->reportXMLIncidents($total_status, \@report_results);
+    # Disabled because
+    # - executed even if unwanted/being not asked/...
+    # - perl warnings about uninitialized variables in whatever XMLReport related code observed
+    # - I do not use it and have also not the time to fix that.
+    # $self->reportXMLIncidents($total_status, \@report_results);
+
 
     if ($total_status == STATUS_OK) {
         say("Test completed successfully.");
@@ -758,12 +777,14 @@ sub reportingProcess {
     my $self = shift;
 
     my $reporter_pid = fork();
+    # FIXME: This can fail!
 
     if ($reporter_pid != 0) {
         # We are the parent.
         return $reporter_pid;
     }
 
+    $| = 1;
     my $reporter_killed = 0;
     local $SIG{TERM} = sub { $reporter_killed = 1 };
 
@@ -824,10 +845,12 @@ sub reportingProcess {
 }
 
 sub workerProcess {
-   my ($self, $worker_id, $start_run_time) = @_;
+    my ($self, $worker_id) = @_;
 
-   my $worker_pid = fork();
-   $self->channel()->writer;
+    my $worker_pid = fork();
+    # FIXME: That fork can fail!
+
+    $self->channel()->writer;
 
     if ($worker_pid != 0) {
         return $worker_pid;
@@ -850,6 +873,7 @@ sub workerProcess {
         $executor->sqltrace($self->config->sqltrace);
         $executor->setId($i+1);
         $executor->setRole($worker_role);
+        $executor->setTask(GenTest::Executor::EXECUTOR_TASK_THREAD);
         push @executors, $executor;
     }
 
@@ -919,19 +943,21 @@ sub doGenData {
     my $who_am_i = "GenTest::App::GenTest::doGenData:";
 
     $self->do_init();
+    # Hint:
+    # $self->do_init also preloads the reporters.
+    # Hence we can use some of them like Backtrace in case of GenData fails.
 
     return STATUS_OK if defined $self->config->property('start-dirty');
 
-    say("INFO: Begin of GenData activity");
 
+    say("INFO: $who_am_i Begin of activity");
     my $gendata_result = STATUS_OK;
-
     my $i = 0;
     # my $i = -1; The server numbers reported should be 1 2 3 ...
     foreach my $dsn (@{$self->config->dsn}) {
         $i++;
         if ($self->config->property('upgrade-test') and $i > 1) {
-            say("INFO: Omitting whatever Gendata on the non first server because its " .
+            say("INFO: $who_am_i Omitting whatever Gendata on the non first server because its " .
                 "an 'upgrade-test'.");
             last;
         }
@@ -939,15 +965,18 @@ sub doGenData {
         next unless $dsn;
         if (defined $self->config->property('gendata-advanced')) {
             $gendata_result = GenTest::App::GendataAdvanced->new(
-               dsn => $dsn,
-               vcols => (defined $self->config->property('vcols') ? ${$self->config->property('vcols')}[$i] : undef),
-               views => (defined $self->config->views ? ${$self->config->views}[$i] : undef),
-               engine => (defined $self->config->engine ? ${$self->config->engine}[$i] : undef),
-               sqltrace=> $self->config->sqltrace,
-               server_id   => $i,
-               notnull => $self->config->notnull,
-               rows => $self->config->rows,
-               varchar_length => $self->config->property('varchar-length')
+               dsn                  => $dsn,
+               vcols                => (defined $self->config->property('vcols') ?
+                                              ${$self->config->property('vcols')}[$i] : undef),
+               views                => (defined $self->config->views ?
+                                              ${$self->config->views}[$i] : undef),
+               engine               => (defined $self->config->engine ?
+                                              ${$self->config->engine}[$i] : undef),
+               sqltrace             => $self->config->sqltrace,
+               server_id            => $i,
+               notnull              => $self->config->notnull,
+               rows                 => $self->config->rows,
+               varchar_length       => $self->config->property('varchar-length')
             )->run();
         }
         last if STATUS_OK != $gendata_result;
@@ -961,39 +990,52 @@ sub doGenData {
 
         if ($self->config->gendata eq '' or $self->config->gendata eq '1') {
             $gendata_result = GenTest::App::GendataSimple->new(
-               dsn => $dsn,
-               vcols => (defined $self->config->property('vcols') ? ${$self->config->property('vcols')}[$i] : undef),
-               views => (defined $self->config->views ? ${$self->config->views}[$i] : undef),
-               engine => (defined $self->config->engine ? ${$self->config->engine}[$i] : undef),
-               sqltrace=> $self->config->sqltrace,
-               server_id   => $i,
-               notnull => $self->config->notnull,
-               rows => $self->config->rows,
-               varchar_length => $self->config->property('varchar-length')
+               dsn                  => $dsn,
+               vcols                => (defined $self->config->property('vcols') ?
+                                              ${$self->config->property('vcols')}[$i] : undef),
+               views                => (defined $self->config->views ?
+                                              ${$self->config->views}[$i] : undef),
+               engine               => (defined $self->config->engine ?
+                                              ${$self->config->engine}[$i] : undef),
+               sqltrace             => $self->config->sqltrace,
+               server_id            => $i,
+               notnull              => $self->config->notnull,
+               rows                 => $self->config->rows,
+               varchar_length       => $self->config->property('varchar-length')
             )->run();
         } elsif ($self->config->gendata() eq 'None') {
             # Do nothing
         } elsif ($self->config->gendata()) {
+            # For experimenting:
+            # system("killall -9 mysqld mariadbd");
+            # sleep 5;
             $gendata_result = GenTest::App::Gendata->new(
-               spec_file => $self->config->gendata,
-               dsn => $dsn,
-               engine => (defined $self->config->engine ? ${$self->config->engine}[$i] : undef),
-               seed => $self->config->seed(),
-               debug => $self->config->debug,
-               rows => $self->config->rows,
-               views => (defined $self->config->views ? ${$self->config->views}[$i] : undef),
-               varchar_length => $self->config->property('varchar-length'),
-               sqltrace => $self->config->sqltrace,
-               server_id   => $i,
-               short_column_names => $self->config->short_column_names,
-               strict_fields => $self->config->strict_fields,
-               notnull => $self->config->notnull
+               spec_file            => $self->config->gendata,
+               dsn                  => $dsn,
+               engine               => (defined $self->config->engine ?
+                                              ${$self->config->engine}[$i] : undef),
+               seed                 => $self->config->seed(),
+               debug                => $self->config->debug,
+               rows                 => $self->config->rows,
+               views                => (defined $self->config->views ?
+                                              ${$self->config->views}[$i] : undef),
+               varchar_length       => $self->config->property('varchar-length'),
+               sqltrace             => $self->config->sqltrace,
+               server_id            => $i,
+               short_column_names   => $self->config->short_column_names,
+               strict_fields        => $self->config->strict_fields,
+               notnull              => $self->config->notnull
             )->run();
         }
         last if STATUS_OK != $gendata_result;
 
+        # For experimenting:
+        # system("killall -9 mysqld mariadbd");
+        # sleep 5;
+
         if ( $self->config->gendata_sql ) {
-            # $self->config->gendata_sql might be just a string containing a file name.
+            # $self->config->gendata_sql might be just a string containing one file name
+            # or a list of comma separated file names.
             # Transform it to an array with one element.
             if ( not ref $self->config->gendata_sql eq 'ARRAY' ) {
                 my $gendata_sql = [ split /,/, $self->config->gendata_sql ];
@@ -1005,23 +1047,23 @@ sub doGenData {
             foreach my $file ( @{$self->config->gendata_sql} )
             {
                if ( not -e $file ) {
+                   $gendata_result = STATUS_ENVIRONMENT_FAILURE;
                    say("ERROR: lib::GenTest::App::GenTest::doGenData : The SQL file '$file' " .
                        "does not exist.");
-                   say("ERROR: Will return status STATUS_ENVIRONMENT_FAILURE");
-                   $gendata_result = STATUS_ENVIRONMENT_FAILURE;
+                   say("ERROR: " . Auxiliary::build_wrs($gendata_result));
                    last;
                }
             }
             last if STATUS_OK != $gendata_result;
             foreach my $file ( @{$self->config->gendata_sql} )
             {
-               say("INFO: Start processing the SQL file '$file'.");
+               say("INFO: $who_am_i Start processing the SQL file '$file'.");
                $gendata_result = GenTest::App::GendataSQL->new(
-                    sql_file    => $file,
-                    debug       => $self->config->debug,
-                    dsn         => $dsn,
-                    server_id   => $i, # 'server_id'   => GDS_SERVER_ID,
-                    sqltrace    => $self->config->sqltrace,
+                    sql_file        => $file,
+                    debug           => $self->config->debug,
+                    dsn             => $dsn,
+                    server_id       => $i, # 'server_id'   => GDS_SERVER_ID,
+                    sqltrace        => $self->config->sqltrace,
                )->run();
                last if STATUS_OK != $gendata_result;
             }
@@ -1034,15 +1076,9 @@ sub doGenData {
         last if $self->config->property('multi-master');
     }
 
+    $gendata_result = $self->check_for_crash($gendata_result);
+
     say("INFO: End of GenData activity");
-
-    # FIXME:
-    # (mleich) 2019-11 Observation
-    # Some server build with ASAN aborted with core during generation of initial data.
-    # Unfortunately RQG just reported STATUS_ENVIRONMENT_FAILURE and did not generate a backtrace.
-    # In case the server was not responding, lets assume that it crashed, calling the
-    # reporter Backtrace or something equivalent.
-
     return $gendata_result;
 
 } # End of sub doGenData
@@ -1098,8 +1134,10 @@ sub initGenerator {
         }
 
         $self->[GT_GRAMMAR] = GenTest::Grammar->new(
-            grammar_files => [ $self->config->grammar, ( $self->config->redefine ? @{$self->config->redefine} : () ) ],
-            grammar_flags => (defined $self->config->property('skip-recursive-rules') ? GRAMMAR_FLAG_SKIP_RECURSIVE_RULES : undef )
+            grammar_files => [ $self->config->grammar,
+                               ( $self->config->redefine ? @{$self->config->redefine} : () ) ],
+            grammar_flags => (defined $self->config->property('skip-recursive-rules') ?
+                              GenTest::Grammar::GRAMMAR_FLAG_SKIP_RECURSIVE_RULES : undef )
         ) if defined $self->config->grammar;
 
         if (not defined $self->grammar()) {
@@ -1140,13 +1178,25 @@ sub isMySQLCompatible {
 }
 
 
-#### !!!! Meaning of the 'None' ####
-## Example:
+sub initReporters {
+# Meaning of a reporter named 'None'
+# ----------------------------------
+# Example:
 # --reporters=A,B        Add D because of whatever other property.
 # --reporters=A,None,B   Do NOT add D of whatever other property.
 #
+# Why not preventing multiple init of the same reporter?
+# ------------------------------------------------------
+# We initialize all reporters usually at gendata.
+# Unfortunately some of them have a parameter telling when they should kick in
+#    Example: CrashRecovery* -- When to kill the DB server
+# and that can only have some undef value around gendata.
+# During gentest the required value is known but the reporter is already loaded and
+# so the value inside of the reporter stays undef. And so we would harvest some perl warning
+# because of uninitialized value including a malfunction of the reporter.
+# I am looking for some better solution than the multiple inits.
+#
 
-sub initReporters {
     my $self = shift;
 
     # Initialize the array to avoid further checks on its existence
@@ -1238,7 +1288,7 @@ sub initReporters {
                                        ${$self->config->debug_server}[$i] : undef),
                 properties      => $self->config
             });
-
+#           $reporters_init_status = $add_result;
             return $add_result if $add_result > STATUS_OK;
         }
     }
@@ -1329,8 +1379,8 @@ sub initValidators {
     say("Validators (for Simplifier): ->" . join("<->", sort keys %validator_hash) . "<-");
     delete $validator_hash{'None'};
     @{$self->config->validators} = sort keys %validator_hash;
-        say("DEBUG: GenTest::App::GenTest::initValidators: Validators (after check_and_set): ->" .
-            join("<->", @{$self->config->validators}) . "<-") if $debug_here;
+    say("DEBUG: GenTest::App::GenTest::initValidators: Validators (after check_and_set): ->" .
+        join("<->", @{$self->config->validators}) . "<-") if $debug_here;
 
     # For testing/debugging
     # push @{$self->config->validators}, 'Huhu';
@@ -1397,31 +1447,33 @@ sub initXMLReport {
         }
     }
 
-    $self->[GT_XML_TEST] = GenTest::XML::Test->new(
-        id => time(),
-        name => $test_suite_name,  # NOTE: Consider changing to test (or test case) name when suites are supported.
-        logdir => $self->config->property('report-tt-logdir').'/'.$test_suite_name.isoUTCSimpleTimestamp,
-        attributes => {
-        engine => $self->config->engine,
-        gendata => $self->config->gendata,
-        grammar => $self->config->grammar,
-        threads => $self->config->threads,
-        queries => $self->config->queries,
-        validators => ($self->config->validators ? join (',', @{$self->config->validators}) : ''),
-        reporters => ($self->config->reporters ? join (',', @{$self->config->reporters}) : ''),
-        seed => $self->config->seed,
-        mask => $self->config->mask,
-        mask_level => $self->config->property('mask-level'),
-        rows => $self->config->rows,
-        'varchar-length' => $self->config->property('varchar-length')
-        }
-    );
-
-    $self->[GT_XML_REPORT] = GenTest::XML::Report->new(
-        buildinfo => $buildinfo,
-        name => $test_suite_name,  # NOTE: name here refers to the name of the test suite or "test".
-        tests => [  $self->XMLTest() ]
-    );
+    # The XML stuff should rather only run if logdir is defined.
+    if (defined $self->config->property('report-tt-logdir')) {
+        $self->[GT_XML_TEST] = GenTest::XML::Test->new(
+            id => time(),
+            name => $test_suite_name,  # NOTE: Consider changing to test (or test case) name when suites are supported.
+            logdir => $self->config->property('report-tt-logdir').'/'.$test_suite_name.isoUTCSimpleTimestamp,
+            attributes => {
+            engine => $self->config->engine,
+            gendata => $self->config->gendata,
+            grammar => $self->config->grammar,
+            threads => $self->config->threads,
+            queries => $self->config->queries,
+            validators => ($self->config->validators ? join (',', @{$self->config->validators}) : ''),
+            reporters => ($self->config->reporters ? join (',', @{$self->config->reporters}) : ''),
+            seed => $self->config->seed,
+            mask => $self->config->mask,
+            mask_level => $self->config->property('mask-level'),
+            rows => $self->config->rows,
+            'varchar-length' => $self->config->property('varchar-length')
+            }
+        );
+        $self->[GT_XML_REPORT] = GenTest::XML::Report->new(
+            buildinfo => $buildinfo,
+            name => $test_suite_name,  # NOTE: name here refers to the name of the test suite or "test".
+            tests => [  $self->XMLTest() ]
+        );
+    }
 }
 
 sub reportXMLIncidents {
@@ -1482,66 +1534,91 @@ sub reportXMLIncidents {
     }
 }
 
-sub reapChild {
-# Usage
-# -----
-# Try to reap that child.
-#
-# Input
-# -----
-# $spawned_pid -- Pid of the process to check
-# $info        -- Some text to be used for whatever messages
-#
-# Return
-# ------
-# $reaped -- 0 (not reaped) or 1 (reaped)
-# $status -- exit status of the process if reaped, otherwise STATUS_OK
-#
 
-    my ($spawned_pid, $info) = @_;
-    my $reaped = 0;
-    my $status = STATUS_OK;
+sub check_for_crash {
+# Purpose:
+# In case a non final phase of the work flow invoked connecting and achieved some
+# status != STATUS_OK than try to run some automatic analysis checking if its a crash.
+# Goal: Generate a backtrace even if crashing before the final phase genTest etc.
+#       Be able to exploit that result for making some mor qualified verdict.
+# We just use for that existing and future reporters.
+#
+    my ($self, $status) = @_;
 
-    #---------------------------
-    my $waitpid_return = waitpid($spawned_pid, WNOHANG);
-    my $child_exit_status = $? > 0 ? ($? >> 8) : 0;
-    # Returns observed:
-    if      (not defined $waitpid_return) {
-        # 1. !!! undef !!!
-        #    In case of excessive load we could harvest that.
-        #    Observations with a lot debugging code showed
-        #    1.1 childs which have not initiated to exit and have not got a TERM or KILL ..
-        #        did never show an undef here ~ no undef if child process is active
-        #    1.2 never a case where the next call of waitpid ... delivered undef again.
-        #        The next call returned all time $spawned_pid.
-        #    Hence we do nothing here and "hope" that some next call of reapChild follows.
-        say("WARN: waitpid for $spawned_pid ($info) returned undef.");
-        return 0, STATUS_OK;
-    } elsif (0 == $waitpid_return) {
-        # 2. 0 == Process is running
-        say("DEBUG: waitpid for $spawned_pid ($info) returned 0. Process is running.")
-            if $debug_here;
-        return 0, STATUS_OK;
-    } elsif ($spawned_pid == $waitpid_return) {
-        # 3. $spawned_pid == The process was a zombie and we have just reaped.
-        say("DEBUG: Process $spawned_pid ($info) was reaped. Status was $child_exit_status.")
-            if $debug_here;
-        return 1, $child_exit_status;
+    my $who_am_i = "GenTest::GenTest1::check_for_crash:";
+    my $final_status =  STATUS_INTERNAL_ERROR;
+    my $reporter_manager = $self->reporterManager();
+    my @report_results;
+
+    if      ($status == STATUS_OK) {
+        $final_status =  $status;
+    } elsif ($status == STATUS_SERVER_KILLED) {
+        $final_status = STATUS_INTERNAL_ERROR;
+        say("INTERNAL_ERROR: $who_am_i The current status " . status2text($status) .
+            "($status) means that there was an intentional server kill.");
+        say("INTERNAL_ERROR: $who_am_i This must never happen in the previous work phases. " .
+            "Will return status " .  status2text($final_status) . "($final_status).");
+    } elsif ($status == STATUS_SERVER_CRASHED      or
+             $status == STATUS_ENVIRONMENT_FAILURE or
+             $status == STATUS_CRITICAL_FAILURE    or
+             $status == STATUS_ALARM                 ) {
+
+####         is_connectable(EXECUTOR)
+
+        # $status per previous | $report_status | $final_status
+        # work phases          | backtrace      |
+        # ---------------------+----------------+-----------------------
+        # val < SCF(100)       | no check       | val
+        # ---------------------+----------------+-----------------------
+        # SCF(100)             | SO(0)          | SCF(100)
+        # SSC(101)             | SO(0)          | SCF(100)
+        # SSK(102)             | no check       | SIE(200)
+        # SSE/SA(110)          | SO(0)          | SSE/SA(110)
+        # SIE(200)             | no check       | SIE(200)
+        # ---------------------+----------------+-----------------------
+        # SCF(100)             | SSC(101)       | SSC(101)
+        # SSC(101)             | SSC(101)       | SSC(101)
+        # SSE/SA(110)          | SSC(101)       | SSC(101)
+        # ---------------------+----------------+-----------------------
+        # SCF(100)             | SSE/SA(110)    | SIE(200)
+        # SSC(101)             | SSE/SA(110)    | SIE(200)
+        # SSE/SA(110)          | SSE/SA(110)    | SIE(200)
+        # ---------------------+----------------+-----------------------
+        # val not handled /\   | no check       | val
+        #
+        # All these not that specific statuses might be caused by a crashed server or similar.
+        say("INFO: $who_am_i The current status is " . status2text($status) . "($status). " .
+            "Trying to confirm and/or refine information by post-crash analysis...");
+        @report_results = $reporter_manager->report(REPORTER_TYPE_CRASH);
+        my $report_status = shift @report_results;
+        say("INFO: $who_am_i The corresponding reporters delivered status $report_status.");
+        if ($report_status == $status) {
+            # Do nothing special.
+            $final_status = $status;
+        } elsif ($report_status == STATUS_SERVER_CRASHED) {
+            $final_status = $report_status;
+            say("INFO: $who_am_i The reporter status $report_status is more reliable. " .
+                "Will return status " . status2text($final_status) . "($final_status).");
+        } elsif ($report_status == STATUS_OK) {
+            $final_status = $status;
+            if ($status == STATUS_SERVER_CRASHED) {
+                $final_status =  STATUS_CRITICAL_FAILURE;
+                say("INFO: $who_am_i Its obviously not a crash. " .
+                    "Will return status " . status2text($final_status) . "($final_status).");
+            }
+        } elsif ($report_status == STATUS_INTERNAL_ERROR) {
+            $final_status = $report_status;
+            say("INFO: $who_am_i Obviously trouble with reporters. " .
+                "Will return status " . status2text($final_status) . "($final_status).");
+        } else {
+            $final_status = $status;
+        }
     } else {
-        # 3. -1 == Defect in RQG mechanics because we should not try to reap
-        #          - an already reaped process
-        #          - a process which is not our child
-        #          Both would point to a heavy mistake in bookkeeping.
-        #    or
-        #    other value != $spawned_pid == Unexpected behaviour of waitpid on current box
-        say("ERROR: waitpid for $spawned_pid ($info) returned $waitpid_return which we cannot " .
-            "handle. Will return STATUS_INTERNAL_ERROR.");
-        Carp::cluck;
-        return 0, STATUS_INTERNAL_ERROR;
+        # Do nothing in case we cannot raise our knowledge.
+        $final_status = $status;
     }
-
-} # End sub reapChild
-
+    return $final_status;
+} # End sub check_for_crash
 
 1;
 

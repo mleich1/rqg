@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -110,9 +110,10 @@ sub run {
     $executor->setId($self->server_id);
     # If sqltrace enabled than trace even the SQL here.
     $executor->sqltrace($self->sqltrace);
-    # say("DEBUG: GenTest::App::GendataSQL run: SQLTRACE : " . $self->sqltrace);
     $executor->setRole("GendataSQL");
-    $executor->init();
+    $executor->setTask(GenTest::Executor::EXECUTOR_TASK_GENDATA);
+    my $status = $executor->init();
+    return $status if $status != STATUS_OK;
 
     sub run_sql_cmd {
         my ($executor, $sql_cmd) = @_;
@@ -124,7 +125,14 @@ sub run {
         # 2. EXECUTOR_FLAG_SILENT prevents to get error messages from Perl in case
         #    the SQL statement fails. These messages would have some unfortunate format.
         # 3. In case of failing statements we need to write the corresponding information because
-        #    SQL tracing might be not enabled and EXECUTOR_FLAG_SILENT is used anyway.
+        #    - SQL tracing might be not enabled
+        #    - EXECUTOR_FLAG_SILENT is used anyway
+        #    - we abort but need to know why.
+
+        # For experimenting:
+        # system("killall -9 mysqld mariadbd");
+        # sleep 5;
+
         my $result = $executor->execute($sql_cmd, EXECUTOR_FLAG_SILENT);
         if(STATUS_OK != $result->status) {
             # Report the SQL command and the error because the tracing might be not enabled.
@@ -142,12 +150,6 @@ sub run {
     if($executor->type == DB_MYSQL) {
         my $sql_cmd = "SET SQL_MODE= CONCAT(\@\@sql_mode, ',NO_ENGINE_SUBSTITUTION')";
         my $status = run_sql_cmd($executor, $sql_cmd);
-        if ($status) {
-            return $bad_status;
-        }
-        # Some "general" max_statement_time setting should only apply to YY grammar processing.
-        $sql_cmd = 'SET @@max_statement_time = 0';
-        $status = run_sql_cmd($executor, $sql_cmd);
         if ($status) {
             return $bad_status;
         }
@@ -202,7 +204,9 @@ sub run {
     }
 
     if ($executor->type == DB_MYSQL or $executor->type == DB_DRIZZLE) {
-        $executor->execute("COMMIT");
+        my $result = $executor->execute("COMMIT");
+        my $status = $result->status;
+        return $status if $status != STATUS_OK;
     }
 
     $executor->disconnect();

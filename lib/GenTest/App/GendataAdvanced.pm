@@ -1,5 +1,5 @@
 # Copyright (C) 2009 Sun Microsystems, Inc. All rights reserved.
-# Copyright (c) 2016 MariaDB Corporation Ab
+# Copyright (c) 2016,2021 MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -64,7 +64,7 @@ sub new {
     if (not defined $self->[GDS_DSN]) {
         $self->[GDS_DSN] = GDS_DEFAULT_DSN;
     }
-        
+
     return $self;
 }
 
@@ -106,7 +106,7 @@ sub varcharLength {
 
 sub run {
     my ($self) = @_;
-    
+
     say("INFO: Starting GenTest::App::GendataAdvanced");
 
     $prng = GenTest::Random->new( seed => 0 );
@@ -118,6 +118,7 @@ sub run {
     $executor->setId($self->server_id);
     $executor->sqltrace($self->sqltrace);
     $executor->setRole("GendataAdvanced");
+    $executor->setTask(GenTest::Executor::EXECUTOR_TASK_GENDATA);
     $executor->init();
 
     my $names = GDS_DEFAULT_NAMES;
@@ -131,10 +132,12 @@ sub run {
 
     foreach my $i (0..$#$names) {
         my $gen_table_result = $self->gen_table($executor, $names->[$i], $rows->[$i], $prng);
+        say("DEBUG: gen_table_result->$gen_table_result<-");
         return $gen_table_result if $gen_table_result != STATUS_OK;
     }
 
-    $executor->execute("SET SQL_MODE= CONCAT(\@\@sql_mode,',NO_ENGINE_SUBSTITUTION')") if $executor->type == DB_MYSQL;
+    $executor->execute("SET SQL_MODE= CONCAT(\@\@sql_mode,',NO_ENGINE_SUBSTITUTION')")
+        if $executor->type == DB_MYSQL;
     return STATUS_OK;
 }
 
@@ -182,7 +185,7 @@ sub random_compressed {
 sub gen_table {
     my ($self, $executor, $name, $size, $prng) = @_;
 
-    my $nullability = defined $self->[GDS_NOTNULL] ? 'NOT NULL' : '/*! NULL */';  
+    my $nullability = defined $self->[GDS_NOTNULL] ? 'NOT NULL' : '/*! NULL */';
     ### NULL is not a valid ANSI constraint, (but NOT NULL of course,
     ### is)
 
@@ -191,9 +194,9 @@ sub gen_table {
     my $engine = $self->engine();
     my $vcols = $self->vcols();
     my $views = $self->views();
-    
+
     my ($nullable, $precision);
-    
+
     # column_name => [ type, length, unsigned, zerofill, nullability, default, virtual, invisible ]
 
     my %columns = (
@@ -328,7 +331,7 @@ sub gen_table {
                         undef
                     ],
     );
-    
+
     # TODO: add actual functions
 
     if (defined $vcols) {
@@ -470,7 +473,7 @@ sub gen_table {
         unless ($c eq 'pk' or defined $coldef->[6]) {
             push @column_list, $c;
         }
-        $create_stmt .= 
+        $create_stmt .=
             "$c $coldef->[0]"         # type
             . ($coldef->[1] ? "($coldef->[1])" : '') # length
             . ($coldef->[2] ? " $coldef->[2]" : '')  # unsigned
@@ -485,7 +488,7 @@ sub gen_table {
     $create_stmt .= "PRIMARY KEY(pk)\n";
     $create_stmt .= ")" . ($engine ne '' ? " ENGINE=$engine" : "");
     $executor->execute($create_stmt);
-    
+
     if (defined $views) {
         if ($views ne '') {
             $executor->execute("CREATE ALGORITHM=$views VIEW view_".$name.' AS SELECT * FROM '.$name);
@@ -493,7 +496,7 @@ sub gen_table {
             $executor->execute('CREATE VIEW view_'.$name.' AS SELECT * FROM '.$name);
         }
     }
-    
+
     my $number_of_indexes= $prng->uint16(2,8);
     foreach (1..$number_of_indexes) {
         my $number_of_columns= $prng->uint16(1,4);
@@ -515,14 +518,14 @@ sub gen_table {
 
     $executor->execute("START TRANSACTION");
     foreach my $row (1..$size) {
-    
+
         my @row_values = ();
         my $val;
-        
+
         foreach my $cname (@column_list) {
-            
+
             my $c = $columns{$cname};
-            
+
             if ($c->[0] eq 'TINYINT' or $c->[0] eq 'SMALLINT' or $c->[0] eq 'MEDIUMINT' or $c->[0] eq 'INT' or $c->[0] eq 'BIGINT')
             {
                 # 10% NULLs, 10% tinyint_unsigned, 80% digits
@@ -588,7 +591,7 @@ sub gen_table {
                 }
                 $val = "'".$val."'" if not $val eq "NULL";
             }
-            elsif ($c->[0] eq 'CHAR' or $c->[0] eq 'VARCHAR' or $c->[0] eq 'BINARY' or $c->[0] eq 'VARBINARY' or $c->[0] eq 'TINYBLOB' or $c->[0] eq 'BLOB' or $c->[0] eq 'MEDIUMBLOB' or $c->[0] eq 'LONGBLOB') 
+            elsif ($c->[0] eq 'CHAR' or $c->[0] eq 'VARCHAR' or $c->[0] eq 'BINARY' or $c->[0] eq 'VARBINARY' or $c->[0] eq 'TINYBLOB' or $c->[0] eq 'BLOB' or $c->[0] eq 'MEDIUMBLOB' or $c->[0] eq 'LONGBLOB')
             {
                 my $length= $prng->uint16(0,9) == 9 ? $prng->uint16(0,$c->[1]) : $prng->uint16(0,8);
                 if ($c->[4] eq 'NOT NULL') {
@@ -597,7 +600,7 @@ sub gen_table {
                     $val = $prng->uint16(0,9) == 9 ? "NULL" : "'".$prng->string($length)."'";
                 }
             }
-            elsif ($c->[0] =~ /(TINY|MEDIUM|LONG)?TEXT/) 
+            elsif ($c->[0] =~ /(TINY|MEDIUM|LONG)?TEXT/)
             {
                 my $maxlength= 65535;
                 if ($1 eq 'TINY') {
