@@ -1,6 +1,6 @@
 # Copyright (C) 2009, 2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018, 2020 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -338,13 +338,17 @@ sub run {
             } elsif (
                 ($cycle == FIELD_SIGN) &&
                 # ($old_field->[FIELD_TYPE] !~ m{int|float|double|dec|numeric|fixed}sio)
-                ((defined $old_field->[FIELD_TYPE]) and ($old_field->[FIELD_TYPE] !~ m{int|float|double|dec|numeric|fixed}sio))
+                ((defined $old_field and
+                  defined $old_field->[FIELD_TYPE]) and
+                  ($old_field->[FIELD_TYPE] !~ m{int|float|double|dec|numeric|fixed}sio))
                 ) {
                 $old_field;	# Retain old field, sign does not apply to non-integer types
             } elsif (
                 ($cycle == FIELD_CHARSET) &&
                 # ($old_field->[FIELD_TYPE] =~ m{bit|int|bool|float|double|dec|numeric|fixed|blob|date|time|year|binary}sio)
-                ((defined $old_field->[FIELD_TYPE]) and ($old_field->[FIELD_TYPE] =~ m{bit|int|bool|float|double|dec|numeric|fixed|blob|date|time|year|binary}sio))
+                ((defined $old_field and
+                  defined $old_field->[FIELD_TYPE]) and
+                  ($old_field->[FIELD_TYPE] =~ m{bit|int|bool|float|double|dec|numeric|fixed|blob|date|time|year|binary}sio))
                 ) {
                 $old_field;	# Retain old field, charset does not apply to integer types
             } else {
