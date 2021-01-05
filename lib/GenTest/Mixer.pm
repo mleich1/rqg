@@ -1,5 +1,5 @@
 # Copyright (c) 2008,2011 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -45,12 +45,10 @@ my $debug_here    = 0;
 $Carp::MaxArgLen  = 200;
 $Carp::MaxArgNums = 20;
 
-1;
-
 sub new {
-   my $class = shift;
+    my $class = shift;
 
-   my $mixer = $class->SUPER::new({
+    my $mixer = $class->SUPER::new({
          'generator'       => MIXER_GENERATOR,
          'executors'       => MIXER_EXECUTORS,
          'validators'      => MIXER_VALIDATORS,
@@ -59,20 +57,44 @@ sub new {
          'end_time'        => MIXER_END_TIME,
          'restart_timeout' => MIXER_RESTART_TIMEOUT,
          'role'            => MIXER_ROLE
-   }, @_);
+    }, @_);
 
-   Carp::cluck("DEBUG: Mixer::new:") if $debug_here;
+    Carp::cluck("DEBUG: Mixer::new:") if $debug_here;
 
-   foreach my $executor (@{$mixer->executors()}) {
-      if ($mixer->end_time()) {
-         return undef if time() > $mixer->end_time();
-         $executor->set_end_time($mixer->end_time());
-      }
-      my $init_result = $executor->init();
-      return undef if $init_result > STATUS_OK;
-      # FIXME: Could what follows fail?
-      $executor->cacheMetaData();
-   }
+    foreach my $executor (@{$mixer->executors()}) {
+        if (defined $mixer->end_time()) {
+            if (time() > $mixer->end_time()) {
+                say("INFO: " . $mixer->role() . " in Mixer giving up because end_time exceeded. " .
+                    "Will return undef.");
+                return undef;
+            }
+            $executor->set_end_time($mixer->end_time());
+        } else {
+            my $status = STATUS_INTERNAL_ERROR;
+            Carp::cluck("ERROR: mixer->end_time is undef. Will exit with exit status " .
+                        "STATUS_INTERNAL_ERROR(" . $status . ").");
+            # IMHO we can exit here without additional damage.
+            exit $status;
+        }
+
+        my $init_result = $executor->init();
+        # Observed scenario:
+        return undef if $init_result > STATUS_OK;
+        # FIXME:
+        # 1. In case the MetadataCacher was already called + finished with success (app/GenTest.pm)
+        #    than cacheMetaData does not replace any already cached metadata.
+        # 2. In the probably unlikely case that there are no existing cached metadata than its
+        #    tried to cache these data. And that could fail because of too small
+        #    max-statement-timeout!!!
+        # 3. Refreshing the cache for every reconnect looks reasonable but that suffers from the
+        #    big runtime of the SQL's.
+        my $status = $executor->cacheMetaData();
+        if ($status != STATUS_OK) {
+            say("ERROR: cacheMetaData for " . $mixer->role() . " failed with status $status. " .
+                "Will return undef.");
+            return undef;
+        }
+    }
 
    my @validators;
    my %validators;
