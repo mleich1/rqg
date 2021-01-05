@@ -1,5 +1,5 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2018-2020 MariaDB Coporation Ab.
+# Copyright (c) 2018-2021 MariaDB Coporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -42,7 +42,7 @@
 # Rule of thumb for coding:
 # Exit (This is the exit of the periodic reporting process running maybe several reporters.)
 # - (banal) only if having met a serious bad state
-# - after having initiated the intentional server crash needed for debugging.
+# - immediate after having initiated the intentional server crash needed for debugging.
 # Do not initiate the crash and just return STATUS_SERVER_DEADLOCKED or similar because it seems
 # that caused by other processes etc. the RQG run might end with STATUS_SERVER_CRASHED,
 # STATUS_ALARM or STATUS_ENVIRONMENT_FAILURE.
@@ -74,6 +74,7 @@ use GenTest::Constants;
 use GenTest::Result;
 use GenTest::Reporter;
 use GenTest::Executor::MySQL;
+use Runtime;
 
 use DBI;
 use Data::Dumper;
@@ -149,23 +150,10 @@ my $connect_timeout_threshold;
 
 sub init {
     my $reporter = shift;
-    if (exists $ENV{'RUNNING_UNDER_RR'} or
-        defined $reporter->properties->rr) {
-        $query_lifetime_threshold    = 1.5 * QUERY_LIFETIME_THRESHOLD;
-        $actual_test_duration_exceed = 1.5 * ACTUAL_TEST_DURATION_EXCEED;
-        $reporter_query_threshold    = 1.5 * REPORTER_QUERY_THRESHOLD;
-        $connect_timeout_threshold   = 1.5 * CONNECT_TIMEOUT_THRESHOLD;
-    } elsif (defined $reporter->properties->valgrind) {
-        $query_lifetime_threshold    = 2.0 * QUERY_LIFETIME_THRESHOLD;
-        $actual_test_duration_exceed = 2.0 * ACTUAL_TEST_DURATION_EXCEED;
-        $reporter_query_threshold    = 2.0 * REPORTER_QUERY_THRESHOLD;
-        $connect_timeout_threshold   = 2.0 * CONNECT_TIMEOUT_THRESHOLD;
-    } else {
-        $query_lifetime_threshold    = 1.0 * QUERY_LIFETIME_THRESHOLD;
-        $actual_test_duration_exceed = 1.0 * ACTUAL_TEST_DURATION_EXCEED;
-        $reporter_query_threshold    = 1.0 * REPORTER_QUERY_THRESHOLD;
-        $connect_timeout_threshold   = 1.0 * CONNECT_TIMEOUT_THRESHOLD;
-    }
+    $query_lifetime_threshold    = Runtime::get_runtime_factor() * QUERY_LIFETIME_THRESHOLD;
+    $actual_test_duration_exceed = Runtime::get_runtime_factor() * ACTUAL_TEST_DURATION_EXCEED;
+    $reporter_query_threshold    = Runtime::get_runtime_factor() * REPORTER_QUERY_THRESHOLD;
+    $connect_timeout_threshold   = Runtime::get_runtime_factor() * CONNECT_TIMEOUT_THRESHOLD;
 }
 
 
@@ -265,45 +253,30 @@ sub monitor_nonthreaded {
     $alarm_timeout = $connect_timeout_threshold + OVERLOAD_ADD;
     $exit_msg      = "Got no connect to server within " . $alarm_timeout . "s. ";
     alarm ($alarm_timeout);
-    my $round = 0;
-    while(1) {
-        $round++;
-        $dbh = DBI->connect($dsn, undef, undef,
-                            { mysql_connect_timeout => $connect_timeout_threshold,
-                              PrintError            => 0,
-                              RaiseError            => 0});
-        if (not defined $dbh) {
-            say("WARN: $who_am_i The connect attempt to dsn $dsn failed: " . $DBI::errstr);
-            my $return = GenTest::Executor::MySQL::errorType($DBI::err);
-            if (not defined $return) {
-                say("ERROR: $who_am_i The type of the error got is unknown. " .
-                    "Will exit with STATUS_INTERNAL_ERROR");
-                exit STATUS_INTERNAL_ERROR;
-            }
-            if (STATUS_OK != server_dead($reporter)) {
-                exit STATUS_SERVER_CRASHED;
-            }
-        } else {
-            last;
-        }
-        last if $round >= 10;
-        sleep 3;
-    }
+    $dbh = DBI->connect($dsn, undef, undef,
+                        { mysql_connect_timeout => $connect_timeout_threshold,
+                          PrintError            => 0,
+                          RaiseError            => 0});
     alarm (0);
-
-    if (STATUS_OK != server_dead($reporter)) {
-        exit STATUS_SERVER_CRASHED;
-    }
-    # The DB server process is running.
-    # Hence we have either a server freeze (STATUS_SERVER_DEADLOCKED) or
-    # the timeouts are too short.
     if (not defined $dbh) {
-        say("ERROR: $who_am_i All $round connect attempts to dsn $dsn failed. " .
-            "But the server process is running.");
-        say("ERROR: $who_am_i Assuming a server freeze. " .
+        say("WARN: $who_am_i The connect attempt to dsn $dsn failed: " . $DBI::errstr);
+        my $return = GenTest::Executor::MySQL::errorType($DBI::err);
+        if (not defined $return) {
+            say("ERROR: $who_am_i The type of the error got is unknown. " .
+                "Will exit with STATUS_INTERNAL_ERROR");
+            exit STATUS_INTERNAL_ERROR;
+        }
+        if (STATUS_OK != server_dead($reporter)) {
+            exit STATUS_SERVER_CRASHED;
+        } else {
+            # The DB server process is running.
+            # Hence we have either a server freeze (STATUS_SERVER_DEADLOCKED) or
+            # the timeouts are too short.
+            say("ERROR: $who_am_i Assuming a server freeze or too short timeouts. " .
             "Will exit with STATUS_SERVER_DEADLOCKED later.");
-        $reporter->kill_with_core;
-        exit STATUS_SERVER_DEADLOCKED;
+            $reporter->kill_with_core;
+            exit STATUS_SERVER_DEADLOCKED;
+        }
     }
 
     # We should have now a connection.
@@ -608,7 +581,7 @@ sub nativeReport {
         # Basically: Reporters should finally figure out what the defect is.
     }
 
-    return STATUS_OK;
+    exit STATUS_SERVER_DEADLOCKED;
 }
 
 sub type {
