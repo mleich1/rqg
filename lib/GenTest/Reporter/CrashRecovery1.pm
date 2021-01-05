@@ -67,8 +67,19 @@ sub monitor {
     if (time() > $reporter->testEnd() - 19) {
     my $kill_msg = "$who_am_i Sending SIGKILL to server with pid $pid in order to force a crash.";
         say("INFO: $kill_msg");
+        # Do not use $server->killServer here because it might cause trouble within the GenTest.pm
+        # OUTER loop like
+        # 1. killServer starts
+        # 2. worker threads detect that the server is dead and exit
+        # 3. we leave the OUTER loop
+        # 4. all worker threads have exited (probably already earlier) and caused that the maximum
+        #    status is set to STATUS_CRITICAL_FAILURE
+        # 5. killServer and its caller Reporter 'CrashRecovery1' have not finished yet.
+        # 6. GenTest causes that the periodic reporting process == CrashRecovery1 gets stopped
+        #    and somehow the status does not get raised to STATUS_SERVER_KILLED.
+        # 7. The Endreporter Backtrace comes and raises the status to STATUS_SERVER_CRASHED
         kill(9, $pid);
-        return STATUS_SERVER_KILLED;
+        exit STATUS_SERVER_KILLED;
     } else {
         return STATUS_OK;
     }
@@ -82,6 +93,11 @@ sub report {
     $first_reporter = $reporter if not defined $first_reporter;
     return STATUS_OK if $reporter ne $first_reporter;
 
+    # The "monitor" has sent the SIGKILL and that should have had some impact.
+    # By using $server->killServer now the rr tracing should get sufficient time for finishing
+    # its write operations.
+    my $server = $reporter->properties->servers->[0];
+
     my $datadir = $reporter->serverVariable('datadir');
     $datadir =~ s{[\\/]$}{}sgio;
     my $datadir_copy = $datadir.'_copy';
@@ -93,23 +109,9 @@ sub report {
     # Deprecated: MariaDB 5.5
     my $engine = $reporter->serverVariable('storage_engine');
 
-    my $dbh_prev = DBI->connect($reporter->dsn());
+    # Wait till kill finished
+    $server->cleanup_dead_server;
 
-    # FIXME
-    # 1. Shouldn't be the server already dead caused by calling monitor.
-    # 2. What if killing does not work? Probably minor problem
-    # 3. What if the server is already dead because of other reason than calling monitor above?
-    if (defined $dbh_prev) {
-        # Server is still running, kill it. Again.
-        $dbh_prev->disconnect();
-
-        my $kill_msg = "$who_am_i Sending SIGKILL to server with pid $pid in order to force a crash.";
-        say("INFO: $kill_msg");
-        kill(9, $pid);
-        sleep(5);
-    }
-
-    my $server = $reporter->properties->servers->[0];
     say("INFO: $who_am_i Copying datadir... (interrupting the copy operation may cause " .
         "investigation problems later)");
     say("INFO: $who_am_i Datadir used by the server all time is: $datadir");
@@ -124,8 +126,8 @@ sub report {
 
     say("INFO: $who_am_i Attempting database recovery using the server ...");
 
-    # Using some buffer-pool-size which is smaller than before should work.
-    # InnoDB page sizes >= 32K need in minimum a buffer-pool-size >=24M.
+    # Using some buffer-pool-size which is smaller than before should sometimes work.
+    # But InnoDB page sizes >= 32K need in minimum a buffer-pool-size >=24M.
     # So we might assume that works.
     # 10.4.11  64K Pagesize test
     # [Warning] InnoDB: Difficult to find free blocks in the buffer pool (21 search iterations)!
@@ -139,7 +141,7 @@ sub report {
     # The test setup might go with a short max_statement_time which might
     # cause that queries checking huge tables get aborted. And the code which follows
     # is not prepared for that.
-    $server->addServerOptions(['--max_statement_time=120']);
+    $server->addServerOptions(['--max_statement_time=0']);
 
     $server->setStartDirty(1);
     my $recovery_status = $server->startServer();
@@ -194,7 +196,14 @@ sub report {
     # - a serious change of behaviour in the server and the current and other reporters
     #   cannot be trusted any more because probably needing heavy adjustments
     # ...
-    my $dbh = DBI->connect($reporter->dsn());
+    my $dbh = DBI->connect($reporter->dsn(), undef, undef, {
+            mysql_connect_timeout  => Runtime::get_connect_timeout(),
+            PrintError             => 0,
+            RaiseError             => 0,
+            AutoCommit             => 0,
+            mysql_multi_statements => 0,
+            mysql_auto_reconnect   => 0
+    });
     if (not defined $dbh) {
         say("ERROR: $who_am_i Connect attempt to dsn " . $reporter->dsn() . " after " .
             "restart+recovery failed: " . $DBI::errstr);

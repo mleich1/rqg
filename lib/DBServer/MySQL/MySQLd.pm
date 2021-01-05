@@ -18,6 +18,21 @@
 
 package DBServer::MySQL::MySQLd;
 
+# FIXME:
+# The ability to generate a backtrace (based on core file or rr trace) should be implemented here.
+# And than every piece in RQG wanting a backtrace should call the routine from here.
+# IMHO it is rather questionable if the current Reporter Backtrace is needed at all.
+# The reasons:
+# The server could die non intentional during
+# - during bootstrap or first start
+#   I need to look into rqg.pl some backtracing already kicks in.
+# - gendata -- rqg.pl initiates backtracing based on the reporter Backtrace
+# - gentest -- backtracing gets initiated by GenTest based on the reporter Backtrace
+# - some reporter Reporter initiates a shutdown or TERM server
+# - when stopping the servers smooth after GenTest
+#
+
+
 @ISA = qw(DBServer::DBServer);
 
 use DBI;
@@ -34,6 +49,8 @@ use File::Basename qw(dirname);
 use File::Path qw(mkpath rmtree);
 use File::Copy qw(move);
 use Auxiliary;
+use Runtime;
+use GenTest::Constants;
 
 use constant MYSQLD_BASEDIR                      => 0;
 use constant MYSQLD_VARDIR                       => 1;
@@ -84,8 +101,9 @@ use constant MYSQLD_WINDOWS_PROCESS_STILLALIVE   => 259;
 # Timeouts
 # -----------------------------------
 # All timout values etc. are in seconds.
-use constant TIMEOUT_FACTOR_RR                   => 1.5;
-use constant TIMEOUT_FACTOR_VALGRIND             => 2;
+# in lib/Runtime.pm
+# use constant RUNTIME_FACTOR_RR                   => 1.5;
+# use constant RUNTIME_FACTOR_VALGRIND             => 2;
 #
 # Maximum timespan between time of kill TERM for server process and the time the server process
 # should have disappeared.
@@ -100,6 +118,12 @@ use constant DEFAULT_STARTUP_TIMEOUT             => 600;
 # the process and the auxiliary process reaped.
 # Main task: Give sufficient time for finishing write of rr trace or core file or ...
 use constant DEFAULT_AUXPID_GONE_TIMEOUT         => 30;
+# Maximum timespan between sending a SIGKILL to the server process and it disappearing
+# Maybe the time required for rr writing the rr trace till end is in that timespan.
+use constant DEFAULT_SERVER_KILL_TIMEOUT         => 30;
+# Maximum timespan between sending a SIGABRT to the server process and it disappearing
+# Maybe the time required for rr writing the rr trace till end is in that timespan.
+use constant DEFAULT_SERVER_ABRT_TIMEOUT         => 60;
 
 
 my %aux_pids;
@@ -107,20 +131,22 @@ my %aux_pids;
 sub new {
     my $class = shift;
 
-    my $self = $class->SUPER::new({'basedir' => MYSQLD_BASEDIR,
-                                   'sourcedir' => MYSQLD_SOURCEDIR,
-                                   'vardir' => MYSQLD_VARDIR,
-                                   'debug_server' => MYSQLD_DEBUG_SERVER,
-                                   'port' => MYSQLD_PORT,
-                                   'server_options' => MYSQLD_SERVER_OPTIONS,
-                                   'start_dirty' => MYSQLD_START_DIRTY,
-                                   'general_log' => MYSQLD_GENERAL_LOG,
-                                   'valgrind' => MYSQLD_VALGRIND,
-                                   'valgrind_options' => MYSQLD_VALGRIND_OPTIONS,
-                                   'config' => MYSQLD_CONFIG_CONTENTS,
-                                   'user' => MYSQLD_USER,
-                                   'rr' => MYSQLD_RR,
-                                   'rr_options' => MYSQLD_RR_OPTIONS},@_);
+    my $self = $class->SUPER::new({
+                'basedir'               => MYSQLD_BASEDIR,
+                'sourcedir'             => MYSQLD_SOURCEDIR,
+                'vardir'                => MYSQLD_VARDIR,
+                'debug_server'          => MYSQLD_DEBUG_SERVER,
+                'port'                  => MYSQLD_PORT,
+                'server_options'        => MYSQLD_SERVER_OPTIONS,
+                'start_dirty'           => MYSQLD_START_DIRTY,
+                'general_log'           => MYSQLD_GENERAL_LOG,
+                'valgrind'              => MYSQLD_VALGRIND,
+                'valgrind_options'      => MYSQLD_VALGRIND_OPTIONS,
+                'config'                => MYSQLD_CONFIG_CONTENTS,
+                'user'                  => MYSQLD_USER,
+                'rr'                    => MYSQLD_RR,
+                'rr_options'            => MYSQLD_RR_OPTIONS
+    },@_);
 
     # Inform in case of error + return undef so that the caller can clean up.
     if (osWindows() and $self->[MYSQLD_VALGRIND]) {
@@ -134,6 +160,13 @@ sub new {
     if ($self->[MYSQLD_RR] and $self->[MYSQLD_VALGRIND]) {
         Carp::cluck("ERROR: No support for using rr and valgrind together. Will return undef.");
         return undef;
+    }
+
+    if (exists $ENV{'RUNNING_UNDER_RR'} or defined $self->[MYSQLD_RR]) {
+        Runtime::set_runtime_factor_rr;
+    }
+    if ($self->[MYSQLD_VALGRIND]) {
+        Runtime::set_runtime_factor_valgrind;
     }
 
     if (not defined $self->[MYSQLD_VARDIR]) {
@@ -630,12 +663,12 @@ sub startServer {
 
     # Timeout for the server to write his pid into the error log after the server startup
     # command has been launched $tool_startup has passed.
-    my $pid_seen_timeout    = DEFAULT_PID_SEEN_TIMEOUT;
+    my $pid_seen_timeout    = DEFAULT_PID_SEEN_TIMEOUT * Runtime::get_runtime_factor();
 
     # Timeout for the server to report that the startup finished (Ready for connections)
     # after the server pid showed up in the server error log.
     # After that the server is considered hanging).
-    my $startup_timeout     = DEFAULT_STARTUP_TIMEOUT;
+    my $startup_timeout     = DEFAULT_STARTUP_TIMEOUT * Runtime::get_runtime_factor();
 
     if (osWindows) {
         my $proc;
@@ -681,17 +714,52 @@ sub startServer {
         #   whatever should have had enough time for finishing writing.
         $SIG{CHLD} = sub {
             local ($?, $!); # Don't change $! or $? outside handler
-            # If we are here than a child process has finished.
-            # We do not want to reap any child process because that could be for example
-            # a worker thread or reporter because their return code might be important
-            # and needs to be processed somewehere else like App/GenTest.pm.
-            # ??? Run that twice or what around test end ???
-            # say("DEBUG: aux_pids ordered ->" . sort keys %aux_pids
+            # If we are here than an arbitrary child process has finished.
+            #
+            # The current process manages server start/stop via using the current module
+            # and could be
+            # - sometimes a reporter like Crashrecovery who just tries the restart
+            # - sometimes just a tool which just manages server start/stop and nothing else
+            # - frequent the main process of some RQG runner like rqg.pl.
+            # Especially the main processes of RQG runners have various additional child
+            # processes which inform via their exit statuses about important observations.
+            # (See the worker threads or the periodic reporter in lib/GenTest/App/GenTest.pm.)
+            # So we must not reap the exit status of these additional child processes here
+            # because the reaping and processing of their statuses is in GenTest.pm or similar.
+            # ==> We focus on the pids stored in %aux_pids only.
+            #     Only startServer adds pids to %aux_pids.
+            #
+            # The current "reaper" is the one installed in startServer. And he will reap most
+            # auxiliary processes serving for DB server starts.
+            # But it is to be feared that this is not sufficient for catching all such auxiliary
+            # child processes when they have finished their job.
+            # https://docstore.mik.ua/orelly/perl/cookbook/ch16_20.htm says
+            # Because the kernel keeps track of undelivered signals using a bit vector, one bit
+            # per signal, if two children die before your process is scheduled, you will get only
+            # a single SIGCHLD.
+            # Therefore killServer,crashServer ... call waitForAuxpidGone which tries to reap too.
+            #
+            # Observation 2020-12
+            # Main process of the RQG runner is 5890.
+            # The "DEBUG: server pid : 8014 , server_running :" are caused by running the code
+            # of the reporter 'ServerDead'.
+            # 11:14:52 [5890] DEBUG: server pid : 8014 , server_running : 1
+            # 11:14:53 [5890] WARN: Auxpid 7966 exited with exit status 139.
+            #          If auxpid is gone than its child "rr" should have been gone too.
+            # 11:14:53 [5890] DEBUG: server pid : 8014 , server_running : 1
+            # 11:14:54 [5890] DEBUG: server pid : 8014 , server_running : 1
+            #          If the server is running shouldn't it be observed by "rr"?
+            #          But isn't "rr" already gone?
+            # 11:14:55 [5890] DEBUG: server pid : 8014 , server_running : 0
+            # 11:14:55 [5890] INFO: Reporter 'ServerDead': The process of the DB server 8014 is
+            #                 no more running
+            # My guess:
+            # The box is so overloaded that even the OS needs significant time for updating
+            # its processtable etc. Probably the DB server process already disappeared 11:14:53.
+
             my $who_am_i = "Auxpid Reaper:";
-            # say("DEBUG: $who_am_i Auxpid_list:" . join("-", sort keys %aux_pids));
-            # serverstarter has a reaper and Reporter CrashRecovery when calling
-            # - killServer thinks he should handle auxpids too but is not the parent
-            # - startServer gets a reaper
+            # say("DEBUG: $who_am_i Auxpid_list sorted:" . join("-", sort keys %aux_pids));
+
             foreach my $pid (keys %aux_pids) {
                 if ($$ != $aux_pids{$pid}) {
                     # We are not the parent of $pid. Hence delete the entry.
@@ -706,13 +774,16 @@ sub startServer {
                 #     0, STATUS_INTERNAL_ERROR -- most probably already reaped
                 #                              == Defect in RQG logics
                 my ($reaped, $status) = Auxiliary::reapChild($pid, "Auxpid for DB server start");
-                if ((1 == $reaped) or
-                    (0 == $reaped and DBSTATUS_OK != $status)) {
+                if (1 == $reaped) {
                     delete $aux_pids{$pid};
-                    # say("DEBUG: Auxpid $pid removed from hash.");
+                    if (DBSTATUS_OK == $status) {
+                        say("DEBUG: Auxpid $pid exited with exit status STATUS_OK.")
+                    } else {
+                        say("WARN: Auxpid $pid exited with exit status $status.")
+                    }
                 }
-                if (1 == $reaped and DBSTATUS_OK != $status) {
-                    say("WARN: Auxpid $pid exited with exit status $status.");
+                if (0 == $reaped and DBSTATUS_OK != $status) {
+                    say("ERROR: Attempt to reap Auxpid $pid failed with status $status.");
                 }
             }
         };
@@ -721,8 +792,6 @@ sub startServer {
         if ($self->[MYSQLD_VALGRIND]) {
             my $val_opt         = "";
             $tool_startup       = 10;
-            $startup_timeout    = $startup_timeout    * TIMEOUT_FACTOR_VALGRIND;
-            $pid_seen_timeout   = $pid_seen_timeout   * TIMEOUT_FACTOR_VALGRIND;
             if (defined $self->[MYSQLD_VALGRIND_OPTIONS]) {
                 $val_opt = join(' ',@{$self->[MYSQLD_VALGRIND_OPTIONS]});
             }
@@ -768,8 +837,6 @@ sub startServer {
             # rr tracing is already active ('RQG') or will become active for the calls of
             # certain binaries. In all cases where the server binaries run under "rr" we need
             # a bigger timeouts.
-            $startup_timeout    = $startup_timeout    * TIMEOUT_FACTOR_RR;
-            $pid_seen_timeout   = $pid_seen_timeout   * TIMEOUT_FACTOR_RR;
             # Having more events ('rr' point of view) could make debugging faster.
             # We just try that via more dense logging of events in the server.
             # Example:
@@ -832,11 +899,12 @@ sub startServer {
             my $pid;
             my $pidfile_seen   = 0;
 
-            say("DEBUG: Start the waiting for the server error log line with the pid.");
+            # say("DEBUG: Start the waiting for the server error log line with the pid.");
 
             # For experimenting
             # $self->stop_server_for_debug(3, -9, 'mysqld', 0);
-            my $wait_end = time() + $tool_startup + $pid_seen_timeout;
+            my $start_time = time();
+            my $wait_end = $start_time + $tool_startup + $pid_seen_timeout;
             while (1) {
                 Time::HiRes::sleep($wait_time);
 
@@ -845,7 +913,8 @@ sub startServer {
                 $pid = Auxiliary::check_if_reasonable_pid($pid);
                 if (defined $pid) {
                     $self->[MYSQLD_SERVERPID] = $pid;
-                    say("INFO: $who_am_i Server pid $pid detected.");
+                    say("INFO: $who_am_i Time till server pid $pid detected in s: " .
+                        (time() - $start_time));
                     # Auxiliary::print_ps_tree($$);
                     last;
                 }
@@ -879,9 +948,9 @@ sub startServer {
             # SIGKILL or SIGABRT sent to the server make no difference for the fate of "rr".
             # "rr" finishes smooth and get reaped by its parent.
 
-
             # $self->stop_server_for_debug(5, 'mysqld', -6, 5);
-            $wait_end = time() + $startup_timeout;
+            $start_time = time();
+            $wait_end = $start_time + $startup_timeout;
             while (1) {
                 Time::HiRes::sleep($wait_time);
                 if (not kill(0, $pid)) {
@@ -911,10 +980,10 @@ sub startServer {
                     $self->killServer;
                     return $status;
                 } elsif ($found) {
-                    say("DEBUG: $who_am_i Server startup finished with success.");
+                    say("INFO: $who_am_i Time for server startup in s: " . (time() - $start_time));
                     last;
                 } else {
-                    say("DEBUG: $who_am_i Waiting for finish of server startup.");
+                    # say("DEBUG: $who_am_i Waiting for finish of server startup.");
                 }
                 if (time() >= $wait_end) {
                     my $status = DBSTATUS_FAILURE;
@@ -929,11 +998,13 @@ sub startServer {
 
             # If reaching this line
             # - we have a valid pid in $pid and $self->[MYSQLD_SERVERPID]
+            # - mysqld: ready for connections    was already reported
             # - the server startup is finished
 
             # $self->stop_server_for_debug(5, 'mysqld', -6, 5);
             # $self->stop_server_for_debug(5, 'mysqld', -15, 5);
-            my $pid_from_file = $self->get_pid_from_pid_file;
+            # my $pid_from_file = $self->get_pid_from_pid_file;
+            my $pid_from_file = Auxiliary::get_pid_from_file($self->pidfile);
             if (not defined $pid_from_file) {
                 if (not kill(0, $pid)) {
                     # Maybe there are some asynchronous tasks
@@ -1002,10 +1073,18 @@ sub startServer {
 ### CHECK:
 # Any crashServer, killServer, stopServer, Term needs to cleanup pids pidfile etc.
 # because they could be called from outside like Reporters etc.
+#
+# If $silent is defined than do not lament about expected events like undef pids or missing files.
+# This makes RQG logs after passing
+#    MATCHING: Region end   =====================
+# less noisy.
+#
 sub killServer {
-    my ($self) = @_;
+    my ($self, $silent) = @_;
 
     my $who_am_i = "DBServer::MySQL::MySQLd::killServer:";
+
+    my $kill_timeout = DEFAULT_SERVER_KILL_TIMEOUT * Runtime::get_runtime_factor();
 
     if (osWindows()) {
         if (defined $self->[MYSQLD_WINDOWS_PROCESS]) {
@@ -1013,9 +1092,9 @@ sub killServer {
             say("INFO: $who_am_i Killed process ".$self->[MYSQLD_WINDOWS_PROCESS]->GetProcessID());
         }
     } else {
-        # Why not picking the value from server error log?
         if (not defined $self->serverpid) {
-            $self->[MYSQLD_SERVERPID] = $self->get_pid_from_pid_file;
+            # Why not picking the value from server error log?
+            $self->[MYSQLD_SERVERPID] = Auxiliary::get_pid_from_file($self->pidfile, $silent);
             if (defined $self->serverpid) {
                 say("WARN: $who_am_i serverpid had to be extracted from pidfile.");
             }
@@ -1024,12 +1103,18 @@ sub killServer {
             if (not $self->running) {
                 say("INFO: $who_am_i The server with process [" . $self->serverpid .
                     "] is already no more running. Will return DBSTATUS_OK.");
+                # IMPORTANT:
+                # Do NOT return from here because this will break the scenario of the reporter
+                # Crashrecovery.
+                # In monitor: SIGKILL server_pid, no waiting, just exit
+                # In report: Call killServer and wait by that in cleanup_dead_server till rr trace
+                #            is complete written.
             } else {
                 kill KILL => $self->serverpid;
                 # There is no guarantee that the OS has already killed the process when
                 # kill KILL returns. This is especially valid for boxes with currently
                 # extreme CPU load.
-                if ($self->waitForServerToStop(30) != DBSTATUS_OK) {
+                if ($self->waitForServerToStop($kill_timeout) != DBSTATUS_OK) {
                     say("ERROR: $who_am_i Unable to kill the server process " . $self->serverpid);
                 } else {
                     say("INFO: $who_am_i Killed the server process " . $self->serverpid);
@@ -1037,16 +1122,17 @@ sub killServer {
             }
         } else {
             say("INFO: $who_am_i Killing the server process impossible because " .
-                "no server pid found.");
+                "no server pid found.") if not defined $silent;
         }
     }
-    my $return = $self->running ? DBSTATUS_FAILURE : DBSTATUS_OK;
+    my $return = $self->running($silent) ? DBSTATUS_FAILURE : DBSTATUS_OK;
 
     # Clean up when the server is not alive.
     $self->cleanup_dead_server;
     # Is the position after cleanup_dead ... ok?
     return $return;
-}
+
+} # End sub killServer
 
 sub term {
     my ($self) = @_;
@@ -1062,12 +1148,7 @@ sub term {
         return DBSTATUS_OK;
     }
 
-    my $term_timeout;
-    if      (defined $self->[MYSQLD_RR]) {
-        $term_timeout = DEFAULT_TERM_TIMEOUT * TIMEOUT_FACTOR_RR;
-    } elsif (defined $self->[MYSQLD_VALGRIND]) {
-        $term_timeout = DEFAULT_TERM_TIMEOUT * TIMEOUT_FACTOR_VALGRIND;
-    }
+    my $term_timeout = DEFAULT_TERM_TIMEOUT * Runtime::get_runtime_factor();
 
     if (osWindows()) {
         ### Not for windows
@@ -1098,13 +1179,17 @@ sub crashServer {
     my ($self, $tolerant) = @_;
 
     my $who_am_i = "DBServer::MySQL::MySQLd::crashServer:";
+
+    my $abrt_timeout = DEFAULT_SERVER_ABRT_TIMEOUT * Runtime::get_runtime_factor();
+
     if (osWindows()) {
         ## How do i do this?????
         $self->killServer; ## Temporary
         $self->[MYSQLD_WINDOWS_PROCESS] = undef;
     } else {
         if (not defined $self->serverpid) {
-            $self->[MYSQLD_SERVERPID] = $self->get_pid_from_pid_file;
+            # $self->[MYSQLD_SERVERPID] = $self->get_pid_from_pid_file;
+            $self->[MYSQLD_SERVERPID] = Auxiliary::get_pid_from_file($self->pidfile);
             if (defined $self->serverpid) {
                 say("WARN: $who_am_i serverpid had to be extracted from pidfile.");
             }
@@ -1123,9 +1208,10 @@ sub crashServer {
             # Notebook, low load, one RQG, tmpfs:
             # SIGABRT ~ 4s till rr has finished and the auxiliary process is reaped.
             # SIGKILL ~ 1s till rr has finished and the auxiliary process is reaped.
-            if ($self->waitForServerToStop(120) != DBSTATUS_OK) {
+            if ($self->waitForServerToStop($abrt_timeout) != DBSTATUS_OK) {
                 say("ERROR: $who_am_i Crashing the server with core failed. Trying kill. " .
                     "Will return DBSTATUS_FAILURE.");
+                Auxiliary::print_ps_tree($$);
                 $self->killServer;
                 return DBSTATUS_FAILURE;
             } else {
@@ -1162,41 +1248,60 @@ sub corefile {
 }
 
 sub upgradeDb {
-  my $self= shift;
+    my $self= shift;
 
-  my $mysql_upgrade= $self->_find([$self->basedir],
-                                        osWindows()?["client/Debug","client/RelWithDebInfo","client/Release","bin"]:["client","bin"],
-                                        osWindows()?"mysql_upgrade.exe":"mysql_upgrade");
-  my $upgrade_command=
-    '"'.$mysql_upgrade.'" --host=127.0.0.1 --port='.$self->port.' -uroot';
-  my $upgrade_log= $self->datadir.'/mysql_upgrade.log';
-  say("Running mysql_upgrade:\n  $upgrade_command");
-  my $res= system("$upgrade_command > $upgrade_log");
-  if ($res == DBSTATUS_OK) {
-    # mysql_upgrade can return exit code 0 even if user tables are corrupt,
-    # so we don't trust the exit code, we should also check the actual output
-    if (open(UPGRADE_LOG, "$upgrade_log")) {
-     OUTER_READ:
-      while (<UPGRADE_LOG>) {
-        # For now we will only check 'Repairing tables' section,
-        # and if there are any errors, we'll consider it a failure
-        next unless /Repairing tables/;
-        while (<UPGRADE_LOG>) {
-          if (/^\s*Error/) {
-            $res= DBSTATUS_FAILURE;
-            sayError("Found errors in mysql_upgrade output");
-            sayFile("$upgrade_log");
-            last OUTER_READ;
-          }
-        }
-      }
-      close (UPGRADE_LOG);
+    my $mysql_upgrade= $self->_find([$self->basedir],
+        osWindows()?["client/Debug","client/RelWithDebInfo","client/Release","bin"]:["client","bin"],
+        osWindows()?"mysql_upgrade.exe":"mysql_upgrade");
+    my $upgrade_command=
+        '"' . $mysql_upgrade . '" --host=127.0.0.1 --port=' . $self->port . ' -uroot';
+    my $upgrade_log= $self->datadir . '/mysql_upgrade.log';
+    say("Running mysql_upgrade:\n  $upgrade_command");
+    my $status = DBSTATUS_OK;
+    # Experiment begin
+    # my $status = system("$upgrade_command > $upgrade_log");
+    system("$upgrade_command > $upgrade_log");
+    my $rc = $?;
+    if ($rc == -1) {
+        say("WARNING: upgrade_command failed to execute: $!");
+        $status = DBSTATUS_FAILURE;
+    } elsif ($rc & 127) {
+        say("WARNING: upgrade_command died with signal " . ($rc & 127));
+        $status = DBSTATUS_FAILURE;
+    } elsif (($rc >> 8) != 0) {
+        say("WARNING: upgrade_command exited with value " . ($rc >> 8));
+        $status = DBSTATUS_FAILURE;
+        return STATUS_INTERNAL_ERROR;
     } else {
-      sayError("Could not find $upgrade_log");
-      $res= DBSTATUS_FAILURE;
+        say("DEBUG: upgrade_command exited with value " . ($rc >> 8));
+        $status = DBSTATUS_OK;
     }
-  }
-  return $res;
+
+    if ($status  == DBSTATUS_OK) {
+        # mysql_upgrade can return exit code 0 even if user tables are corrupt,
+        # so we don't trust the exit code, we should also check the actual output
+        if (open(UPGRADE_LOG, "$upgrade_log")) {
+           OUTER_READ:
+            while (<UPGRADE_LOG>) {
+            # For now we will only check 'Repairing tables' section,
+            # and if there are any errors, we'll consider it a failure
+                next unless /Repairing tables/;
+                while (<UPGRADE_LOG>) {
+                    if (/^\s*Error/) {
+                        $status = DBSTATUS_FAILURE;
+                        sayError("Found errors in mysql_upgrade output");
+                        sayFile("$upgrade_log");
+                        last OUTER_READ;
+                    }
+                }
+            }
+            close (UPGRADE_LOG);
+        } else {
+            sayError("Could not find $upgrade_log");
+            $status = DBSTATUS_FAILURE;
+        }
+    }
+    return $status ;
 }
 
 sub dumper {
@@ -1374,18 +1479,14 @@ sub binary {
 sub stopServer {
     my ($self, $shutdown_timeout) = @_;
     $shutdown_timeout = 60 unless defined $shutdown_timeout;
-    if      (defined $self->[MYSQLD_RR]) {
-        $shutdown_timeout = $shutdown_timeout * TIMEOUT_FACTOR_RR;
-    } elsif (defined $self->[MYSQLD_VALGRIND]) {
-        $shutdown_timeout = $shutdown_timeout * TIMEOUT_FACTOR_VALGRIND;
-    }
+    $shutdown_timeout = $shutdown_timeout * Runtime::get_runtime_factor();
     my $errorlog = $self->errorlog;
     my $check_shutdown = 0;
     my $res;
 
     if (not $self->running) {
         # Observation 2020-01 after replacing croak/exit in startServer by return DBSTATUS_FAILURE
-        # Use of uninitialized value in concatenation (.) or string at lib/DBServer/MySQL/MySQLd.pm ...
+        # Use of uninitialized value in concatenation (.) or string at lib/DBServer/MySQL/MySQLd.pm
         my $message_part = $self->serverpid;
         $message_part = '<never known or now already unknown pid>' if not defined $message_part;
         say("DEBUG: DBServer::MySQL::MySQLd::stopServer: The server with process [" .
@@ -1412,6 +1513,7 @@ sub stopServer {
         my $dbh = $self->dbh();
         # Need to check if $dbh is defined, in case the server has crashed
         if (defined $dbh) {
+            my $start_time = time();
             $res = $dbh->func('shutdown','127.0.0.1','root','admin');
             if (!$res) {
                 ## If shutdown fails, we want to know why:
@@ -1419,7 +1521,8 @@ sub stopServer {
                 $res= DBSTATUS_FAILURE;
             } else {
                 if ($self->waitForServerToStop($shutdown_timeout) != DBSTATUS_OK) {
-                    # Terminate process
+                    # The server process has not disappeared.
+                    # So try to terminate that process.
                     say("ERROR: Server did not shut down properly. Terminate it");
                     sayFile($errorlog);
                     $res= $self->term;
@@ -1428,15 +1531,32 @@ sub stopServer {
                         $check_shutdown = 1;
                     }
                 } else {
+                    say("INFO: Time for shutting down the server on port " . $self->port .
+                        " in s : " . (time() - $start_time));
                     $check_shutdown = 1;
+                    # Observation 2020-12
+                    # 2020-12-13T18:26:31 [528945] Stopping server(s)...
+                    # 2020-12-13T18:26:31 [528945] Stopping server on port 25680
+                    #                              == RQG has told what he wants to do
+                    # 2020-12-13T18:26:49 [528945] WARN: Auxpid 530419 exited with exit status 139.
+                    #                              == Disappearing Auxpid was observed
+                    # 2020-12-13T18:26:49 [528945] INFO: Time for shutting down the server on port 25680 in s : 18
+                    #                              == return of waitForServerToStops was DBSTATUS_OK
+                    # 2020-12-13T18:26:49 [528945] Server has been stopped
+                    # 2020-12-13T18:26:49 [528945] WARN: No regular shutdown achieved. Will return 1 later.
+                    # Server error log
+                    # 2020-12-13 18:24:36 19 [Note] InnoDB: Deferring DROP TABLE `test`.`FTS_000000000000101e_CONFIG`; renaming to test/#sql-ib4129
+                    # 2020-12-13 18:26:31 0 [Note] /Server_bin/bb-10.6-MDEV-21452A_asan_Og/bin/mysqld (initiated by: root[root] @ localhost [127.0.0.1]): Normal shutdown
+                    # 2020-12-13 18:26:31 0 [Note] Event Scheduler: Purging the queue. 0 events
+                    # 2020-12-13 18:26:33 0 [Note] InnoDB: FTS optimize thread exiting.
+                    # 201213 18:26:33 [ERROR] mysqld got signal 11 ;
+
+                    # cleanup_dead_server waits till the auxpid/forkpid is gone.
+                    # Even if that fails a cleanup is made and corresponding status is returned.
+                    # But that status is not useful here.
                     $self->cleanup_dead_server;
                     $res= DBSTATUS_OK;
                     say("Server has been stopped");
-                    # 2020-05-19 we passed this branch and the server error log contains
-                    # 'mysqld: Shutdown complete'. Nevertheless it looks like that pattern was not
-                    # there when the error log was processed because RQG claims that no regular
-                    # shutdown was achieved.
-                    sleep 1;
                 }
             }
         } else {
@@ -1452,12 +1572,7 @@ sub stopServer {
     } else {
         say("Shutdown timeout or dbh is not defined, killing the server");
         $res= $self->killServer;
-        if ($self->waitForServerToStop(30) != DBSTATUS_OK) {
-            say("FATAL ERROR: Killing the server did not work properly. " .
-                "Will return DBSTATUS_FAILURE");
-            sayFile($errorlog);
-            return DBSTATUS_FAILURE;
-        }
+        # killServer itself runs a waitForServerToStop
     }
     if ($check_shutdown) {
         my @filestats = stat($file_to_read);
@@ -1575,6 +1690,7 @@ sub waitForServerToStop {
 # We return either DBSTATUS_OK(0) or DBSTATUS_FAILURE(1);
    my $self      = shift;
    my $timeout   = shift;
+   # FIXME: Build a default or similar
    # 180s Looks like a lot but slow binaries and heavy loaded testing boxes are not rare.
    $timeout      = (defined $timeout ? $timeout*2 : 180);
    my $wait_end  = Time::HiRes::time() + $timeout;
@@ -1584,7 +1700,8 @@ sub waitForServerToStop {
    }
    if ($self->running) {
       say("ERROR: The server process has not disappeared after " . $timeout . "s waiting. " .
-          "Will return DBSTATUS_FAILURE.");
+          "Will return DBSTATUS_FAILURE later.");
+      Auxiliary::print_ps_tree($$);
       return DBSTATUS_FAILURE;
    } else {
       return DBSTATUS_OK;
@@ -1733,7 +1850,7 @@ sub running {
 #        And that might cause that lib/GenTest/App/GenTest.pm is later unable to stop a server.
 #
     my $who_am_i = "lib::DBServer::MySQL::MySQLd::running:";
-    my ($self) = @_;
+    my ($self, $silent) = @_;
     if (osWindows()) {
         ## Need better solution for windows. This is actually the old
         ## non-working solution for unix....
@@ -1744,16 +1861,25 @@ sub running {
 
     my $pid = $self->serverpid;
     if (not defined $pid) {
-        $pid = $self->get_pid_from_pid_file;
+        # $pid = $self->get_pid_from_pid_file;
+        $pid = Auxiliary::get_pid_from_file($self->pidfile, $silent);
         if (defined $pid) {
             say("WARN: $who_am_i serverpid had to be extracted from pidfile.");
+            $self->[MYSQLD_SERVERPID] = $pid;
         } else {
             say("ALARM: $who_am_i No valid value for pid found in pidfile. " .
-                "Will return 0 == not running.");
+                "Will return 0 == not running.") if not defined $silent;
             return 0;
         }
     }
-    return kill(0, $self->serverpid);
+    my $return = kill(0, $self->serverpid);
+    if (not defined $return) {
+        say("WARN: $who_am_i kill 0 serverpid " . $self->serverpid . " returned undef. " .
+            "Will return 0");
+        return 0;
+    } else {
+        return $return;
+    }
 }
 
 sub _find {
@@ -1796,23 +1922,27 @@ sub dbh {
    if (defined $self->[MYSQLD_DBH]) {
       if (!$self->[MYSQLD_DBH]->ping) {
          say("Stale connection to " . $self->[MYSQLD_PORT] . ". Reconnecting");
-         $self->[MYSQLD_DBH] = DBI->connect($self->dsn("mysql"),
-                                            undef,
-                                            undef,
-                                            {PrintError => 0,
-                                             RaiseError => 0,
-                                             AutoCommit => 1,
-                                             mysql_auto_reconnect => 1});
+         $self->[MYSQLD_DBH] = DBI->connect(
+                                    $self->dsn("mysql"),
+                                    undef,
+                                    undef,
+                                    { PrintError            => 0,
+                                      RaiseError            => 0,
+                                      AutoCommit            => 1,
+                                      mysql_connect_timeout => Runtime::get_connect_timeout(),
+                                      mysql_auto_reconnect  => 1});
       }
    } else {
       say("Connecting to " . $self->[MYSQLD_PORT]);
-      $self->[MYSQLD_DBH] = DBI->connect($self->dsn("mysql"),
-                                         undef,
-                                         undef,
-                                         {PrintError => 0,
-                                          RaiseError => 0,
-                                          AutoCommit => 1,
-                                          mysql_auto_reconnect => 1});
+      $self->[MYSQLD_DBH] = DBI->connect(
+                                    $self->dsn("mysql"),
+                                    undef,
+                                    undef,
+                                    { PrintError            => 0,
+                                      RaiseError            => 0,
+                                      AutoCommit            => 1,
+                                      mysql_connect_timeout => Runtime::get_connect_timeout(),
+                                      mysql_auto_reconnect  => 1});
    }
    if(!defined $self->[MYSQLD_DBH]) {
       sayError("(Re)connect to " . $self->[MYSQLD_PORT] . " failed due to " .
@@ -1881,12 +2011,12 @@ sub majorVersion {
 sub printInfo {
     my($self) = @_;
 
-    say("MySQL Version: ". $self->version);
-    say("Binary: ". $self->binary);
-    say("Type: ". $self->serverType($self->binary));
-    say("Datadir: ". $self->datadir);
-    say("Tmpdir: ". $self->tmpdir);
-    say("Corefile: " . $self->corefile);
+    say("MySQL Version: "   . $self->version);
+    say("Binary: "          . $self->binary);
+    say("Type: "            . $self->serverType($self->binary));
+    say("Datadir: "         . $self->datadir);
+    say("Tmpdir: "          . $self->tmpdir);
+    say("Corefile: "        . $self->corefile);
 }
 
 sub versionNumbers {
@@ -1985,24 +2115,6 @@ sub stop_server_for_debug {
     say("DEBUG: $who_am_i Experiment with '$stop_command' =================================== End");
 }
 
-sub get_pid_from_pid_file {
-    my $self = shift;
-    my $who_am_i = "DBServer::MySQL::MySQLd::get_pid_from_pid_file:";
-    if (not defined $self->pidfile) {
-        say("ERROR: $who_am_i pidfile is undef. Will return undef.");
-        return undef;
-    }
-    if (not -e $self->pidfile) {
-        say("INFO: $who_am_i pidfile '" . $self->pidfile . "' does not exist. Will return undef.");
-        return undef;
-    }
-    return Auxiliary::get_pid_from_file($self->pidfile);
-    if (not defined $self->pidfile) {
-        say("ERROR: $who_am_i pidfile is undef. Will return undef.");
-        return undef;
-    }
-}
-
 sub cleanup_dead_server {
     my $self = shift;
     my $status = DBSTATUS_OK;
@@ -2018,7 +2130,7 @@ sub cleanup_dead_server {
 }
 
 
-# FIXME: Maybe put the main code into some sub in some Basics.pm.
+# FIXME: Maybe put the main code into some sub in Auxiliary.pm.
 sub waitForAuxpidGone {
 # Purpose:
 # - Ensure that there is sufficient time for finishing writing core files and "rr" traces.
@@ -2029,29 +2141,27 @@ sub waitForAuxpidGone {
     my $self =          shift;
     my $who_am_i =      "DBServer::MySQL::MySQLd::waitForAuxpidGone:";
     my $wait_timeout =  30;
-    if      (defined $self->[MYSQLD_RR]) {
-        $wait_timeout = DEFAULT_AUXPID_GONE_TIMEOUT * TIMEOUT_FACTOR_RR;
-    } elsif (defined $self->[MYSQLD_VALGRIND]) {
-        $wait_timeout = DEFAULT_AUXPID_GONE_TIMEOUT * TIMEOUT_FACTOR_VALGRIND;
-    }
+    $wait_timeout = $wait_timeout * Runtime::get_runtime_factor();
     my $wait_time =     0.5;
-    my $wait_end =      time() + $wait_timeout;
+    my $start_time = time();
+    my $wait_end =      $start_time + $wait_timeout;
     # For debugging:
     # Auxiliary::print_ps_tree($self->forkpid);
     # Auxiliary::print_ps_tree($$);
     if (not defined $self->forkpid) {
         my $status = DBSTATUS_FAILURE;
-        say("INTERNAL ERROR: The auxiliary process is undef/unknown. " .
+        say("INTERNAL ERROR: $who_am_i The auxiliary process is undef/unknown. " .
             "Will return status DBSTATUS_FAILURE($status).");
         return $status;
     }
     while (1) {
         Time::HiRes::sleep($wait_time);
-        if (exists $aux_pids{$self->forkpid} and $$ == $aux_pids{$self->forkpid}) {
+        my $pid = $self->forkpid;
+        if (exists $aux_pids{$pid} and $$ == $aux_pids{$pid}) {
             # The current process is the parent of the auxiliary process.
             # I fear that the sigalarm in startServer is not sufficient for ensuring that
             # auxiliary processes get reaped. So lets do this here again.
-            # Auxiliary::print_ps_tree($self->forkpid);
+            # Auxiliary::print_ps_tree($pid);
             # Returns of Auxiliary::reapChild
             # -------------------------------
             # $reaped -- 0 (not reaped) or 1 (reaped)
@@ -2059,48 +2169,49 @@ sub waitForAuxpidGone {
             #            otherwise STATUS_OK or STATUS_INTERNAL_ERROR
             #     0, STATUS_INTERNAL_ERROR -- most probably already reaped
             #                              == Defect in RQG logics
-            my ($reaped, $status) = Auxiliary::reapChild($self->forkpid,
-                                                         "Auxpid for DB server start");
-            if ((1 == $reaped) or
-                (0 == $reaped and DBSTATUS_OK != $status)) {
-                delete $aux_pids{$self->forkpid};
-                # say("DEBUG: Auxpid $self->forkpid removed from hash.");
+            my ($reaped, $status) = Auxiliary::reapChild($pid,
+                                                         "waitForAuxpidGone");
+            if (1 == $reaped) {
+                delete $aux_pids{$pid};
+                if (DBSTATUS_OK == $status) {
+                    say("DEBUG: $who_am_i Auxpid " . $pid . " exited with exit status STATUS_OK.")
+                } else {
+                    say("WARN: $who_am_i Auxpid $pid exited with exit status $status.")
+                }
             }
-            if (1 == $reaped and DBSTATUS_OK != $status) {
-                say("WARN: Auxpid $self->forkpid exited with exit status $status.");
+            if (0 == $reaped and DBSTATUS_OK != $status) {
+                say("ERROR: $who_am_i Attempt to reap Auxpid $pid failed with status $status.");
             }
         } else {
-            # We are not the parent of $self->forkpid. Hence delete the entry.
-            delete $aux_pids{$self->forkpid};
+            # The current process is not the parent of $pid. Hence delete the entry.
+            delete $aux_pids{$pid};
             # Maybe the auxiliary process has already finished and was reaped.
-            if (not kill(0, $self->forkpid)) {
+            if (not kill(0, $pid)) {
                 my $status = DBSTATUS_OK;
                 # say("DEBUG: The auxiliary process is no more running." .
                 #     " Will return status DBSTATUS_OK" . "($status).");
                 return $status;
+            } else {
+                # 1. It is not our child == reaping is done by other process.
+                # 2. We need to loop around till the process is gone == the
+                #    other process has reaped or we exceed the timeout.
+                # This all means we have nothing to do in this branch.
+                #
             }
         }
         if (time() >= $wait_end) {
             # For debugging:
-            # system("ps -elf | grep " . $self->forkpid);
+            # system("ps -elf | grep " . $pid);
             my $status = DBSTATUS_FAILURE;
-            say("ERROR: The auxiliary process has not disappeared within $wait_timeout" .
+            say("ERROR: $who_am_i The auxiliary process has not disappeared within $wait_timeout" .
                 "s waiting. Will send SIGKILL and return status DBSTATUS_FAILURE($status) later.");
-            sayFile($self->errorlog);
-            kill KILL => $self->forkpid;
+            kill KILL => $pid;
             # FIXME MAYBE:   Provisoric solution
-            sleep 10;
+            sleep 30;
+            return $status if not exists $aux_pids{$pid};
             my $reaped;
-            ($reaped, $status) = Auxiliary::reapChild($self->forkpid,
-                                                      "Auxpid for DB server start");
-            if ((1 == $reaped) or
-                (0 == $reaped and DBSTATUS_OK != $status)) {
-                delete $aux_pids{$self->forkpid};
-                # say("DEBUG: Auxpid $self->forkpid removed from hash.");
-            }
-            if (1 == $reaped and DBSTATUS_OK != $status) {
-                say("WARN: Auxpid $self->forkpid exited with exit status $status.");
-            }
+            ($reaped, $status) = Auxiliary::reapChild($pid,
+                                                      "waitForAuxpidGone");
             return $status;
         }
     }
