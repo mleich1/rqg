@@ -45,6 +45,7 @@ use POSIX;
 use DBServer::MySQL::MySQLd;
 
 my $first_reporter;
+my $omit_reporting = 0;
 
 my $who_am_i = "Reporter 'CrashRecovery1':";
 
@@ -126,16 +127,10 @@ sub report {
 
     say("INFO: $who_am_i Attempting database recovery using the server ...");
 
-    # Using some buffer-pool-size which is smaller than before should sometimes work.
-    # But InnoDB page sizes >= 32K need in minimum a buffer-pool-size >=24M.
-    # So we might assume that works.
-    # 10.4.11  64K Pagesize test
-    # [Warning] InnoDB: Difficult to find free blocks in the buffer pool (21 search iterations)!
-    #    21 failed attempts to flush a page! Consider increasing innodb_buffer_pool_size.
-    #    Pending flushes (fsync) log: 0; buffer pool: 0. 38 OS file reads, 0 OS file writes, 0 OS fsyncs.
-    # 2020-07-07T15:46:12 [25311] | 200707 15:46:12 [ERROR] mysqld got signal 6 ;
-    # Therefore trying 48M
-    $server->addServerOptions(['--innodb-buffer-pool-size=48M']);
+    # Using some buffer-pool-size which is smaller than before should work.
+    # InnoDB page sizes >= 32K need in minimum a buffer-pool-size >=24M.
+    # So we go with that.
+    $server->addServerOptions(['--innodb-buffer-pool-size=24M']);
     # 2020-05-05 False alarm
     # One of the walking queries failed because max_statement_time=30 was exceeded.
     # The test setup might go with a short max_statement_time which might
@@ -211,8 +206,9 @@ sub report {
 
     if (not defined $dbh or $recovery_status > STATUS_OK) {
         sayFile($server->errorlog);
-        say("ERROR: $who_am_i Recovery has failed. Will return status STATUS_RECOVERY_FAILURE");
-        return STATUS_RECOVERY_FAILURE;
+        my $status = STATUS_RECOVERY_FAILURE;
+        say("ERROR: $who_am_i Recovery has failed. " . Auxiliary::build_wrs($status));
+        return $status;
     }
 
     #
@@ -232,6 +228,11 @@ sub report {
     say("INFO: $who_am_i Testing database consistency");
 
     my $databases = $dbh->selectcol_arrayref("SHOW DATABASES");
+    if (not defined $databases) {
+        my $status = STATUS_RECOVERY_FAILURE;
+        say("ERROR: $who_am_i SHOW DATABASES failed. " .Auxiliary::build_wrs($status));
+        return $status;
+    }
     foreach my $database (@$databases) {
         next if $database =~ m{^(rqg|mysql|information_schema|pbxt|performance_schema)$}sio;
         $dbh->do("USE $database");
@@ -380,7 +381,6 @@ sub report {
                 # No risk of hitting a fail from natural reason like mentioned above.
                 # Slight disadvantage of enforcing a table rebuild at all:
                 #    Depending on the SE one of the CHECK/ANALYZE/... might have already done so.
-                # "ALTER TABLE $table_to_check ENGINE = $engine"
                 "ALTER TABLE $table_to_check FORCE",
             ) {
                 say("INFO: $who_am_i Executing $sql.");
@@ -484,24 +484,26 @@ sub report {
                         next if (($result =~ m{error'}sio) and ($result =~ m{Unknown - internal error 188 during operation}sio));
                         if ($result =~ m{error'|corrupt|repaired|invalid|crashed}sio) {
                             print $result;
-                            say("ERROR: Failures found in the output above. " .
-                                "Will return STATUS_RECOVERY_FAILURE");
-                            return STATUS_RECOVERY_FAILURE
+                            my $status = STATUS_RECOVERY_FAILURE;
+                            say("ERROR: $who_am_i Failures found in the output above. " . Auxiliary::build_wrs($status));
+                            return $status;
                         }
                     };
 
                     $sth->finish();
                 } else {
-                    say("ERROR: $who_am_i Prepare failed: " . $dbh->errrstr() .
-                        "Will return STATUS_RECOVERY_FAILURE");
-                    return STATUS_RECOVERY_FAILURE;
+                    my $status = STATUS_RECOVERY_FAILURE;
+                    say("ERROR: $who_am_i Prepare failed: " . $dbh->errrstr() . " " .  Auxiliary::build_wrs($status));
+                    return $status;
                 }
             }
         }
     }
 
-    say("INFO: $who_am_i No failures found. Will return STATUS_OK");
-    return STATUS_OK;
+    my $status = STATUS_OK;
+    say("INFO: $who_am_i No failures found. " . Auxiliary::build_wrs($status));
+    $dbh->disconnect();
+    return $status;
 }
 
 sub type {
