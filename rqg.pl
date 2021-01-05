@@ -2,7 +2,7 @@
 
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab
-# Copyright (C) 2016, 2020 MariaDB Corporation Ab
+# Copyright (C) 2016, 2021 MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -71,14 +71,15 @@ $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
 $Carp::MaxArgNums= 8;
 
-use constant RQG_RUNNER_VERSION  => 'Version 3.2.1 (2020-11)';
-use constant STATUS_FAILURE      => 2;
+use constant RQG_RUNNER_VERSION  => 'Version 3.3.2 (2021-01)';
 use constant STATUS_CONFIG_ERROR => 199;
 
 use strict;
 use GenTest;
 use Auxiliary;
 use Verdict;
+use Runtime;
+use SQLtrace;
 # use GenTest::BzrInfo;
 use GenTest::Constants;
 use GenTest::Properties;
@@ -137,7 +138,6 @@ if (defined $ENV{RQG_HOME}) {
 }
 
 use Getopt::Long;
-use GenTest::Constants;
 use DBI;
 
 my $message;
@@ -178,11 +178,11 @@ my $genconfig = ''; # if template is not set, the server will be run with --no-d
 
 # Place rather into the preset/default section for all variables.
 my $threads;
-my $default_threads  = 10;
+my $default_threads         = 10;
 # my $queries;
-my $default_queries  = 100000000;
+my $default_queries         = 100000000;
 my $duration;
-my $default_duration = 3600;
+my $default_duration        = 3600;
 my $default_max_gd_duration = 300;
 
 my @ARGV_saved = @ARGV;
@@ -190,17 +190,6 @@ my @ARGV_saved = @ARGV;
 # Warning:
 # Lines starting with names of options like "rpl_mode" and "rpl-mode" are not duplicates because
 # the difference "_" and "-".
-# FIXME: Offer more
-# 1. config file
-# 7. Archiver command
-
-# TODO:
-# If possible
-# It must be ensured that the right rqg.pl is called.
-# Scenarios like
-# Some upper level tool like /<ABC>.pl picks a /<DEF/rqg.pl with <ABC> != <DEF>
-# must be prevented!!
-#
 
 # say("DEBUG: Before reading commannd line options");
 # say("\@ARGV_saved : " . join(' ',@ARGV_saved));
@@ -379,7 +368,7 @@ if (defined $rr_options) {
 my $env_var = $ENV{RUNNING_UNDER_RR};
 if (defined $env_var) {
     say("INFO: The environment variable RUNNING_UNDER_RR is set. " .
-        "This means we run under the control of 'rr'.");
+        "This means the complete RQG run (-> all processes) are under the control of 'rr'.");
     if (defined $rr) {
         say("ERROR: 'rqg.pl' should invoke 'rr' even though already running under control " .
             "of 'rr'. This makes no sense.");
@@ -388,17 +377,18 @@ if (defined $env_var) {
     }
     $rr_rules = 1;
 }
+if($rr_rules) {
+    Runtime::set_runtime_factor_rr;
+}
 
-# FIXME if a solution was found.
-# The reporter Backtrace + rr makes not that much sense.
-# Hence writing a core file could be in theory prevented. See MySQLd.pm
-# And if its prevented than we should probably do something here.
-#
-
-if (defined $valgrind and STATUS_OK != Auxiliary::find_external_command("valgrind")) {
-    my $status = STATUS_ENVIRONMENT_FAILURE;
-    say("ERROR: valgrind is required but was not found.");
-    safe_exit($status);
+if (defined $valgrind) {
+    if (STATUS_OK == Auxiliary::find_external_command("valgrind")) {
+        Runtime::set_runtime_factor_valgrind;
+    } else {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: valgrind is required but was not found.");
+        safe_exit($status);
+    }
 }
 
 # FIXME: Make $workdir mandatory??
@@ -612,76 +602,11 @@ if (not defined $grammar_file) {
 # The latter leads to failure.
 @redefine_files = ();
 
-if (defined $sqltrace) {
-    # --sqltrace may have a string value (optional).
-    # Allowed values for --sqltrace:
-    my %sqltrace_legal_values = (
-        # MarkErrors
-        # ----------
-        # The SQL statement gets written when the server response arrives == post execution.
-        # Failing SQL statements get marked.
-        'MarkErrors'    => 1,
-        # MTR (FIXME: Implement)
-        # ---
-        # Try to write trace messages which could be filtered out and hopefully used as MTR test.
-        # For that we need a crowd of properties like
-        # 1. One connection only (all time user=root)
-        #    Note:
-        #    It is possible to generate a multi session MTR test with correct mysqltest language
-        #    by using "--connect*", "--send", "--reap" etc. But per experience such tests fail
-        #    usually at runtime because of "endless" waiting for "--reap" or similar.
-        #    A significant fraction of MTR tests checking concurrency effects is forced to use
-        #    the DEBUG_SYNC facility. And the DEBUG_SYNC points which will be passed during test
-        #    execution are not known to RQG.
-        # 2. The SQL statement gets written when the server response arrives == post execution.
-        #    Failing SQL statements get marked.
-        # 3. Transform every query (multi statement) spanning over several lines to one line only.
-        #    This should be the default.
-        #    Reason: The mysqltest simplifier should never destroy the semantics.
-        #    Optional: Do not transform.
-        # 4. Add a '--enable_reconnect' to !after! any (first) connect in order to handle loss
-        #    of the connection caused by
-        #    COMMIT/ROLLBACK ... RELEASE
-        #    KILL .... CONNECTION
-        # 5. Experiment with DELIMITER § set at begin of trace and replacing with it any
-        #    last ";" of a query.
-        'MTR'           => 1,
-        # Concurrency (FIXME: Implement)
-        # -----------
-        # 1. Write a trace message when a query gets send to the DB server == before execution.
-        # 2. Write a trace message including the server response when that response arrives
-        #    == post execution.
-        # This trace mode
-        # - should help to get a rough idea how the execution of statements of different sessions
-        #   overlap (neither the other sqltrace modes nor the server statement log show that).
-        #   Real life example:
-        #   Assert when session A (chaotic DDL) clashes with session B (mariabackup).
-        #   The question of interest was:
-        #   mariabackup sets BACKUP STAGE ... which should block concurrent DDL.
-        #   So was there some concurrent DDL which was not blocked?
-        # - is not dedicated for generating some MTR test from the trace messages
-        'Concurrency'   => 1,
-    );
-
-    if (length($sqltrace) > 0) {
-        # A value is given, check if it is legal.
-        if (not exists $sqltrace_legal_values{$sqltrace}) {
-            say("ERROR: Invalid value for --sqltrace option: '$sqltrace'.\n"               .
-                "       Valid values are: " . join(', ', keys(%sqltrace_legal_values))     .
-                "       No value means that default/plain sqltrace will be used.");
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            run_end($status);
-        } else {
-            say("INFO: Sqltracing '$sqltrace' enabled.");
-        }
-    } else {
-        # If no value is given, GetOpt will assign the value '' (empty string).
-        # We interpret this as plain tracing (no marking of errors, prefixing etc.).
-        # Better to use 1 instead of empty string for comparisons later.
-        $sqltrace = 1;
-        say("INFO: Default/plain sqltracing enabled.");
-    }
-}
+my $status = SQLtrace::check_and_set_sqltracing($sqltrace);
+if (STATUS_OK != $status) {
+    say("$0 will exit with exit status " . status2text($status) . "($status)");
+    run_end($status);
+};
 
 if (defined $filter) {
     $filter = Auxiliary::check_filter($filter, $workdir);
@@ -861,7 +786,7 @@ foreach my $i (0..3) {
 }
 
 say("INFO: RQG_HOME '$rqg_home' ----------");
-my $status = Auxiliary::get_git_info($rqg_home, '$rqg_home');
+$status = Auxiliary::get_git_info($rqg_home, '$rqg_home');
 if ($status > STATUS_CRITICAL_FAILURE) {
     Carp::cluck("ERROR: get_git_info returned a critical failure. Will exit with that status.");
     run_end($status);
@@ -998,7 +923,6 @@ if (not defined $engine[0]) {
 push @{$mysqld_options[0]}, "--sql-mode=no_engine_substitution"
     if join(' ', @ARGV_saved) !~ m{(sql-mode|sql_mode)}io;
 
-# FIXME: Clean up/make more safe
 foreach my $i (1..3) {
     @{$mysqld_options[$i]} = ( defined $mysqld_options[$i]
             ? ( @{$mysqld_options[0]}, @{$mysqld_options[$i]} )
@@ -1035,8 +959,6 @@ if (not defined $client_basedir) {
 }
 
 #-----------------------
-# FIXME: Let a routine in Auxiliary figure out if its standard MariaDB replication.
-#
 # Master and slave get the same debug_server[1] applied.
 # FIXME: Is $debug_server[2] = $debug_server[1] right?
 if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
@@ -1543,13 +1465,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
 
         if ($status > DBSTATUS_OK) {
             # exit_test will run killServers
-            # stopServers($status);
-            if (osWindows()) {
-                say(system("dir " . unix2winPath($server[$server_id]->datadir)));
-            } else {
-                say(system("ls -l " . $server[$server_id]->datadir));
-            }
-            sayError("Could not start all servers");
+            say("ERROR: Could not start all servers");
             my $status = STATUS_CRITICAL_FAILURE;
             say("$0 will exit with exit status " . status2text($status) . "($status)");
             exit_test($status);
@@ -1696,11 +1612,15 @@ $gentestProps->notnull($notnull) if defined $notnull;
 $gentestProps->short_column_names($short_column_names) if defined $short_column_names;
 $gentestProps->strict_fields($strict_fields) if defined $strict_fields;
 $gentestProps->freeze_time($freeze_time) if defined $freeze_time;
-$gentestProps->valgrind(1) if $valgrind;
+
+if ($valgrind) {
+    $gentestProps->valgrind(1);
+}
 $gentestProps->rr($rr) if $rr;
 $gentestProps->rr_options($rr_options) if defined $rr_options;
+
 $gentestProps->property('ps-protocol',1) if $ps_protocol;
-$gentestProps->sqltrace($sqltrace) if $sqltrace;
+$gentestProps->sqltrace($sqltrace) if defined $sqltrace;
 $gentestProps->querytimeout($querytimeout) if defined $querytimeout;
 $gentestProps->testname($testname) if $testname;
 $gentestProps->logfile($logfile) if defined $logfile;
@@ -1720,7 +1640,7 @@ $gentestProps->debug_server(\@debug_server) if @debug_server;
 $gentestProps->servers(\@server) if @server;
 $gentestProps->property('annotate-rules',$annotate_rules) if defined $annotate_rules;
 $gentestProps->property('upgrade-test',$upgrade_test) if $upgrade_test;
-$gentestProps->property('max_gd_duration',$max_gd_duration) if defined $max_gd_duration;
+$gentestProps->property('max_gd_duration',$max_gd_duration); #  if defined $max_gd_duration;
 
 #
 # Basically anything added via $gentestProps->property(<whatever name>,<value>)
@@ -1750,10 +1670,14 @@ foreach my $server_id (0..$#server) {
     $ENV{$varname} = $server[$server_id]->serverpid;
 }
 
-my $gentest = GenTest::App::GenTest->new(config => $gentestProps);
-
 my $gentest_result = STATUS_OK;
 my $final_result   = STATUS_OK;
+my $gentest = GenTest::App::GenTest->new(config => $gentestProps);
+if (not defined $gentest) {
+    say("ERROR: GenTest::App::GenTest->new delivered undef.");
+    $final_result = STATUS_ENVIRONMENT_FAILURE;
+}
+
 
 # Original code to be later removed.
 #
@@ -1765,31 +1689,32 @@ my $final_result   = STATUS_OK;
 # my $final_result = $gentest_result;
 #
 
+
 # The branch is just for the optics :-).
 if ($final_result == STATUS_OK) {
-    # Experimental BEGIN
-    # Attempt to handle the following problem seen 2020-11
-    #    The test in is phase 'gendata'.
-    #    rqg_batch detects that max_rqg_runtime (1800s) was exceeded by this test
-    #    and runs a SIGKILL on the complete processgroup of the corresponding RQG runner.
-    #    The server was started with "rr" hence the core file generation is switched off.
-    #    But the SIGKILL causes that rr trace will be incomplete.
-    #    We need that rr trace.
     sigaction SIGALRM, new POSIX::SigAction sub {
         my $status = STATUS_ALARM;
-        say("ERROR: rqg.pl: max_gd_duration(" . $max_gd_duration . "s) was exceeded. " .
+        say("ERROR: rqg.pl: max_gd_duration(" . $max_gd_duration . "s * " .
+            Runtime::get_runtime_factor() . ") was exceeded. " .
             "Will kill DB servers and exit with STATUS_ALARM(" . $status . ") later.");
         killServers();
+        # FIXME:
+        # Check if killServers() fits here well in case rr is running.
+        # Background:
+        # Tests ended with "killing ... servers" as last protocol line.
     } or die "ERROR: rqg.pl: Error setting SIGALRM handler: $!\n";
 
     my $start_time = time();
     $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENDATA);
-    alarm ($max_gd_duration);
+    alarm ($max_gd_duration * Runtime::get_runtime_factor());
     # For debugging
     # alarm (1);
+
+    # For debugging
+    # killServers();
+
     $gentest_result = $gentest->doGenData();
     alarm (0);
-    # Experimental END
 
     say("GenData returned status " . status2text($gentest_result) . " ($gentest_result)");
     $final_result = $gentest_result;
@@ -1797,6 +1722,7 @@ if ($final_result == STATUS_OK) {
     $summary .= "SUMMARY: $message\n";
     say("INFO: " . $message);
 }
+
 if ($final_result > STATUS_OK) {
     # FIXME:
     # $gentest->doGenData should somehow tell if some server and which one looks like no
@@ -2049,6 +1975,7 @@ sub killServers {
 # --> SIGABRT whenever "rr" is involved in order to avoid that "rr" traces are incomplete.
 #     Negative example:
 #     We run under "rr", found a data corruption, SIGKILL and get a rotten trace.
+    my ($silent) = @_;
 
     say("Killing server(s)...");
     my $ret;
@@ -2059,7 +1986,12 @@ sub killServers {
         ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
         ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         ) {
         if ($rr_rules) {
-            $ret = $rplsrv->crashServer();
+            # FIXME:
+            # Figure out if crashServer() or killServer is better
+            # and if that sleep is really needed.
+            # $ret = $rplsrv->crashServer();
+            $ret = $rplsrv->killServer();
+            sleep 10;
         } else {
             $ret = $rplsrv->killServer();
         }
@@ -2075,9 +2007,10 @@ sub killServers {
             if ($srv) {
                 my $single_ret = STATUS_OK;
                 if ($rr_rules) {
-                    $single_ret = $srv->crashServer(1);
+                    $single_ret = $srv->killServer($silent);
+                    # sleep 10;
                 } else {
-                    $single_ret = $srv->killServer;
+                    $single_ret = $srv->killServer($silent);
                 }
                 if (not defined $single_ret) {
                     say("ALARM: \$single_ret is not defined.");
@@ -2182,29 +2115,30 @@ $0 - Run a complete random query generation (RQG) test.
     --transformers : The transformers to use (turns on --validator=transformer). Accepts comma separated list
     --querytimeout : The timeout to use for the QueryTimeout reporter
     --max_gd_duration : Abort the RQG run in case the work phase Gendata lasts longer than max_gd_duration
-    --gendata      : Generate data option. Passed to gentest.pl / GenTest. Takes a data template (.zz file)
-                     as an optional argument. Without an argument, indicates the use of GendataSimple (default)
+    --gendata      : Generate data option. Passed to lib/GenTest/App/Gentest.pm. Takes a data template (.zz file)
+                     as an optional argument. Without an argument, indicates the use of GendataSimple (default).
     --gendata-advanced: Generate the data using GendataAdvanced instead of default GendataSimple
-    --gendata_sql  : Generate data option. Passed to gentest.pl / GenTest. Takes files with SQL as argument.
+    --gendata_sql  : Generate data option. Passed to lib/GenTest/App/Gentest.pm. Takes files containing SQL as argument.
                      These files get processed after running Gendata, GendataSimple or GendataAdvanced.
     --logfile      : Generates rqg output log at the path specified.(Requires the module Log4Perl)
-    --seed         : PRNG seed. Passed to gentest.pl
-    --mask         : Grammar mask. Passed to gentest.pl
-    --mask-level   : Grammar mask level. Passed to gentest.pl
+    --seed         : PRNG seed. Passed to lib/GenTest/App/Gentest.pm.
+    --mask         : Grammar mask. Passed to lib/GenTest/App/Gentest.pm.
+    --mask-level   : Grammar mask level. Passed to lib/GenTest/App/Gentest.pm.
     --notnull      : Generate all fields with NOT NULL
-    --rows         : No of rows. Passed to gentest.pl
+    --rows         : No of rows. Passed to lib/GenTest/App/Gentest.pm.
     --sqltrace     : Print all generated SQL statements.
                      Optional: Specify --sqltrace=MarkErrors to mark invalid statements.
-    --varchar-length: length of strings. passed to gentest.pl
+    --varchar-length: length of strings. Passed to lib/GenTest/App/Gentest.pm.
     --xml-outputs  : Passed to gentest.pl
     --vcols        : Types of virtual columns (only used if data is generated by GendataSimple or GendataAdvanced)
     --views        : Generate views. Optionally specify view type (algorithm) as option value. Passed to gentest.pl.
                      Different values can be provided to servers through --views1 | --views2 | --views3
-    --valgrind     : Passed to gentest.pl
-    --rr           : Passed to gentest.pl (start the DB server with rr)
-    --rr_options   : Passed to gentest.pl (start the DB server with rr and these options)
-    --filter       : Passed to gentest.pl
-    --mtr-build-thread:  Value used for MTR_BUILD_THREAD when servers are started and accessed
+    --valgrind     : Start the DB server with valgrind, adjust timeouts to the use of valgrind
+    --valgrind_options : Use these additional options for any start under valgrind
+    --rr           : Start the DB server and maybe more programs with rr, adjust timeouts to the use of rr
+    --rr_options   : Use these additional options for any start under rr
+    --filter       : Passed to lib/GenTest/App/Gentest.pm.
+    --mtr-build-thread: Value used for MTR_BUILD_THREAD when servers are started and accessed
     --debug        : Debug mode
     --short_column_names: use short column names in gendata (c<number>)
     --strict_fields: Disable all AI applied to columns defined in \$fields in the gendata file. Allows for very specific column definitions
