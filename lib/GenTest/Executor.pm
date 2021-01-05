@@ -1,6 +1,6 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018, MariaDB Corporation Ab.
+# Copyright (c) 2018, 2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -23,20 +23,20 @@ require Exporter;
 @ISA = qw(GenTest Exporter);
 
 @EXPORT = qw(
-	EXECUTOR_RETURNED_ROW_COUNTS
-	EXECUTOR_AFFECTED_ROW_COUNTS
-	EXECUTOR_EXPLAIN_COUNTS
-	EXECUTOR_EXPLAIN_QUERIES
-	EXECUTOR_ERROR_COUNTS
-	EXECUTOR_STATUS_COUNTS
+    EXECUTOR_RETURNED_ROW_COUNTS
+    EXECUTOR_AFFECTED_ROW_COUNTS
+    EXECUTOR_EXPLAIN_COUNTS
+    EXECUTOR_EXPLAIN_QUERIES
+    EXECUTOR_ERROR_COUNTS
+    EXECUTOR_STATUS_COUNTS
 
-	FETCH_METHOD_AUTO
-	FETCH_METHOD_STORE_RESULT
-	FETCH_METHOD_USE_RESULT
+    FETCH_METHOD_AUTO
+    FETCH_METHOD_STORE_RESULT
+    FETCH_METHOD_USE_RESULT
 
-	EXECUTOR_FLAG_SILENT
-	EXECUTOR_FLAG_PERFORMANCE
-	EXECUTOR_FLAG_HASH_DATA
+    EXECUTOR_FLAG_SILENT
+    EXECUTOR_FLAG_PERFORMANCE
+    EXECUTOR_FLAG_HASH_DATA
 
     EXECUTOR_TASK
 );
@@ -47,51 +47,52 @@ use Data::Dumper;
 use GenTest;
 use GenTest::Constants;
 
-use constant EXECUTOR_DSN			=> 0;
-use constant EXECUTOR_DBH			=> 1;
+use constant EXECUTOR_DSN                    => 0;
+use constant EXECUTOR_DBH                    => 1;
 # GenTest/App/GenTest.pm:      Number of the server to run against
 # or
 # GenTest/Executor/Drizzle.pm: A string with whatever.
-use constant EXECUTOR_ID			=> 2;
-use constant EXECUTOR_RETURNED_ROW_COUNTS	=> 3;
-use constant EXECUTOR_AFFECTED_ROW_COUNTS	=> 4;
-use constant EXECUTOR_EXPLAIN_COUNTS		=> 5;
-use constant EXECUTOR_EXPLAIN_QUERIES		=> 6;
-use constant EXECUTOR_ERROR_COUNTS		=> 7;
-use constant EXECUTOR_STATUS_COUNTS		=> 8;
-use constant EXECUTOR_DEFAULT_SCHEMA		=> 9;
-use constant EXECUTOR_SCHEMA_METADATA		=> 10;
-use constant EXECUTOR_COLLATION_METADATA	=> 11;
-use constant EXECUTOR_META_CACHE		=> 12;
-use constant EXECUTOR_CHANNEL			=> 13;
-use constant EXECUTOR_SQLTRACE			=> 14;
-use constant EXECUTOR_NO_ERR_FILTER             => 15;
-use constant EXECUTOR_FETCH_METHOD		=> 16;
-use constant EXECUTOR_CONNECTION_ID		=> 17;
-use constant EXECUTOR_FLAGS			=> 18;
-use constant EXECUTOR_HOST          => 19;
-use constant EXECUTOR_PORT          => 20;
-use constant EXECUTOR_END_TIME	    => 21;
-use constant EXECUTOR_CURRENT_USER          => 22;
+use constant EXECUTOR_ID                     => 2;
+use constant EXECUTOR_RETURNED_ROW_COUNTS    => 3;
+use constant EXECUTOR_AFFECTED_ROW_COUNTS    => 4;
+use constant EXECUTOR_EXPLAIN_COUNTS         => 5;
+use constant EXECUTOR_EXPLAIN_QUERIES        => 6;
+use constant EXECUTOR_ERROR_COUNTS           => 7;
+use constant EXECUTOR_STATUS_COUNTS          => 8;
+use constant EXECUTOR_DEFAULT_SCHEMA         => 9;
+use constant EXECUTOR_SCHEMA_METADATA        => 10;
+use constant EXECUTOR_COLLATION_METADATA     => 11;
+use constant EXECUTOR_META_CACHE             => 12;
+use constant EXECUTOR_CHANNEL                => 13;
+use constant EXECUTOR_SQLTRACE               => 14;
+use constant EXECUTOR_NO_ERR_FILTER          => 15;
+use constant EXECUTOR_FETCH_METHOD           => 16;
+use constant EXECUTOR_CONNECTION_ID          => 17;
+use constant EXECUTOR_FLAGS                  => 18;
+use constant EXECUTOR_HOST                   => 19;
+use constant EXECUTOR_PORT                   => 20;
+use constant EXECUTOR_END_TIME               => 21;
+use constant EXECUTOR_CURRENT_USER           => 22;
 # Used for distinction between Threads, Reporters ... when running execute.
-use constant EXECUTOR_TASK                  => 23;
+use constant EXECUTOR_TASK                   => 23;
 # Used for better messages.
 # Gendata , GendataSimple, ... , Thread1, ...., Reporter....
-use constant EXECUTOR_ROLE                  => 24;
+use constant EXECUTOR_ROLE                   => 24;
 
-use constant FETCH_METHOD_AUTO		=> 0;
-use constant FETCH_METHOD_STORE_RESULT	=> 1;
-use constant FETCH_METHOD_USE_RESULT	=> 2;
+use constant FETCH_METHOD_AUTO               => 0;
+use constant FETCH_METHOD_STORE_RESULT       => 1;
+use constant FETCH_METHOD_USE_RESULT         => 2;
 
-use constant EXECUTOR_FLAG_SILENT	=> 1;
-use constant EXECUTOR_FLAG_PERFORMANCE	=> 2;
-use constant EXECUTOR_FLAG_HASH_DATA	=> 4;
+use constant EXECUTOR_FLAG_SILENT            => 1;
+use constant EXECUTOR_FLAG_PERFORMANCE       => 2;
+use constant EXECUTOR_FLAG_HASH_DATA         => 4;
 
-use constant EXECUTOR_TASK_GENDATA  => 0;
-use constant EXECUTOR_TASK_CACHER   => 0;
-use constant EXECUTOR_TASK_THREAD   => 1;
-use constant EXECUTOR_TASK_REPORTER => 2;
-use constant EXECUTOR_TASK_UNKNOWN  => 3;
+# We go with some fine grained differentiation.
+use constant EXECUTOR_TASK_GENDATA           => 0;
+use constant EXECUTOR_TASK_CACHER            => 0; # Same handling like EXECUTOR_TASK_GENDATA!
+use constant EXECUTOR_TASK_THREAD            => 1;
+use constant EXECUTOR_TASK_REPORTER          => 2;
+use constant EXECUTOR_TASK_UNKNOWN           => 3;
 
 my %global_schema_cache;
 
@@ -112,33 +113,34 @@ sub new {
         'role'           => EXECUTOR_ROLE
    }, @_);
 
-   $executor->[EXECUTOR_FETCH_METHOD] = FETCH_METHOD_AUTO if not defined $executor->[EXECUTOR_FETCH_METHOD];
+   $executor->[EXECUTOR_FETCH_METHOD] = FETCH_METHOD_AUTO
+      if not defined $executor->[EXECUTOR_FETCH_METHOD];
 
    return $executor;
 }
 
 sub newFromDSN {
-	my ($self,$dsn,$channel) = @_;
-	
-	if ($dsn =~ m/^dbi:mysql:/i) {
-		require GenTest::Executor::MySQL;
-		return GenTest::Executor::MySQL->new(dsn => $dsn, channel => $channel);
-	} elsif ($dsn =~ m/^dbi:drizzle:/i) {
-		require GenTest::Executor::Drizzle;
-		return GenTest::Executor::Drizzle->new(dsn => $dsn);
-	} elsif ($dsn =~ m/^dbi:JDBC:.*url=jdbc:derby:/i) {
-		require GenTest::Executor::JavaDB;
-		return GenTest::Executor::JavaDB->new(dsn => $dsn);
-	} elsif ($dsn =~ m/^dbi:Pg:/i) {
-		require GenTest::Executor::Postgres;
-		return GenTest::Executor::Postgres->new(dsn => $dsn);
+    my ($self,$dsn,$channel) = @_;
+
+    if ($dsn =~ m/^dbi:mysql:/i) {
+        require GenTest::Executor::MySQL;
+        return GenTest::Executor::MySQL->new(dsn => $dsn, channel => $channel);
+    } elsif ($dsn =~ m/^dbi:drizzle:/i) {
+        require GenTest::Executor::Drizzle;
+        return GenTest::Executor::Drizzle->new(dsn => $dsn);
+    } elsif ($dsn =~ m/^dbi:JDBC:.*url=jdbc:derby:/i) {
+        require GenTest::Executor::JavaDB;
+        return GenTest::Executor::JavaDB->new(dsn => $dsn);
+    } elsif ($dsn =~ m/^dbi:Pg:/i) {
+        require GenTest::Executor::Postgres;
+        return GenTest::Executor::Postgres->new(dsn => $dsn);
     } elsif ($dsn =~ m/^dummy/) {
-		require GenTest::Executor::Dummy;
-		return GenTest::Executor::Dummy->new(dsn => $dsn);
-	} else {
-		say("ERROR: Unsupported dsn: $dsn. Will exit with status STATUS_ENVIRONMENT_FAILURE.");
-		exit(STATUS_ENVIRONMENT_FAILURE);
-	}
+        require GenTest::Executor::Dummy;
+        return GenTest::Executor::Dummy->new(dsn => $dsn);
+    } else {
+        say("ERROR: Unsupported dsn: $dsn. Will exit with status STATUS_ENVIRONMENT_FAILURE.");
+        exit(STATUS_ENVIRONMENT_FAILURE);
+    }
 }
 
 sub channel {
@@ -152,55 +154,55 @@ sub sendError {
 
 
 sub dbh {
-	return $_[0]->[EXECUTOR_DBH];
+    return $_[0]->[EXECUTOR_DBH];
 }
 
 sub setDbh {
-	$_[0]->[EXECUTOR_DBH] = $_[1];
+    $_[0]->[EXECUTOR_DBH] = $_[1];
 }
 
 sub host {
-	return $_[0]->[EXECUTOR_HOST];
+    return $_[0]->[EXECUTOR_HOST];
 }
 
 sub setHost {
-	$_[0]->[EXECUTOR_HOST] = $_[1];
+    $_[0]->[EXECUTOR_HOST] = $_[1];
 }
 
 sub port {
-	return $_[0]->[EXECUTOR_PORT];
+    return $_[0]->[EXECUTOR_PORT];
 }
 
 sub setPort {
-	$_[0]->[EXECUTOR_PORT] = $_[1];
+    $_[0]->[EXECUTOR_PORT] = $_[1];
 }
 
 sub currentUser {
-	return $_[0]->[EXECUTOR_CURRENT_USER];
+    return $_[0]->[EXECUTOR_CURRENT_USER];
 }
 
 sub setCurrentUser {
-	$_[0]->[EXECUTOR_CURRENT_USER] = $_[1];
+    $_[0]->[EXECUTOR_CURRENT_USER] = $_[1];
 }
 
 sub setDbh {
-	$_[0]->[EXECUTOR_DBH] = $_[1];
+    $_[0]->[EXECUTOR_DBH] = $_[1];
 }
 
 sub role {
-	return $_[0]->[EXECUTOR_ROLE];
+    return $_[0]->[EXECUTOR_ROLE];
 }
 
 sub setRole {
-	$_[0]->[EXECUTOR_ROLE] = $_[1];
+    $_[0]->[EXECUTOR_ROLE] = $_[1];
 }
 
 sub task {
-	return $_[0]->[EXECUTOR_TASK];
+    return $_[0]->[EXECUTOR_TASK];
 }
 
 sub setTask {
-	$_[0]->[EXECUTOR_TASK] = $_[1];
+    $_[0]->[EXECUTOR_TASK] = $_[1];
 }
 
 sub sqltrace {
@@ -216,39 +218,39 @@ sub noErrFilter {
 }
 
 sub dsn {
-	return $_[0]->[EXECUTOR_DSN];
+    return $_[0]->[EXECUTOR_DSN];
 }
 
 sub setDsn {
-	$_[0]->[EXECUTOR_DSN] = $_[1];
+    $_[0]->[EXECUTOR_DSN] = $_[1];
 }
 
 sub end_time {
-	return $_[0]->[EXECUTOR_END_TIME];
+    return $_[0]->[EXECUTOR_END_TIME];
 }
 
 sub set_end_time {
-	$_[0]->[EXECUTOR_END_TIME] = $_[1];
+    $_[0]->[EXECUTOR_END_TIME] = $_[1];
 }
 
 sub id {
-	return $_[0]->[EXECUTOR_ID];
+    return $_[0]->[EXECUTOR_ID];
 }
 
 sub setId {
-	$_[0]->[EXECUTOR_ID] = $_[1];
+    $_[0]->[EXECUTOR_ID] = $_[1];
 }
 
 sub fetchMethod {
-	return $_[0]->[EXECUTOR_FETCH_METHOD];
+    return $_[0]->[EXECUTOR_FETCH_METHOD];
 }
 
 sub connectionId {
-	return $_[0]->[EXECUTOR_CONNECTION_ID];
+    return $_[0]->[EXECUTOR_CONNECTION_ID];
 }
 
 sub setConnectionId {
-	$_[0]->[EXECUTOR_CONNECTION_ID] = $_[1];
+    $_[0]->[EXECUTOR_CONNECTION_ID] = $_[1];
 }
 
 # FIXME: Maybe rather here and not in the MySQL Executor
@@ -256,24 +258,24 @@ sub setConnectionId {
 
 
 sub flags {
-	return $_[0]->[EXECUTOR_FLAGS] || 0;
+    return $_[0]->[EXECUTOR_FLAGS] || 0;
 }
 
 sub setFlags {
-	$_[0]->[EXECUTOR_FLAGS] = $_[1];
+    $_[0]->[EXECUTOR_FLAGS] = $_[1];
 }
 
 sub type {
-	my ($self) = @_;
-	
-	if (ref($self) eq "GenTest::Executor::JavaDB") {
-		return DB_JAVADB;
-	} elsif (ref($self) eq "GenTest::Executor::MySQL") {
-		return DB_MYSQL;
-	} elsif (ref($self) eq "GenTest::Executor::Drizzle") {
-		return DB_DRIZZLE;
-	} elsif (ref($self) eq "GenTest::Executor::Postgres") {
-		return DB_POSTGRES;
+    my ($self) = @_;
+
+    if (ref($self) eq "GenTest::Executor::JavaDB") {
+        return DB_JAVADB;
+    } elsif (ref($self) eq "GenTest::Executor::MySQL") {
+        return DB_MYSQL;
+    } elsif (ref($self) eq "GenTest::Executor::Drizzle") {
+        return DB_DRIZZLE;
+    } elsif (ref($self) eq "GenTest::Executor::Postgres") {
+        return DB_POSTGRES;
     } elsif (ref($self) eq "GenTest::Executor::Dummy") {
         if ($self->dsn =~ m/mysql/) {
             return DB_MYSQL;
@@ -284,9 +286,9 @@ sub type {
         } else {
             return DB_DUMMY;
         }
-	} else {
-		return DB_UNKNOWN;
-	}
+    } else {
+        return DB_UNKNOWN;
+    }
 }
 
 my @dbid = ("Unknown","Dummy", "MySQL","Postgres","JavaDB","Drizzle");
@@ -363,7 +365,6 @@ sub getCollationMetaData {
 ########### Metadata routines
 
 sub cacheMetaData {
-# (mleich) Experimental:
 # In case "getSchemaMetaData" or "getCollationMetaData" hit some problem than they return undef
 # and we return STATUS_ENVIRONMENT_FAILURE from here instead of aborting with croak.
 # The latter, abort with 'croak', 'exit' up till Perl error at various places, causes quite often
@@ -373,34 +374,44 @@ sub cacheMetaData {
     my ($self, $redo) = @_;
 
     my $meta = {};
+    my $who_am_i = "GenTest::Executor::cacheMetaData";
+
+    my $trace_addition = '/* E_R ' . $self->role . ' QNO 0 CON_ID ' .
+                         $self->connectionId . '*/';
+    if($self->type == DB_MYSQL) {
+        # @@max_statement_time might be so small that some of the initial SQL's which need
+        # to pass all fail (observed 2020-11). So go without limit in this initial phase.
+        # Save current = global value of
+        my $aux_query = '/*!100108 SET @max_statement_time_save = @@global.max_statement_time */ ' .
+                     $trace_addition;
+        # exp_server_kill($who_am_i, $aux_query);
+        my $status = GenTest::Executor::MySQL::run_do($self->dbh, $self->role, $aux_query);
+        if (STATUS_OK != $status) {
+            say("ERROR: $who_am_i " . $self->role .
+                " Will return status : " . status2text($status) . "($status).");
+            return $status;
+        }
+        $aux_query = '/*!100108 SET @@max_statement_time = 0 */ ' . $trace_addition;
+        # exp_server_kill($who_am_i, $aux_query);
+        $status = GenTest::Executor::MySQL::run_do($self->dbh, $self->role, $aux_query);
+        if (STATUS_OK != $status) {
+            say("ERROR: $who_am_i " . $self->role .
+                " Will return status : " . status2text($status) . "($status).");
+            return $status;
+        }
+    }
 
     if ($redo or not exists $global_schema_cache{$self->dsn()}) {
-        say ("Caching schema metadata for ".$self->dsn());
+        say ("Caching schema metadata for " . $self->dsn());
+
 
         my $metadata= $self->getSchemaMetaData();
         if (not defined $metadata) {
-            # Observation 2019-11
-            # The reason is unclear. Maybe too overloaded testing box.
-            # Caching schema metadata for dbi:mysql:host=127.0.0.1:port=30900:user=root:database=test:mysql_local_infile=1
-            # FATAL ERROR: getSchemaMetaData: selectrow_arrayref failed with error 2013. at lib/GenTest/Executor/MySQL.pm line 1699.
-            # GenTest::Executor::MySQL::getSchemaMetaData(...)) called at lib/GenTest/Executor.pm line 361
-            # GenTest::Executor::cacheMetaData(GenTest::Executor::MySQL=...) called at lib/GenTest/App/GenTest.pm line 322
-            # GenTest::App::GenTest::doGenTest(GenTest::App::GenTest....) called at /home/mleich/work/RQG_mleich4/rqg.pl line 1701
-            # FATAL ERROR: getSchemaMetaData: The query was ->SELECT COUNT(*) FROM INFORMATION_SCHEMA.INNODB_LOCK_WAITS<-.
-            # FATAL ERROR: getSchemaMetaData: Will return undef.
-            # FATAL ERROR: failed to cache schema metadataWill return status STATUS_ENVIRONMENT_FAILURE. at lib/GenTest/Executor.pm line 363.
-            # GenTest::Executor::cacheMetaData(GenTest::Executor::MySQL=...) called at lib/GenTest/App/GenTest.pm line 322
-            # GenTest::App::GenTest::doGenTest(GenTest::App::GenTest=...) called at /home/mleich/work/RQG_mleich4/rqg.pl line 1701
-            # ERROR: metadata caching failed with status STATUS_ALARM. Will return that status. at lib/GenTest/App/GenTest.pm line 325.
-            # GenTest::App::GenTest::doGenTest(GenTest::App::GenTest=...) called at /home/mleich/work/RQG_mleich4/rqg.pl line 1701
-            #
-            # SUMMARY: RQG GenData runtime in s : 11  -- The server was in history connectable.
-            # SUMMARY: RQG GenTest runtime in s : 7   -- Here was the problem but why?
-            # SUMMARY: RQG total runtime in s : 22
-
-            Carp::cluck("FATAL ERROR: Failed to cache schema metadata. " .
-                        "Will return status STATUS_ENVIRONMENT_FAILURE.");
-            return STATUS_ENVIRONMENT_FAILURE;
+            # The 'cluck' is because we might offer metadata caching multiple times
+            # in future.
+            Carp::cluck("ERROR: Failed to cache schema metadata. " .
+                        "Will return status STATUS_CRITICAL_FAILURE.");
+            return STATUS_CRITICAL_FAILURE;
         }
 
         foreach my $row (@$metadata) {
@@ -449,6 +460,21 @@ sub cacheMetaData {
 
     $self->[EXECUTOR_META_CACHE] = {};
 
+    if($self->type == DB_MYSQL) {
+        # @@max_statement_time might be so small that some of the initial SQL's which need
+        # to pass all fail (observed 2020-11). So go without limit in this initial phase.
+        # Save current = global value of
+        my $aux_query = '/*!100108 SET @@max_statement_time = @max_statement_time_save */ ' .
+                     $trace_addition;
+        # exp_server_kill($who_am_i, $aux_query);
+        my $status = GenTest::Executor::MySQL::run_do($self->dbh, $self->role, $aux_query);
+        if (STATUS_OK != $status) {
+            say("ERROR: $who_am_i " . $self->role .
+                " Will return status : " . status2text($status) . "($status).");
+            return $status;
+        }
+    }
+
     return STATUS_OK;
 }
 
@@ -474,12 +500,13 @@ sub metaTables {
 
     if (not defined $self->[EXECUTOR_META_CACHE]->{$cachekey}) {
 
-        unless (scalar(keys %{$meta->{$schema}->{table}}) + scalar(keys %{$meta->{$schema}->{view}})) {
+        unless (scalar(keys %{$meta->{$schema}->{table}}) +
+                scalar(keys %{$meta->{$schema}->{view}})) {
             # Give it another chance, maybe we created data after starting the test
             $self->cacheMetaData('redo');
-				$meta = $self->[EXECUTOR_SCHEMA_METADATA];
+            $meta = $self->[EXECUTOR_SCHEMA_METADATA];
         }
-        my $tables = [sort ( keys %{$meta->{$schema}->{table}}, keys %{$meta->{$schema}->{view}} )];
+        my $tables = [sort (keys %{$meta->{$schema}->{table}}, keys %{$meta->{$schema}->{view}})];
         if (not defined $tables or $#$tables < 0) {
             say "WARNING: Schema '$schema' has no tables";
             $tables = [ 'non_existing_table' ];
@@ -666,7 +693,8 @@ sub metaColumnsIndexType {
             $colref = $meta->{$schema}->{view}->{$table};
         } else {
             say "WARNING: Table/view '$table' in schema '$schema' has no columns";
-            $colref = { 'non_existing_column1' => ['ordinary','int'], 'non_existing_column2' => ['indexed','int'] };
+            $colref = { 'non_existing_column1' => ['ordinary','int'],
+                        'non_existing_column2' => ['indexed','int'] };
         }
 
         # If the table is a view, don't bother looking for indexed columns, fall back to ordinary
@@ -892,8 +920,6 @@ sub metaColumnInfo {
 }
 
 ################### Public interface to be used from grammars
-##
-
 sub tables {
     my ($self, @args) = @_;
     return $self->metaTables(@args);
