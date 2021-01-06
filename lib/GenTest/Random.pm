@@ -1,5 +1,5 @@
 # Copyright (c) 2008,2010 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2020 MariaDB Corporation Ab.
+# Copyright (c) 2020,2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -309,8 +309,10 @@ sub uint16 {
     # Hint:
     # In case GendataAdvanced.pm is used than I get masses of
     # Use of uninitialized value $_[2] in integer subtraction (-)
+    $val2 = $_[2];
+    $val2 = 0 if not defined $val2;
     return $_[1] +
-        ((($_[0]->[RANDOM_GENERATOR] >> 15) & 0xFFFF) % ($_[2] - $_[1] + 1));
+        ((($_[0]->[RANDOM_GENERATOR] >> 15) & 0xFFFF) % ($val2 - $_[1] + 1));
 }
 
 ### Signed 64-bit integer of any range.
@@ -325,7 +327,9 @@ sub int {
         # to ensure the division below becomes correct.
         $rand = ($_[0]->[RANDOM_GENERATOR] >> 15) & 0xFFFF;
     }
-    return int($_[1] + (($rand / 0x10000) * ($_[2] - $_[1] + 1)));
+    $val2 = $_[2];
+    $val2 = 0 if not defined $val2;
+    return int($_[1] + (($rand / 0x10000) * ($val2 - $_[1] + 1)));
 }
 
 ### Signed 64-bit float of any range.
@@ -336,10 +340,8 @@ sub float {
 	# Since this may be a 64-bit platform, we mask down to 16 bit
 	# to ensure the division below becomes correct.
 	$rand = ($_[0]->[RANDOM_GENERATOR] >> 15) & 0xFFFF;
-    # Hint:
-    # In case GendataAdvanced.pm is used than I get masses of
-    # $_[1] and $_[2] are undef. The reason is currently unknown.
-    # This does not happen in case of ZZ grammars.
+    #
+    # I get sometimes masses of $_[1] and $_[2] are undef. The reason is not 100% known.
     # if (not defined $_[1]) {
     #     say("DEBUG \$_1... is undef");
     # } else {
@@ -353,7 +355,9 @@ sub float {
     # say("DEBUG rand ... is undef") if not defined $rand;
     # my $final_val = $_[1] + (($rand / 0x10000) * ($_[2] - $_[1] + 1));
     # say("DEBUG final_val ... is defined and ->$final_val<-") if defined $final_val;
-	return $_[1] + (($rand / 0x10000) * ($_[2] - $_[1] + 1));
+    $val2 = $_[2];
+    $val2 = 0 if not defined $val2;
+	return $_[1] + (($rand / 0x10000) * ($val2 - $_[1] + 1));
 }
 
 sub digit {
