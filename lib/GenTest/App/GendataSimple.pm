@@ -131,7 +131,7 @@ sub run {
       return $gen_table_result if $gen_table_result != STATUS_OK;
    }
 
-   # Need to create a dummy supdstituion for non-protable DUAL
+   # Need to create a dummy substituion for non-portable DUAL
 
    $executor->execute("DROP TABLE /*! IF EXISTS */ DUMMY");
    $executor->execute("CREATE TABLE DUMMY (I INTEGER)");
@@ -143,6 +143,9 @@ sub run {
 
 sub gen_table {
    my ($self, $executor, $name, $size, $prng) = @_;
+
+   # We can have more table names than row numbers. And than $size set by the sub "run" will be undef.
+   $size = 0 if not defined $size;
 
    my $nullability = defined $self->[GDS_NOTNULL] ? 'NOT NULL' : '/*! NULL */';
    ### NULL is not a valid ANSI constraint, (but NOT NULL of course, is) ###
