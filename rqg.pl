@@ -1371,9 +1371,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         exit_test($status);
     }
 
-
     my $status = $server[0]->startServer;
-
     if ($status > DBSTATUS_OK) {
         stopServers($status);
         if (osWindows()) {
@@ -1390,8 +1388,37 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
     $dsns[0] = $server[0]->dsn($database, $user);
 
     if ((defined $dsns[0]) && (defined $engine[0])) {
-        my $dbh = DBI->connect($dsns[0], undef, undef, { mysql_multi_statements => 1, RaiseError => 1 } );
-        $dbh->do("SET GLOBAL default_storage_engine = '$engine[0]'");
+        my $dsn = $dsns[0];
+        my $dbh = DBI->connect($dsn, undef, undef, {
+                               mysql_connect_timeout  => Runtime::get_connect_timeout(),
+                               PrintError             => 0,
+                               RaiseError             => 0,
+                               AutoCommit             => 0,
+                               mysql_multi_statements => 1,   # Why?
+                               mysql_auto_reconnect   => 0
+        });
+        if (not defined $dbh) {
+            say("ERROR: Connect attempt to dsn " . $dsn .
+                " failed: " . $DBI::errstr);
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            say("$0 will exit with exit status " . status2text($status) . "($status)");
+            exit_test($status);
+        }
+
+        my $aux_query = "SET GLOBAL default_storage_engine = '$engine[0]' /* RQG runner */";
+        SQLtrace::sqltrace_before_execution($aux_query);
+        $dbh->do($aux_query);
+        my $error = $dbh->err();
+        SQLtrace::sqltrace_after_execution($error);
+        if (defined $error) {
+            say("ERROR: ->" . $aux_query . "<- failed with $error");
+            $dbh->disconnect();
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            say("$0 will exit with exit status " . status2text($status) . "($status)");
+            exit_test($status);
+        }
+        $dbh->disconnect();
+
     }
 
     # server1 is the "new" server (after upgrade).
@@ -1462,7 +1489,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         }
 
         my $status = $server[$server_id]->startServer;
-
         if ($status > DBSTATUS_OK) {
             # exit_test will run killServers
             say("ERROR: Could not start all servers");
@@ -1475,19 +1501,42 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         # But for the moment I prefer printing that in startServer.
         # $server[$server_id]->serverVariablesDump;
 
-        # FIXME: Isn't that questionable? We are in the non
-        # MariaDB replication or Galera or Upgrade branch.
-        # if (($server_id == 0) || ($rpl_mode eq Auxiliary::RQG_RPL_NONE) ) {
         $dsns[$server_id] = $server[$server_id]->dsn($database, $user);
         say("DEBUG: dsns[$server_id] defined.");
 
         if ((defined $dsns[$server_id]) and
             (defined $engine[$server_id] and $engine[$server_id] ne '')) {
-            my $dbh = DBI->connect($dsns[$server_id], undef, undef,
-                                   { mysql_multi_statements => 1,
-                                     PrintError => 1,
-                                     RaiseError => 0 } );
-            $dbh->do("SET GLOBAL default_storage_engine = '$engine[$server_id]'");
+            my $dsn = $dsns[$server_id];
+            my $dbh = DBI->connect($dsn, undef, undef, {
+                                   mysql_connect_timeout  => Runtime::get_connect_timeout(),
+                                   PrintError             => 0,
+                                   RaiseError             => 0,
+                                   AutoCommit             => 0,
+                                   mysql_multi_statements => 1,   # Why?
+                                   mysql_auto_reconnect   => 0
+            });
+            if (not defined $dbh) {
+                say("ERROR: Connect attempt to dsn " . $dsn .
+                    " failed: " . $DBI::errstr);
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                say("$0 will exit with exit status " . status2text($status) . "($status)");
+                exit_test($status);
+            }
+
+            my $aux_query = "SET GLOBAL default_storage_engine = '$engine[$server_id]' /* RQG runner */";
+            SQLtrace::sqltrace_before_execution($aux_query);
+            $dbh->do($aux_query);
+            my $error = $dbh->err();
+            SQLtrace::sqltrace_after_execution($error);
+            if (defined $error) {
+                say("ERROR: ->" . $aux_query . "<- failed with $error");
+                $dbh->disconnect();
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                say("$0 will exit with exit status " . status2text($status) . "($status)");
+                exit_test($status);
+            }
+
+            $dbh->disconnect();
         }
     }
 }
@@ -1678,7 +1727,6 @@ if (not defined $gentest) {
     $final_result = STATUS_ENVIRONMENT_FAILURE;
 }
 
-
 # Original code to be later removed.
 #
 # Perform the GenTest run
@@ -1688,7 +1736,6 @@ if (not defined $gentest) {
 # say("GenTest returned status " . status2text($gentest_result) . " ($gentest_result)");
 # my $final_result = $gentest_result;
 #
-
 
 # The branch is just for the optics :-).
 if ($final_result == STATUS_OK) {
