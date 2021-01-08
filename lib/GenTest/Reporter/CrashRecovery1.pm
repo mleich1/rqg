@@ -230,7 +230,7 @@ sub report {
     my $databases = $dbh->selectcol_arrayref("SHOW DATABASES");
     if (not defined $databases) {
         my $status = STATUS_RECOVERY_FAILURE;
-        say("ERROR: $who_am_i SHOW DATABASES failed. " .Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i SHOW DATABASES failed. " . Auxiliary::build_wrs($status));
         return $status;
     }
     foreach my $database (@$databases) {
