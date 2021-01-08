@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2020 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -31,6 +31,7 @@ require Exporter;
 
 use strict;
 use Auxiliary;
+use Runtime;
 use DBI;
 use GenTest;
 use GenTest::Constants;
@@ -95,7 +96,6 @@ use POSIX;
 #    Quite often parts of the server or the RQG core could be also guilty.
 #
 
-use constant CONNECT_TIMEOUT => 30;
 use constant BACKUP_TIMEOUT  => 180;
 use constant PREPARE_TIMEOUT => 600;
 
@@ -109,32 +109,40 @@ $|=1;
 # tmpdir() has a '/' at end.
 my $reporter_prt = tmpdir() . "reporter_tmp.prt";
 my $who_am_i     = 'Reporter Mariabackup';
-my $connect_timeout;
 my $backup_timeout;
 my $prepare_timeout;
+my $connect_timeout;
 
 sub init {
     my $reporter = shift;
-    if (exists $ENV{'RUNNING_UNDER_RR'} or
-        defined $reporter->properties->rr) {
-        $connect_timeout    = 1.5 * CONNECT_TIMEOUT;
-        $backup_timeout     = 1.5 * BACKUP_TIMEOUT;
-        $prepare_timeout    = 1.5 * PREPARE_TIMEOUT;
-    } elsif (defined $reporter->properties->valgrind) {
-        $connect_timeout    = 2.0 * CONNECT_TIMEOUT;
-        $backup_timeout     = 2.0 * BACKUP_TIMEOUT;
-        $prepare_timeout    = 2.0 * PREPARE_TIMEOUT;
-    } else {
-        $connect_timeout    = 1.0 * CONNECT_TIMEOUT;
-        $backup_timeout     = 1.0 * BACKUP_TIMEOUT;
-        $prepare_timeout    = 1.0 * PREPARE_TIMEOUT;
+    if (not defined $reporter->testEnd()) {
+        say("ERROR: $who_am_i testEnd is not defined. Will exit with exit status " .
+            "STATUS_INTERNAL_ERROR(" . STATUS_INTERNAL_ERROR . ").");
+        exit STATUS_INTERNAL_ERROR;
     }
+    $backup_timeout     = Runtime::get_runtime_factor() * BACKUP_TIMEOUT;
+    $prepare_timeout    = Runtime::get_runtime_factor() * PREPARE_TIMEOUT;
+    $connect_timeout    = Runtime::get_connect_timeout();
+    say("DEBUG: $who_am_i Effective timeouts, connect: $connect_timeout" .
+        " backup: $backup_timeout prepare: $prepare_timeout") if $script_debug;
 }
 
 sub monitor {
     my $reporter = shift;
 
     $reporter->init if not defined $prepare_timeout;
+    # say("DEBUG: $who_am_i : Endtime: " . $reporter->testEnd()) if $script_debug;
+    #
+
+    # Ensure some minimum distance between two runs of the Reporter Mariabackup should be 15s.
+    return STATUS_OK if $last_call + 15 > time();
+    $last_call = time();
+
+    if ($reporter->testEnd() <= time() + 5) {
+        my $status = STATUS_OK;
+        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        return $status;
+    }
 
     # In case of several servers, we get called or might be called for any of them.
     # We perform only
@@ -145,12 +153,6 @@ sub monitor {
 
     $first_reporter = $reporter if not defined $first_reporter;
     return STATUS_OK if $reporter ne $first_reporter;
-
-    # The next lines are set to comment because in the current (2019-02) state I prefer an
-    # extreme frequent testing.
-    # Ensure some minimum distance between two runs of the Reporter Mariabackup should be 15s.
-    # return STATUS_OK if $last_call + 15 > time();
-    # $last_call = time();
 
     my $mariabackup_timeout = $backup_timeout;
 
@@ -206,7 +208,7 @@ sub monitor {
     # FIXME: Do we really need all this?
     my $dsn             = $reporter->dsn();
     my $binary          = $reporter->serverInfo('binary');
-    my $language        = $reporter->serverVariable('language');
+
     my $lc_messages_dir = $reporter->serverVariable('lc_messages_dir');
     my $datadir         = $reporter->serverVariable('datadir');
     $datadir =~ s{[\\/]$}{}sgio;
@@ -260,7 +262,6 @@ sub monitor {
     # my $backup_backup_cmd = "$backup_binary --port=$source_port --hickup " .
     my $backup_backup_cmd = $rr_addition . " $backup_binary --port=$source_port --backup " .
                             "--datadir=$datadir --target-dir=$clone_datadir";
-    say("Executing backup: $backup_backup_cmd");
 
     # Mariabackup could hang.
     my $exit_msg      = '';
@@ -275,8 +276,19 @@ sub monitor {
         sayFile($reporter_prt);
         exit STATUS_BACKUP_FAILURE;
     } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
-    # my $con_get_start = Time::HiRes::time();
+
+    if ($reporter->testEnd() <= time() + 5) {
+        my $status = STATUS_OK;
+        direct_to_std();
+        foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
+            File::Path::rmtree($dir);
+        }
+        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        return $status;
+    }
+
     $alarm_timeout = $backup_timeout;
+    say("Executing backup: $backup_backup_cmd");
     $exit_msg      = "Backup operation did not finish in " . $alarm_timeout . "s.";
     alarm ($alarm_timeout);
 
@@ -288,7 +300,7 @@ sub monitor {
         # It is quite likely that the source DB server does no more react because of
         # crash, server freeze or similar.
         my $dbh = DBI->connect($dsn, undef, undef, {
-            mysql_connect_timeout  => $connect_timeout,
+            mysql_connect_timeout  => Runtime::get_connect_timeout(),
             PrintError             => 0,
             RaiseError             => 0,
             AutoCommit             => 0,
@@ -309,6 +321,16 @@ sub monitor {
         exit $status;
     }
 
+    if ($reporter->testEnd() <= time() + 5) {
+        my $status = STATUS_OK;
+        direct_to_std();
+        foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
+            File::Path::rmtree($dir);
+        }
+        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        return $status;
+    }
+
     # FIXME: Replace by some portable solution located in Auxiliary.pm.
     system("cp -R $clone_datadir $rqg_backup_dir");
     $res = $?;
@@ -320,6 +342,17 @@ sub monitor {
         exit $status;
     }
 
+    if ($reporter->testEnd() <= time() + 5) {
+        my $status = STATUS_OK;
+        direct_to_std();
+        foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
+            File::Path::rmtree($dir);
+        }
+        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        return $status;
+    }
+
+    system("ls -ld " . $clone_datadir . "/ib_logfile*");
     my $backup_prepare_cmd = $rr_addition . " $backup_binary --port=$clone_port --prepare " .
                              "--target-dir=$clone_datadir";
     say("Executing first prepare: $backup_prepare_cmd");
@@ -336,6 +369,7 @@ sub monitor {
         sayFile($reporter_prt);
         exit $status;
     }
+    system("ls -ld " . $clone_datadir . "/ib_logfile*");
     my $ib_logfile0 = $clone_datadir . "/ib_logfile0";
     my @filestats = stat($ib_logfile0);
     my $filesize  = $filestats[7];
@@ -347,6 +381,17 @@ sub monitor {
         exit $status;
     }
 
+    if ($reporter->testEnd() <= time() + 5) {
+        my $status = STATUS_OK;
+        direct_to_std();
+        foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
+            File::Path::rmtree($dir);
+        }
+        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        return $status;
+    }
+
+    system("ls -ld " . $clone_datadir . "/ib_logfile*");
     $backup_prepare_cmd = $rr_addition . " $backup_binary --port=$clone_port --prepare " .
                           "--target-dir=$clone_datadir";
     say("Executing second prepare: $backup_prepare_cmd");
@@ -379,6 +424,15 @@ sub monitor {
     # See also https://mariadb.com/kb/en/library/mariadb-backup-overview/.
     unlink($ib_logfile0);
 
+    if ($reporter->testEnd() <= time() + 5) {
+        my $status = STATUS_OK;
+        direct_to_std();
+        foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
+            File::Path::rmtree($dir);
+        }
+        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        return $status;
+    }
 
     # Warning:
     # Older and/or similar code was trying to set the server general log and error log files to non
@@ -393,7 +447,6 @@ sub monitor {
         '--server-id=3',
         '--core-file',
         '--loose-console',
-        '--language='.$language,
         '--loose-lc-messages-dir="' . $lc_messages_dir . '"',
         '--datadir="' . $clone_datadir . '"',
         '--log-output=file',
@@ -436,6 +489,7 @@ sub monitor {
 
     my $clone_err = $clone_server->errorlog();
 
+    system("ls -ld " . $clone_datadir . "/ib_logfile*");
     say("INFO: Attempt to start a DB server on the cloned data.");
     my $status = $clone_server->startServer();
     if ($status != STATUS_OK) {
@@ -449,33 +503,68 @@ sub monitor {
         exit $status;
     }
 
-    my $clone_dbh;
-    foreach my $try (1..120) {
-        sleep(1);
-        $clone_dbh = DBI->connect("dbi:mysql:user=root:host=127.0.0.1:port=" . $clone_port,
-                                  undef, undef, { RaiseError => 0 , PrintError => 0 } );
-        next if not defined $clone_dbh;
-        last if $clone_dbh->ping();
+    if ($reporter->testEnd() <= time() + 5) {
+        my $status = STATUS_OK;
+        direct_to_std();
+        $clone_server->killServer();
+        foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
+            File::Path::rmtree($dir);
+        }
+        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        return $status;
     }
+
+    my $clone_dsn = "dbi:mysql:user=root:host=127.0.0.1:port=$clone_port";
+    my $clone_dbh = DBI->connect($clone_dsn, undef, undef, {
+        mysql_connect_timeout  => $connect_timeout,
+        PrintError             => 0,
+        RaiseError             => 0,
+        AutoCommit             => 0,
+        mysql_multi_statements => 0,
+        mysql_auto_reconnect   => 0
+    });
     if (not defined $clone_dbh) {
         direct_to_std();
         # It is intentional to exit with STATUS_BACKUP_FAILURE.
         $status = STATUS_BACKUP_FAILURE;
         sayFile($clone_err);
         sayFile($reporter_prt);
-        say("ERROR: $who_am_i : Could not connect to the clone server on port $clone_port. " .
-            "Will exit with status " . status2text($status) . "($status)");
+        say("ERROR: $who_am_i : Connect to the clone server on port $clone_port failed. " .
+            $DBI::errstr . " " . Auxiliary::build_wrs($status));
         exit $status;
     }
 
     say("INFO: The DB server on the cloned data has pid " . $clone_server->serverpid() .
         " and is connectable.");
 
+    if ($reporter->testEnd() <= time() + 5) {
+        my $status = STATUS_OK;
+        direct_to_std();
+        $clone_server->killServer();
+        foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
+            File::Path::rmtree($dir);
+        }
+        $clone_dbh->disconnect();
+        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        return $status;
+    }
+
     # Code taken from lib/GenTest/Reporter/RestartConsistency.pm
     say("INFO: $who_am_i : Testing database consistency");
 
     my $databases = $clone_dbh->selectcol_arrayref("SHOW DATABASES");
     foreach my $database (@$databases) {
+        if ($reporter->testEnd() <= time() + 5) {
+            my $status = STATUS_OK;
+            direct_to_std();
+            $clone_server->killServer();
+            foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
+                File::Path::rmtree($dir);
+            }
+            $clone_dbh->disconnect();
+            say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+            return $status;
+        }
         # next if $database =~ m{^(mysql|information_schema|performance_schema)$}sio;
         # Experimental: Check the SCHEMA mysql too
         next if $database =~ m{^(information_schema|performance_schema)$}sio;
@@ -531,13 +620,7 @@ sub monitor {
     }
     # The other $clone_* are subdirectories of $clone_vardir.
     foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
-        if(not File::Path::rmtree($dir)) {
-            direct_to_std();
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: $who_am_i : rmtree($dir) failed with : $!. " .
-                "Will exit with status " . status2text($status) . "($status)");
-            exit $status;
-        }
+        File::Path::rmtree($dir);
     }
     direct_to_std();
     unlink ($reporter_prt);
