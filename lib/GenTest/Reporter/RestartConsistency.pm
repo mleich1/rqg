@@ -67,28 +67,23 @@ sub report {
     $first_reporter = $reporter if not defined $first_reporter;
     return STATUS_OK if $reporter ne $first_reporter;
 
-    my $dbh = DBI->connect($reporter->dsn());
-    # mleich: 2019-03
-    # A worker thread "killed" the server via its stream of SQL before the reporter
-    # RestartConsistency connected its first time.
-    # So the reporter gets
-    #     DBI connect('host=127.0.0.1:....) failed: Can't connect to MySQL server ...
-    #     at lib/GenTest/Reporter/RestartConsistency.pm line 55.
-    # and than
-    #     Can't call method "selectcol_arrayref" on an undefined value
-    #     at lib/GenTest/Reporter/RestartConsistency.pm line 169.
-    # which culminates in rqg.pl aborting without making an archive.
-    if (not defined $dbh) {
-        # I hesitate to pick a higher value because
-        # 1. Its the first connect attempt of RestartConsistency but it happens short
-        #    before test end == It is extreme likely that the server was at begin connectable.
-        # 2. In case of a real server crash than its quite likely that some other thread or
-        #    reporter has already reported STATUS_SERVER_CRASHED or will do that soon.
-        #    Throwing STATUS_ENVIRONMENT_FAILURE here would exceed STATUS_SERVER_CRASHED
-        #    and cause some misleading final exit status.
-        say("ERROR: $who_am_i First connect failed. Will return STATUS_CRITICAL_FAILURE");
-        return STATUS_CRITICAL_FAILURE;
-    }
+    my $dsn = $reporter->dsn();
+#   system("killall -9 mysqld");
+#   sleep 3;
+    my $executor = GenTest::Executor->newFromDSN($dsn);
+    # Set the number to which server we will connect.
+    # This number is
+    # - used for more detailed messages only
+    # - not used for to which server to connect etc. There only the dsn rules.
+    # Hint:
+    # Server id reported: n ----- dsn(n-1) !
+    $executor->setId(1);
+    $executor->setRole("RestartConsistency");
+    # EXECUTOR_TASK_REPORTER ensures that max_statement_time is set to 0 for the current executor.
+    # But this is not valid for the connection established by mysqldump!
+    $executor->setTask(GenTest::Executor::EXECUTOR_TASK_REPORTER);
+    my $status = $executor->init();
+    return $status if $status != STATUS_OK;
 
     # Caused by whatever reasons we might meet other user sessions within the DB server which
     # - have initiated their disconnect but it is not yet finished
@@ -104,39 +99,48 @@ sub report {
     # dump_database fails because the limit max_statement_time = 30 kicks in.
     # And than we get finally STATUS_CRITICAL_FAILURE.
     # So given the fact that we are around test end we could manipulate the @global variable.
-    $dbh->do('/*!100108 SET @@global.max_statement_time = 0 */');
 
-    my $dump_return = dump_database($reporter,$dbh,'before');
+    # We need to glue $trace_addition to any statement which is not processed with
+    # $executor->execute(<query>).
+    my $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
+                         $executor->connectionId() . ' */ ';
+
+    my $query = '/*!100108 SET @@global.max_statement_time = 0 */';
+    my $res = $executor->execute($query);
+    $status = $res->status;
+    if (STATUS_OK != $status) {
+        my $err    = $res->err;
+        my $errstr = $res->errstr;
+        my $status = STATUS_CRITICAL_FAILURE;
+        say("ERROR: $who_am_i Query ->" . $query . "<- failed with $err : $errstr " .
+            Auxiliary::build_wrs($status));
+        return $status;
+    }
+    my $dbh = $executor->dbh();
+
+    my $dump_return = dump_database($reporter,$executor,'before');
     if ($dump_return > STATUS_OK) {
+        my $status = STATUS_CRITICAL_FAILURE;
         say("ERROR: $who_am_i Dumping the database failed with status $dump_return. " .
-            "Will return STATUS_CRITICAL_FAILURE");
-        return STATUS_CRITICAL_FAILURE;
+             Auxiliary::build_wrs($status));
+        return $status;
     }
     my $dump_return_before = $dump_return;
+    $executor->disconnect();
 
-    my $pid = $reporter->serverInfo('pid');
-    kill(15, $pid);
-    say("INFO: $who_am_i Sending SIGTERM to Server with pid $pid.");
-
-    foreach (1..60) {
-        last if not kill(0, $pid);
-        sleep 1;
-    }
-    if (kill(0, $pid)) {
-        say("ERROR: $who_am_i Could not shut down server with pid $pid.");
-        return STATUS_SERVER_DEADLOCKED;
-    } else {
-        say("INFO: $who_am_i Server with pid $pid has been shut down");
-    }
+    my $server = $reporter->properties->servers->[0];
+    if ($server->stopServer != STATUS_OK) {
+        my $status = STATUS_CRITICAL_FAILURE;
+        say("ERROR: $who_am_i Stopping the DB server failed. " .  Auxiliary::build_wrs($status));
+        return $status;
+    };
 
     my $datadir = $reporter->serverVariable('datadir');
     $datadir =~ s{[\\/]$}{}sgio;
     my $orig_datadir = $datadir.'_orig';
-    $pid = $reporter->serverInfo('pid');
 
     my $engine = $reporter->serverVariable('storage_engine');
 
-    my $server = $reporter->properties->servers->[0];
     say("INFO: $who_am_i Copying datadir... (interrupting the copy operation may cause investigation problems later)");
     if (osWindows()) {
         system("xcopy \"$datadir\" \"$orig_datadir\" /E /I /Q");
@@ -187,14 +191,27 @@ sub report {
 
     close(RECOVERY);
 
-    $dbh = DBI->connect($reporter->dsn());
-    $recovery_status = STATUS_DATABASE_CORRUPTION if not defined $dbh && $recovery_status == STATUS_OK;
-
     if ($recovery_status > STATUS_OK) {
-        say("ERROR: $who_am_i Restart has failed.");
+        say("ERROR: $who_am_i Restart has failed. " . Auxiliary::build_wrs($recovery_status));
         return $recovery_status;
     }
-    $dbh->do('/*!100108 SET @@global.max_statement_time = 0 */');
+
+    $status = $executor->init();
+    return $status if $status != STATUS_OK;
+    $executor->setId(1);
+    $executor->setRole("RestartConsistency");
+    $executor->setTask(GenTest::Executor::EXECUTOR_TASK_REPORTER);
+    $query = '/*!100108 SET @@global.max_statement_time = 0 */';
+    $res = $executor->execute($query);
+    $status = $res->status;
+    if (STATUS_OK != $status) {
+        my $err    = $res->err;
+        my $errstr = $res->errstr;
+        my $status = STATUS_DATABASE_CORRUPTION;
+        say("ERROR: $who_am_i Query ->" . $query . "<- failed with $err : $errstr " .
+            Auxiliary::build_wrs($recovery_status));
+        return $status;
+    }
 
     #
     # Phase 2 - server is now running, so we execute various statements in order to verify table consistency
@@ -202,23 +219,70 @@ sub report {
 
     say("INFO: $who_am_i Testing database consistency");
 
-    my $databases = $dbh->selectcol_arrayref("SHOW DATABASES");
+    $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
+                         $executor->connectionId() . ' */ ';
+    $dbh = $executor->dbh;
+
+    $query = "SHOW DATABASES $trace_addition";
+    SQLtrace::sqltrace_before_execution($query);
+    my $databases = $dbh->selectcol_arrayref($query);
+    my $error = $dbh->err();
+    SQLtrace::sqltrace_after_execution($error);
+    if (defined $error) {
+        $executor->disconnect();
+        my $status = STATUS_CRITICAL_FAILURE;
+        say("ERROR: $who_am_i ->" . $query . "<- failed with $error. " . Auxiliary::build_wrs($status));
+        return $status;
+    }
     foreach my $database (@$databases) {
         next if $database =~ m{^(rqg|mysql|information_schema|pbxt|performance_schema)$}sio;
-        $dbh->do("USE $database");
-        my $tabl_ref = $dbh->selectcol_arrayref("SHOW FULL TABLES", { Columns=>[1,2] });
+        $query = "USE $database $trace_addition";
+        SQLtrace::sqltrace_before_execution($query);
+        $dbh->do($query);
+        $error = $dbh->err();
+        SQLtrace::sqltrace_after_execution($error);
+        if (defined $error) {
+            $executor->disconnect();
+            my $status = STATUS_CRITICAL_FAILURE;
+            say("ERROR: $who_am_i ->" . $query . "<- failed with $error. " .
+                Auxiliary::build_wrs($status));
+            return $status;
+        }
+
+        $query = "SHOW FULL TABLES $trace_addition";
+        SQLtrace::sqltrace_before_execution($query);
+        my $tabl_ref = $dbh->selectcol_arrayref($query, { Columns=>[1,2] });
+        $error = $dbh->err();
+        SQLtrace::sqltrace_after_execution($error);
+        if (defined $error) {
+            $executor->disconnect();
+            my $status = STATUS_CRITICAL_FAILURE;
+            say("ERROR: $who_am_i ->" . $query . "<- failed with $error. " .
+                Auxiliary::build_wrs($status));
+            return $status;
+        }
+
         my %tables = @$tabl_ref;
         foreach my $table (keys %tables) {
             # Should not do CHECK etc., and especially ALTER, on a view
             next if $tables{$table} eq 'VIEW';
             my $db_table = "`$database`.`$table`";
             say("INFO: $who_am_i Verifying table: $db_table");
-            $dbh->do("CHECK TABLE $db_table EXTENDED");
-            my $err = $dbh->err();
-            if (defined $err) {
-            # 1178 is ER_CHECK_NOT_IMPLEMENTED
-                say("INFO: CHECK TABLE $db_table EXTENDED failed with $err.");
-                return STATUS_DATABASE_CORRUPTION if $err > 0 && $err != 1178;
+            $query = "CHECK TABLE $db_table EXTENDED $trace_addition";
+            SQLtrace::sqltrace_before_execution($query);
+            $dbh->do($query);
+            $error = $dbh->err();
+            SQLtrace::sqltrace_after_execution($error);
+            if (defined $error and $error > 0) {
+                my $message_part = "$who_am_i ->" . $query . "<- failed with $error.";
+                if ($error != 1178) {
+                    $executor->disconnect();
+                    say("ERROR: " . $message_part);
+                    return STATUS_DATABASE_CORRUPTION;
+                } else {
+                    # 1178 is ER_CHECK_NOT_IMPLEMENTED
+                    say("INFO: " . $message_part);
+                }
             }
         }
     }
@@ -227,15 +291,21 @@ sub report {
     #
     # Phase 3 - dump the server again and compare dumps
     #
-    $dump_return = dump_database($reporter,$dbh,'after');
+    $dump_return = dump_database($reporter,$executor,'after');
     if ($dump_return > STATUS_OK) {
-        say("WARNING: $who_am_i Dumping the database failed with status $dump_return.");
+        $executor->disconnect();
+        my $status = STATUS_CRITICAL_FAILURE;
+        say("ERROR: $who_am_i Dumping the database failed with status $dump_return. " .
+             Auxiliary::build_wrs($status));
+        return $status;
     }
     my $dump_return_after = $dump_return;
     if($dump_return_before != $dump_return_after) {
+        $executor->disconnect();
+        my $status = STATUS_DATABASE_CORRUPTION;
         say("ERROR: dump_return_before($dump_return_before) and dump_return_after(" .
-            "$dump_return_after) differ. Will return STATUS_DATABASE_CORRUPTION.");
-       return STATUS_DATABASE_CORRUPTION;
+            "$dump_return_after) differ. " . Auxiliary::build_wrs($recovery_status));
+        return $status;
     }
 
     return compare_dumps();
@@ -244,12 +314,27 @@ sub report {
 
 sub dump_database {
     # Suffix is "before" or "after" (restart)
-    my ($reporter, $dbh, $suffix) = @_;
+    my ($reporter, $executor, $suffix) = @_;
+
     my $port = $reporter->serverVariable('port');
     $vardir = $reporter->properties->servers->[0]->vardir() unless defined $vardir;
 
-	my @all_databases = @{$dbh->selectcol_arrayref("SHOW DATABASES")};
-	my $databases_string = join(' ', grep { $_ !~ m{^(rqg|mysql|information_schema|performance_schema)$}sgio } @all_databases );
+    my $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
+                         $executor->connectionId() . ' */ ';
+    my $query = "SHOW DATABASES $trace_addition";
+    SQLtrace::sqltrace_before_execution($query);
+    my @all_databases = @{$executor->dbh->selectcol_arrayref($query)};
+    my $dbh = $executor->dbh;
+    my $error = $dbh->err();
+    SQLtrace::sqltrace_after_execution($error);
+    if (defined $error) {
+        $dbh->disconnect();
+        my $status = STATUS_CRITICAL_FAILURE;
+        say("ERROR: $who_am_i ->" . $query . "<- failed with $error. " .
+            Auxiliary::build_wrs($status));
+        return $status;
+    }
+    my $databases_string = join(' ', grep { $_ !~ m{^(rqg|mysql|information_schema|performance_schema)$}sgio } @all_databases );
 	
     say("INFO: $who_am_i Dumping the server $suffix restart");
     # From the manual https://mariadb.com/kb/en/library/mysqldump
@@ -259,14 +344,17 @@ sub dump_database {
     #     containing the view definition to the dump output and continues executing.
     # --log-error=name
     #     Log warnings and errors by appending them to the named file. The default is to do no logging.
-    my $dump_file = "$vardir/server_$suffix.dump";
+    my $dump_file =     "$vardir/server_$suffix.dump";
     my $dump_err_file = "$vardir/server_$suffix.dump_err";
-    # mleich1: Experiment begin
-    # my $dump_result = system('"'.$reporter->serverInfo('client_bindir')."/mysqldump\" --hex-blob --no-tablespaces --compact --order-by-primary --skip-extended-insert --host=127.0.0.1 --port=$port --user=root --password='' --databases $databases_string > $dump_file");
-    my $dump_result = system('"'.$reporter->serverInfo('client_bindir')."/mysqldump\" --force --hex-blob --no-tablespaces --compact --order-by-primary --skip-extended-insert --host=127.0.0.1 --port=$port --user=root --password='' --databases $databases_string > $dump_file 2>$dump_err_file ");
+    my $dump_result = system('"' . $reporter->serverInfo('client_bindir') . "/mysqldump\" --force ".
+                             "--hex-blob --no-tablespaces --compact --order-by-primary "           .
+                             "--skip-extended-insert --host=127.0.0.1 --port=$port --user=root "   .
+                             "--password='' --databases $databases_string "                        .
+                             "> $dump_file 2>$dump_err_file ");
     # mleich1: Experiment end
     if (0 < $dump_result) {
         say("ERROR: $who_am_i Dumping the server $suffix restart failed with $dump_result.");
+        sayFile($dump_err_file);
         return STATUS_ENVIRONMENT_FAILURE;
     } else {
         return STATUS_OK;
@@ -274,7 +362,7 @@ sub dump_database {
 }
 
 sub compare_dumps {
-	say("INFO: $who_am_i Comparing SQL dumps between servers before and after restart...");
+    say("INFO: $who_am_i Comparing SQL dumps between servers before and after restart...");
     # FIXME:
     # mleich 2019-03:
     # Diff in line  ) ENGINE= ... AUTO_INCREMENT=...
@@ -299,13 +387,13 @@ sub compare_dumps {
     #   - the number after AUTO_INCREMENT
     my $dump_before = $vardir . '/server_before.dump';
     my $dump_after  = $vardir . '/server_after.dump';
-	my $diff_result = system("diff -U 50 $dump_before $dump_after");
-	$diff_result = $diff_result >> 8;
+    my $diff_result = system("diff -U 50 $dump_before $dump_after");
+    $diff_result = $diff_result >> 8;
 
-	if ($diff_result == 0) {
+    if ($diff_result == 0) {
 		say("INFO: $who_am_i No differences between server contents before and after restart.");
 		return STATUS_OK;
-	} else {
+    } else {
 		say("WARN: $who_am_i Dumps before and after shutdown+restart differ.");
         my $dump_before_egalized = $dump_before . "_e";
         my $dump_after_egalized =  $dump_after  . "_e";
