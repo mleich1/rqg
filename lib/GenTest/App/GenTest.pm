@@ -376,7 +376,11 @@ sub doGenTest {
     # For experimenting:
     # system ("killall -9 mysqld mariadbd");
     # sleep 5;
+
+    # We initialize here the reporters again.
+    # Reason: The get now correct values for testStart and testEnd.
     $status = $self->initReporters();
+    return $status if $status != STATUS_OK;
     # initReporters tries to connect!
     $status = $self->check_for_crash($status);
     return $status if $status != STATUS_OK;
@@ -566,7 +570,7 @@ sub doGenTest {
         # The big problem with the reporter Crashrecovery
         # Within the loop he calls killServer which might last a while if rr was invoked.
         # But it needs to be killServer and not just SIGKILL server pid followed by exit
-        # with status 
+        # with status.
         Time::HiRes::sleep(1);
         say("Killing (TERM) periodic reporting process with pid $reporter_pid...");
         kill(15, $reporter_pid);
@@ -1227,7 +1231,6 @@ sub initReporters {
         if ($self->isMySQLCompatible()) {
             $reporter_hash{'ErrorLog'}   = 1;
             $reporter_hash{'Backtrace'}  = 1;
-            $reporter_hash{'ServerDead'} = 1;
             if (defined $self->config->property('valgrind-xml')) {
                 $reporter_hash{'ValgrindXMLErrors'} = 1;
             }
@@ -1262,12 +1265,6 @@ sub initReporters {
         $reporter_hash{'None'} = 1;
     }
     say("Reporters (for Simplifier): ->" . join("<->", sort keys %reporter_hash) . "<-");
-    # The reporter 'None' is used as
-    # - switch if to extend the amount of reporters or not
-    # - hint for the simplifier (see message above) if extending is expected or not.
-    # But its no real reporter and a file with that name also does not exist.
-    # So we delete this reporter now.
-    delete $reporter_hash{'None'};
     @{$self->config->reporters} = sort keys %reporter_hash;
     say("DEBUG: GenTest::App::GenTest::initReporters: Reporters (after check_and_set): ->" .
         join("<->", @{$self->config->reporters}) . "<-") if $debug_here;
@@ -1279,6 +1276,10 @@ sub initReporters {
         last if $self->config->property('upgrade-test') and $i > 0;
         next unless $self->config->dsn->[$i];
         foreach my $reporter (@{$self->config->reporters}) {
+            # The reporter 'None' is used as switch if to extend the amount of reporters or not.
+            # But its no real reporter and a file with that name also does not exist.
+            # Hence we omit the attempt to load it.
+            next if 'None' eq $reporter;
             my $add_result = $reporter_manager->addReporter($reporter, {
                 dsn             => $self->config->dsn->[$i],
                 test_start      => $self->[GT_TEST_START],
@@ -1288,7 +1289,6 @@ sub initReporters {
                                        ${$self->config->debug_server}[$i] : undef),
                 properties      => $self->config
             });
-#           $reporters_init_status = $add_result;
             return $add_result if $add_result > STATUS_OK;
         }
     }
