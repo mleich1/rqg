@@ -815,16 +815,25 @@ if (not defined $vardirs[0] or $vardirs[0] eq '') {
     say("INFO: Setting 'vardirs' to its default '$vardirs[0]'.");
     if(-d $vardirs[0]) {
         if(not File::Path::rmtree($vardirs[0])) {
-            say("ERROR: Removal of the tree '$vardirs[0]' failed. : $!.");
+            say("ERROR: Removal of the tree ->" . $vardirs[0] . "<- failed. : $!.");
             my $status = STATUS_ENVIRONMENT_FAILURE;
             run_end($status);
         }
-        say("DEBUG: The already existing RQG vardir '$vardirs[0]' was removed.");
+        say("DEBUG: The already existing RQG vardir ->" . $vardirs[0] . "<- was removed.");
     }
     if (mkdir $vardirs[0]) {
-        say("DEBUG: The RQG vardir '$vardirs[0]' was created.");
+        say("DEBUG: The RQG vardir ->" . $vardirs[0] . "<- was created.");
     } else {
-        say("ERROR: Creating the RQG vardir '$vardirs[0]' failed : $!.");
+        say("ERROR: Creating the RQG vardir ->" . $vardirs[0] . "<- failed : $!.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        run_end($status);
+    }
+}
+if (not -e $vardirs[0]) {
+    if (mkdir $vardirs[0]) {
+        say("DEBUG: The RQG vardir ->" . $vardirs[0] . "<- was created.");
+    } else {
+        say("ERROR: Creating the RQG vardir ->" . $vardirs[0] . "<- failed : $!.");
         my $status = STATUS_ENVIRONMENT_FAILURE;
         run_end($status);
     }
@@ -856,7 +865,7 @@ Auxiliary::print_list("INFO: Final RQG vardirs ",  @vardirs);
 #   --> free space in some maybe small filesystem like a tmpfs
 #   --> no pollution of '/tmp' with garbage laying there around for months
 # - No error prone addition of process pids to file names.
-#   Pids will repeat sooner or later. And maybe a pice of code forgets to add the pid.
+#   Pids will repeat sooner or later. And maybe a piece of code forgets to add the pid.
 #
 # if (not defined $vardirs[0]) {
 #    say("ALARM: \$vardirs[0] is not defined. Abort");

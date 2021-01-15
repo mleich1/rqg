@@ -176,10 +176,16 @@ sub new {
     if (osWindows()) {
         ## Use unix-style path's since that's what Perl expects...
         $self->[MYSQLD_BASEDIR] =~ s/\\/\//g;
-        $self->[MYSQLD_VARDIR] =~ s/\\/\//g;
+        $self->[MYSQLD_VARDIR]  =~ s/\\/\//g;
         $self->[MYSQLD_DATADIR] =~ s/\\/\//g;
     }
 
+    # Observation 2021-01
+    # _absPath("'/dev/shm/vardir'") returns '' !
+    # Of course the value "'/dev/shm/vardir'" is crap and it should have been checked
+    # earlier that such a directory exists or can be created.
+    # Why the assumption that $self->vardir must be than meant relativ to $self->basedir?
+    # <runner>.pl command line help does not say that.
     if (not $self->_absPath($self->vardir)) {
         $self->[MYSQLD_VARDIR] = $self->basedir."/".$self->vardir;
     }
@@ -442,19 +448,35 @@ sub createMysqlBase  {
 
     #### Clean old db if any
     if (-d $self->vardir) {
-        rmtree($self->vardir);
+        if(not File::Path::rmtree($self->vardir)) {
+            my $status = DBSTATUS_FAILURE;
+            say("ERROR: createMysqlBase: Removal of the tree ->" . $self->vardir .
+                "<- failed. : $!. Will return status DBSTATUS_FAILURE" . "($status)");
+            return $status;
+        }
     }
 
     #### Create database directory structure
-    mkpath($self->vardir);
-    mkpath($self->tmpdir);
-    mkpath($self->datadir);
+    foreach my $dir ($self->vardir, $self->tmpdir, $self->datadir) {
+        if (not mkdir($dir)) {
+            my $status = DBSTATUS_FAILURE;
+            say("ERROR: createMysqlBase: Creating the directory ->" . $dir . "<- failed : $!. " .
+                "Will return status DBSTATUS_FAILURE" . "($status)");
+            return $status;
+        }
+    }
 
     #### Prepare config file if needed
-    if ($self->[MYSQLD_CONFIG_CONTENTS] and ref $self->[MYSQLD_CONFIG_CONTENTS] eq 'ARRAY' and scalar(@{$self->[MYSQLD_CONFIG_CONTENTS]})) {
+    if ($self->[MYSQLD_CONFIG_CONTENTS] and ref $self->[MYSQLD_CONFIG_CONTENTS] eq 'ARRAY' and
+        scalar(@{$self->[MYSQLD_CONFIG_CONTENTS]})) {
         $self->[MYSQLD_CONFIG_FILE] = $self->vardir."/my.cnf";
         # FIXME: Replace the 'die'
-        open(CONFIG,">$self->[MYSQLD_CONFIG_FILE]") || die "Could not open $self->[MYSQLD_CONFIG_FILE] for writing: $!\n";
+        if (not open(CONFIG, ">$self->[MYSQLD_CONFIG_FILE]")) {
+            my $status = DBSTATUS_FAILURE;
+            say("ERROR: createMysqlBase: Could not open ->" . $self->[MYSQLD_CONFIG_FILE] .
+                "for writing: $!. Will return status DBSTATUS_FAILURE" . "($status)");
+            return $status;
+        }
         print CONFIG @{$self->[MYSQLD_CONFIG_CONTENTS]};
         close CONFIG;
         say("Config file '" . $self->[MYSQLD_CONFIG_FILE] . "' ----------- begin");
@@ -466,7 +488,12 @@ sub createMysqlBase  {
 
     #### Create boot file
     my $boot = $self->vardir . "/" . MYSQLD_BOOTSQL_FILE;
-    open BOOT,">$boot";
+    if (not open BOOT, ">$boot") {
+        my $status = DBSTATUS_FAILURE;
+        say("ERROR: createMysqlBase: Could not open ->" . $boot .
+            "for writing: $!. Will return status DBSTATUS_FAILURE" . "($status)");
+        return $status;
+    }
     print BOOT "CREATE DATABASE test;\n";
 
     #### Boot database
@@ -1967,6 +1994,7 @@ sub _findDir {
     croak "Cannot find '$name' in $paths";
 }
 
+# FIXME: I (mleich) have doubts if _absPath works perfect. Test it out.
 sub _absPath {
     my ($self, $path) = @_;
 
