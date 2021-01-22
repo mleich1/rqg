@@ -203,7 +203,10 @@ say("\nVerdict: " . $verdict . ", Extra_info: " . $extra_info);
 sub help() {
    print(
    "\nSorry, under construction and partially different or not yet implemented.\n\n"               .
-   "Purpose: Perform a batch of RQG runs with massive parallelization according to setup/config\n" .
+   "Purpose: Give a verdict about the result of some RQG run.\n\n"                                 .
+   "Some typical call:\n"                                                                          .
+   "    perl verdict.pl --config=verdict_for_combinations.cfg "                                    .
+   "--log_file=last_batch_workdir/000013.log\n"                                                                                            .
    "\n"                                                                                            .
    "--help\n"                                                                                      .
    "      Some general help about verdict.pl and its command line parameters/options\n"            .

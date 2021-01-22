@@ -231,6 +231,10 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_stats_persistent=on ',
   ],
   [
+    ' --mysqld=--innodb_adaptive_hash_index=off ',
+    ' --mysqld=--innodb_adaptive_hash_index=on ',
+  ],
+  [
     # Warning (mleich 2020-06):
     # It might look as if max-statement-time is a good alternative to using the reporter
     # "Querytimeout". I fear that the latter is not that reliable.

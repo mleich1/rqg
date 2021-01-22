@@ -63,7 +63,7 @@ use constant PROPS_PROPS            => 7; ## the actual properties
 ##
 ## AUTOLOAD function intercepts all calls to undefined methods. Use
 ## (if defined) PROPS_LEGAL_HASH to decide if the wanted property is
-## legal. All intercpeted method calls will return
+## legal. All intercepted method calls will return
 ## $self->[PROPS_PROPS]->{$name}
 
 sub AUTOLOAD {
