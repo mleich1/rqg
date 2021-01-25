@@ -1238,8 +1238,10 @@ sub getFileSection {
 #
 # Return
 # ------
-# - up to $search_var_size bytes read from the end of the file $file_to_read
-# - '' if nothing found
+# - 1. Up to $search_var_size bytes will be read from the end of the file $file_to_read.
+#   2. The content before the line with $begin_marker and the line with $end_marker will removed.
+#   3. From every remaining line any leading '#<spaces>' get removed.
+# - '' if nothing found is left over
 # - undef if there is whatever trouble with the file (existence, type etc.)
 # or Carp::cluck and abort if the routine is used wrong.
 #
