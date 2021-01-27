@@ -139,7 +139,10 @@ our $grammars =
   # '--grammar=conf/optimizer/updateable_views.yy --mysqld=--init-file='.$ENV{RQG_HOME}.'/conf/optimizer/updateable_views.init',
   # '--grammar=conf/mariadb/functions.yy --gendata-advanced --skip-gendata',
 
-  "$test_compression_encryption                                                                                               ",
+  "$test_compression_encryption                                                                --mysqld=--loose-innodb-encryption-threads=1 ",
+  "$test_compression_encryption                                                                --mysqld=--loose-innodb-encryption-threads=7 ",
+  "$test_compression_encryption                                                                --mysqld=--loose-innodb_encryption_rotate_key_age=1 ",
+  "$test_compression_encryption                                                                --mysqld=--loose-innodb_encryption_rotate_key_age=2 ",
   "$test_compression_encryption                                                                --reporters=RestartConsistency ",
   "$test_compression_encryption                                                                --reporters=CrashRecovery1     ",
   "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables                                ",
@@ -216,7 +219,7 @@ $combinations = [ $grammars,
     --mysqld=--log_bin_trust_function_creators=1
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
-    --restart_timeout=120
+    --restart_timeout=240
     ' .
     # Some grammars need encryption, file key management
     " $encryption_setup " .
