@@ -129,14 +129,21 @@ sub report {
 
     # Using some buffer-pool-size which is smaller than before should work.
     # InnoDB page sizes >= 32K need in minimum a buffer-pool-size >=24M.
-    # So we go with that.
-    $server->addServerOptions(['--innodb-buffer-pool-size=24M']);
+    # So I would like to go with that.
+    # But this could end up with
+    # [Warning] InnoDB: Difficult to find free blocks in the buffer pool (21 search iterations)! 21 failed attempts to flush a page!
+    # Consider increasing innodb_buffer_pool_size. Pending flushes (fsync) log: 0; buffer pool: 0. 664 OS file reads, 461 OS file writes, 21 OS fsyncs.
+    # 2021-01-11T12:33:32 [938407] | 2021-01-11 12:30:46 0 [Note] InnoDB: To recover: 105 pages from log
+    # 2021-01-11T12:33:32 [938407] | 2021-01-11 12:31:05 0 [Note] InnoDB: To recover: 104 pages from log
+    # 2021-01-11T12:33:32 [938407] | Killed
+    # 600s restart_timeout exceeded --> RQG gives up.
+    # $server->addServerOptions(['--innodb-buffer-pool-size=24M']);
     # 2020-05-05 False alarm
     # One of the walking queries failed because max_statement_time=30 was exceeded.
     # The test setup might go with a short max_statement_time which might
     # cause that queries checking huge tables get aborted. And the code which follows
     # is not prepared for that.
-    $server->addServerOptions(['--max_statement_time=0']);
+    $server->addServerOptions(['--loose-max-statement-time=0']);
 
     $server->setStartDirty(1);
     my $recovery_status = $server->startServer();
@@ -202,9 +209,14 @@ sub report {
     if (not defined $dbh) {
         say("ERROR: $who_am_i Connect attempt to dsn " . $reporter->dsn() . " after " .
             "restart+recovery failed: " . $DBI::errstr);
+        sayFile($server->errorlog);
+        my $status = STATUS_RECOVERY_FAILURE;
+        say("ERROR: $who_am_i Recovery has failed. " . Auxiliary::build_wrs($status));
+        return $status;
     }
 
-    if (not defined $dbh or $recovery_status > STATUS_OK) {
+    if ($recovery_status > STATUS_OK) {
+        $dbh->disconnect();
         sayFile($server->errorlog);
         my $status = STATUS_RECOVERY_FAILURE;
         say("ERROR: $who_am_i Recovery has failed. " . Auxiliary::build_wrs($status));
@@ -229,6 +241,7 @@ sub report {
 
     my $databases = $dbh->selectcol_arrayref("SHOW DATABASES");
     if (not defined $databases) {
+        $dbh->disconnect();
         my $status = STATUS_RECOVERY_FAILURE;
         say("ERROR: $who_am_i SHOW DATABASES failed. " . Auxiliary::build_wrs($status));
         return $status;
@@ -265,6 +278,7 @@ sub report {
                     say("ERROR: $who_am_i $stmt harvested $err: $errstr. " .
                         "Will return status STATUS_RECOVERY_FAILURE later.");
                     sayFile($server->errorlog);
+                    $dbh->disconnect;
                     return STATUS_RECOVERY_FAILURE;
                 }
             }
@@ -316,6 +330,7 @@ sub report {
                     say("ERROR: $walk_query harvested $err: $errstr. " .
                         "Will return status STATUS_RECOVERY_FAILURE later.");
                     sayFile($server->errorlog);
+                    $dbh->disconnect;
                     return STATUS_RECOVERY_FAILURE;
                 }
 
@@ -409,6 +424,7 @@ sub report {
                             say("ERROR: $sql harvested $err: $errstr. " .
                                 "Will return STATUS_RECOVERY_FAILURE later.");
                             sayFile($server->errorlog);
+                            $dbh->disconnect;
                             return STATUS_RECOVERY_FAILURE;
                         }
                     }
@@ -493,6 +509,7 @@ sub report {
                     $sth->finish();
                 } else {
                     my $status = STATUS_RECOVERY_FAILURE;
+                    $dbh->disconnect();
                     say("ERROR: $who_am_i Prepare failed: " . $dbh->errrstr() . " " .  Auxiliary::build_wrs($status));
                     return $status;
                 }
