@@ -1801,6 +1801,8 @@ if ($final_result > STATUS_OK) {
 
 
 if ($final_result == STATUS_OK) {
+    # FIXME maybe:
+    # Shutdown, maybe file backup, Restart but now including rr/valgrind/...
     my $start_time = time();
     $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENTEST);
     $gentest_result = $gentest->doGenTest();
