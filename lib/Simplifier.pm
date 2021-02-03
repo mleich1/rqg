@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2020 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -1428,9 +1428,11 @@ sub get_job {
                         $child_number++;
                         $order_is_valid           = 1;
                         my $duration_a            = replay_runtime_adapt();
-                        $job[Batch::JOB_CL_SNIP]  = $cl_snip_all . $cl_snip_phase . $cl_snip_step .
-                                             " --grammar=" . $workdir . "/" . $child_grammar .
-                                             " --duration=$duration_a";
+                        $cl_snip_step = " --grammar=" . $workdir . "/" . $child_grammar .
+                                        " --duration=$duration_a";
+                        $job[Batch::JOB_CL_SNIP]  = $cl_snip_all . $cl_snip_phase . $cl_snip_step;
+                        #                    " --grammar=" . $workdir . "/" . $child_grammar .
+                        #                    " --duration=$duration_a";
                         $job[Batch::JOB_ORDER_ID] = $order_id;
                         $job[Batch::JOB_MEMO1]    = $child_grammar;
                         $job[Batch::JOB_MEMO2]    = $parent_grammar;
@@ -1639,8 +1641,17 @@ sub generate_orders {
                 $thread_num = $thread_num * 1.5;
             }
             my @thread_num_list = sort {$a <=> $b} keys %thread_num_hash;
+            # 2021-02-02 Observation
+            # PHASE_THREAD_REDUCE threads=1 finishes extreme fast with STATUS_OK.
+            # We need frequent refills because of that many RQG runners.
+            # Finally leftovertrials (~ $trials) reaches zero -> abort campaign even though
+            # none of the other orders (all with threads > 1 + capable to replay) had a chance
+            # to finish.
+            # So I limit the maximum number of trials of some order.
+            my $max_efforts = int($trials / (scalar @thread_num_list));
+            $max_efforts = 1 if 0 == $max_efforts;
             foreach $thread_num ( @thread_num_list ) {
-                add_order($cl_snip_all . $cl_snip_phase, $thread_num, '_unused_');
+                add_order($cl_snip_all . $cl_snip_phase, $thread_num, '_unused_', $max_efforts);
                 $success = 1;
             }
             dump_orders() if Auxiliary::script_debug("S5");
@@ -1765,15 +1776,16 @@ sub generate_orders {
 
 sub add_order {
 
-    my ($order_property1, $order_property2, $order_property3) = @_;
+    my ($order_property1, $order_property2, $order_property3, $max_efforts) = @_;
 
     our $order_id_now;
     $order_id_now = 0 if not defined $order_id_now;
 
     $order_id_now++;
+    $max_efforts = $trials if not defined $max_efforts;
 
     $order_array[$order_id_now][ORDER_EFFORTS_INVESTED]  = 0;
-    $order_array[$order_id_now][ORDER_EFFORTS_LEFT_OVER] = $trials;
+    $order_array[$order_id_now][ORDER_EFFORTS_LEFT_OVER] = $max_efforts;
     $order_array[$order_id_now][ORDER_PROPERTY1]         = $order_property1;
     $order_array[$order_id_now][ORDER_PROPERTY2]         = $order_property2;
     $order_array[$order_id_now][ORDER_PROPERTY3]         = $order_property3;
@@ -2360,7 +2372,6 @@ sub switch_phase {
     }
 
 
-    ### $cl_snip_phase          = " $rvt_snip --grammar=$target --threads=$threads";
     # Hint:
     # At least some phases could occur more than one time within @simp_chain. (handling is above)
     # Therefore the    $var = 0 -->if -1 == $var<--   is required because otherwise we
@@ -2780,23 +2791,6 @@ sub report_replay {
                 }
             }
 
-            # In order to "make room" stop the longest running worker with verdict not yet
-            # in (interest, replay).
-            # FIXME:
-            # Refine like
-            # - <no of active workers> <= $workersmid --> do nothing (last)
-            # - inspected worker uses a parent grammar == $rgp --> do nothing
-            #   different implies even older
-            # Batch::stop_worker_too_obsolete($rgp)
-            # my $active_workers = count_active_workers();
-            # while (1) {
-            #    last if $active_workers <= $workers_mid;
-            #    for my $worker_num (1..$workers_max) {
-            #        next if -1 == $worker_array[$worker_num][WORKER_START];
-            #
-            #
-            #
-
             Batch::stop_worker_oldest_not_using_parent($replay_grammar_parent);
 
         } else {
@@ -2809,6 +2803,12 @@ sub report_replay {
         # $replay_grammar is the number of threads used in that RQG run.
         if (not defined $replay_grammar) {
             say("INTERNAL ERROR: \$replay_grammar is not defined, order_id $order_id. " .
+                "Will ask for an emergency_exit.");
+                my $status = STATUS_INTERNAL_ERROR;
+                Batch::emergency_exit($status);
+        }
+        if (not $replay_grammar =~ /^[1-9][0-9]*$/) {
+            say("INTERNAL ERROR: ->" . $replay_grammar . "<- is not an int > 0. " .
                 "Will ask for an emergency_exit.");
                 my $status = STATUS_INTERNAL_ERROR;
                 Batch::emergency_exit($status);
