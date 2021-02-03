@@ -2249,6 +2249,9 @@ sub process_finished_runs {
             # For debugging
             # dump_try_hashes();
             update_extra_info_hash($extra_info);
+            # FIXME maybe:
+            # If Simplifier and we go with archiving and we have already an archive from some
+            # previous run which hit the problem than delete that archive (but not its log).
             # For debugging
             if (0) {
                 my $fat_string = get_extra_info_hash("DEBUG:");

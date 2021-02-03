@@ -78,7 +78,7 @@ sub monitor {
     }
 
     # Going with an executor and $executor->execute($query) should ensure that we
-    # - are protected against low values of max-statement-timeout
+    # - are protected against low values of max-statement-time
     # - get trace additions like /* E_R QueryTimeout2 QNO 188 CON_ID 52 */ for any statement
     # - get sql tracing if enabled
     # - get connect timeouts * factor (rr/valgrind)

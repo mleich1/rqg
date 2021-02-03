@@ -878,7 +878,7 @@ sub status_matching {
 # $content                | Some text with multiple lines to be processed.
 #                         | Typical example: The protocol of a RQG run.
 # ------------------------+-------------------------------------------------------
-# $pattern_list           | List of pattern to search for within the text.
+# $pattern_list           | List of patterns to search for within the text.
 # ------------------------+-------------------------------------------------------
 # $pattern_prefix         | Some additional text before the pattern.
 #                         | Example: 'The RQG run ended with status'
