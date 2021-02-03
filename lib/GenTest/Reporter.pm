@@ -1,5 +1,5 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2018 MariaDB Corporation Ab.
+# Copyright (c) 2018,2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -51,10 +51,11 @@ use constant REPORTER_TEST_DURATION     => 7;
 use constant REPORTER_PROPERTIES        => 8;
 use constant REPORTER_SERVER_DEBUG      => 9;
 use constant REPORTER_CUSTOM_ATTRIBUTES => 10;
-# TEST_START is when the RQG test started running; 
+# TEST_START is roughly when the YY grammar processing starts.
+# TEST_END   is when the YY grammar processing should end.
 # REPORTER_START_TIME is when the data has been generated, and reporter was started
 # (more or less when the test flow started)
-use constant REPORTER_START_TIME        => 11; 
+use constant REPORTER_START_TIME        => 11;
 use constant REPORTER_NAME              => 12;
 
 use constant REPORTER_TYPE_PERIODIC     => 2;
@@ -70,26 +71,40 @@ use constant REPORTER_TYPE_END          => 256;
 1;
 
 sub new {
-	my $class = shift;
+    my $class = shift;
 
-	my $reporter = $class->SUPER::new({
-		dsn => REPORTER_SERVER_DSN,
-		test_start => REPORTER_TEST_START,
-		test_end => REPORTER_TEST_END,
-		test_duration => REPORTER_TEST_DURATION,
-		debug_server => REPORTER_SERVER_DEBUG,
-		properties => REPORTER_PROPERTIES,
-        name       => REPORTER_NAME
+    my $who_am_i = "GenTest::Reporter::new:";
+
+    my $reporter = $class->SUPER::new({
+        dsn             => REPORTER_SERVER_DSN,
+        test_start      => REPORTER_TEST_START,
+        test_end        => REPORTER_TEST_END,
+        test_duration   => REPORTER_TEST_DURATION,
+        debug_server    => REPORTER_SERVER_DEBUG,
+        properties      => REPORTER_PROPERTIES,
+        name            => REPORTER_NAME
 	}, @_);
 
-	my $dbh = DBI->connect($reporter->dsn(), undef, undef, { mysql_multi_statements => 1, RaiseError => 0 , PrintError => 1 } );
-	return undef if not defined $dbh;
+    # FIXME: Use an executor or similar.
+    # We need here timeouts
+    # and especially more detailed information.
+    my $dbh = DBI->connect($reporter->dsn(), undef, undef, {
+                           mysql_connect_timeout  => Runtime::get_connect_timeout(),
+                           mysql_multi_statements => 1,
+                           RaiseError             => 0 ,
+                           PrintError             => 1 });
+    if (not defined $dbh) {
+        say("ERROR: $who_am_i Getting a connection for a reporter failed. Will return undef.");
+        return undef;
+    }
     # say("DEBUG: Reporter '" . $reporter->name() . "' after first connect before collecting " .
     #     "server variables.");
+    # FIXME: This can fail (in theory only)
 	my $sth = $dbh->prepare("SHOW VARIABLES");
-
+    # FIXME: This can fail
 	$sth->execute();
 
+    # FIXME: This can fail because of various reasons like max_statement_time (observed 2020-11)
 	while (my $array_ref = $sth->fetchrow_arrayref()) {
 		$reporter->[REPORTER_SERVER_VARIABLES]->{$array_ref->[0]} = $array_ref->[1];
 	}
@@ -131,12 +146,12 @@ sub new {
             # If mysqld_debug server is not present use mysqld.
             $binname = osWindows() ? 'mysqld.exe' : 'mysqld';
             ($bindir,$binary)=$reporter->findMySQLD($binname);
-            
+
             # Identify if server is debug.
             my $command = $binary.' --version';
             my $result=`$command 2>&1`;
             undef $binary if ($result !~ /debug/sig);
-            
+
             if ((-e $binary)) {
                 $reporter->[REPORTER_SERVER_INFO]->{bindir} = $bindir;
                 $reporter->[REPORTER_SERVER_INFO]->{binary} = $binary;
