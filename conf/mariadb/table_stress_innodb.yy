@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2020 MariaDB Corporation
+# Copyright (c) 2018, 2021 MariaDB Corporation
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -188,7 +188,10 @@ correct_rqg_sessions_table:
 
 create_table:
    # c_t_begin t0 c_t_mid ENGINE = MyISAM $m2 ; c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic $m2 ; c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed $m2 ; c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact $m2 ; c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant $m2 ; c_t_begin t5 c_t_mid ENGINE = Aria $m2 ;
-   c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic $m2 ; c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed $m2 ; c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact $m2 ; c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant $m2 ;
+   c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic    $m2 ;
+   c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed $m2 ;
+   c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact    $m2 ;
+   c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant  $m2 ;
 
 c_t_begin:
    $m1 CREATE TABLE IF NOT EXISTS ;
@@ -249,7 +252,7 @@ enforce_duplicate1:
    delete ; insert_part /* my_int */ some_record , some_record ;
 
 enforce_duplicate2:
-   # FIXME: Check/decide of to use
+   # FIXME: Check/decide what to use
    # UPDATE table_names SET column_name_int = my_int ORDER BY col1 DESC LIMIT 2 ;
    # if that avoids statements which are unsafe for replication.
    UPDATE table_names SET column_name_int = my_int LIMIT 2 ;
@@ -277,20 +280,23 @@ commit_rollback:
    COMMIT   |
    ROLLBACK ;
 
+alter_table_part:
+   ALTER ignore TABLE table_names ;
+
 # FIXME:
 # https://mariadb.com/kb/en/library/wait-and-nowait/
 ddl:
-   ALTER TABLE table_names add_accelerator                     ddl_algorithm_lock_option |
-   ALTER TABLE table_names add_accelerator                     ddl_algorithm_lock_option |
-   ALTER TABLE table_names add_accelerator                     ddl_algorithm_lock_option |
-   ALTER TABLE table_names add_accelerator                     ddl_algorithm_lock_option |
-   ALTER TABLE table_names drop_accelerator                    ddl_algorithm_lock_option |
-   ALTER TABLE table_names drop_accelerator                    ddl_algorithm_lock_option |
-   ALTER TABLE table_names drop_accelerator                    ddl_algorithm_lock_option |
-   ALTER TABLE table_names drop_accelerator                    ddl_algorithm_lock_option |
-   ALTER TABLE table_names add_accelerator  , add_accelerator  ddl_algorithm_lock_option |
-   ALTER TABLE table_names drop_accelerator , drop_accelerator ddl_algorithm_lock_option |
-   ALTER TABLE table_names drop_accelerator , add_accelerator  ddl_algorithm_lock_option |
+   alter_table_part add_accelerator                     ddl_algorithm_lock_option |
+   alter_table_part add_accelerator                     ddl_algorithm_lock_option |
+   alter_table_part add_accelerator                     ddl_algorithm_lock_option |
+   alter_table_part add_accelerator                     ddl_algorithm_lock_option |
+   alter_table_part drop_accelerator                    ddl_algorithm_lock_option |
+   alter_table_part drop_accelerator                    ddl_algorithm_lock_option |
+   alter_table_part drop_accelerator                    ddl_algorithm_lock_option |
+   alter_table_part drop_accelerator                    ddl_algorithm_lock_option |
+   alter_table_part add_accelerator  , add_accelerator  ddl_algorithm_lock_option |
+   alter_table_part drop_accelerator , drop_accelerator ddl_algorithm_lock_option |
+   alter_table_part drop_accelerator , add_accelerator  ddl_algorithm_lock_option |
    # ddl_algorithm_lock_option is not supported by some statements
    check_table                                                                           |
    TRUNCATE TABLE table_names                                                            |
@@ -298,30 +304,40 @@ ddl:
    replace_column                                                                        |
    # It is some rather arbitrary decision to place KILL session etc. here
    # but KILL ... etc. is like most DDL some rather heavy impact DDL.
-   ALTER TABLE table_names enable_disable KEYS                                           |
+   alter_table_part enable_disable KEYS                                           |
    rename_column                                      ddl_algorithm_lock_option          |
    null_notnull_column                                ddl_algorithm_lock_option          |
-   ALTER TABLE table_names MODIFY column_name_int int_bigint   ddl_algorithm_lock_option |
+   alter_table_part MODIFY column_name_int int_bigint   ddl_algorithm_lock_option |
    move_column                                        ddl_algorithm_lock_option          |
    chaos_column                                       ddl_algorithm_lock_option          |
    block_stage                                                                           |
    kill_query_or_session_or_release                                                      ;
 
+ignore:
+          |
+          |
+          |
+          |
+   IGNORE ;
+
+alt_tab_part:
+   ALTER ignore TABLE ;
+
 chaos_column:
    # Basic idea
    # - have a length in bytes = 3 which is not the usual 2, 4 or more
    # - let the column stray like it exists/does not exist/gets moved to other position
-   ALTER TABLE table_names ADD COLUMN IF NOT EXISTS col_date DATE DEFAULT CUR_DATE() |
-   ALTER TABLE table_names DROP COLUMN IF EXISTS col_date                            |
-   ALTER TABLE table_names MODIFY COLUMN IF EXISTS col_date DATE column_position     ;
+   alter_table_part ADD COLUMN IF NOT EXISTS col_date DATE DEFAULT CUR_DATE() |
+   alter_table_part DROP COLUMN IF EXISTS col_date                            |
+   alter_table_part MODIFY COLUMN IF EXISTS col_date DATE column_position     ;
 
 move_column:
    # Unfortunately I cannot prevent that the column type gets maybe changed.
-   random_column_properties ALTER TABLE table_names MODIFY COLUMN $col_name $col_type column_position ;
+   random_column_properties alter_table_part MODIFY COLUMN $col_name $col_type column_position ;
 
 null_notnull_column:
    # Unfortunately I cannot prevent that the column type gets maybe changed.
-   random_column_properties ALTER TABLE table_names MODIFY COLUMN $col_name $col_type null_not_null ;
+   random_column_properties alter_table_part MODIFY COLUMN $col_name $col_type null_not_null ;
 null_not_null:
    NULL     |
    NOT NULL ;
@@ -434,14 +450,14 @@ replace_column:
    random_column_g_properties replace_column_add ;                         replace_column_drop ; replace_column_rename ;
 
 replace_column_add:
-   ALTER TABLE table_names ADD COLUMN if_not_exists_mostly {$forget= $col_name."_copy"} $col_type column_position ddl_algorithm_lock_option ;
+   alter_table_part ADD COLUMN if_not_exists_mostly {$forget= $col_name."_copy"} $col_type column_position ddl_algorithm_lock_option ;
 replace_column_update:
    UPDATE table_names SET $forget = $col_name ;
 replace_column_drop:
-   ALTER TABLE table_names DROP COLUMN if_exists_mostly $col_name ddl_algorithm_lock_option ;
+   alter_table_part DROP COLUMN if_exists_mostly $col_name ddl_algorithm_lock_option ;
 replace_column_rename:
    # Unfortunately I cannot prevent that the column type gets maybe changed.
-   ALTER TABLE table_names CHANGE COLUMN if_exists_mostly $forget {$name = $col_name; return undef} name_convert $col_type ddl_algorithm_lock_option ;
+   alter_table_part CHANGE COLUMN if_exists_mostly $forget {$name = $col_name; return undef} name_convert $col_type ddl_algorithm_lock_option ;
 #===========================================================
 # Names should be compared case insensitive.
 # Given the fact that the current test should hunt bugs in
@@ -454,7 +470,7 @@ rename_column:
    rename_column_begin {$name = $col_name; return undef} name_convert $col_name $col_type |
    rename_column_begin {$name = $col_name; return undef} $col_name name_convert $col_type ;
 rename_column_begin:
-   random_column_properties ALTER TABLE table_names CHANGE COLUMN if_exists_mostly ;
+   random_column_properties alter_table_part CHANGE COLUMN if_exists_mostly ;
 name_convert:
    $name                                                                                                   |
    $name                                                                                                   |
@@ -480,7 +496,7 @@ get_cdigit:
 #    regarding the 255-byte maximum length only applies to other ROW_FORMAT.
 # FIXME: Complete the implementation.
 resize_varchar:
-   col_varchar_properties ALTER TABLE table_names MODIFY COLUMN $col_name $col_type |
+   col_varchar_properties alter_table_part MODIFY COLUMN $col_name $col_type |
                                                                            ;
 
 # MDEV-5336 Implement LOCK FOR BACKUP
