@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, 2020 MariaDB Corporation Ab.
+#  Copyright (c) 2018, 2021 MariaDB Corporation Ab.
 #  Use is subject to license terms.
 #
 #  This program is free software; you can redistribute it and/or modify
@@ -2248,7 +2248,7 @@ sub process_finished_runs {
             }
             # For debugging
             # dump_try_hashes();
-            update_extra_info_hash($extra_info);
+            update_extra_info_hash($verdict . ' -- ' . $extra_info);
             # FIXME maybe:
             # If Simplifier and we go with archiving and we have already an archive from some
             # previous run which hit the problem than delete that archive (but not its log).
