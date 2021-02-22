@@ -190,8 +190,9 @@ sub monitor {
     # FIXME: Standardization without duplicate code would be better.
     my $clone_datadir = $clone_vardir . "/data";
     my $clone_tmpdir  = $clone_vardir . "/tmp";
+    my $clone_rrdir   = $clone_vardir . '/rr';
     ## Create clone database server directory structure
-    foreach my $dir ( $clone_vardir, $clone_datadir, $clone_tmpdir) {
+    foreach my $dir ( $clone_vardir, $clone_datadir, $clone_tmpdir, $clone_rrdir) {
         if (not mkdir($dir)) {
             direct_to_std();
             my $status = STATUS_ENVIRONMENT_FAILURE;
@@ -249,12 +250,14 @@ sub monitor {
     my $rr_options =  '';
     my $rr_addition = '';
     if (defined $rr and $rr eq Auxiliary::RR_TYPE_EXTENDED) {
-        # Its the rr trace sub directory of the first server.
-        my $rr_trace_dir = $server0->vardir() . '/rr';
+        # FIXME:
+        # Using the rr trace sub directory of the first server could make trouble.
+        # The first server crashes, backtrace generation based on rr replay <no program>
+        # starts, hence mariabackup gets picked ...
         if (defined $reporter->properties->rr_options()) {
             $rr_options =   $reporter->properties->rr_options();
         }
-        $rr_addition =     "_RR_TRACE_DIR=$rr_trace_dir rr record $rr_options";
+        $rr_addition =     "_RR_TRACE_DIR=$clone_rrdir rr record $rr_options";
     }
 
     # For experimenting:
