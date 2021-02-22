@@ -87,6 +87,7 @@ echo "# Build in '"$OOS_DIR"' at "`date --rfc-3339=seconds`             | tee -a
 echo "#=============================================================="  | tee -a "$BLD_PROT"
 cd "$SOURCE_DIR"
 git checkout cmake/maintainer.cmake
+git checkout storage/innobase/innodb.cmake
 GIT_SHOW=`git show --pretty='format:%D %H %cI' -s 2>&1`
 echo "GIT_SHOW: $GIT_SHOW"                                              | tee -a "$BLD_PROT"
 echo                                                                    | tee -a "$BLD_PROT"
@@ -112,9 +113,9 @@ START_TS=`date '+%s'`
 # -DCMAKE_BUILD_TYPE=Debug -DWITH_INNODB_EXTRA_DEBUG:BOOL=ON                                         \
 cmake -DCONC_WITH_{UNITTEST,SSL}=OFF -DWITH_EMBEDDED_SERVER=OFF -DWITH_UNIT_TESTS=OFF              \
 -DWITH_WSREP=ON                                                                                    \
--DPLUGIN_TOKUDB=NO -DPLUGIN_MROONGA=NO -DPLUGIN_OQGRAPH=NO -DPLUGIN_SPHINX=NO -DPLUGIN_SPIDER=NO   \
--DPLUGIN_ROCKSDB=NO -DPLUGIN_CONNECT=NO -DWITH_SAFEMALLOC=OFF -DWITH_SSL=bundled                   \
--DPLUGIN_COLUMNSTORE=NO                                                                            \
+-DPLUGIN_{ARCHIVE,TOKUDB,MROONGA,OQGRAPH,ROCKSDB,CONNECT,SPIDER,SPHINX,COLUMNSTORE}=NO             \
+-DWITH_SAFEMALLOC=OFF -DWITH_SSL=bundled                                                           \
+-DWITH_DBUG_TRACE=OFF                                                                              \
 -DCMAKE_BUILD_TYPE=Debug                                                                           \
 -DWITH_ASAN:BOOL=OFF                                                                               \
 -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" "$SOURCE_DIR"    2>&1   | tee -a "$BLD_PROT"
