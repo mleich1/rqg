@@ -1,6 +1,6 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018-2020 MariaDB Corporation Ab.
+# Copyright (c) 2018-2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -154,8 +154,8 @@ sub next {
     # - users should be made aware of the defect in case its some non simplified grammar
     # I tended to let the RQG worker thread exit with STATUS_ENVIRONMENT_FAILURE.
     # And usually after a short time span the RQG runner exits with STATUS_ENVIRONMENT_FAILURE too.
-    # And if "Possible endless loop in grammar." gets blacklisted than the corresponding grammar/
-    # RQG result gets ignored.
+    # And if "Possible endless loop in grammar." gets declared to be 'unwanted' than the
+    # corresponding grammar/RQG result gets ignored.
     # The mountain of problems:
     # 1. Grammar simplification but also "masking" lead quite often to such defects in grammars.
     # 2. During grammar simplification such a grammar might replay the desired effect before
@@ -173,15 +173,15 @@ sub next {
     #       < STATUS_CRITICAL_FAILURE.
     #       --> There is at least some chance that one of the remaining threads replays the
     #           desired out come.
-    #           In case "Possible endless loop in grammar." is
-    #           - blacklisted than again all already made (bigger than in A) investments are lost.
-    #           - not blacklisted than already made investments are not lost.
+    #           In case "Possible endless loop in grammar." is declared to be
+    #           - 'unwanted' than again all already made (bigger than in A) investments are lost.
+    #           - not 'unwanted' than already made investments are not lost.
     #             But most probably many if not all threads will exit because of the same reason
     #             soon. So B) is not far way better than A).
     #    C) Print "Possible endless loop in grammar." and let the thread go on with working.
     #       Free (reused by perl!) memory as much and as early as possible.
-    #       Do not blacklist "Possible endless loop in grammar." and let threads finally exit with
-    #       a status < STATUS_CRITICAL_FAILURE except something evil happened.
+    #       Do not declare "Possible endless loop in grammar." to be 'unwanted' and let threads
+    #       finally exit with a status < STATUS_CRITICAL_FAILURE except something evil happened.
     # Half experimental solution:
     # Try to detect that problem as early as possible and react immediate with
     # 1. Warn about the possible endless loop in grammar
@@ -260,7 +260,7 @@ sub next {
 
         }
 
-        # Define some standard message because blacklist_patterns matching might need it.
+        # Define some standard message because patterns matching might need it.
         my $warn_message_part = "WARN: Possible endless loop in grammar. " .
                                 "Will return an empty array.";
 

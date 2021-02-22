@@ -1,5 +1,5 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
-# Copyright (c) 2018, 2019 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -130,6 +130,14 @@ sub unique_components {
     # We have read the rule components lines top down and in the lines left to right.
     # The "agreement" for the grammmar simplifier is to attack the components lines
     # bottom up and in the lines right to left.
+    # FIXME 1:
+    # 1. Never add a unique_component '' except this really exists.
+    # 2. Reorder the rule_unique_component_list so that
+    #    - '' (if existing) are placed first
+    #    - RELEASE (if existing) are placed at end
+    #    - KILL (if existing) are placed before RELEASE
+    #    - SET GLOBAL/SESSION/@@* are placed before KILL
+    #    - ALTER (if existing) are placed before SET systemvariable
     @rule_unique_component_list = reverse @rule_unique_component_list;
     push @rule_unique_component_list, '' if exists $rule_component_hash{''};
     return @rule_unique_component_list;

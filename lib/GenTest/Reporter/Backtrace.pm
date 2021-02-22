@@ -1,5 +1,5 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2018-2020 MariaDB Corporation Ab.
+# Copyright (c) 2018-2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -79,10 +79,6 @@ sub nativeReport {
     my $vardir = $reporter->properties->servers->[0]->vardir();
     # /dev/shm/vardir/SINGLE_RQG/1  <---- We get this.
     # /dev/shm/vardir/SINGLE_RQG/2
-    # /dev/shm/vardir/SINGLE_RQG/rr_trace
-    # /dev/shm/vardir/SINGLE_RQG/rr_trace/last_trace
-    # /dev/shm/vardir/SINGLE_RQG/rr_trace/mysqld-0
-    # /dev/shm/vardir/SINGLE_RQG/rr_trace/mysqld-1
 
     my $pid_file = $reporter->serverVariable('pid_file');
     say("pid_file is $pid_file");
@@ -405,6 +401,17 @@ sub nativeReport {
     }
 
     my @debugs;
+
+    # 2021-02-15 Observation:
+    # Strong box, only on RQG worker is active, "rr" is not used
+    # 14:42:53 the last concurrent RQG worker finished.
+    # gdb with backtrace-all.gdb is running + consuming CPU
+    # Last entry into RQG log is
+    # 2021-02-15T14:15:13 [2227401] 74  in abort.c
+    #           I sent 15:05:51 a SIGKILL to the processes.
+    # result.txt reports a total runtime of 3353s.
+    # FIXME:
+    # Introduce timeouts for gdb operations.
 
     foreach my $command (@commands) {
         my $output = `$command`;
