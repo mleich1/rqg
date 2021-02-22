@@ -91,7 +91,7 @@ use constant PROCESSLIST_PROCESS_TIME        => 5;
 use constant PROCESSLIST_PROCESS_INFO        => 7;
 
 # The time, in seconds, we will wait for a connect before we declare the server hanged.
-use constant CONNECT_TIMEOUT_THRESHOLD       => 30;   # Seconds
+use constant CONNECT_TIMEOUT_THRESHOLD       => 60;   # Seconds
 
 # Minimum lifetime of a query issued by some RQG worker thread/Validators before it is
 # considered suspicious.
@@ -252,6 +252,7 @@ sub monitor_nonthreaded {
 
     $alarm_timeout = $connect_timeout_threshold + OVERLOAD_ADD;
     $exit_msg      = "Got no connect to server within " . $alarm_timeout . "s. ";
+    my $connect_start = time();
     alarm ($alarm_timeout);
     $dbh = DBI->connect($dsn, undef, undef,
                         { mysql_connect_timeout => $connect_timeout_threshold,
@@ -259,7 +260,8 @@ sub monitor_nonthreaded {
                           RaiseError            => 0});
     alarm (0);
     if (not defined $dbh) {
-        say("WARN: $who_am_i The connect attempt to dsn $dsn failed: " . $DBI::errstr);
+        say("WARN: $who_am_i The connect attempt to dsn $dsn failed: " . $DBI::errstr .
+            " after " . (time() - $connect_start) . "s.");
         my $return = GenTest::Executor::MySQL::errorType($DBI::err);
         if (not defined $return) {
             say("ERROR: $who_am_i The type of the error got is unknown. " .
@@ -269,9 +271,11 @@ sub monitor_nonthreaded {
         if (STATUS_OK != server_dead($reporter)) {
             exit STATUS_SERVER_CRASHED;
         } else {
-            # The DB server process is running.
-            # Hence we have either a server freeze (STATUS_SERVER_DEADLOCKED) or
-            # the timeouts are too short.
+            # The DB server process is running and there are no signs of a server death in
+            # the seerver error log.
+            # Hence we have either
+            # - a server freeze (STATUS_SERVER_DEADLOCKED) or
+            # - the timeouts are too short.
             say("ERROR: $who_am_i Assuming a server freeze or too short timeouts. " .
             "Will exit with STATUS_SERVER_DEADLOCKED later.");
             $reporter->kill_with_core;
@@ -296,6 +300,7 @@ sub monitor_nonthreaded {
     # The query could have failed.
     if (not defined $processlist) {
         if (STATUS_OK != server_dead($reporter)) {
+            $dbh->disconnect;
             exit STATUS_SERVER_CRASHED;
         }
         say("ERROR: $who_am_i The query '$query' failed with " . $DBI::err);
@@ -303,10 +308,12 @@ sub monitor_nonthreaded {
         if (not defined $return) {
             say("ERROR: $who_am_i The type of the error got is unknown. " .
                 "Will exit with STATUS_INTERNAL_ERROR");
+            $dbh->disconnect;
             exit STATUS_INTERNAL_ERROR;
             # return STATUS_UNKNOWN_ERROR;
         } else {
             say("ERROR: $who_am_i Will return status $return" . ".");
+            $dbh->disconnect;
             return $return;
         }
     }
@@ -363,15 +370,18 @@ sub monitor_nonthreaded {
                 if (not defined $return) {
                     say("ERROR: $who_am_i The type of the error got is unknown. " .
                         "Will exit with STATUS_INTERNAL_ERROR instead of STATUS_SERVER_DEADLOCKED");
+                    $dbh->disconnect;
                     exit STATUS_INTERNAL_ERROR;
                 }
             } else {
                 print Dumper $status_result;
             }
         }
+        $dbh->disconnect;
         $reporter->kill_with_core;
         exit STATUS_SERVER_DEADLOCKED;
     } else {
+        $dbh->disconnect;
         return STATUS_OK;
     }
 }
@@ -507,12 +517,40 @@ sub nativeDead {
     my $server_running = kill (0, $pid);
     if ($server_running) {
         # say("INFO: $who_am_i:server_dead: The process of the DB server $pid is running. " .
-        #     "Will return STATUS_OK.");
-        return STATUS_OK;
+        #     "Will check more.");
+        # Maybe the server is around crashing.
+        my $error_log = $reporter->serverInfo('errorlog');
+        my $found = Auxiliary::search_in_file($error_log, '\[ERROR\] mysqld got signal');
+        if (not defined $found) {
+            # Technical problems!
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            say("FATAL ERROR: $who_am_i \$found is undef. " .
+                "Will exit with STATUS_ENVIRONMENT_FAILURE.");
+            exit $status;
+        } elsif ($found) {
+            say("INFO: $who_am_i '\[ERROR\] mysqld got signal' detected. " .
+                "Will exit with STATUS_SERVER_CRASHED.");
+            exit STATUS_SERVER_CRASHED;
+        } else {
+            $found = Auxiliary::search_in_file($error_log, 'Aborted \(core dumped\)');
+            if (not defined $found) {
+                # Technical problems!
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                say("FATAL ERROR: $who_am_i \$found is undef. " .
+                    "Will exit with STATUS_ENVIRONMENT_FAILURE.");
+                exit $status;
+            } elsif ($found) {
+                say("INFO: $who_am_i 'Aborted (core dumped)' detected. " .
+                    "Will exit with STATUS_SERVER_CRASHED.");
+                exit STATUS_SERVER_CRASHED;
+            } else {
+                return STATUS_OK;
+            }
+        }
     } else {
         say("INFO: $who_am_i:server_dead: The process of the DB server $pid is no more running. " .
             "Will return STATUS_SERVER_CRASHED.");
-        return STATUS_SERVER_CRASHED;
+        exit STATUS_SERVER_CRASHED;
     }
 }
 
@@ -577,7 +615,7 @@ sub nativeReport {
         # 3. Than we end most probably up with STATUS_SERVER_CRASHED which is misleading.
         # FIXME:
         # Whenever a RQG worker thread has problems with the connection than it should exit with
-        # STATUS_CRITICAL_ERROR or similar.
+        # STATUS_CRITICAL_FAILURE or similar.
         # Basically: Reporters should finally figure out what the defect is.
     }
 
