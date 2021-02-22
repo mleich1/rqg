@@ -36,6 +36,8 @@ then
    exit
 fi
 
+perl verdict.pl --batch_config=verdict_general.cfg --workdir=$RQG_DIR > /dev/null
+
 set +e
 
 NUM=`ls -d "$WRK_DIR"/RQG_Simplifier.cfg 2>/dev/null | wc -l`
@@ -44,9 +46,10 @@ then
     echo "The directory '$WRK_DIR' contains a Simplifier run"
     echo "== It is or was a test battery with decreasing complexity."
 fi
+set -e
 for log_file in "$WRK_DIR"/*.log
 do
-    INFO=`perl verdict.pl --config=verdict_for_combinations.cfg --log_file="$log_file" 2>&1 \
+    INFO=`perl verdict.pl --verdict_config=$RQG_DIR/Verdict_tmp.cfg --log="$log_file" 2>&1 \
           | egrep ' Verdict: ' | sed -e 's/^.* Verdict: .*, Extra_info: //g'`
     SLF=`basename $log_file`
     #^ignore_blacklist | STATUS_OK                              | --gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=Mariabackup_linux --mysqld=--innodb_use_native_aio=1 --mysqld=--innodb_stats_persistent=off --mysqld=--innodb_lock_schedule_algorithm=fcfs --mysqld=--loose-idle_write_transaction_timeout=0 --mysqld=--loose-idle_transaction_timeout=0 --mysqld=--loose-idle_readonly_transaction_timeout=0 --mysqld=--connect_timeout=60 --mysqld=--interactive_timeout=28800 --mysqld=--slave_net_timeout=60 --mysqld=--net_read_timeout=30 --mysqld=--net_write_timeout=60 --mysqld=--loose-table_lock_wait_timeout=50 --mysqld=--wait_timeout=28800 --mysqld=--lock-wait-timeout=86400 --mysqld=--innodb-lock-wait-timeout=50 --no-mask --queries=10000000 --duration=300 --seed=random --reporters=Backtrace --reporters=ErrorLog --reporters=Deadlock1 --validators=None --mysqld=--log_output=none --mysqld=--log-bin --mysqld=--log_bin_trust_function_creators=1 --mysqld=--loose-max-statement-time=30 --mysqld=--loose-debug_assert_on_not_freed_memory=0 --engine=InnoDB --restart_timeout=120 --threads=2 --mysqld=--innodb_page_size=8K --mysqld=--innodb-buffer-pool-size=8M --no_mask |   1207 | 001206.log

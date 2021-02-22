@@ -443,10 +443,10 @@ say("INFO: RQG workdir : '$workdir' and infrastructure is prepared.");
 #   exit_test($status);
 # as long as
 # - it is not decided if our current script or a different script runs the final test
-#   Reason: The other scripts do not write the entries required for blacklist/whitelist matching.
+#   Reason: The other scripts do not write the entries required for unwanted/replay matching.
 # - say(Verdict::MATCHING_START) was not run.
 #   Reason:
-#   The blacklist/whitelist matching borders are missing.
+#   The unwanted/replay matching borders are missing.
 #   It might be that the help text including
 #      print "\n$0 arguments were: " . join(' ', @ARGV_saved) . "\n";
 #   was printed. And these arguments contain the bwlist search patterns which than leads to

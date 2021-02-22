@@ -120,7 +120,7 @@ our $verdict_collected     = 0;
 # There is per RQG run some verdict and a more or less informative reason for that.
 # Examples:
 # a) Verdict replay and "TBR-1"
-# b) Verdict ignore blacklist and "MDEV-1234"
+# b) Verdict ignore unwanted and "MDEV-1234"
 # c) Verdict ignore_status_ok and "<undef*>"
 our %extra_info_hash;
 sub update_extra_info_hash {
@@ -1205,7 +1205,7 @@ sub reap_workers {
                 if ($verdict eq Verdict::RQG_VERDICT_IGNORE           or
                     $verdict eq Verdict::RQG_VERDICT_IGNORE_STATUS_OK or
                     $verdict eq Verdict::RQG_VERDICT_IGNORE_STOPPED   or
-                    $verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST   ) {
+                    $verdict eq Verdict::RQG_VERDICT_IGNORE_UNWANTED    ) {
                     if (not $discard_logs) {
                         rename_file($rqg_log, $saved_log);
                         rename_file($rqg_job, $saved_job);

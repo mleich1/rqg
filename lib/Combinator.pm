@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2020 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -377,6 +377,7 @@ sub init {
     }
     $left_over_trials = $trials;
 
+    $verdict_setup = Auxiliary::getFileSlice($verdict_setup, 1000000);
     my $iso_ts = isoTimestamp();
     $verdict_setup =~ s/^/$iso_ts /gm;
     $basedir_info  =~ s/^/$iso_ts /gm;
@@ -764,7 +765,7 @@ sub register_result {
 
     if      ($verdict eq Verdict::RQG_VERDICT_IGNORE           or
              $verdict eq Verdict::RQG_VERDICT_IGNORE_STATUS_OK or
-             $verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST or
+             $verdict eq Verdict::RQG_VERDICT_IGNORE_UNWANTED  or
              $verdict eq Verdict::RQG_VERDICT_INTEREST         or
              $verdict eq Verdict::RQG_VERDICT_REPLAY           or
              $verdict eq Verdict::RQG_VERDICT_INIT               ) {

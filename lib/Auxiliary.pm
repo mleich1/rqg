@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, 2020 MariaDB Corporation Ab.
+#  Copyright (c) 2018, 2021 MariaDB Corporation Ab.
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -496,7 +496,7 @@ use constant RQG_PHASE_FINISHED           => 'finished';
    # - GenData + GenTest + ... done == Serious loss if stopped.
    # - Ressouce use of the runner is serious. == Medium win if stopped.
 use constant RQG_PHASE_ANALYZE            => 'analyze';
-   # Set by RQG tool or extended RQG runner when running black white list matching.
+   # Set by RQG tool or extended RQG runner when running replay/unwanted list matching.
    # RQG tool point of view:
    # - DB servers are no more running.
    # - GenData + GenTest + ... done == Serious loss if stopped.
@@ -632,12 +632,12 @@ sub get_rqg_phase {
 
 ####################################################################################################
 # Basic routines used for matching against list of RQG statuses and RQG protocol text patterns.
-# See also the black and white list matching in Verdict.pm.
+# See also the replay/interest/unwanted list matching in Verdict.pm.
 #
 # The pattern list was empty.
 # Example:
-#    blacklist_statuses are not defined.
-#    == We focus on blacklist_patterns only.
+#    statuses are not defined.
+#    == We focus on unwanted patterns only.
 use constant MATCH_NO_LIST_EMPTY   => 'match_no_list_empty';
 #
 # The pattern list was not empty but the text is obvious incomplete.
@@ -650,22 +650,22 @@ use constant MATCH_UNKNOWN         => 'match_unknown';
 #
 # The pattern list was not empty and one element matched.
 # Examples:
-# 1. whitelist_statuses has an element with STATUS_SERVER_CRASHED and the RQG(GenTest) run
+# 1. replay statuses has an element with STATUS_SERVER_CRASHED and the RQG(GenTest) run
 #    finished with that status.
-# 2. whitelist_patterns has an element with '<signal handler called>' and the RQG log contains a
+# 2. replay patterns has an element with '<signal handler called>' and the RQG log contains a
 #    snip of a backtrace with that.
 use constant MATCH_YES             => 'match_yes';
 #
 # The pattern list was not empty, none of the elements matched and nothing looks
 # interesting at all.
 # Example:
-#    whitelist_statuses has an element with STATUS_SERVER_CRASHED and the RQG(GenTest) run
+#    replay statuses has an element with STATUS_SERVER_CRASHED and the RQG(GenTest) run
 #    finished with some other status. But this other status is STATUS_OK.
 use constant MATCH_NO              => 'match_no';
 #
 # The pattern list was not empty, none of the elements matched but the outcome looks interesting.
 # Example:
-#    whitelist_statuses has only one element like STATUS_SERVER_CRASHED and the RQG(GenTest) run
+#    replay statuses has only one element like STATUS_SERVER_CRASHED and the RQG(GenTest) run
 #    finished with some other status. But this other status is bad too (!= STATUS_OK).
 use constant MATCH_NO_BUT_INTEREST => 'match_no_but_interest';
 
@@ -719,8 +719,8 @@ sub content_matching {
 # The calling routines need frequent some rigorous Yes/No. Therefore they might
 # twist the return value MATCH_NO_LIST_EMPTY.
 # Example:
-#    Whitelist matching : MATCH_NO_LIST_EMPTY -> MATCH_YES
-#    Blacklist matching : MATCH_NO_LIST_EMPTY -> MATCH_NO
+#    'replay'   list matching : MATCH_NO_LIST_EMPTY -> MATCH_YES
+#    'unwanted' list matching : MATCH_NO_LIST_EMPTY -> MATCH_NO
 #
 
     my $no_pattern = 1;
@@ -801,8 +801,8 @@ sub content_matching2 {
 # The calling routines need frequent some rigorous Yes/No. Therefore they might
 # twist the return value MATCH_NO_LIST_EMPTY.
 # Example:
-#    Whitelist matching : MATCH_NO_LIST_EMPTY -> MATCH_YES
-#    Blacklist matching : MATCH_NO_LIST_EMPTY -> MATCH_NO
+#    'replay'   list matching : MATCH_NO_LIST_EMPTY -> MATCH_YES
+#    'unwanted' list matching : MATCH_NO_LIST_EMPTY -> MATCH_NO
 #
 
     my $no_pattern = 1;
@@ -925,8 +925,8 @@ sub status_matching {
 # The calling routines need frequent some rigorous Yes/No. Therefore they might
 # twist the return value MATCH_NO_LIST_EMPTY.
 # Example:
-#    Whitelist matching : MATCH_NO_LIST_EMPTY -> MATCH_YES
-#    Blacklist matching : MATCH_NO_LIST_EMPTY -> MATCH_NO
+#    'replay'   list matching : MATCH_NO_LIST_EMPTY -> MATCH_YES
+#    'unwanted' list matching : MATCH_NO_LIST_EMPTY -> MATCH_NO
 #
 
     say("DEBUG: pattern_prefix ->$pattern_prefix<-")
@@ -2569,8 +2569,8 @@ sub help_rr {
 "      - For the case that this does not hold because of whatever reason\n"                        .
 "        - Assign an upper limit (--trials) for the number of RQG runs.\n"                         .
 "        - Let rqg_batch.pl stop (--stop_on_replay) as soon as the first replay happened.\n"       .
-"        - Have a config file with a corresponding huge amount of blacklist patterns.\n"           .
-"          Blacklisted results will not get archived.\n"                                           .
+"        - Have a config file with a corresponding huge amount of 'unwanted' patterns.\n"          .
+"          'unwanted' results will not get archived.\n"                                           .
 "        - Observe the ongoing RQG runs and stop them in case too many archives get generated.\n"  .
 "      - Avoid having rqg_batch.pl/rqg.pl vardirs located on a SSD and also paging to SSD.\n"      .
 "      rqg_batch.pl --trials=<small number> --stop_on_replay <more options>.\n"                    .
@@ -2591,6 +2591,27 @@ sub search_in_file {
 # undef - $search_file does not exist or is not readable
 # 0     - $search_file is ok, $pattern not found
 # 1     - $search_file is ok, $pattern found
+#
+# Sample code for text fragment ->Aborted (core dumped)<-
+# $found = Auxiliary::search_in_file($error_log, 'Aborted \(core dumped\)');
+# if (not defined $found) {
+#     # Technical problems!
+#     my $status = STATUS_ENVIRONMENT_FAILURE;
+#     say("FATAL ERROR: $who_am_i \$found is undef. " .
+#         "Will exit with STATUS_ENVIRONMENT_FAILURE.");
+#     exit $status;
+# } elsif ($found) {
+#     say("INFO: $who_am_i 'Aborted (core dumped)' detected. " .
+#         "Will exit with STATUS_SERVER_CRASHED.");
+#     exit STATUS_SERVER_CRASHED;
+# } else {
+#     return STATUS_OK;
+# }
+#
+# Warning:
+# Enclosing the pattern with ' or " could have a serious impact.
+# So better test out if the pattern works like expected.
+#
     my ($search_file, $pattern) = @_;
 
     my $who_am_i = "Auxiliary::search_in_file:";

@@ -36,6 +36,8 @@ then
    exit
 fi
 
+perl verdict.pl --batch_config=verdict_general.cfg --workdir=$RQG_DIR > /dev/null
+
 set +e
 
 NUM=`ls -d "$WRK_DIR"/RQG_Simplifier.cfg 2>/dev/null | wc -l`
@@ -44,9 +46,10 @@ then
     echo "The directory '$WRK_DIR' contains a Simplifier run"
     echo "== It is or was a test battery with decreasing complexity."
 fi
+set -e
 for log_file in "$WRK_DIR"/*.log
 do
-    INFO=`perl verdict.pl --config=verdict_for_combinations.cfg --log_file="$log_file" 2>&1 \
+    INFO=`perl verdict.pl --verdict_config=$RQG_DIR/Verdict_tmp.cfg --log="$log_file" 2>&1 \
           | egrep ' Verdict: ' | sed -e 's/^.* Verdict: .*, Extra_info: //g'`
     echo "$INFO        $log_file"
 done

@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Copyright (c) 2018, 2020 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -687,28 +687,27 @@ if (not File::Copy::copy($config_file, $config_file_copy)) {
     safe_exit($status);
 }
 
-# Verdict.pm should extract the Verdict setup and place it as file in workdir
-# and check if its well formed etc.
-# Verdict::get_verdict_config_file exits in case of error.
-my $verdict_config_file = Verdict::get_verdict_config_file($workdir, $config_file_copy);
-say("INFO: The verdict config file is '$verdict_config_file'.");
-my $verdict_setup = Verdict::load_verdict_config_file($verdict_config_file);
-if (not defined $verdict_setup) {
-    my $status = STATUS_ENVIRONMENT_FAILURE;
-    say("ERROR: Loading the verdict config file '$verdict_config_file' failed." .
-        Auxiliary::exit_status_text($status));
-    safe_exit($status);
+my $verdict_cmd = "perl $rqg_home/verdict.pl --workdir=$workdir --batch_config=$config_file_copy";
+my $rc = system($verdict_cmd) >> 8;
+if (STATUS_OK != $rc) {
+    say("ERROR: Generating the verdict config file failed.");
+    say("ERROR: The command was ->" . $verdict_cmd . "<-");
+    safe_exit(STATUS_ENVIRONMENT_FAILURE);
 }
-
+my $verdict_setup      = "Verdict.cfg";
+my $full_verdict_setup = $workdir . "/" . $verdict_setup;
+if (not -f $full_verdict_setup) {
+    say("ERROR: The verdict config file '" . $full_verdict_setup . "' does not exist.");
+    safe_exit(STATUS_INTERNAL_ERROR);
+}
 if      ($Batch::batch_type eq Batch::BATCH_TYPE_COMBINATOR) {
-    Combinator::init($config_file, $workdir, $verdict_setup, $basedir_info);
+    Combinator::init($config_file, $workdir, $full_verdict_setup, $basedir_info);
 } elsif ($Batch::batch_type eq Batch::BATCH_TYPE_RQG_SIMPLIFIER) {
-    Simplifier::init($config_file, $workdir, $verdict_setup, $basedir_info);
+    Simplifier::init($config_file, $workdir, $full_verdict_setup, $basedir_info);
 } else {
     say("INTERNAL ERROR: The batch type '$Batch::batch_type' is unknown. Abort");
     safe_exit(4);
 }
-
 
 ####
 say("DEBUG: Command line options to be appended to the call of the RQG runner: ->" .
@@ -1130,7 +1129,7 @@ while($Batch::give_up <= 1) {
 
                     if ($verdict ne Verdict::RQG_VERDICT_IGNORE           and
                         $verdict ne Verdict::RQG_VERDICT_IGNORE_STATUS_OK and
-                        $verdict ne Verdict::RQG_VERDICT_IGNORE_BLACKLIST and
+                        $verdict ne Verdict::RQG_VERDICT_IGNORE_UNWANTED  and
                         $verdict ne Verdict::RQG_VERDICT_IGNORE_STOPPED) {
                         if (STATUS_OK != Auxiliary::set_rqg_phase($rqg_workdir,
                                                         Auxiliary::RQG_PHASE_ARCHIVING)) {
@@ -1372,13 +1371,13 @@ my $message = "\n\n"                                                            
 "STATISTICS: RQG runs -- Verdict\n"                                                                .
 "STATISTICS: " . Auxiliary::lfill($Batch::verdict_replay, 8)    . " -- "                           .
                  Auxiliary::rfill("'" . Verdict::RQG_VERDICT_REPLAY   . "'",$pl)                   .
-             " -- Replay of desired effect (Whitelist match, no Blacklist match)\n"                .
+             " -- Replay of desired effect (replay list match, no unwanted list match)\n"          .
 "STATISTICS: " . Auxiliary::lfill($Batch::verdict_interest, 8)  . " -- "                           .
                  Auxiliary::rfill("'" . Verdict::RQG_VERDICT_INTEREST . "'",$pl)                   .
-             " -- Otherwise interesting effect (no Whitelist match, no Blacklist match)\n"         .
+             " -- Otherwise interesting effect (no replay list match, no unwanted list match)\n"   .
 "STATISTICS: " . Auxiliary::lfill($Batch::verdict_ignore, 8)    . " -- "                           .
                  Auxiliary::rfill("'" . Verdict::RQG_VERDICT_IGNORE   . "_*'",$pl)                 .
-             " -- Effect is not of interest (Blacklist match or STATUS_OK or stopped)\n"           .
+             " -- Effect is not of interest (unwanted list match or STATUS_OK or stopped)\n"       .
 "STATISTICS: " . Auxiliary::lfill($Batch::stopped, 8)   . " -- "                                   .
                  Auxiliary::rfill("'" . Verdict::RQG_VERDICT_IGNORE_STOPPED . "'",$pl)             .
              " -- RQG run stopped by rqg_batch.pl because of whatever reasons\n"                   .
@@ -1448,7 +1447,7 @@ sub help() {
    "by the Simplifier.\n"                                                                          .
    "      Purpose: Reduce the complexity (setup+grammar) of a test replaying some problem.\n"      .
    "--help_verdict\n"                                                                              .
-   "      Information about how to setup the black and whitelist parameters which are used for\n"  .
+   "      Information about how to setup the unwanted/interest/replay lists which are used for\n"  .
    "      defining desired and to be ignored test outcomes.\n"                                     .
    "--help_rqg_home\n"                                                                             .
    "      Information about the RQG home directory used and the RQG tool/runner called.\n"         .

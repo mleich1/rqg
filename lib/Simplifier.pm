@@ -1139,6 +1139,7 @@ sub init {
     say("Grammar ->$grammar_string<-") if Auxiliary::script_debug("S4");
 
     my $iso_ts = isoTimestamp();
+    $verdict_setup = Auxiliary::getFileSlice($verdict_setup, 1000000);
     $verdict_setup =~ s/^/$iso_ts /gm;
     $basedir_info  =~ s/^/$iso_ts /gm;
     my $g_flags;
@@ -1868,7 +1869,7 @@ sub register_result {
         estimate_runtime_fifo_update($adapted_duration + 1);
     } else {
         # Do nothing because runs
-        # - hitting a blacklist error
+        # - hitting an error declared to be 'unwnated'
         # - getting killed because of technical reasons
         # do not count at all.
     }
@@ -1901,7 +1902,7 @@ sub register_result {
     # 2. Update $left_over_trials, ORDER_EFFORTS_INVESTED, ORDER_EFFORTS_LEFT_OVER
     if      ($verdict eq Verdict::RQG_VERDICT_IGNORE           or
              $verdict eq Verdict::RQG_VERDICT_IGNORE_STATUS_OK or
-             $verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST or
+             $verdict eq Verdict::RQG_VERDICT_IGNORE_UNWANTED  or
              $verdict eq Verdict::RQG_VERDICT_INTEREST         or
              $verdict eq Verdict::RQG_VERDICT_REPLAY           or
              $verdict eq Verdict::RQG_VERDICT_INIT       ) {
@@ -2110,7 +2111,7 @@ sub register_result {
       # The handling of replayers ends here ----------------------------------
     } elsif ($verdict eq Verdict::RQG_VERDICT_IGNORE            or
              $verdict eq Verdict::RQG_VERDICT_IGNORE_STATUS_OK  or
-             $verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST  or
+             $verdict eq Verdict::RQG_VERDICT_IGNORE_UNWANTED   or
              $verdict eq Verdict::RQG_VERDICT_INTEREST          or
              $verdict eq Verdict::RQG_VERDICT_INIT                ) {
         if (0 >= $order_array[$order_id][ORDER_EFFORTS_LEFT_OVER]) {
@@ -2123,7 +2124,7 @@ sub register_result {
             Batch::add_to_try_exhausted($order_id);
             $return = Batch::REGISTER_GO_ON;
         } else {
-            if ($verdict eq Verdict::RQG_VERDICT_IGNORE_BLACKLIST) {
+            if ($verdict eq Verdict::RQG_VERDICT_IGNORE_UNWANTED) {
                 Batch::add_to_try_over_bl($order_id);
                 $return = Batch::REGISTER_GO_ON;
             } else {
@@ -2198,7 +2199,7 @@ sub switch_phase {
         say("\n\nSUMMARY: Even the attempt to make a first replay with the full test failed.\n"    .
             "SUMMARY: Hence no other simplification steps were tried.\n"                           .
             "HINT: Maybe the\n"                                                                    .
-            "HINT: - black/white lists (especially the pattern sections) are faulty or\n"          .
+            "HINT: - replay/unwanted lists (especially the pattern sections) are faulty or\n"      .
             "HINT: - RQG test setup (basedir, grammar etc.) is wrong or\n"                         .
             "HINT: - trials/duration/queries are too small.");
         say("");
