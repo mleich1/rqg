@@ -1,4 +1,4 @@
-# Copyright (C) 2018, 2019 MariaDB Corporation Ab.
+# Copyright (C) 2018, 2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -72,7 +72,11 @@ use constant SIMP_EMPTY_QUERY     => '';
 # Hence we go with a wait which is less costly. A "SELECT SLEEP(1)" would make "SQL noise" without
 # value because the really working threads or reporters could detect some not responding or dead
 # DB server too. So we use Perl.
-use constant SIMP_WAIT_QUERY      => '{ sleep 1 ; return undef }';
+  use constant SIMP_WAIT_QUERY      => '{ sleep 1 ; return undef }';
+# Experiment begin
+# Experiment disabled because tests ending after a few seconds with STATUS_OK made trouble.
+# use constant SIMP_WAIT_QUERY      => '{ exit 0 }';
+# Experiment end
 
 # Structure for keeping the actual grammar
 #-----------------------------------------
@@ -113,7 +117,7 @@ sub init {
     }
 
     # The extension gets placed on top so that any definitions of rules with the same names
-    # of the non extendded grammar win.
+    # of the non extended grammar win.
     my $extended_grammar = "thread: "        . SIMP_WAIT_QUERY  . " ;\n" .
                            "thread_init: "   . SIMP_EMPTY_QUERY . " ;\n" .
                            "thread_connect:" . SIMP_EMPTY_QUERY . " ;\n" .
@@ -155,6 +159,29 @@ sub init {
         say("INTERNAL ERROR: $snip Will return undef.");
         return undef;
     }
+
+    # FIXME:
+    # Lets assume
+    # <rule>:
+    #    DEF |
+    #        |
+    #    ABC |
+    #        ;
+    # Reorder the elements to
+    # <rule>:
+    #        |
+    #        |
+    #    DEF |
+    #    ABC ;
+    # by
+    # - grouping equal elements together
+    # - having empty elements first
+    # - having ALTERs, KILLs, SET servervariables last?
+    # so that
+    # - the grammar is more comfortable readable
+    # - the removal of critical statements is tried first.
+    # FIXME: No grouping and decision about order when generating the orders.
+    #
 
     # Some consistency check for grammar
     foreach my $rule_name (sort keys %rule_hash) {
@@ -1532,7 +1559,7 @@ sub shrink_grammar {
         # a) In the most likely case lib/GenTest/Generator/FromGrammar.pm detects during RQG
         #    runtime recursion than it returns undef --> STATUS_ENVIRONMENT_FAILURE.
         #    A simplifier with good setup
-        #        blacklist_patterns contain 'Possible endless loop in grammar.'
+        #        unwanted_patterns contain 'Possible endless loop in grammar.'
         #    will than judge ... and not use that grammar.
         #    Overall loss:
         #    The efforts for one or maybe a few (more than one simplify campaign) RQG runs.
