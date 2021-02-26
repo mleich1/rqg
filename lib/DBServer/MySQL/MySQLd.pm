@@ -1,5 +1,5 @@
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2013, 2020, MariaDB Corporation Ab
+# Copyright (c) 2013, 2021, MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -117,7 +117,7 @@ use constant DEFAULT_STARTUP_TIMEOUT             => 600;
 # Maximum timespan between time of server process disappeared or KILL or similar for server
 # the process and the auxiliary process reaped.
 # Main task: Give sufficient time for finishing write of rr trace or core file or ...
-use constant DEFAULT_AUXPID_GONE_TIMEOUT         => 30;
+use constant DEFAULT_AUXPID_GONE_TIMEOUT         => 60;
 # Maximum timespan between sending a SIGKILL to the server process and it disappearing
 # Maybe the time required for rr writing the rr trace till end is in that timespan.
 use constant DEFAULT_SERVER_KILL_TIMEOUT         => 30;
@@ -2168,10 +2168,10 @@ sub waitForAuxpidGone {
 #
     my $self =          shift;
     my $who_am_i =      "DBServer::MySQL::MySQLd::waitForAuxpidGone:";
-    my $wait_timeout =  30;
-    $wait_timeout = $wait_timeout * Runtime::get_runtime_factor();
+    my $wait_timeout =  DEFAULT_AUXPID_GONE_TIMEOUT;
+    $wait_timeout =     $wait_timeout * Runtime::get_runtime_factor();
     my $wait_time =     0.5;
-    my $start_time = time();
+    my $start_time =    time();
     my $wait_end =      $start_time + $wait_timeout;
     # For debugging:
     # Auxiliary::print_ps_tree($self->forkpid);
