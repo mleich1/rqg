@@ -1,4 +1,4 @@
-# Copyright (C) 2020 MariaDB corporation Ab. All rights reserved.
+# Copyright (C) 2020,2021 MariaDB corporation Ab. All rights reserved.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -23,7 +23,7 @@
 #
 
 our $test_compression_encryption =
-  '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz ';
+  '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz --max_gd_duration=1800 ';
 
 our $encryption_setup =
   '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
@@ -32,17 +32,17 @@ our $duration = 300;
 our $grammars =
 [
 
-# '--grammar=conf/replication/replication.yy --gendata=conf/replication/replication-5.1.zz',
+  # '--grammar=conf/replication/replication.yy --gendata=conf/replication/replication-5.1.zz --max_gd_duration=1200 ',
   # '--grammar=conf/replication/replication-ddl_sql.yy --gendata=conf/replication/replication-ddl_data.zz',
   # '--grammar=conf/replication/replication-dml_sql.yy --gendata=conf/replication/replication-dml_data.zz',
   # '--grammar=conf/optimizer/updateable_views.yy --mysqld=--init-file='.$ENV{RQG_HOME}.'/conf/optimizer/updateable_views.init',
   # '--grammar=conf/mariadb/functions.yy --gendata-advanced --skip-gendata',
 
     # DML only
-    '--gendata=conf/mariadb/oltp.zz --grammar=conf/mariadb/oltp.yy ',
+    '--gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --grammar=conf/mariadb/oltp.yy ',
     '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz ',
     '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy ',
-    '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz ',
+    '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=600 ',
 
     # DDL/DML mix
     '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql ',
@@ -63,25 +63,6 @@ our $grammars =
 ];
 
 
-#
-# Avoid to hit known open bugs:
-# - MDEV-16664
-#   InnoDB: Failing assertion: !other_lock || wsrep_thd_is_BF(lock->trx->mysql_thd, FALSE) || wsrep_thd_is_BF(other_lock->trx->mysql_thd, FALSE) for DELETE
-#   --mysqld=innodb_lock_schedule_algorithm=fcfs
-# - MDEV-16136
-#   Various ASAN failures when testing 10.2/10.3
-#   --mysqld=--innodb_stats_persistent=off
-#
-#   The server default "on" made trouble somewhere 2018 July/August
-#   --mysqld=--innodb_adaptive_hash_index=off
-#
-# Avoid to hit known OS config limits in case the OS resource is too small (usually valid)
-# and the MariaDB version is too old (< 10.0?). Newer versions can handle a shortage.
-# --mysqld=--innodb_use_native_aio=0
-#
-# Avoid to generate frequent false alarms because of too short timeouts and too overloaded boxes.
-# I prefer to set the timeouts even if its only the current default because defaults could be changed over time.
-# When needing small timeouts within the test set it in the grammar.
 #
 # Excessive sql tracing via RQG makes the RQG logs rather fat and is frequent of low value.
 #     --sqltrace=MarkErrors
@@ -126,13 +107,12 @@ $combinations = [ $grammars,
     --mysqld=--log_bin_trust_function_creators=1
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
-    --restart_timeout=120
-    --max_gd_duration=1000
+    --restart_timeout=900
+    --rows=10000
     ' .
     # Some grammars need encryption, file key management
     " $encryption_setup " .
     " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=$duration ",
-    # --reporters=Backtrace --reporters=ErrorLog --reporters=Deadlock1 --reporters=CrashRecovery2
   ],
   [
     # Warning (mleich 2020-06):
