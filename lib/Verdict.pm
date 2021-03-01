@@ -164,111 +164,6 @@ my @interlist_patterns;
 my $bw_lists_set = 0;
 
 
-sub get_verdict_config_file {
-# Purpose:
-# If a Combinator cc or a Simplifier cfg file was assigned
-#     Generate a Verdict config file by extracting and transforming the corresponding code
-#     and storing it in some file.
-# out of a Combinator cc or a Simplifier cfg file.
-#
-# Verdict config file (neither a Combinator cc nor a Simplifier cfg file!).
-# Main characteristic is that the black/white status/pattern definitions
-# are plain perl code. Prominent example is 'verdict_for_combinations.cfg'.
-#
-    my ($workdir, $config_file_copy) = @_;
-
-    my $who_am_i = 'Verdict::get_verdict_config_file:';
-
-    if (2 != scalar @_) {
-        my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: $who_am_i Two parameters " .
-                    "(workdir, config_file_copy) are required.");
-        safe_exit($status);
-    }
-    if (not defined $workdir) {
-        my $status = STATUS_INTERNAL_ERROR;
-        say("INTERNAL ERROR: $who_am_i workdir is not defined.");
-        safe_exit($status);
-    } else {
-        if (not -d $workdir) {
-            my $status = STATUS_INTERNAL_ERROR;
-            say("INTERNAL ERROR: $who_am_i The workdir '$workdir' does not exist or " .
-                "is not a directory.");
-            safe_exit($status);
-        }
-    }
-    if (not defined $config_file_copy) {
-        my $status = STATUS_INTERNAL_ERROR;
-        say("INTERNAL ERROR: $who_am_i config_file_copy is not defined.");
-        safe_exit($status);
-    } else {
-        if (not -f $config_file_copy) {
-            my $status = STATUS_INTERNAL_ERROR;
-            say("INTERNAL ERROR: $who_am_i The config_file_copy '$config_file_copy' does not " .
-                "exist or is not a plain file.");
-            safe_exit($status);
-        }
-    }
-
-    my $verdict_config_file;
-    say("DEBUG: workdir is '$workdir'");
-    if ($workdir eq Cwd::getcwd()) {
-        # Verdict.pl called on command line
-        $verdict_config_file = $workdir . "/" . VERDICT_CONFIG_TMP_FILE;
-        unlink $verdict_config_file;
-    } else {
-        $verdict_config_file = $workdir . "/" . VERDICT_CONFIG_FILE;
-    }
-
-    say("$verdict_config_file -- $config_file_copy");
-
-    # FIXME: Is that correct?
-    if ($config_file_copy =~ m{/Verdict\.cfg$}) {
-        say("INFO: Setting verdict_config_file = config_file_copy '$config_file_copy'");
-        $verdict_config_file = $config_file_copy;
-    } else {
-        if (-e $verdict_config_file) {
-            # Do nothing
-        } else {
-            my $verdict_code = Auxiliary::getFileSection($config_file_copy, 'Verdict setup');
-            if (not defined $verdict_code) {
-                # say("DEBUG: verdict_code is undef");
-                my $status = STATUS_ENVIRONMENT_FAILURE;
-                say("ERROR: $who_am_i Extracting \$verdict_code out of '$config_file_copy' failed. " .
-                    Auxiliary::exit_status_text($status));
-                safe_exit($status);
-            } elsif ('' eq $verdict_code) {
-                # Extracting worked but no verdict definition found.
-                # say("DEBUG: '$config_file_copy' does not contain verdict_code.");
-                my $default_verdict_config_file = 'verdict_for_combinations.cfg';
-                say("INFO: Extracting verdict config out of '$config_file_copy' impossible.");
-                if (not File::Copy::copy($default_verdict_config_file, $verdict_config_file)) {
-                    my $status = STATUS_ENVIRONMENT_FAILURE;
-                    say("ERROR: Copying '$default_verdict_config_file' to '$verdict_config_file' failed : $!. " .
-                        Auxiliary::exit_status_text($status));
-                    safe_exit($status);
-                }
-                say("INFO: Created verdict_config_file '$verdict_config_file' as copy of the " .
-                    "default '$default_verdict_config_file'.");
-            } else {
-                if (Auxiliary::make_file($verdict_config_file, $verdict_code) != STATUS_OK) {
-                    my $status = STATUS_ENVIRONMENT_FAILURE;
-                    say("ERROR: $who_am_i Creating the verdict config file '$verdict_config_file' failed. " .
-                        Auxiliary::exit_status_text($status));
-                    safe_exit($status);
-                } else {
-                    say("DEBUG: Created the verdict config file '$verdict_config_file' by " .
-                        "extracting data out of '$config_file_copy'.")
-                        if Auxiliary::script_debug("V6");
-                }
-            }
-        }
-    }
-    return $verdict_config_file;
-
-} # End of sub get_verdict_config_file
-
-
 use constant PATTERN                => 0;
 use constant ASSESSMENT             => 1;
 
@@ -732,18 +627,6 @@ sub calculate_verdict {
     say("INFO: Interestlist pattern matching returned : $p_match - $p_info");
     if ($p_match eq Auxiliary::MATCH_YES) {
         $f_info         = $f_info . '--' . $p_info;
-    }
-    if (0 == $bl_match) {
-        if (1 == $maybe_match) {
-            # We had a status match and now some pattern too. So refine $f_info.
-            if ($p_match eq Auxiliary::MATCH_YES) {
-                # Do nothing
-            } elsif ($p_match eq Auxiliary::MATCH_NO_LIST_EMPTY) {
-                # Do nothing
-            } else {
-                # $maybe_match = 0;
-            }
-        }
     }
     say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match, " .
         "p_match : $p_match, f_info: $f_info")

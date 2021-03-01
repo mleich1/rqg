@@ -844,7 +844,7 @@ sub content_matching2 {
         return MATCH_NO_LIST_EMPTY, undef;
     } else {
         if ($match) {
-           return MATCH_YES, join(" , ", @match_info);
+           return MATCH_YES, join("--", @match_info);
         } else {
            return MATCH_NO, undef;
         }

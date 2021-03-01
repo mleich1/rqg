@@ -102,13 +102,13 @@ Content of that workdir
     <number>.tgz compressed archive with the remains (data files, core,...) of run <number>
     some additional files
 
-The verdict is made based on verdict_for_combinations.cfg.
+The verdict is made based on verdict_general.cfg.
 Feel free to edit your version of it but never push that to the official repository.
 
 
 How to get a verdict about the the result of some RQG run
 ---------------------------------------------------------
-perl verdict.pl --config=verdict_for_combinations.cfg --log_file=last_batch_workdir/000001.log
+perl verdict.pl --batch_config=verdict_general.cfg --log_file=last_batch_workdir/000001.log
 
 
 Collection of hints (under construction)
@@ -689,6 +689,7 @@ Hints
     rule1: { $var = 'rule1' ; return undef };
 
 How to use "rr" (https://github.com/mozilla/rr) in combination with RQG
+WARNING: THE DESCRIPTION IS SLIGHTLY OUTDATED
 -----------------------------------------------------------------------
 0. The current invocation of "rr" into RQG switches the generation of core files off.
    All info required is in the "rr" traces + the core files occupy too much storage space.
@@ -923,5 +924,5 @@ How to use "rr" (https://github.com/mozilla/rr) in combination with RQG
 
 
 
-Matthias 2020-12
+Matthias 2021-03
 
