@@ -199,7 +199,6 @@ our $grammars =
 $combinations = [ $grammars,
   [
     '
-    --mysqld=--innodb_use_native_aio=1
     --mysqld=--innodb_lock_schedule_algorithm=fcfs
     --mysqld=--loose-idle_write_transaction_timeout=0
     --mysqld=--loose-idle_transaction_timeout=0
@@ -242,6 +241,10 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_adaptive_hash_index=on ',
   ],
   [
+    ' --mysqld=--innodb_evict_tables_on_commit_debug=off ',
+#   ' --mysqld=--innodb_evict_tables_on_commit_debug=on  ',
+  ],
+  [
     # Warning (mleich 2020-06):
     # It might look as if max-statement-time is a good alternative to using the reporter
     # "Querytimeout". I fear that the latter is not that reliable.
@@ -261,9 +264,9 @@ $combinations = [ $grammars,
     ' --threads=33 ',
   ],
   [
-    ' --rr=Extended --rr_options=--chaos ',
-    ' --rr=Extended                      ',
-    '',
+    ' --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options=--chaos ',
+    ' --mysqld=--innodb-use-native-aio=0 --rr=Extended                      ',
+    ' --mysqld=--innodb_use_native_aio=1 ',
   ],
   [
     # 1. innodb_page_size >= 32K requires a innodb-buffer-pool-size >=24M
