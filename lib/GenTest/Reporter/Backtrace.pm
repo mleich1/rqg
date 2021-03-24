@@ -42,8 +42,10 @@ use GenTest::CallbackPlugin;
 
 my @end_line_patterns = (
     '^Aborted$',
+    'core dumped',
     '^Segmentation fault$',
     'mysqld: Shutdown complete$',
+#   'mysqld got signal',
     '^Killed$'
 );
 
@@ -247,11 +249,31 @@ sub nativeReport {
     # Starting from here only the cases with disappeared server pid are left over.
     # Hence we need to report the status STATUS_SERVER_CRASHED whenever we return.
 
+    my $server = $reporter->properties->servers->[0];
+    my $aux_pid = $server->forkpid();
+    if (not defined $aux_pid) {
+        Carp::cluck("DEBUG: aux_pid is undef");
+    } else {
+        ## Wait till all is finished
+        # DBServer::cleanup_dead_server cannot be used for that because the aux_pid/forkpid used
+        # there is in a hash which is only known to the the main process which forked that pid.
+        # FIXME: Is that true?
+        # Our current process is the main one during gendata or gendata_sql but not during gentest.
+        # Only if aux_pid is gone we can be sure that the core file or a rr trace is complete.
+        while (Time::HiRes::time() < $max_end_time) {
+            if (not kill(0, $aux_pid)) {
+                say("DEBUG: The auxiliary process $aux_pid is no more running.");
+                last;
+            }
+            sleep 1;
+        }
+    }
+
     if ( -e $pid_file ) {
         say("INFO: $who_am_i The pid_file '$pid_file' did not disappear.");
     } else {
         say("WARN: $who_am_i The pid_file '$pid_file' did disappear. Hence (likely) the server " .
-            "was able to remove it or (less likely) something else did that.");
+            "was able to remove it or (less likely) a DBDerver routine did that.");
         my $found = Auxiliary::search_in_file($error_log, 'mysqld: Shutdown complete^');
         if      (not defined $found) {
             say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. Will return " .
@@ -301,7 +323,7 @@ sub nativeReport {
         return STATUS_SERVER_CRASHED, undef;
     }
 
-    $wait_timeout   = 270;
+    $wait_timeout   = 360;
     $start_time     = Time::HiRes::time();
     $max_end_time   = $start_time + $wait_timeout;
     my $core;
