@@ -32,4 +32,4 @@ $fields = {
 $data = {
         strings => [ 'letter', 'english', undef ],
         blobs => [ 'letter', 'english' ]
-}
+};

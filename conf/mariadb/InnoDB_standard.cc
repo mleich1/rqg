@@ -199,7 +199,7 @@ our $grammars =
 $combinations = [ $grammars,
   [
     '
-    --mysqld=--innodb_lock_schedule_algorithm=fcfs
+    --mysqld=--loose-innodb_lock_schedule_algorithm=fcfs
     --mysqld=--loose-idle_write_transaction_timeout=0
     --mysqld=--loose-idle_transaction_timeout=0
     --mysqld=--loose-idle_readonly_transaction_timeout=0

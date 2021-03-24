@@ -62,11 +62,11 @@
 # 3. For whatever engine where the table has survived without damage and proper data
 #    we might be faced with minor trouble because of the data.
 #    That all belongs to the previous server uptime.
-# So it looks like ENGINE = MEMORY is the optimal choice.
+# So it looks like ENGINE = InnoDB or MEMORY is the optimal choice.
 # FIXME:
 # Is it necessary to protect the table against grammars and redefines which use
 # the YY grammar language builtin '_table' and attack them via DDL or DML?
 #
 CREATE SCHEMA rqg;
-CREATE TABLE IF NOT EXISTS rqg . rqg_sessions (rqg_id BIGINT, processlist_id BIGINT, pid BIGINT, connect_time INT, PRIMARY KEY(rqg_id)) ENGINE = MEMORY ;
+CREATE TABLE IF NOT EXISTS rqg . rqg_sessions (rqg_id BIGINT, processlist_id BIGINT, pid BIGINT, connect_time INT, PRIMARY KEY(rqg_id)) ENGINE = InnoDB ;
 

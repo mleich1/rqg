@@ -100,6 +100,10 @@ $combinations = [
         ' ',
         '--mysqld=--innodb-encrypt-log ',
     ],[
+        ' --rr=Extended --rr_options=--chaos ',
+        ' --rr=Extended                      ',
+        ' ',
+    ],[
         ' ',
         '--mysqld=--innodb-encrypt-tables '
     ],
