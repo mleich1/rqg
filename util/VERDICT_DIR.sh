@@ -51,6 +51,28 @@ for log_file in "$WRK_DIR"/*.log
 do
     INFO=`perl verdict.pl --verdict_config=$RQG_DIR/Verdict_tmp.cfg --log="$log_file" 2>&1 \
           | egrep ' Verdict: ' | sed -e 's/^.* Verdict: .*, Extra_info: //g'`
-    echo "$INFO        $log_file"
+    ARCH="$WRK_DIR""/"` basename $log_file '.log'`
+    # echo "->$ARCH<-"
+    if [ "$ARCH" != "" ]
+    then
+        if [ -e "$ARCH"".tar.gz" ]
+        then
+            ARCH="$ARCH"".tar.gz"
+        elif [ -e "$ARCH"".tar.xz" ]
+        then
+            ARCH="$ARCH"".tar.xz"
+        elif [ -e "$ARCH"".tgz" ]
+        then
+            ARCH="$ARCH"".tgz"
+        else
+            ARCH=''
+        fi
+    fi
+    if [ "$ARCH" != "" ]
+    then
+        SIZE=`du -k $ARCH 2>/dev/null | cut -f1`
+        ARCH="$ARCH $SIZE""KB"
+    fi
+    echo "$INFO        $log_file    $ARCH"
 done
 
