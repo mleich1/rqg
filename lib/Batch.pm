@@ -1237,11 +1237,13 @@ sub reap_workers {
                             $rqg_arc   = $val;
                             $saved_arc = $target_prefix . ".tar.xz";
                         }
-                        if (not defined $rqg_arc and not $archive_warning_emitted) {
-                            say("WARN: The archive '$rqg_arc' does not exist. This might be " .
-                                "intentional or a mistake. Further warnings of this kind "    .
-                                "will be suppressed.");
-                            $archive_warning_emitted = 1;
+                        if (not defined $rqg_arc) {
+                            if (not $archive_warning_emitted) {
+                                say("WARN: The archive '$rqg_arc' does not exist. This might be " .
+                                    "intentional or a mistake. Further warnings of this kind "    .
+                                    "will be suppressed.");
+                                $archive_warning_emitted = 1;
+                            }
                         } else {
                             rename_file($rqg_arc, $saved_arc);
                         }
@@ -2098,7 +2100,7 @@ sub copy_file {
     my ($source_file, $target_file) = @_;
     if (Auxiliary::copy_file($source_file, $target_file)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Copy operation failed. Will ask for emergency exit." .
+        say("ERROR: Copy operation failed. Will ask for emergency exit. " .
             Auxiliary::exit_status_text($status));
         emergency_exit($status);
     }
@@ -2111,7 +2113,7 @@ sub rename_file {
     my ($source_file, $target_file) = @_;
     if (Auxiliary::rename_file($source_file, $target_file)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Rename operation failed. Will ask for emergency exit." .
+        say("ERROR: Rename operation failed. Will ask for emergency exit. " .
             Auxiliary::exit_status_text($status));
         emergency_exit($status);
     }
@@ -2124,7 +2126,7 @@ sub make_file {
     my ($file_to_create, $string) = @_;
     if (Auxiliary::make_file($file_to_create, $string)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: File create and write operation failed. Will ask for emergency exit." .
+        say("ERROR: File create and write operation failed. Will ask for emergency exit. " .
             Auxiliary::exit_status_text($status));
         emergency_exit($status);
     }
@@ -2137,7 +2139,7 @@ sub append_string_to_file {
     my ($file, $string) = @_;
     if (Auxiliary::append_string_to_file($file, $string)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Write to file operation failed. Will ask for emergency exit." .
+        say("ERROR: Write to file operation failed. Will ask for emergency exit. " .
             Auxiliary::exit_status_text($status));
         emergency_exit($status);
     }
