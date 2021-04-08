@@ -505,7 +505,7 @@ say("Please see http://forge.mysql.com/wiki/Category:RandomQueryGenerator for mo
 # 2018-11-16T10:28:26 [200006] # --mysqld=--connect_timeout=60 \
 #    Do not add a space after the '\' around line end. Otherwise when converting the printout to
 #    a shell script the shell assumes command end after the '\ '.
-say("Starting \n# $0 \\ \n# " . join(" \\\n# ", @ARGV_saved));
+say("Starting \n# $0 \\\n# " . join(" \\\n# ", @ARGV_saved));
 
 # FIXME:
 # $gendata gets precharged with '' at begin.
