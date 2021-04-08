@@ -1,21 +1,20 @@
 #!/bin/bash
 
 # HINT:
-# This build variant is medium frequent used. It is
-# - good for generating rr traces or core files which are medium comfortable to analyze because of
-#   minimal compiler optimization
+# This build variant is sometimes used. It is
+# - uncomfortable for the analysis of bugs because of the "-O3"
 # - good for finding bugs where the likelihood to hit them on other builds types
 #   (debug/ASAN/UBSAN/TSAN/valgrind/non debug -- compiler optimizations) is lower
-# - medium good for automatic simplification of tests
+# - quite good for automatic simplification of tests
 # - quite good for having nice assert or backtrace patterns like often in test simplifications
 #
 
-BUILD_TYPE="_asan_Og"
+BUILD_TYPE="_asan_O3"
 
 LANG=C
 
 USAGE="USAGE: $0 <RELEASE == subdirectory of GENERAL_SOURCE_DIR> [ <PARALLEL> ]\n"
-USAGE="$USAGE Build with debug+asan, mostly optimization -Og .\n"
+USAGE="$USAGE Build with debug+asan, mostly optimization -O3 .\n"
 USAGE="$USAGE Environment variables and their defaults if not set.\n"
 USAGE="$USAGE GENERAL_SOURCE_DIR    '/Server'\n"
 USAGE="$USAGE GENERAL_BIN_DIR       '/Server_bin'\n"
@@ -109,7 +108,7 @@ echo -e "\nElapsed time for cmake: $RUNTIME\n\n"                        | tee -a
 # output. This makes it reasonable to use the optimizer for programs that might have bugs.
 #
 # Append in order to not mangle the file maybe too much
-OTHER_VAL="-Og -g"
+OTHER_VAL="-O3 -g"
 echo -e "\nAppending CMAKE_ASM_FLAGS_DEBUG, CMAKE_CXX_FLAGS_DEBUG, CMAKE_C_FLAGS_DEBUG" \
      "=$OTHER_VAL to CMakeCache.txt\n\n"                                | tee -a "$BLD_PROT"
 echo "CMAKE_ASM_FLAGS_DEBUG:STRING=$OTHER_VAL"                          >> CMakeCache.txt

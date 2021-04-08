@@ -1,21 +1,21 @@
 #!/bin/bash
 
 # HINT:
-# This build variant is medium frequent used. It is
-# - good for generating rr traces or core files which are medium comfortable to analyze because of
-#   minimal compiler optimization
+# This build variant is sometimes used. It is
+# - uncomfortable for the analysis of bugs outside of InnoDB because of the "-O2"
+# - comfortable for the analysis of bugs inside of InnoDB because of the "-O0"
 # - good for finding bugs where the likelihood to hit them on other builds types
 #   (debug/ASAN/UBSAN/TSAN/valgrind/non debug -- compiler optimizations) is lower
-# - medium good for automatic simplification of tests
+# - quite good for automatic simplification of tests
 # - quite good for having nice assert or backtrace patterns like often in test simplifications
 #
 
-BUILD_TYPE="_asan_Og"
+BUILD_TYPE="_asan_O2_O0"
 
 LANG=C
 
 USAGE="USAGE: $0 <RELEASE == subdirectory of GENERAL_SOURCE_DIR> [ <PARALLEL> ]\n"
-USAGE="$USAGE Build with debug+asan, mostly optimization -Og .\n"
+USAGE="$USAGE Releasebuild with debug info, InnoDB with -O0 and most other with -O2.\n"
 USAGE="$USAGE Environment variables and their defaults if not set.\n"
 USAGE="$USAGE GENERAL_SOURCE_DIR    '/Server'\n"
 USAGE="$USAGE GENERAL_BIN_DIR       '/Server_bin'\n"
@@ -65,8 +65,13 @@ echo "#=============================================================="  | tee -a
 # Especially debug builds tend to fail with higher optimization because of coding mistakes,
 # GCC weaknesses etc. In the current case detecting them is usually of lower value than having
 # a build with non standard optimization.
-cp cmake/maintainer.cmake maintainer.cmake.tmp
-sed -e '/-Werror/d' maintainer.cmake.tmp > cmake/maintainer.cmake
+# cp cmake/maintainer.cmake maintainer.cmake.tmp
+# sed -e '/-Werror/d' maintainer.cmake.tmp > cmake/maintainer.cmake
+# But we go here with DCMAKE_BUILD_TYPE=RelWithDebInfo.
+#
+# For optimal debugging experience we want that all stuff belonging to InnoDB gets compiled
+# without optimization. Any non InnoDB parts of mariadbd etc. should be not affected by that.
+echo 'TARGET_COMPILE_OPTIONS(innobase PRIVATE -O0 -g)' >> storage/innobase/CMakeLists.txt
 
 git_info
 
@@ -87,7 +92,7 @@ cmake -DCONC_WITH_{UNITTEST,SSL}=OFF -DWITH_EMBEDDED_SERVER=OFF -DWITH_UNIT_TEST
 -DPLUGIN_{ARCHIVE,TOKUDB,MROONGA,OQGRAPH,ROCKSDB,CONNECT,SPIDER,SPHINX,COLUMNSTORE,PERFSCHEMA}=NO  \
 -DWITH_SAFEMALLOC=OFF -DWITH_SSL=bundled                                                           \
 -DWITH_DBUG_TRACE=OFF                                                                              \
--DCMAKE_BUILD_TYPE=Debug                                                                           \
+-DCMAKE_BUILD_TYPE=RelWithDebInfo                                                                  \
 -DWITH_ASAN=ON                                                                                     \
 -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" "$SOURCE_DIR"    2>&1          | tee -a "$BLD_PROT"
 
@@ -95,26 +100,7 @@ END_TS=`date '+%s'`
 RUNTIME=$(($END_TS - $START_TS))
 echo -e "\nElapsed time for cmake: $RUNTIME\n\n"                        | tee -a "$BLD_PROT"
 
-# Do not reset something before the make!
-
-# GCC Docu
-# To tell GCC to emit extra information for use by a debugger, in almost all cases you need only to
-# add -g to your other options.
-#
-# GCC allows you to use -g with -O. The shortcuts taken by optimized code may occasionally be
-# surprising: some variables you declared may not exist at all; flow of control may briefly move
-# where you did not expect it; some statements may not be executed because they compute constant
-# results or their values are already at hand; some statements may execute in different places
-# because they have been moved out of loops.  Nevertheless it is possible to debug optimized
-# output. This makes it reasonable to use the optimizer for programs that might have bugs.
-#
-# Append in order to not mangle the file maybe too much
-OTHER_VAL="-Og -g"
-echo -e "\nAppending CMAKE_ASM_FLAGS_DEBUG, CMAKE_CXX_FLAGS_DEBUG, CMAKE_C_FLAGS_DEBUG" \
-     "=$OTHER_VAL to CMakeCache.txt\n\n"                                | tee -a "$BLD_PROT"
-echo "CMAKE_ASM_FLAGS_DEBUG:STRING=$OTHER_VAL"                          >> CMakeCache.txt
-echo "CMAKE_CXX_FLAGS_DEBUG:STRING=$OTHER_VAL"                          >> CMakeCache.txt
-echo "CMAKE_C_FLAGS_DEBUG:STRING=$OTHER_VAL"                            >> CMakeCache.txt
+# Do not reset storage/innobase/CMakeLists.txt before the make!
 
 cd "$OOS_DIR"
 
