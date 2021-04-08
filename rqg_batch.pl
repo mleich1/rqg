@@ -568,6 +568,11 @@ if ($noarchiving) {
     }
 } else {
     say("INFO: Archiving of data of interesting RQG runs is enabled.");
+    if ( STATUS_OK == Auxiliary::find_external_command('xz') ) {
+    } else {
+        say("ERROR: The compressor 'xv' was not found.");
+        return STATUS_ENVIRONMENT_FAILURE;
+    }
 
     ######### Archive/Preserve the binaries by hardlinking
     # The general directory for archives of binaries/archive of installations is in
@@ -583,18 +588,19 @@ if ($noarchiving) {
     #        INSTALL_PREFIX=<whatever>/10.5_debug
     #        make install
     # 4. cd <whatever>/10.5_debug
-    #    tar czf <RQG>/storage/binarchs/bin_arch.tgz .
-    #    Determine the md5sum of <RQG>/storage/binarchs/bin_arch.tgz and
+    #    tar <compressor options> -cf <RQG>/storage/binarchs/bin_arch.<TAR> .
+    #    Determine the md5sum of <RQG>/storage/binarchs/bin_arch.<TAR> and
     #    write it into build.prt
     # 5. cp build.prt to <RQG>/storage/binarchs/build.prt
     #    cp build.prt to <whatever>/10.5_debug/build.prt
-    # 6. mv <RQG>/storage/binarchs/bin_arch.tgz <RQG>/storage/binarchs/<build_date>.tgz
-    #    mv <RQG>/storage/binarchs/build.prt    <RQG>/storage/binarchs/<build_date>.prt
+    # 6. mv <RQG>/storage/binarchs/bin_arch.<TAR> <RQG>/storage/binarchs/<build_date>.<TAR>
+    #    mv <RQG>/storage/binarchs/build.prt      <RQG>/storage/binarchs/<build_date>.prt
     # So the binaries used during the batch of RQG runs can be preserved by hard linking.
     # Extract the build_date from of <whatever>/10.5_debug/build.prt.
     # RQG batch workdir | filesystem | <RQG>/storage/binarchs
-    # basedir<n>.tgz    | inode <A>  | <build_date>.tgz
+    # basedir<n>.<TAR>  | inode <A>  | <build_date>.<TAR>
     # basedir<n>.prt    | inode <B>  | <build_date>.prt
+    # <TAR> will be either tar.gz or tar.xz
     #######################################################
 
     foreach my $i (1..3) {
@@ -620,21 +626,32 @@ if ($noarchiving) {
         say("DEBUG: $pattern  $base_name");
 
         my $s_prefix       = $bin_arch_dir . "/" . $base_name;
-        my $s_bin_arch     = $s_prefix . '.tgz';
+        my $s_bin_arch_gz  = $s_prefix . '.tar.gz';
+        my $s_bin_arch_xz  = $s_prefix . '.tar.xz';
+        my $s_bin_arch;
         my $s_bin_arch_prt = $s_prefix . '.prt';
 
         my $l_prefix       = $workdir  . '/basedir' . $i;
-        my $l_bin_arch     = $l_prefix . '.tgz';
+        my $l_bin_arch_gz  = $l_prefix . '.tar.gz';
+        my $l_bin_arch_xz  = $l_prefix . '.tar.xz';
+        my $l_bin_arch;
         my $l_bin_arch_prt = $l_prefix . '.prt';
 
-        if (not -e $s_bin_arch) {
-            say("WARN: No archive '$s_bin_arch' found. " .
+        if (-e $s_bin_arch_gz) {
+            $s_bin_arch = $s_bin_arch_gz;
+            $l_bin_arch = $l_bin_arch_gz
+        }
+        if (-e $s_bin_arch_xz) {
+            $s_bin_arch = $s_bin_arch_xz;
+            $l_bin_arch = $l_bin_arch_xz
+        }
+        if (not defined $s_bin_arch) {
+            say("WARN: No archive '$s_bin_arch_gz' or '$s_bin_arch_xz' found. " .
                 "Preserving of basedir content impossible.");
-            say("HINT: Use buildscripts like 'util/bld_*.sh'.");
+            say("HINT: Use buildscripts like 'util/bld_*.sh' or build like you want and take " .
+                "care that one of these archives exists.");
             next;
         }
-
-        my $target_file    = $workdir  . '/bin_arch' . $i . '.tgz';
 
         if (not link($s_bin_arch, $l_bin_arch)) {
             say("ERROR: Hardlinking '$s_bin_arch' to '$l_bin_arch' failed: $!");
@@ -651,7 +668,6 @@ if ($noarchiving) {
 
     }
 }
-
 
 # Check (at least) if all the assigned basedirs contain a mysqld.
 my $status = STATUS_OK;
@@ -1142,8 +1158,8 @@ while($Batch::give_up <= 1) {
                                     "test failed.");
                                 safe_exit(STATUS_ENVIRONMENT_FAILURE);
                             } else {
-                                say("DEBUG: $who_am_i Archive '" . $rqg_workdir .
-                                    "/archive.tgz' created.") if Auxiliary::script_debug("W2");
+                              # say("DEBUG: $who_am_i Archive '" . $rqg_workdir .
+                              #     "/archive.tgz' created.") if Auxiliary::script_debug("W2");
                             }
                         }
                         # 2020-10-21

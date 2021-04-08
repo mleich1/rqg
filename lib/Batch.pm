@@ -1134,7 +1134,6 @@ sub reap_workers {
                 my $rqg_vardir    = "$vardir"  . $rqg_appendix;
                 my $rqg_log       = "$rqg_workdir" . "/rqg.log";
                 my $rqg_job       = "$rqg_workdir" . "/rqg.job";
-                my $rqg_arc       = "$rqg_workdir" . "/archive.tgz";
 
                 my ($verdict, $extra_info) = Verdict::get_rqg_verdict($rqg_workdir);
                 $worker_array[$worker_num][WORKER_END] = time();
@@ -1184,7 +1183,6 @@ sub reap_workers {
                 $worker_array[$worker_num][WORKER_LOG] = $saved_log_rel;
                 my $saved_log         = $target_prefix     . ".log";
                 my $saved_job         = $target_prefix     . ".job";
-                my $saved_arc         = $target_prefix     . ".tgz";
 
                 $iso_ts = isoTimestamp();
 
@@ -1226,15 +1224,26 @@ sub reap_workers {
                     if ($dryrun) {
                         # We fake a RQG run and therefore some archive cannot exist.
                     } else {
-                        if (-e $rqg_arc) {
-                            rename_file($rqg_arc, $saved_arc);
+                        my $rqg_arc;
+                        my $saved_arc         = $target_prefix     . ".tgz";
+                        my $val;
+                        $val = "$rqg_workdir" . "/archive.tar.gz";
+                        if (-e $val) {
+                            $rqg_arc   = $val;
+                            $saved_arc = $target_prefix . ".tar.gz";
+                        }
+                        $val = "$rqg_workdir" . "/archive.tar.xz";
+                        if (-e $val) {
+                            $rqg_arc   = $val;
+                            $saved_arc = $target_prefix . ".tar.xz";
+                        }
+                        if (not defined $rqg_arc and not $archive_warning_emitted) {
+                            say("WARN: The archive '$rqg_arc' does not exist. This might be " .
+                                "intentional or a mistake. Further warnings of this kind "    .
+                                "will be suppressed.");
+                            $archive_warning_emitted = 1;
                         } else {
-                            if (not $archive_warning_emitted) {
-                                say("WARN: The archive '$rqg_arc' does not exist. This might be " .
-                                    "intentional or a mistake. Further warnings of this kind "    .
-                                    "will be suppressed.");
-                                $archive_warning_emitted = 1;
-                            }
+                            rename_file($rqg_arc, $saved_arc);
                         }
                     }
                     if ($verdict eq Verdict::RQG_VERDICT_INTEREST) {

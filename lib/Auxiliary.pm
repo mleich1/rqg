@@ -1540,10 +1540,20 @@ sub archive_results {
         say("ERROR: RQG vardir '$vardir' is missing or not a directory.");
         return STATUS_FAILURE;
     }
+    my $compress_option;
+    my $suffix;
+    if ( STATUS_OK == find_external_command('xz') ) {
+        $compress_option = 'xz -0';
+        $suffix          = 'tar.xz';
+    } else {
+        say("ERROR: The compressor 'xv' was not found.");
+        return STATUS_FAILURE;
+    }
+
     # Maybe check if some of the all time required/used files exist in order to be sure to have
     # picked the right directory.
     # We make a "cd $workdir"   first!
-    my $archive     = $workdir . "/archive.tgz";
+    my $archive     = $workdir . "/archive." . $suffix;
     my $archive_err = $workdir . "/rqg_arch.err";
     my $cmd;
     my $rc;
@@ -1584,7 +1594,8 @@ sub archive_results {
     #    for RQG runner, especially involved DB server. This increases the time required
     #    for any work phase. And that makes more capable to reveal phases where locks or
     #    similar are missing or wrong handled.
-    $cmd = "cd $workdir 2>>$archive_err; tar czf $archive rqg* $vardir 2>>$archive_err";
+    $cmd = "cd $workdir 2>>$archive_err; tar --use-compress-program='$compress_option' -cf "       .
+           "$archive rqg* $vardir 2>>$archive_err";
     say("DEBUG: cmd : ->$cmd<-") if script_debug("A5");
     system($cmd);
     $rc = $? >> 8;
@@ -2511,6 +2522,7 @@ sub find_external_command {
     chomp $return; # Remove the '\n' at end.
     if (not defined $return or $return eq '') {
         say("ERROR: which $command failed. Will return STATUS_FAILURE.");
+        return STATUS_FAILURE;
     } else {
         # say("DEBUG: which $command returned ->" . $return . "<-");
         return STATUS_OK;
