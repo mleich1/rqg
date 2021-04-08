@@ -343,6 +343,15 @@ sub load_verdict_config {
             }
 
             my $key = $pattern_rec[PATTERN_PATTERN];
+            if ($pattern_rec[PATTERN_PATTERN] =~ /^\.\+/ ) {
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                say("ERROR: The pattern starts with '.+' which could lead to incredible search " .
+                    "runtimes which must be avoided.\n" .
+                    "       Pattern:   ->" . $pattern_rec[PATTERN_PATTERN] . "<-\n" .
+                    "       Info:       '" . $pattern_rec[PATTERN_INFO] . "'\n" .
+                    "       Assessment: '" . $assessment . "'\n");
+                safe_exit($status);
+            }
             my @n_pattern_rec = ($pattern_rec[PATTERN_INFO], $assessment);
 
             if (exists $tmp_pattern_hash{$key}) {
