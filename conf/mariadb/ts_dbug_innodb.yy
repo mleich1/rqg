@@ -64,6 +64,7 @@ dbug_value:
 #  '+d,row_ins_extern_checkpoint'                   | # Nothing found in 10.2 testing
 #  '+d,row_ins_index_entry_timeout'                 | # Nothing found in 10.2 testing, source code looks harmless, resets itself
 #  '+d,row_ins_sec_index_entry_timeout'             | # Nothing found in 10.2 testing, source code looks harmless, resets itself
+   '+d,create_index_fail'                           |
    '+d,row_upd_extern_checkpoint'                   ; # Nothing found in 10.2 testing
 
    

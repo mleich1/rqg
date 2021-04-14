@@ -712,6 +712,7 @@ gcol_prop:
 ######
 # For playing around with
 #   SET DEBUG_DBUG='+d,ib_build_indexes_too_many_concurrent_trxs, ib_rename_indexes_too_many_concurrent_trxs, ib_drop_index_too_many_concurrent_trxs';
+#   SET DEBUG_DBUG='+d,create_index_fail';
 # and similar add a redefine like
 #   conf/mariadb/ts_dbug_innodb.yy
 #
