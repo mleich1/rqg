@@ -68,7 +68,6 @@ $combinations = [
           --duration=300
           --engine=InnoDB
           --queries=100000000
-          --mysqld=--loose_innodb_use_native_aio=1
           --reporters=Backtrace,ErrorLog,Deadlock1,RestartConsistency
           --restart_timeout=120
           --mysqld=--log_output=none
@@ -100,9 +99,9 @@ $combinations = [
         ' ',
         '--mysqld=--innodb-encrypt-log ',
     ],[
-        ' --rr=Extended --rr_options=--chaos ',
-        ' --rr=Extended                      ',
-        ' ',
+        " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='\"--chaos --wait\"' ",
+        " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='\"--wait\"' ",
+        " --mysqld=--innodb_use_native_aio=1 ",
     ],[
         ' ',
         '--mysqld=--innodb-encrypt-tables '

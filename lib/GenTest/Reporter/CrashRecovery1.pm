@@ -326,6 +326,10 @@ sub report {
                 my $errstr = '';
                 $errstr    = $sth_rows->errstr() if defined $sth_rows->errstr();
 
+                # 2021-03-18 Observation again on some development tree
+                # ERROR: SELECT * FROM `cool_down`.`t1` FORCE INDEX (`Marvão_idx2`Marvão_idx2`) ... harvested 1064:
+                # ... the right syntax to use near 'Marvão_idx2`)
+                # Will return status STATUS_RECOVERY_FAILURE later.
                 if (defined $sth_rows->err()) {
                     say("ERROR: $walk_query harvested $err: $errstr. " .
                         "Will return status STATUS_RECOVERY_FAILURE later.");
@@ -458,6 +462,13 @@ sub report {
                         # ]
                         #       ];
                         next if (($result =~ m{error'}sio) and ($result =~ m{Query execution was interrupted}sio));
+                        # [
+                        #  'test.table0_innodb_key_pk_parts_2_int_autoinc',
+                        #  'check',
+                        #  'note',
+                        #  'Not supported for non-INTERVAL history partitions'
+                        #  ],
+                        next if (($result =~ m{note'}sio) and ($result =~ m{Not supported for non-INTERVAL history partitions}sio));
                         # OPTIMIZE might be not supported and than mapped to ....
                         # And that could become victim of 'Row size too large. ...
                         # [

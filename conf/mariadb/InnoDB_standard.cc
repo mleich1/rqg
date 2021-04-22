@@ -241,8 +241,8 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_adaptive_hash_index=on ',
   ],
   [
-    ' --mysqld=--innodb_evict_tables_on_commit_debug=off ',
-#   ' --mysqld=--innodb_evict_tables_on_commit_debug=on  ',
+    ' --mysqld=--loose-innodb_evict_tables_on_commit_debug=off ',
+#   ' --mysqld=--loose-innodb_evict_tables_on_commit_debug=on  ',
   ],
   [
     # Warning (mleich 2020-06):
