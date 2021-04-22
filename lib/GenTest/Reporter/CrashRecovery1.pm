@@ -289,6 +289,7 @@ sub report {
                 my $key_name = $key_hashref->{Key_name};
                 my $column_name = $key_hashref->{Column_name};
 
+                # say("DEBUG: $who_am_i key_name->" . $key_name . "<- Column_name->" . $column_name . "<-");
                 foreach my $select_type ('*' , "`$column_name`") {
                     my $main_predicate;
                     if ($column_name =~ m{int}sio) {
@@ -333,6 +334,7 @@ sub report {
                 if (defined $sth_rows->err()) {
                     say("ERROR: $walk_query harvested $err: $errstr. " .
                         "Will return status STATUS_RECOVERY_FAILURE later.");
+                    $sth_rows->finish();
                     sayFile($server->errorlog);
                     $dbh->disconnect;
                     return STATUS_RECOVERY_FAILURE;
@@ -462,6 +464,7 @@ sub report {
                         # ]
                         #       ];
                         next if (($result =~ m{error'}sio) and ($result =~ m{Query execution was interrupted}sio));
+                        next if (($result =~ m{error'}sio) and ($result =~ m{Not allowed for system-versioned}sio));
                         # [
                         #  'test.table0_innodb_key_pk_parts_2_int_autoinc',
                         #  'check',
