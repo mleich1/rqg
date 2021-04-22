@@ -264,9 +264,9 @@ $combinations = [ $grammars,
     ' --threads=33 ',
   ],
   [
-    ' --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options=--chaos ',
-    ' --mysqld=--innodb-use-native-aio=0 --rr=Extended                      ',
-    ' --mysqld=--innodb_use_native_aio=1 ',
+    " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='\"--chaos --wait\"' ",
+    " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='\"--wait\"' ",
+    " --mysqld=--innodb_use_native_aio=1 ",
   ],
   [
     # 1. innodb_page_size >= 32K requires a innodb-buffer-pool-size >=24M

@@ -1,5 +1,5 @@
 # Copyright (C) 2013 Monty Program Ab
-# Copyright (C) 2019, 2020  MariaDB Corporation Ab.
+# Copyright (C) 2019, 2021  MariaDB Corporation Ab.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -501,6 +501,7 @@ sub report {
                         if ($result =~ m{error'|corrupt|repaired|invalid|crashed}sio) {
                             print $result;
                             my $status = STATUS_RECOVERY_FAILURE;
+                            $dbh->disconnect();
                             say("ERROR: $who_am_i Failures found in the output above. " . Auxiliary::build_wrs($status));
                             return $status;
                         }

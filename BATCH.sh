@@ -112,29 +112,23 @@ then
    PARALLEL=270
 fi
 
-# TRIALS is used as
-# - one of two limits (TRIALS and MAX_RUNTIME) for the size of a testing campaign
-#   Whenever one of these gets exceeded rqg_batch.pl stops ongoing RQG runs,
-#   makes a cleanup, gives a summary and exits.
-#   In case of
-#   - (mostly) hitting no internal error in the RQG runner ('rqg.pl'), the RQG core (lib/*) and
-#     ingredients invoked (reporter, validator, grammar, ...)
-#     MAX_RUNTIME is the better limiter
-#   - (sometimes) hitting some internal error in ... (see above)
-#     TRIALS is here the better limiter because the situation is roughly hopeless and
-#     you get an earlier end with less resource consumption.
-# - used for limiting certain phases during RQG test simplification if running that at all.
-# TRIALS means regular finished (!= stopped by rqg_batch.pl because of whatever reason) RQG runs.
+# The size of a testing campaign is controlled by four limiters.
+# --------------------------------------------------------------
+# - the "exit" file   last_batch_workdir/exit
+#   This file does not exist after rqg_batch.pl was called.
+#   But as soon that file gets created by the user or similar rqg_batch.pl will stop all RQG runs.
+# - a function in lib/Batch.pm
+#   Abort of testing as soon as some quota of failing tests gets exceeded.
+#   Focus: Bad Combinator config or tests, defect in code of RQG or tools, exceptional bad DB server
+# - Stop of testing as soon as more than TRIALS RQG runs regular finished.
+#   Regular means: Not stopped rqg_batch.pl because of whatever internal reason.
+#   Focus: Simple limiter but also some last safety net in case rqg_batch.pl internals fail.
 TRIALS=10000
-
-# MAX_RUNTIME is a better limit than TRIALS for defining the size of a testing campaign
-# when running 'production' == QA.
-# Please be aware that the runtime of util/issue_grep.sh is not included.
+# MAX_RUNTIME is a better limiter than TRIALS for defining the size of a testing campaign
+# when running 'production' like QA.
 # RQG batch run elapsed runtime =
 #    assigned max_runtime
-# +  time for stopping the active RQG Workers (usually less than 3 seconds)
-# +  util/issue_grep.sh elapsed time =
-#       no of logs in last_batch_workdir * (1 till 3 seconds depending on log size)
+# +  time for stopping the active RQG Workers + cleanup (usually less than 5 seconds)
 MAX_RUNTIME=3600
 
 
@@ -244,14 +238,14 @@ set -o pipefail
 # 8. Use "rr" (https://github.com/mozilla/rr/wiki/Usage) for tracing DB servers and other
 #    programs.
 #
-#    Get the default which is 'Server'
+#    "rr" tracing of all servers started ( lib/DBServer/MySQL/MySQLd.pm    sub startServer)
+#    This is the default.
 # --rr                                                                 \
-#
-#    Preserve the 'rr' traces of all servers started
-#        lib/DBServer/MySQL/MySQLd.pm    sub startServer
+#    or better
 # --rr=Server                                                          \
 #
-#    Preserve the 'rr' traces of the bootstrap or server or soon mariabackup ... prepare ... started
+#    Preserve the 'rr' traces of the bootstrap, server starts and mariabackup calls.
+#    This is the optimal setting for InnoDB QA.
 # --rr=Extended                                                        \
 #
 #    Make a 'rr' trace of the complete RQG run like even of the perl code of the RQG runner.
@@ -270,8 +264,17 @@ set -o pipefail
 #    Please becareful with the single and double quotes.
 # --rr_options="\'--microarch='Intel Kabylake'\'"                      \
 #
-#    One rr option which seems to be recommended anywhere
-# --rr_options="--chaos"                                               \
+#    The "rr" option "--chaos" which seems to be recommended anywhere.
+# --rr_options="'--chaos'"                                             \
+#
+#    The combination "--chaos --wait" is currently studied.
+# --rr_options="'--chaos --wait'"                                      \
+#
+# Please be aware that some increasing number of Combinations config files already
+# enable the use of "rr".
+#
+
+# perl -w -d:ptkdb ./rqg_batch.pl                                      \
 #
 
 # In case you distrust the rqg_batch.pl mechanics or the config file etc. than going with some
@@ -282,8 +285,6 @@ set -o pipefail
 # PARALLEL=1
 #
 
-# --rr=Extended                                                        \
-# --rr_options="--chaos"                                               \
 # nohup perl -w ./rqg_batch.pl                                           \
 nohup perl ./rqg_batch.pl                                              \
 --workdir=$BATCH_WORKDIR                                               \
