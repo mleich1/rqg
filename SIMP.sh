@@ -120,9 +120,7 @@ TRIALS=64
 # Please be aware that the runtime of util/issue_grep.sh is not included.
 # RQG batch run elapsed runtime =
 #    assigned max_runtime
-# +  time for stopping the active RQG Workers (usually less than 3 seconds)
-# +  util/issue_grep.sh elapsed time =
-#       no of logs in last_batch_workdir * (1 till 3 seconds depending on log size)
+# +  time for stopping the active RQG Workers + cleanup (usually less than 5 seconds)
 MAX_RUNTIME=72000
 
 # Only one temporary 'God' (rqg_batch.pl vs. concurrent MTR, single RQG or whatever) on testing box

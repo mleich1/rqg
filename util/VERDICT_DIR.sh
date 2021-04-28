@@ -36,6 +36,8 @@ then
    exit
 fi
 
+# 1. Consistency check of verdict_general.cfg
+# 2. Generate $RQG_DIR/Verdict_tmp.cfg out of verdict_general.cfg.
 perl verdict.pl --batch_config=verdict_general.cfg --workdir=$RQG_DIR > /dev/null
 
 set +e
@@ -46,6 +48,8 @@ then
     echo "The directory '$WRK_DIR' contains a Simplifier run"
     echo "== It is or was a test battery with decreasing complexity."
 fi
+
+
 set -e
 for log_file in "$WRK_DIR"/*.log
 do

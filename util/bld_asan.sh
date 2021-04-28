@@ -14,7 +14,7 @@ BUILD_TYPE="_asan"
 LANG=C
 
 USAGE="USAGE: $0 <RELEASE == subdirectory of GENERAL_SOURCE_DIR> [ <PARALLEL> ]\n"
-USAGE="$USAGE Build with debug, no optimization for InnoDB and most of mariadb.\n"
+USAGE="$USAGE Build with debug+asan, no optimization for InnoDB and most of mariadb.\n"
 USAGE="$USAGE Environment variables and their defaults if not set.\n"
 USAGE="$USAGE GENERAL_SOURCE_DIR    '/Server'\n"
 USAGE="$USAGE GENERAL_BIN_DIR       '/Server_bin'\n"

@@ -4,6 +4,8 @@
 # it might be already in its current state sufficient for doing a lot around RQG.
 #
 
+export LANG=C
+
 USAGE="USAGE: $0 <Basedir>"
 CALL_LINE="$0 $*"
 
@@ -63,6 +65,7 @@ else
 fi
 
 YY_GRAMMAR="conf/mariadb/table_stress_innodb_nocopy.yy"
+# YY_GRAMMAR="evil.yy"
 SQL_GRAMMAR="conf/mariadb/table_stress.sql"
 ZZ_GRAMMAR="conf/mariadb/table_stress.zz"
 
@@ -97,12 +100,11 @@ then
    exit
 fi
 
-perl  ./rqg.pl                                                                 \
+perl -w ./rqg.pl                                                                 \
 --seed=random                                                                  \
 --queries=1000000                                                              \
 --reporter=ErrorLog,Backtrace,Deadlock1,None                                   \
 --validator=None                                                               \
---sqltrace=MarkErrors                                                          \
 --duration=300                                                                 \
 --gendata="$ZZ_GRAMMAR"                                                        \
 --gendata_sql="$SQL_GRAMMAR"                                                   \

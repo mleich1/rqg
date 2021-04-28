@@ -2,7 +2,7 @@
 This RQG version is focussed on taking care that
 - single RQG test runs with
   - serious concurrency (threads > 1) and
-    invoking KILL session, KILL QUERY, ....
+    invoking KILL session, KILL QUERY, COMMIT/ROLLBACK RELEASE ....
   - intentional crashing of the server
   tend to a smaller fraction of false alarms and work more like wished
 - problem analysis becomes more comfortable and faster
@@ -73,7 +73,7 @@ Preparations for using RQG and my batch tool
     and similar
         /etc/security/limits.conf
         * hard nofile 102400
-        * soft nofile 20480
+        * soft nofile 51200
     in case the actual numbers for no of open files, aio, processes etc. are too low.
 
 
@@ -258,15 +258,13 @@ Collection of hints (under construction)
 
 DONE (incomplete and arbitrary sorted list):
 --------------------------------------------
-1. Introduce the capability to define a
-   - whitelist desired statuses + desired text patterns
-   - blacklist unwanted statuses + unwanted text patterns
-   including (hopefully) reasonable defaults (STATUS_ANY is desired and STATUS_OK is unwanted).
-   --> lib/Auxiliary.pm etc.
-2. Implement a routine which processes a file (log of RQG run) and  gives a verdict based on
-   these lists. --> lib/Verdict.pm
-3. Implement some new RQG runner (rqg.pl) which
-   1. performs a RQG run according to the setup supplied via command line
+1. Introduce the capability to define and process variables keeping lists with
+   - RQG exit statuses which are desired/replay or of interest or unwanted
+   - text patterns which are desired/replay or of interest or unwanted
+   Implement a program which processes config file and log of a RQG run and gives a verdict based
+   on these lists. --> verdict.pl , lib/Verdict.pm , verdict_general.cfg
+2. Implement some new RQG runner (rqg.pl) which
+   1. performs a RQG run according to the setup supplied via call/command line
    2. calculates the verdict based on balck/whitelist matching after the RQG run finished
    3. performs a (hopefully) perfect cleanup including archiving according to the verdict got
 4. Implement a new RQG tool (rqg_batch.pl) which performs a batch of RQG runs according to the
@@ -620,6 +618,16 @@ TODO (incomplete list):
         - no warnings
         - fast shutdown
         - ......
+- new simplification_phase
+  grammar_disarm ?
+  Have a configurable list of keywords like XA, FOREIGN KEY, references, ... ordered
+  by how much it would be appreciated that this feature is not required for replaying
+  some badd effect.
+  Make order ids along that list.
+  Have in the derivate grammar that keyword mangled or the rule component mangeled or
+  the rule component set to '' because the generated statement will be most probably
+  rotten anyway.
+
 --dryrun=... works quite incomplete because best_grammar.yy is not fully maintained.
 
 
