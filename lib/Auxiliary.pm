@@ -1308,6 +1308,7 @@ sub getFileSection {
 } # End sub getFileSection
 
 # -----------------------------------------------------------------------------------
+use constant SOURCE_INFO_FILE         => 'SourceInfo.txt';
 
 my $git_supported;
 sub check_git_support {
@@ -1331,13 +1332,15 @@ sub check_git_support {
     } elsif ($rc & 127) {
         say("WARNING: '$cmd' died with signal " . ($rc & 127));
         $git_supported = 0;
-        return STATUS_ENVIRONMENT_FAILURE;
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        safe_exit($status);
     } elsif (($rc >> 8) != 0) {
         say("WARNING: '$cmd' exited with value " . ($rc >> 8));
         $git_supported = 0;
-        return STATUS_INTERNAL_ERROR;
+        my $status =  STATUS_INTERNAL_ERROR;
+        safe_exit($status);
     } else {
-        say("DEBUG: '$cmd' exited with value " . ($rc >> 8));
+        # say("DEBUG: '$cmd' exited with value " . ($rc >> 8));
         $git_supported = 1;
         return STATUS_OK;
     }
@@ -1346,21 +1349,28 @@ sub check_git_support {
 
 sub get_git_info {
 
-    my ($directory, $parameter_name) = @_;
+    my ($directory) = @_;
+    # $directory - the path including directory name like /dev/shm/bld_dir
 
     if (not defined $directory) {
-        # Ok, we are this time tolerant because $basedirs[2] etc. could be undef.
-        return STATUS_OK;
+        # The caller should prevent that!
+        say("ERROR: Auxiliary::get_git_info : The assigned directory is undef. " .
+            "Will return STATUS_INTERNAL_ERROR");
+        my $status = STATUS_INTERNAL_ERROR;
+        safe_exit($status);
     }
+
     if (not -e $directory) {
         say("ERROR: Auxiliary::get_git_info : The assigned '$directory' does not exist. " .
-            "Will return STATUS_INTERNAL_ERROR");
-        return STATUS_INTERNAL_ERROR;
+            "Will exit with  STATUS_INTERNAL_ERROR");
+        my $status = STATUS_INTERNAL_ERROR;
+        safe_exit($status);
     }
     if (not -d $directory) {
         say("ERROR: Auxiliary::get_git_info : The assigned '$directory' is not a directory. " .
-            "Will return STATUS_INTERNAL_ERROR");
-        return STATUS_INTERNAL_ERROR;
+            "Will exit with  STATUS_INTERNAL_ERROR");
+        my $status = STATUS_INTERNAL_ERROR;
+        safe_exit($status);
     }
 
     if (not defined $git_supported) {
@@ -1375,8 +1385,9 @@ sub get_git_info {
     my $cwd = Cwd::cwd();
     if (not chdir($directory)) {
         say("ALARM: chdir to '$directory' failed with : $!\n" .
-            "       Will return STATUS_ENVIRONMENT_FAILURE");
-        return STATUS_ENVIRONMENT_FAILURE;
+            "       Will exit with  STATUS_ENVIRONMENT_FAILURE");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        safe_exit($status);
     }
 
     # git show --pretty='format:%D %H  %cI' -s
@@ -1384,15 +1395,16 @@ sub get_git_info {
     # %s would show the title of the last commit but that could be longer than wanted.
     my $cmd = "git show --pretty='format:%D %H %cI' -s 2>&1";
     my $val= `$cmd`;
-    say("INFO: GIT on $parameter_name('$directory') $val");
+    # say("INFO: GIT on '$directory') $val");
 
     if (not chdir($cwd)) {
         say("ALARM: chdir to '$cwd' failed with : $!\n" .
-            "       Will return STATUS_ENVIRONMENT_FAILURE");
-        return STATUS_ENVIRONMENT_FAILURE;
+            "       Will exit with  STATUS_ENVIRONMENT_FAILURE");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        safe_exit($status);
     }
 
-    return STATUS_OK;
+    return "GIT_SHOW: $val";
 
     # Note:
     # The output for a directory not under control of git like
@@ -1404,62 +1416,200 @@ sub get_git_info {
 
 
 sub get_basedir_info {
+# success -- return string
+# failure -- exit
 
-    my ($directory, $parameter_name) = @_;
-
-    my $cmd;             # For commands run through system ...
-
+    my ($directory) = @_;
     if (not defined $directory) {
-        # Ok, we are this time tolerant because $basedirs[2] etc. could be undef.
-        return STATUS_OK;
+        # The caller should prevent that!
+        say("ERROR: Auxiliary::get_git_info : The assigned directory is undef. " .
+            "Will exit with STATUS_INTERNAL_ERROR");
+        my $status = STATUS_INTERNAL_ERROR;
+        safe_exit($status);
     }
+
+
     if (not -e $directory) {
         say("ERROR: Auxiliary::get_git_info : The assigned '$directory' does not exist. " .
-            "Will return STATUS_INTERNAL_ERROR");
-        return STATUS_INTERNAL_ERROR;
+            "Will exit with STATUS_INTERNAL_ERROR");
+        my $status = STATUS_INTERNAL_ERROR;
+        safe_exit($status);
     }
     if (not -d $directory) {
         say("ERROR: Auxiliary::get_git_info : The assigned '$directory' is not a directory. " .
-            "Will return STATUS_INTERNAL_ERROR");
-        return STATUS_INTERNAL_ERROR;
+            "Will exit with STATUS_INTERNAL_ERROR");
+        my $status = STATUS_INTERNAL_ERROR;
+        safe_exit($status);
     }
 
+    # Start with the most likely that its an install or an out of source build.
+    my $build_prt = $directory . "/build.prt";
+    if (-f $build_prt) {
+        # say("DEBUG: Protocol of build '$build_prt' detected. Extracting some data ...");
+        my $val= Auxiliary::get_scrap_after_pattern($build_prt, 'GIT_SHOW: ');
+        if (not defined $val) {
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            safe_exit($status);
+        } elsif ('' eq $val) {
+            # No such string found. So do nothing
+        } else {
+            return "GIT_SHOW: " . $val;
+        }
+    } else {
+        # say("DEBUG: No protocol of build '$build_prt' found.");
+    }
+
+    my $cmd;             # For commands run through system ...
     my $cwd = Cwd::cwd();
     if (not chdir($directory))
     {
         say("ALARM: chdir to '$directory' failed with : $!\n" .
-            "       Will return STATUS_ENVIRONMENT_FAILURE");
-        return STATUS_ENVIRONMENT_FAILURE;
+            "       Will exit with STATUS_ENVIRONMENT_FAILURE");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        safe_exit($status);
     }
-    my $status = get_git_info($directory, $parameter_name);
+    my $val = get_git_info($directory);
     if (not chdir($cwd)) {
         say("ALARM: chdir to '$cwd' failed with : $!\n" .
-            "       Will return STATUS_ENVIRONMENT_FAILURE");
-        return STATUS_ENVIRONMENT_FAILURE;
+            "       Will exit with STATUS_ENVIRONMENT_FAILURE");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        safe_exit($status);
     }
 
-    my $build_prt = $directory . "/build.prt";
-    if (-f $build_prt) {
-        say("INFO: Protocol of build '$build_prt' detected. Extracting some data ...");
-        my $val= Auxiliary::get_scrap_after_pattern($build_prt, 'GIT_SHOW: ');
-        if (not defined $val) {
-            return STATUS_ENVIRONMENT_FAILURE;
-        } elsif ('' eq $val) {
-            # No such string found. So do nothing
-        } else {
-            say("GIT_SHOW: $val");
-        }
-        # MD5SUM of bin_arch.tgz:
-        my $md5_sum = Auxiliary::get_string_after_pattern($build_prt, "MD5SUM of bin_arch.tgz: ");
-        say("MD5SUM of bin_arch.tgz: $md5_sum");
-    } else {
-        say("INFO: No protocol of build '$build_prt' found.");
-    }
-
-    return STATUS_OK;
+    return $val;
 
 } # End sub get_basedir_info
 
+sub get_all_basedir_infos {
+    my @basedirs = @_;
+    my $i = 0;
+    my $info;
+    foreach my $basedir (@basedirs) {
+        $info .= "\n" if 0 != $i;
+        $info .= "INFO: basedir[$i] : ";
+        if (defined $basedir) {
+            $info .= "->" . $basedir . "<- ";
+            $info .= get_basedir_info($basedir);
+        } else {
+            $info .= "<undef>";
+        }
+        $i++;
+    }
+    return $info;
+}
+
+sub who_am_i {
+    return (caller(1))[3]. ':';
+}
+sub who_called_me {
+    # FIXME: Returns undef
+    return (caller(2))[3];
+}
+
+sub check_basedirs {
+    my @basedirs = @_;
+    my $who_am_i = who_am_i;
+    Auxiliary::print_list("INFO: Initial RQG basedirs ",  @basedirs);
+    if ((not defined $basedirs[0] or $basedirs[0] eq '') and
+        (not defined $basedirs[1] or $basedirs[1] eq '')    ) {
+        # We need in minimum the server 1 and for it a basedir.
+        say("ERROR: $who_am_i The values for basedir and basedir1 are undef or ''.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        safe_exit($status);
+    }
+    if (0 == $#basedirs) {
+        if (not defined $basedirs[0] or $basedirs[0] eq '') {
+            say("ERROR: $who_am_i The values for basedir and basedir1 are undef or ''.");
+            # FIXME: help_basedirs();
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            safe_exit($status);
+        } else {
+            # There might be several basedirs put into $basedirs[0]
+            # Auxiliary::print_list("DEBUG: Initial RQG basedirs ", @basedirs);
+            my $list_ref = Auxiliary::input_to_list(@basedirs);
+            if(defined $list_ref) {
+                @basedirs = @$list_ref;
+            } else {
+                say("ERROR: Auxiliary::input_to_list hit problems we cannot handle. " .
+                    "Will exit with STATUS_ENVIRONMENT_FAILURE.");
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                safe_exit($status);
+            }
+        }
+    }
+    foreach my $i (0..3) {
+        # Replace the annoying '//' with '/'.
+        $basedirs[$i] =~ s/\/+/\//g if defined $basedirs[$i];
+    }
+    # Auxiliary::print_list("DEBUG: Intermediate RQG basedirs ", @basedirs);
+    foreach my $i (0..3) {
+        next if not defined $basedirs[$i];
+        my $msg_begin = "ERROR: $who_am_i basedir" . $i . " '$basedirs[$i]'";
+        if (defined $basedirs[$i] and $basedirs[$i] ne '') {
+            if (not -e $basedirs[$i]) {
+                say($msg_begin . " does not exist.");
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                safe_exit($status);
+            }
+            if (not -d $basedirs[$i]) {
+                say($msg_begin . " is not a directory.");
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                safe_exit($status);
+            }
+            foreach my $i (0..3) {
+                 if (defined $basedirs[$i] and $basedirs[$i] ne '') {
+                     my $lib_dir = $basedirs[$i] . "/lib";
+                     if (not -d $lib_dir) {
+                         if (not mkdir $lib_dir) {
+                             my $status = STATUS_ENVIRONMENT_FAILURE;
+                             say("ERROR: $who_am_i mkdir '$lib_dir' failed : $!");
+                             run_end($status);
+                         }
+                     }
+                     my $plugin_dir = $lib_dir . "/plugin";
+                     if (not -d $plugin_dir) {
+                         if (not mkdir $plugin_dir) {
+                             say("ERROR: $who_am_i mkdir '$plugin_dir' failed : $!");
+                             my $status = STATUS_ENVIRONMENT_FAILURE;
+                             run_end($status);
+                         }
+                     }
+                     $plugin_dir = $plugin_dir . '/';
+                     if (-d $basedirs[$i] . 'plugin') {
+                         # Seems to be some in source or out of source build.
+                         my $file_pattern = $basedirs[$i] . '/plugin/*/*.so';
+                         # my $cmd = "cp -s " . $file_pattern . " " . $plugin_dir;
+                         my $cmd = 'if [ `ls -d ' . $file_pattern . ' | wc -l` -gt 0 ] ; then cp -s ' .
+                                   $file_pattern . ' ' . $plugin_dir . "; fi";
+                         my $rc = system($cmd);
+                         say("WARNING: $who_am_i The command to symlink plugins showed problems " .
+                             "(frequent harmless).") if $rc > 0;
+                     }
+                 }
+             }
+        }
+    }
+    return @basedirs;
+}
+
+sub expand_basedirs {
+# To be called by rqg.pl only.
+    my @basedirs = @_;
+    if ((not defined $basedirs[0] or $basedirs[0] eq '') and
+        (defined $basedirs[1] and $basedirs[1] ne '')       ) {
+        say("DEBUG: \$basedirs[0] is not defined or eq ''. Setting it to '$basedirs[1]'.");
+        $basedirs[0] = $basedirs[1];
+    }
+    # $basedirs[0] should have now a defined value and that value is != ''.
+    # Assign that value to all $basedirs[$] which have an undef value or value == ''.
+    foreach my $i (1..3) {
+        if (not defined $basedirs[$i] or $basedirs[$i] eq '') {
+            $basedirs[$i] = $basedirs[0];
+        }
+    }
+    # Auxiliary::print_list("INFO: RQG basedirs after expansion ", @basedirs);
+    return @basedirs;
+}
 
 ####################################################################################################
 # Certain constants related to whatever kinds of replication

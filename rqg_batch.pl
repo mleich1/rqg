@@ -118,7 +118,6 @@ use ResourceControl;
 # Name of the convenience symlink if symlinking supported by OS
 use constant BATCH_WORKDIR_SYMLINK    => 'last_batch_workdir';
 
-
 my $command_line= "$0 ".join(" ", @ARGV);
 
 $| = 1;
@@ -417,7 +416,6 @@ if (defined $rr_options) {
 
 
 # FIXME:
-# Make this parameter configurable.
 # Hard (apply no matter what duration is) or soft (adjust how?) border?
 # Set in call line --> apply to all RQG runs started. What if duration in config file and bigger?
 # Set in config file                 --> apply in general ?
@@ -431,27 +429,16 @@ check_and_set_config_file();
 my $cl_end = ' ';
 
 # $basedir_info is required for result.txt and setup.txt.
+# MLMLMLML
 my $basedir_info = '';
 # For testing:
 # $basedirs[1] = '/weg';
+
+# check_basedirs exits in case of failure.
+@basedirs = Auxiliary::check_basedirs(@basedirs);
 foreach my $i (1..3) {
-    $basedir_info .= "basedir" . $i . ": ";
-    if (not defined $basedirs[$i]) {
-        $basedir_info .= "<undef>\n";
-        next;
-    } elsif ('' eq $basedirs[$i]) {
-        $basedir_info .= "<empty>\n";
-        next;
-    } else {
-        $basedir_info .= "$basedirs[$i]\n";
-        if (-d $basedirs[$i]) {
-            $cl_end .= "--basedir" . "$i" . "=" . $basedirs[$i] . " ";
-        } else {
-            say("ERROR: basedir" . $i . " is set to '" . $basedirs[$i] .
-                "' but does not exist or is not a directory.");
-            safe_exit(STATUS_ENVIRONMENT_FAILURE);
-        }
-    }
+    $cl_end .= "--basedir" . "$i" . "=" . $basedirs[$i] . " "
+       if defined $basedirs[$i] and $basedirs[$i] ne '';
 }
 
 # say("cl_end ->$cl_end<-");
@@ -465,6 +452,18 @@ if (not defined $workdir) {
     my $status = STATUS_ENVIRONMENT_FAILURE;
     say("ERROR: Making the multi_runner_infrastructure failed. Abort");
     safe_exit($status);
+}
+
+my $info;
+$info = "INFO: RQG_HOME   : ->" . $rqg_home . "<- ";
+$info .= Auxiliary::get_git_info($rqg_home);
+$info .= "\n" . Auxiliary::get_all_basedir_infos(@basedirs);
+say($info);
+# Replace INFO (typical for logs) with '$iso_ts '(better for summaries)'.
+my $iso_ts = isoTimestamp();
+$info =~ s/INFO: /$iso_ts /g;
+if (STATUS_OK != Auxiliary::make_file($workdir . "/" . Auxiliary::SOURCE_INFO_FILE, $info)) {
+    safe_exit(STATUS_ENVIRONMENT_FAILURE);
 }
 
 
@@ -717,9 +716,9 @@ if (not -f $full_verdict_setup) {
     safe_exit(STATUS_INTERNAL_ERROR);
 }
 if      ($Batch::batch_type eq Batch::BATCH_TYPE_COMBINATOR) {
-    Combinator::init($config_file, $workdir, $full_verdict_setup, $basedir_info);
+    Combinator::init($config_file, $workdir);
 } elsif ($Batch::batch_type eq Batch::BATCH_TYPE_RQG_SIMPLIFIER) {
-    Simplifier::init($config_file, $workdir, $full_verdict_setup, $basedir_info);
+    Simplifier::init($config_file, $workdir);
 } else {
     say("INTERNAL ERROR: The batch type '$Batch::batch_type' is unknown. Abort");
     safe_exit(4);
@@ -1363,15 +1362,6 @@ while (Batch::reap_workers()) {
 Batch::process_finished_runs();
 Batch::dump_try_hashes() if Auxiliary::script_debug("T3");
 # dump_orders();
-
-if ($Batch::give_up < 2) {
-    my $summary_cmd = "$rqg_home/util/issue_grep.sh $workdir batch";
-    # I do not care if creating or filling the summary files fails because the main
-    # - work is already done with success
-    # - share of information given from now on does not require a proper working
-    #   OS, file system etc.
-    system($summary_cmd);
-}
 
 my $best_verdict;
 $best_verdict = '--';

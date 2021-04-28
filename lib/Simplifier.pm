@@ -16,8 +16,6 @@
 # USA
 #
 
-package Simplifier;
-
 # Note about history and future of this script
 # --------------------------------------------
 # The concept and code here is only in some portions based on
@@ -31,24 +29,30 @@ package Simplifier;
 # not that stable.
 #
 
+package Simplifier;
+
 use strict;
 use warnings;
 use lib 'lib';
 use lib '../lib';
 use DBI;
 use Carp;
-use Getopt::Long;
 use Data::Dumper;
+use Getopt::Long;
+use Time::HiRes;
 
+use Auxiliary;
+use Batch;
 use GenTest;
 use GenTest::Constants;
 use GenTest::Grammar;
-use Batch;
-use Auxiliary;
-use Verdict;
 use GenTest::Properties;
 use GenTest::Simplifier::Grammar_advanced;
-use Time::HiRes;
+use Verdict;
+
+# We work on the copy of the config file to be provided by rqg_batch.pl
+# ---------------------------------------------------------------------
+use constant CONFIG_COPY_NAME       => 'Simplifier.cfg';
 
 # Simplification phases, mode and the *_success variables
 # -------------------------------------------------------
@@ -262,7 +266,7 @@ my @order_array = ();
 # index is the id of creation in generate_order
 #
 # ORDER_EFFORTS_INVESTED
-# Number of RQG runs for that orderid or sum of their runtimes
+# Number of regular finished RQG runs for some orderid
 use constant ORDER_EFFORTS_INVESTED  => 0;
 
 # ORDER_PROPERTY1
@@ -289,11 +293,6 @@ use constant ORDER_PROPERTY3         => 3;
 #    --> Stop all ongoing RQG runs using that order and
 #        move the order id into %try_exhausted_hash + remove it from other hashes.
 use constant ORDER_EFFORTS_LEFT_OVER => 4;
-
-my $workdir;
-
-my $config_file;
-my $config_file_copy_rel  = "simplifier.cfg";
 
 # Constants serving for more convenient printing of results in table layout
 # -------------------------------------------------------------------------
@@ -550,21 +549,23 @@ my %transformer_hash;
 my @validator_array;
 my %validator_hash;
 
-
 $| = 1;
 
+my $config_file;
+my $workdir;
+
 sub init {
-    ($config_file, $workdir, my $verdict_setup, my $basedir_info) = @_;
+    ($config_file, $workdir) = @_;
     # Based on the facts that
     # - Combinator/Simplifier init gets called before any Worker is running
     # - this init will be never called again
     # we can run safe_exit($status) and do not need to initiate an emergency_exit.
     #
     my $who_am_i = "Simplifier::init:";
-    if (4 != scalar @_) {
+    if (2 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: $who_am_i Four parameters " .
-                    "(config_file, workdir, verdict_setup, basedir_info) are required.");
+                    "(config_file, workdir) are required.");
         safe_exit($status);
     }
 
@@ -599,18 +600,42 @@ sub init {
         safe_exit($status);
     }
 
-    if (not defined $verdict_setup or '' eq $verdict_setup) {
+    my $verdict_file = $workdir . "/" . Verdict::VERDICT_CONFIG_FILE;
+    if (not -f $verdict_file) {
+        my $status = STATUS_INTERNAL_ERROR;
+        say("INTERNAL ERROR: The verdictfile '$verdict_file' does not exist or is " .
+            "not a plain file.");
+        Batch::emergency_exit($status);
+    }
+
+    my $source_info_file = $workdir . "/" . Auxiliary::SOURCE_INFO_FILE;
+    if (not -f $source_info_file) {
+        my $status = STATUS_INTERNAL_ERROR;
+        say("INTERNAL ERROR: The file '$source_info_file' with information about RQG and Server " .
+            "directories and and Git information does not exist or is not a plain file.");
+        Batch::emergency_exit($status);
+    }
+
+    my $config_file_copy = $workdir . "/" . CONFIG_COPY_NAME;
+    if (not File::Copy::copy($config_file, $config_file_copy)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i \$verdict_setup is undef or '' " .
+        say("ERROR: Copying the config file '$config_file' to '$config_file_copy' failed : $!. " .
             Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
-    if (not defined $basedir_info or '' eq $basedir_info) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i \$basedir_info is undef or '' " .
-            Auxiliary::exit_status_text($status));
-        safe_exit($status);
-    }
+
+#   if (not defined $verdict_setup or '' eq $verdict_setup) {
+#       my $status = STATUS_ENVIRONMENT_FAILURE;
+#       say("ERROR: $who_am_i \$verdict_setup is undef or '' " .
+#           Auxiliary::exit_status_text($status));
+#       safe_exit($status);
+#   }
+#   if (not defined $basedir_info or '' eq $basedir_info) {
+#       my $status = STATUS_ENVIRONMENT_FAILURE;
+#       say("ERROR: $who_am_i \$basedir_info is undef or '' " .
+#           Auxiliary::exit_status_text($status));
+#       safe_exit($status);
+#   }
 
 
 # ---------------------------------------------
@@ -700,7 +725,9 @@ sub init {
     # We work with the copy only!
     # config_file_copy
     #   'seed=s'                    => \$seed,                  # Handled here
-    $options->{'config'} = $config_file;
+
+
+    $options->{'config'} = $config_file_copy;
     my $config = GenTest::Properties->new(
         options     => $options,
         legal       => [
@@ -863,8 +890,8 @@ sub init {
     my $bad_trials = $config->rqg_options->{'trials'};
     if (defined $bad_trials) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: trials found between 'rqg_options'. This is wrong. Abort. " .
-            Auxiliary::exit_status_text($status));
+        say("ERROR: trials found between 'rqg_options'. The Simplifier does not support that. " .
+            "Abort. " . Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
 
@@ -1137,22 +1164,25 @@ sub init {
     # - creation of parent grammar file fails
     make_parent_from_string ($grammar_string);
     say("Grammar ->$grammar_string<-") if Auxiliary::script_debug("S4");
-
-    my $iso_ts = isoTimestamp();
-    $verdict_setup = Auxiliary::getFileSlice($verdict_setup, 1000000);
-    $verdict_setup =~ s/^/$iso_ts /gm;
-    $basedir_info  =~ s/^/$iso_ts /gm;
     my $g_flags;
     if (not defined $grammar_flags) {
         $g_flags = '<undef>';
     } else {
         $g_flags = $grammar_flags;
     }
+
+    my $verdict_setup = Auxiliary::getFileSlice(    $verdict_file, 1000000);
+    my $source_info   = Auxiliary::getFileSlice($source_info_file, 1000000);
+    my $iso_ts = isoTimestamp();
+    $verdict_setup =~ s/^/$iso_ts /gm;
     my $header =
 "$iso_ts Simplifier init ================================================================================================\n" .
-"$iso_ts workdir                                         : '$workdir'\n"                                                     .
-"$iso_ts config_file (assigned)                          : '$config_file'\n"                                                 .
-"$iso_ts config file (processed + is copy of above)      : '$config_file_copy_rel'\n"                                        .
+"$iso_ts workdir                                  : '$workdir'\n"                                                            .
+"$iso_ts config_file assigned                     : '$config_file'\n"                                                        .
+"$iso_ts config file processed (is copy of above) : '$config_file_copy'\n"                                                   .
+"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
+$source_info                                                                                                                .
+"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
 "$iso_ts duration (maybe adjusted during simplification) : $duration seconds (Default " . DURATION_DEFAULT . ")\n"           .
 "$iso_ts queries                                         : $queries (Default " . QUERIES_DEFAULT . ")\n"                     .
 "$iso_ts threads                                         : $threads (Default " . THREADS_DEFAULT . ")\n"                     .
@@ -1171,8 +1201,6 @@ sub init {
 "$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
 "$iso_ts Verdict setup\n"                                                                                                    .
 $verdict_setup                                                                                                               .
-"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
-$basedir_info                                                                                                                .
 "$iso_ts ================================================================================================================\n" ;
     Batch::write_result($header);
     Batch::write_setup($header);

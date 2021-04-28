@@ -41,26 +41,30 @@
 package Combinator;
 
 use strict;
+use warnings;
+use lib 'lib';
+
 use Carp;
-#use List::Util 'shuffle';
 use Cwd;
-use Time::HiRes;
-use POSIX ":sys_wait_h"; # for nonblocking read
+use Data::Dumper;
+use Getopt::Long;
+#use List::Util 'shuffle';
 use File::Basename;
 use File::Path qw(make_path);
 use File::Copy;
-use lib 'lib';
-# use lib "$ENV{RQG_HOME}/lib";
+use POSIX ":sys_wait_h"; # for nonblocking read
+use Time::HiRes;
+
 use Auxiliary;
-use Verdict;
 use Batch;
 use GenTest;
-use GenTest::Random;
 use GenTest::Constants;
-use Getopt::Long;
-use Data::Dumper;
+use GenTest::Random;
+use Verdict;
 
-my $script_debug = 1;
+# We work on the copy of the config file to be provided by rqg_batch.pl
+# ---------------------------------------------------------------------
+use constant CONFIG_COPY_NAME => 'Combinator.cfg';
 
 # Structure for managing orders
 # -----------------------------
@@ -85,7 +89,7 @@ my $script_debug = 1;
 #      - the order had success on the previous execution but it was a second "winner", so its
 #        simplification could be not applied. But trying again is highly recommended.
 #    - tries to get a faster simplification via bookkeeping about efforts invested in orders.
-# 2. Independent of the goal of the batch run the parent might be forced to stop some ongoing
+# 2. Independent of the goal of the batch run the batch tool might be forced to stop some ongoing
 #    RQG worker in order to avoid to run into trouble with resources (free space in vardir etc.).
 #    In case of
 #    - grammar simplification we would have stopped some of the in theory most promising
@@ -100,7 +104,7 @@ my @order_array = ();
 # index is the id of creation in generate_order
 #
 # ORDER_EFFORTS_INVESTED
-# Number or sum of runtimes of executions which finished regular
+# Number of regular finished RQG runs
 use constant ORDER_EFFORTS_INVESTED => 0;
 #
 # ORDER_EFFORTS_LEFT
@@ -126,11 +130,8 @@ use constant ORDER_PROPERTY2        => 3;
 use constant ORDER_PROPERTY3        => 4;
 
 
-my $config_file;
-my $config_file_copy_rel  = "combinations.cc";
 
 our $combinations; # Otherwise the 'eval' in the sub 'init' makes trouble.
-my $workdir;
 
 # Maximum number of regular finished RQG runs (!= stopped)
 my $trials;
@@ -167,23 +168,26 @@ sub free_memory {
     @order_array = ();
 }
 
+
+my $config_file;
+my $workdir;
 sub init {
-    ($config_file, $workdir, my $verdict_setup, my $basedir_info) = @_;
+    ($config_file, $workdir) = @_;
     # Based on the facts that
     # - Combinator/Simplifier init gets called before any Worker is running
     # - this init will be never called again
     # we can run safe_exit($status) and do not need to initiate an emergency_exit.
     #
     my $who_am_i = "Combinator::init:";
-    if (4 != scalar @_) {
+    if (2 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: $who_am_i Four parameters " .
-                    "(config_file, workdir, verdict_setup, basedir_info) are required.");
+                    "(config_file, workdir) are required.");
         safe_exit($status);
     }
 
     Carp::cluck("# " . isoTimestamp() . " DEBUG: $who_am_i Entering routine with variables " .
-                "(config_file, workdir, verdict_setup, basedir_info)")
+                "(config_file, workdir)")
         if Auxiliary::script_debug("C1");
 
     # Check the easy stuff first.
@@ -213,9 +217,26 @@ sub init {
         safe_exit($status);
     }
 
-    if (not defined $verdict_setup or '' eq $verdict_setup) {
+    my $verdict_file = $workdir . "/" . Verdict::VERDICT_CONFIG_FILE;
+    if (not -f $verdict_file) {
+        my $status = STATUS_INTERNAL_ERROR;
+        say("INTERNAL ERROR: The verdictfile '$verdict_file' does not exist or is " .
+            "not a plain file.");
+        Batch::emergency_exit($status);
+    }
+
+    my $source_info_file = $workdir . "/" . Auxiliary::SOURCE_INFO_FILE;
+    if (not -f $source_info_file) {
+        my $status = STATUS_INTERNAL_ERROR;
+        say("INTERNAL ERROR: The file '$source_info_file' with information about RQG and Server " .
+            "directories and and Git information does not exist or is not a plain file.");
+        Batch::emergency_exit($status);
+    }
+
+    my $config_file_copy = $workdir . "/" . CONFIG_COPY_NAME;
+    if (not File::Copy::copy($config_file, $config_file_copy)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i \$verdict_setup is undef or '' " .
+        say("ERROR: Copying the config file '$config_file' to '$config_file_copy' failed : $!. " .
             Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
@@ -298,13 +319,13 @@ sub init {
     }
 
     # We work with the copy only!
-    if (not open (CONF, $config_file)) {
+    if (not open (CONF, $config_file_copy)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i Unable to open config file copy '$config_file': $! " .
+        say("ERROR: $who_am_i Unable to open config file copy '$config_file_copy': $! " .
             Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
-    read(CONF, my $config_text, -s $config_file);
+    read(CONF, my $config_text, -s $config_file_copy);
     close(CONF);
 
     # For experiments:
@@ -377,15 +398,18 @@ sub init {
     }
     $left_over_trials = $trials;
 
-    $verdict_setup = Auxiliary::getFileSlice($verdict_setup, 1000000);
+    my $verdict_setup = Auxiliary::getFileSlice(    $verdict_file, 1000000);
+    my $source_info   = Auxiliary::getFileSlice($source_info_file, 1000000);
     my $iso_ts = isoTimestamp();
     $verdict_setup =~ s/^/$iso_ts /gm;
-    $basedir_info  =~ s/^/$iso_ts /gm;
     my $header =
 "$iso_ts Combinator init ================================================================================================\n" .
-"$iso_ts workdir                        : '$workdir'\n"                                                                      .
-"$iso_ts config_file (assigned)         : '$config_file'\n"                                                                  .
-"$iso_ts config file (copy used)        : '$config_file_copy_rel'\n"                                                         .
+"$iso_ts workdir                                  : '$workdir'\n"                                                            .
+"$iso_ts config_file assigned                     : '$config_file'\n"                                                        .
+"$iso_ts config file processed (is copy of above) : '$config_file_copy'\n"                                                   .
+"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
+$source_info                                                                                                                 .
+"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
 "$iso_ts seed (compute combinations)    : $seed\n"                                                                           .
 "$iso_ts exhaustive                     : $exhaustive\n"                                                                     .
 "$iso_ts noshuffle                      : $noshuffle\n"                                                                      .
@@ -399,8 +423,6 @@ sub init {
 "$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
 "$iso_ts Verdict setup\n"                                                                                                    .
 $verdict_setup                                                                                                               .
-"$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
-$basedir_info                                                                                                                .
 "$iso_ts ================================================================================================================\n" ;
 Batch::write_result($header);
 Batch::write_setup($header);
@@ -553,16 +575,8 @@ sub doCombination {
         # Protect the double quotes
         $command =~ s{"}{\\"}sgio;
 
-        # We had in combinations.pl a remove repeated spaces.
-        #   while ($command =~ s/\s\s/ /g) {};
-        # But this is capable to destroy the black/whitelist_patterns assigned.
-        # Fragments of orders like "--views     --validators=none     --redefine" are
-        # ugly and make printouts too long.
-        # Even a     $command =~ s{  *--}{ --}sg;   could destroy these patterns.
-        # Heading spaces
-        $command =~ s{^ *}{}sg;
-        # Trailing spaces
-        $command =~ s{ *$}{}sg;
+        # We had in combinations.pl around here a remove repeated spaces.
+        # This is now in rqg_batch.pl.
 
         add_order($command, $comb_counter, '_unused_');
         return 1;

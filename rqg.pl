@@ -585,7 +585,7 @@ if (not defined $no_mask) {
 }
 
 $grammar_file = Auxiliary::unify_grammar($grammar_file, $redefine_ref, $workdir,
-                                      $skip_recursive_rules, $mask, $mask_level);
+                                         $skip_recursive_rules, $mask, $mask_level);
 if (not defined $grammar_file) {
     say("ERROR: unify_grammar failed.");
     my $status = STATUS_ENVIRONMENT_FAILURE;
@@ -693,7 +693,7 @@ say("INFO: Number of servers involved = $number_of_servers. (0 means unknown)");
 #    nothing else than a defined $basedirs[0].
 # --- After decomposition if required ---
 # 3. Server get counted starting with 1.
-# 4. Server <n> -> $basedirs[<n>] ->  vardirs[<n>]
+# 4. Server <n> -> $basedirs[<n>] -> vardirs[<n>]
 # 5. In case $basedirs[<n>] is required but nothing was assigned than take $basedirs[0] in case
 #    that was assigned. Otherwise abort.
 # 6. We could end up with
@@ -711,96 +711,20 @@ say("INFO: Number of servers involved = $number_of_servers. (0 means unknown)");
 # we might meet
 # - undef   Example: --basedir1= --> $basedirs[1] is not defined
 # - ''      Example: <tool> --basedir1= --> tool gets undef for variable but sets to default ''
-Auxiliary::print_list("INFO: Early RQG basedirs ",  @basedirs);
-if ((not defined $basedirs[0] or $basedirs[0] eq '') and
-    (not defined $basedirs[1] or $basedirs[1] eq '')    ) {
-    # We need in minimum the server 1 and for it a basedir.
-    say("ERROR: Neither basedir nor basedir1 is defined.");
-    help();
-    my $status = STATUS_ENVIRONMENT_FAILURE;
-    run_end($status);
-}
-if ($#basedirs == 0) {
-    if (not defined $basedirs[0] or $basedirs[0] eq '') {
-        say("\nERROR: Neither basedir nor basedir1 is defined\n.");
-        help();
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        run_end($status);
-    } else {
-        # There might be several basedirs put into $basedirs[0]
-        Auxiliary::print_list("DEBUG: Initial RQG basedirs ", @basedirs);
-        my $list_ref = Auxiliary::input_to_list(@basedirs);
-        if(defined $list_ref) {
-            @basedirs = @$list_ref;
-        } else {
-            say("ERROR: Auxiliary::input_to_list hit problems we cannot handle. " .
-                "Will exit with STATUS_ENVIRONMENT_FAILURE.");
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            run_end($status);
-        }
-    }
-}
 
-#
-# Rule of thumb with some comfort and some fault tolerance.
-# 1. If $basedirs[0] not defined or eq '' and $basedirs[1] defined and ne '' (ensured above)
-#    than set $basedirs[0] = $basedirs[1].
-if ((not defined $basedirs[0] or $basedirs[0] eq '') and
-    (defined $basedirs[1] and $basedirs[1] ne '')       ) {
-    say("DEBUG: \$basedirs[0] is not defined or eq ''. Setting it to \$basedirs[1] '$basedirs[1]'.");
-    $basedirs[0] = $basedirs[1];
-}
-# 2. Set any required $basedirs[n] but not defined or eq '' = $basedirs[0].
-#    This should also cover the old coding
-#    if ($upgrade_test and $basedirs[2] eq '') {
-#       $basedirs[2] = $basedirs[0];
-#       say("DEBUG: Setting basedirs[2] to basedirs[0] : $basedirs[0]");
-#    }
-#
-# 3. Warn and set to undef what is non sense like a basedir for some never started server.
-#
-# Current code might work wrong in case of upgrade test or Galera.
-foreach my $i (1..3) {
-    if ($i <= $number_of_servers) {
-        if (not defined $basedirs[$i] or $basedirs[$i] eq '') {
-            say("DEBUG: \$basedirs[$i] is not defined or ''. " .
-                "Setting it to \$basedirs[0] : '\$basedirs[0]'.");
-            $basedirs[$i] = $basedirs[0];
-        };
-    } else {
-        # $i is bigger than $number_of_servers
-        if (defined $basedirs[$i] and $basedirs[$i] ne '') {
-            say("WARN: \$basedirs[$i] is defined and ne ''. Setting it to undef.");
-            $basedirs[$i] = undef;
-        };
-    }
-}
-Auxiliary::print_list("INFO: Final RQG basedirs ", @basedirs);
-foreach my $i (0..3) {
-    if ((defined $basedirs[$i] and $basedirs[$i] ne '') and
-        (not -d $basedirs[$i])                             ) {
-        say("ERROR: $basedirs[$i] is defined and ne '' but does not exist or is not a directory.");
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        run_end($status);
-    }
-}
+# check_basedirs exits in case of failure.
+@basedirs = Auxiliary::check_basedirs(@basedirs);
+say("MLML->" . join("<->", @basedirs) . "<-");
+@basedirs = Auxiliary::expand_basedirs(@basedirs);
+say("MLML->" . join("<->", @basedirs) . "<-");
 
-say("INFO: RQG_HOME '$rqg_home' ----------");
-$status = Auxiliary::get_git_info($rqg_home, '$rqg_home');
-if ($status > STATUS_CRITICAL_FAILURE) {
-    Carp::cluck("ERROR: get_git_info returned a critical failure. Will exit with that status.");
-    run_end($status);
-} elsif (STATUS_OK != $status) {
-    say("DEBUG: Trouble with git. But no reason to abort.");
-} else {
-}
-foreach my $i (0..2) {
-    say("INFO: basedir[$i] : " . (defined $basedirs[$i] ?
-        $basedirs[$i] . " ----" :
-        '<undef>' . " ------------------------------" ));
-    $status = Auxiliary::get_basedir_info($basedirs[$i], "basedirs[$i]");
-}
-
+my $info;
+$info = "INFO: RQG_HOME   : ->" . $rqg_home . "<- ";
+# get_git_info exits in case of failure.
+$info .= Auxiliary::get_git_info($rqg_home);
+# Routines called by get_all_basedir_infos exit in case of failure.
+$info .= "\n" . Auxiliary::get_all_basedir_infos(@basedirs);
+say($info);
 
 # Other semantics ?
 # $vardirs[0] set
@@ -843,7 +767,6 @@ foreach my $number (1..$number_of_servers) {
 }
 Auxiliary::print_list("INFO: Final RQG vardirs ",  @vardirs);
 
-
 # We need a directory where the RQG run could store temporary files and do that by setting
 # the environment variable TMP to some directory which is specific for the RQG run
 # before (REQUIRED) calling GenTest the first time.
@@ -881,7 +804,9 @@ say("tmpdir in DBServer ->" . DBServer::DBServer::tmpdir() . "<-");
 
 ## Make sure that "default" values ([0]) are also set, for compatibility,
 ## in case they are used somewhere
-$basedirs[0] ||= $basedirs[1];
+## Already done by expand_basedirs
+# $basedirs[0] ||= $basedirs[1];
+
 # All vardirs get explicite managed by rqg.pl or ingredients.
 # $vardirs[0]  ||= $vardirs[1];
 # Auxiliary::print_list("INFO: Now 1 RQG vardirs ",  @vardirs);
@@ -950,6 +875,7 @@ shift @views;
 shift @engine;
 
 my $client_basedir;
+
 
 # We take all required clients out of $basedirs[0].
 foreach my $path ("$basedirs[0]/client/RelWithDebInfo",
@@ -1777,6 +1703,43 @@ if ($final_result == STATUS_OK) {
     $message = "RQG GenData runtime in s : " . (time() - $start_time);
     $summary .= "SUMMARY: $message\n";
     say("INFO: " . $message);
+
+    # Dump here the inital content
+    if ($final_result == STATUS_OK) {
+        my @dump_files;
+        # For testing:
+        # system("killall -9 mysqld mariadbd; sleep 3");
+        my $i = 0;
+        # foreach my $i (0..$#server) {
+            # # Any server needs his own exlusive dumpfile. This is ensured by the '$i'.
+            # # As soon as the caller takes care that any running rqg.pl uses his own exclusive
+            # # $rqg_vardir and $rqg_wordir + dumpfiles in $rqg_vardir it must be clash free.
+            # # The numbering of servers -> name of subdir for data etc. starts with 1!
+            my $result = $server[$i]->nonSystemDatabases1;
+            if (not defined $result) {
+                say("ERROR: Trouble running SQL on Server " . ($i + 1) .
+                    ". Will exit with STATUS_ALARM");
+                exit_test(STATUS_ALARM);
+            } else {
+                my @schema_list = @{$result};
+                my $databases_string = join(' ', @{$result});
+                  say("DEBUG: databases_string ->$databases_string<-");
+                # $vardirs[$server_id+1],
+                my $dump_prefix =  $vardirs[$i + 1] . "/after_gendata";
+                my $dump_options = "--force --hex-blob --no-tablespaces --compact --order-by-primary ".
+                                   "--skip-extended-insert --databases $databases_string";
+                my $dump_result = $server[$i]->dumpSomething("$dump_options", $dump_prefix);
+                if ( $dump_result > 0 ) {
+                    my $status = STATUS_CRITICAL_FAILURE;
+                    say("ERROR: 'mysqldump' failed. Will return status : " .
+                        status2text($status) . "($status).");
+                    return $status;
+                }
+            }
+        # }
+    }
+
+
 }
 
 if ($final_result > STATUS_OK) {
@@ -1856,6 +1819,9 @@ if (($final_result == STATUS_OK)                         and
         # There is nothing to do for RQG builtin statement based replication.
     }
 
+#   foreach my $i (0..$#server) {
+#      say("MLML: server " . $server[$i])
+#   }
     # The facts that
     # - the servers are running (detection of trouble in gentest)
     # - reporters and validators did not detect trouble during gentest runtime
