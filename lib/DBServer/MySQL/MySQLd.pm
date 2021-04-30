@@ -30,8 +30,8 @@ package DBServer::MySQL::MySQLd;
 # - gentest -- backtracing gets initiated by GenTest based on the reporter Backtrace
 # - some reporter Reporter initiates a shutdown or TERM server
 # - when stopping the servers smooth after GenTest
+# Hint: Backtraces of mariabackup are also needed.
 #
-
 
 @ISA = qw(DBServer::DBServer);
 
@@ -107,6 +107,7 @@ use constant MYSQLD_WINDOWS_PROCESS_STILLALIVE   => 259;
 #
 # Maximum timespan between time of kill TERM for server process and the time the server process
 # should have disappeared.
+use constant DEFAULT_SHUTDOWN_TIMEOUT            => 90;
 use constant DEFAULT_TERM_TIMEOUT                => 60;
 # Maximum timespan between time of fork of auxiliary process + acceptable start time of some
 # tool (rr etc. if needed at all) and the pid getting printed into the server error log.
@@ -512,7 +513,7 @@ sub createMysqlBase  {
     my @cleaned_boot_options;
     foreach my $boot_option (@$boot_options) {
         if ($boot_option =~ m{.*innodb_force_recovery} or
-            $boot_option =~ m{.*innodb-force-recovery})   {
+            $boot_option =~ m{.*innodb-force-recovery}   )   {
             say("DEBUG: -->" . $boot_option . "<-- will be removed from the bootstrap options.");
             next;
         } else {
@@ -1505,9 +1506,9 @@ sub binary {
 
 sub stopServer {
     my ($self, $shutdown_timeout) = @_;
-    $shutdown_timeout = 60 unless defined $shutdown_timeout;
+    $shutdown_timeout = DEFAULT_SHUTDOWN_TIMEOUT unless defined $shutdown_timeout;
     $shutdown_timeout = $shutdown_timeout * Runtime::get_runtime_factor();
-    my $errorlog = $self->errorlog;
+    my $errorlog      = $self->errorlog;
     my $check_shutdown = 0;
     my $res;
 

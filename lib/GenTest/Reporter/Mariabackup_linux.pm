@@ -240,10 +240,19 @@ sub monitor {
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
-    $backup_binary = $backup_binary . " --host=127.0.0.1 --user=root --password='' ";
+    # $backup_binary = $backup_binary . " --host=127.0.0.1 --user=root --password='' ";
+    # --log-innodb-page-corruption
+    #                   Continue backup if innodb corrupted pages are found. The
+    #                   pages are logged in innodb_corrupted_pages and backup is
+    #                   finished with error. --prepare will try to fix corrupted
+    #                   pages. If innodb_corrupted_pages exists after --prepare
+    #                   in base backup directory, backup still contains corrupted
+    #                   pages and can not be considered as consistent.
+    # --log-innodb-page-corruption just gives more detailed information.
+    $backup_binary .= " --host=127.0.0.1 --user=root --password='' --log-innodb-page-corruption ";
 
     if (not osWindows()) {
-        $backup_binary = $backup_binary . " --innodb-use-native-aio=0 ";
+        $backup_binary .= " --innodb-use-native-aio=0 ";
     }
 
     my $rr =          $reporter->properties->rr();
@@ -332,6 +341,33 @@ sub monitor {
         }
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
         return $status;
+    }
+
+    # Mariabackup --backup could report something like
+    # # 2021-03-24T17:48:38 [3315224] | [00] 2021-03-24 17:48:10 Copying ./test/oltp1.ibd to /dev/shm/vardir/1616598218/209/1_clone/data/test/oltp1.new
+    # 2021-03-24T17:48:38 [3315224] | [00] 2021-03-24 17:48:10 Database page corruption detected at page 1, retrying...
+    # ....
+    # Error: failed to read page after 10 retries. File ./test/oltp1.ibd seems to be corrupted.
+    # ...
+    # [00] 2021-03-24 17:48:23 completed OK!
+    # and give exit code 0.
+    # In QA I cannot live with that.
+    my $found = Auxiliary::search_in_file($reporter_prt, 'Error: failed to read page after 10 retries. File .{1,200} seems to be corrupted.');
+    if (not defined $found) {
+        # Technical problems!
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        direct_to_std();
+        say("FATAL ERROR: $who_am_i \$found is undef. " .
+            "Will exit with STATUS_ENVIRONMENT_FAILURE.");
+        exit $status;
+    } elsif ($found) {
+        direct_to_std();
+        say("INFO: $who_am_i corrupted file detected. " .
+            "Will exit with STATUS_BACKUP_FAILURE.");
+        sayFile($reporter_prt);
+        exit STATUS_BACKUP_FAILURE;
+    } else {
+        # Nothing to do
     }
 
     # FIXME: Replace by some portable solution located in Auxiliary.pm.
@@ -585,6 +621,7 @@ sub monitor {
             if (defined $clone_dbh->err() and $clone_dbh->err() > 0) {
                 direct_to_std();
                 say("ERROR: $who_am_i : '$sql' failed with : " . $clone_dbh->err());
+                $clone_dbh->disconnect();
                 sayFile($clone_err);
                 sayFile($reporter_prt);
                 # The damage is some corruption.

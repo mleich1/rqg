@@ -289,6 +289,24 @@ sub report {
                 my $key_name = $key_hashref->{Key_name};
                 my $column_name = $key_hashref->{Column_name};
 
+                # What follows is correct in case the column has really the data type derived from
+                # a snip of its name.
+                # But its expected to fail like
+                #        ERROR: SELECT * FROM `test`.`AA` FORCE INDEX (`col_int_nokey`) WHERE `col_int_nokey` >= -9223372036854775808
+                #        4078: Illegal parameter data types multipolygon and bigint for operation '>='.
+                # in case
+                # - renaming of columns or alter scrambles that == The grammar/redefines are problematic.
+                # - the simplifier in destructive mode could also scramble it like
+                #   CREATE TABLE .... (
+                #      { $name = 'c1_int ; $type = 'INT' } $name $type ,
+                #      <ruleA setting  $name = 'c1_char'> <ruleB setting $type = 'VARCHAR(10)'> $name $type
+                #   ...
+                #   The simplifier shrinks and we get
+                #      ruleB: ;
+                #   RQG will generate
+                #   CREATE TABLE .... (c1_int INT, c1_char INT)
+                #
+
                 # say("DEBUG: $who_am_i key_name->" . $key_name . "<- Column_name->" . $column_name . "<-");
                 foreach my $select_type ('*' , "`$column_name`") {
                     my $main_predicate;
@@ -331,8 +349,13 @@ sub report {
                 # ERROR: SELECT * FROM `cool_down`.`t1` FORCE INDEX (`Marvão_idx2`Marvão_idx2`) ... harvested 1064:
                 # ... the right syntax to use near 'Marvão_idx2`)
                 # Will return status STATUS_RECOVERY_FAILURE later.
-                if (defined $sth_rows->err()) {
-                    say("ERROR: $walk_query harvested $err: $errstr. " .
+                if (defined $err) {
+                    my $msg_snip = "$walk_query harvested $err: $errstr.";
+                    if (4078 == $err) {
+                        say("WARN: $msg_snip Will tolerate that.");
+                        next;
+                    }
+                    say("ERROR:  $msg_snip " .
                         "Will return status STATUS_RECOVERY_FAILURE later.");
                     $sth_rows->finish();
                     sayFile($server->errorlog);
