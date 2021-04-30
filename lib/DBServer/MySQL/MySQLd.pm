@@ -1380,7 +1380,7 @@ sub dumpSomething {
     my $dump_result = system("$dump_command > $dump_file 2>$err_file");
     if ($dump_result > 0) {
         say("ERROR: dump_command ->" . $dump_command . "<- failed.");
-        sayFILE($err_file);
+        sayFile($err_file);
     }
     # Command line
     # 1. mysqldump without options -> help text
