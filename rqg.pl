@@ -714,9 +714,7 @@ say("INFO: Number of servers involved = $number_of_servers. (0 means unknown)");
 
 # check_basedirs exits in case of failure.
 @basedirs = Auxiliary::check_basedirs(@basedirs);
-say("MLML->" . join("<->", @basedirs) . "<-");
 @basedirs = Auxiliary::expand_basedirs(@basedirs);
-say("MLML->" . join("<->", @basedirs) . "<-");
 
 my $info;
 $info = "INFO: RQG_HOME   : ->" . $rqg_home . "<- ";
