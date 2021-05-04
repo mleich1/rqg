@@ -14,7 +14,7 @@ Use rqg_batch.pl on some Linux
 #                                                                                                  #
 # In the rare case that this does not help than what else to do?                                   #
 #                                                                                                  #
-#     killall -9 perl ; killall -9 mysqld ; killall -9 mariadbd ; rm -rf /dev/shm/var*             #
+#   killall -9 perl ; killall -9 mysqld mariadbd rr ; killall -9 mariadbd ; rm -rf /dev/shm/var*   #
 #                                                                                                  #
 ####################################################################################################
 #                                                                                                  #
@@ -47,6 +47,7 @@ Some general recommendations
 
   RQG needs certain Perl modules (Example for Ubuntu)
   ---------------------------------------------------
+                       libdbd-mysql-perl
   sudo apt-get install libtext-csv-perl             # simplify-mysqltest for CSV files
   sudo apt-get install libfilesys-df-perl           # rqg_batch with ResourceControl
   sudo apt-get install libsys-statistics-linux-perl # rqg_batch with ResourceControl
@@ -68,6 +69,8 @@ Some general recommendations
       Let's assume rqg_batch causes excessive writing into the vardir.
       Ugly: You move the mouse and have to wait some seconds till the impact becomes visible.
             The same applies for switching to the console or login etc.
+            In case rqg_batch.pl starts some additional RQG runner than CPU idle might decrease
+            but we get some increase of CPU wait for IO instead.
 
 - Perform all types of rqg_batch.pl runs (Combinator and Simplifier) mentioned in the work flow
   on the same or at least some comparable (structure of filesystem, OS) box with the same setup of
@@ -104,7 +107,7 @@ Some general recommendations
   variables there.
   Concept:
   Be able to copy
-  - that shellscript and the a Combinator/Simplifier config file to another box
+  - that shellscript and the Combinator/Simplifier config file to another box
   - adjust the shellscript only
   - and perform there the rqg_batch.pl run.
   So better do not set basedir*, parallel etc. in config files.
@@ -126,14 +129,42 @@ Some general recommendations
   a) "overload" the CPU's by using
      - high values for parallel if doable    and/or
      - MariaDB builds with debug or ASAN or whatever else making them slow
+       Using ASAN builds was frequent surprising effective.
+       But that timespan seems to be gone.
      I guess that this often also overloads the I/O system even if working on tmpfs towards RAM.
   b) "overload" the I/O system by using
      - high values for parallel if doable    and
      - a vardir in a filesystem residing on some exceptional slow device like an internal HDD or
        even better some external backup disk (USB2?, 2.5''?)
-  Using ASAN builds was frequent surprising effective even if hunting bugs revelaled by ASAN
-  functionality was not in focus.
-  The trick with the HDD helped only roughly only once per year.
+     The trick with the HDD helped roughly only once per year.
+  c) Try builds with debug+ASAN and
+     - high compile optimization for InnoDB like "-O3"
+     - no compile optimization for other parts of MariaDB
+     Disadvantage compared to not optimized builds:
+        The analysis of core files and rr traces will be quite uncomfortable.
+     Advantage:
+         More new bugs found or old bugs replayed per time unit.
+  d) Invoke 'rr' often
+     Advantage:
+         Much comfort for analysis
+     Disadvantage:
+         Lower likelihood to find/replay bugs. Some features like aio or liburing do not work
+         with "rr".
+  My approach:
+     Favour using the tmpfs.
+     Let rqg_batch.pl with its resource control manage the overload.
+
+     Every day testing:
+         Build with asan+debug + maximum optimization "-Og"
+         2/3 of all tests invoke "rr"
+     Excessive testing:
+         Build with asan+debug + optimization for InnoDB "-O3" and for other parts of MariaDB -O0
+         Goal: See what the "limited" every day testing was not capable to catch.
+         For some bug found here try test simplification with the same build.
+     Automatic test simplification:
+         Do not invoke "rr" except its required for replaying at all. (Never seen up till today).
+         Build with asan+debug + optimization for InnoDB "-O3" and for other parts of MariaDB -O0
+         or whatever other build which offers a high likelihood to replay the problem.
 
 
 rqg_batch.pl

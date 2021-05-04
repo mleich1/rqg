@@ -3,11 +3,14 @@ This RQG version is focussed on taking care that
 - single RQG test runs with
   - serious concurrency (threads > 1) and
     invoking KILL session, KILL QUERY, COMMIT/ROLLBACK RELEASE ....
+    and a serious amount of DDL
   - intentional crashing of the server
   tend to a smaller fraction of false alarms and work more like wished
 - problem analysis becomes more comfortable and faster
-- parallel RQG test runs on the same box have a lower risk to clash on the same
-  ressources like ports and use a smaller amount of ressources possible
+- parallel RQG test runs on the same box
+  - have a (hopefully) zero risk to clash on the same ressources like ports
+  - are hopefully unable to cause trouble via resource consumption
+    except high CPU and IO load
 - grammar simplification becomes faster
 - some RQG run with "perl -w" throws significant less warnings than in history.
 
@@ -19,6 +22,7 @@ improvements to RQG were required and doable.
 
 Please excuse
 - any problems of my RQG when using it with
+  - Windows
   - complicated usage variants of Combinations
   - optimizer tests
   - sophisticated setups with Galera, whatever replication, multi server setup etc.
@@ -34,6 +38,13 @@ Please excuse
   - shows me sometimes as author of some file but it is 100% the work of Elena only.
     The reason for that is that I copied that file from one of her development trees
     into my tree.
+- that it is extreme unlikely that
+  - the commits to my RQG can be used for other RQG trees too
+  - commits to other RQG trees can be used for my RQG trees
+- that the branch
+  - "master" is "frozen"
+  - "experimental" is the one and only branch where development happens
+    I use that branch including some not yet pushed changes for InnoDB QA.
 
 
 Preparations for using RQG and my batch tool
@@ -66,7 +77,7 @@ Preparations for using RQG and my batch tool
     #
     vm.swappiness = 0
 
-    or remove the swap device.
+    or remove the swap device which is my preferred solution.
 
   - Edit /etc/sysctl.conf and add for example
         fs.aio-max-nr=99999999
@@ -108,12 +119,14 @@ Feel free to edit your version of it but never push that to the official reposit
 
 How to get a verdict about the the result of some RQG run
 ---------------------------------------------------------
+perl verdict.pl --log_file=last_batch_workdir/000001.log
+which is equivalent to
 perl verdict.pl --batch_config=verdict_general.cfg --log_file=last_batch_workdir/000001.log
 
 
 Collection of hints (under construction)
 ----------------------------------------
-1. Please be aware that the name of the exit statuses of the RQG runner (rqg.pl, runall*.pl ...)
+1. Please be aware that the names of the exit statuses of the RQG runner (rqg.pl, runall*.pl ...)
    are not 100% accurate regarding some bad effect met or its reason.
    Sometimes the name is nothing more than a more or less qualified (~ pick the most likely
    reason) guess.
@@ -169,9 +182,10 @@ Collection of hints (under construction)
 3. My preference regarding formatting in order to improve readability:
    - removal of trailing white spaces
    - line length <= 100 characters
+     Exception: Comments containing fragments of rqg or server error log
    - no use of tabs because authors frequent
      - mix tabs and spaces which looks than ugly in case you go with some different tabstop value
-     - do not agree on how many spaces a tabstop should be
+     - did not agree on how many spaces a tabstop should be
    - indentation unit of 4 white spaces
      I am aware that a few spaces more would increase the readability.
      But more spaces would also frequent cause that the line length limit of 100 is reached and
@@ -301,7 +315,7 @@ DONE (incomplete and arbitrary sorted list):
     This is required for the grammar simplifier but gives also advantages in other situations
     like archiving of data for replay attempts in future.
 11. Correct the simplifier algorithm (--> lib/GenTest/Simplifier/Grammar_advanced.pm)
-    The illegal actions:
+    The sometimes illegal actions:
     1. The simplifier tries to remove even the last non "empty string" component/alternative
        of a grammar rule.
        Examples:
@@ -336,7 +350,7 @@ DONE (incomplete and arbitrary sorted list):
 12. Use within the grammar simplifier some more dynamic amount of walk through the grammar rounds
     (--> lib/GenTest/Simplifier/Grammar_advanced.pm)
 13. Develop a program which is capable to check if the protocol of some RQG run matches the
-    blacklist/whitelist statuses/patterns setting provided.
+    wanted/unwanted statuses/patterns setting provided.
     (--> verdict.pl)
 14. https://jira.mariadb.org/browse/MDEV-16863 Extend the RQG infrastructure for backup testing
     Reporter: Mariabackup
@@ -418,13 +432,18 @@ DONE (incomplete and arbitrary sorted list):
     Example:   SELECT 13 ; ;
 19. Add some simple error tagging
     Example:
-    whitelist pattern
+    wanted pattern
     [ 'MDEV-20775' , 'InnoDB: Failing assertion: \!page_zip \|\| page_zip_validate\(page_zip, page, index\)' ],
     In case you hit a server crash + the RQG log contains the text pattern than the file
     last_batch_workdir/result.txt will contain an entry like
     2020-01-17T18:13:14 | Number | Worker | Verdict          | RQG log    | OrderId | RunTime | Derivate used      | Parent of derivate | Extra_info
     ...
     2020-01-17T18:25:00 |    284 |     67 | replay           | 000283.log |     178 |      72 | c00193.yy          | p00000.yy          | STATUS_SERVER_CRASHED--MDEV-20775
+20. Simplify also the amount of reporters, validators, transformers and threads.
+    Open:
+    Whatever simplification (grammar, reporters, ...) goes with steps doing different things.
+    - So which order of steps to use?
+    - How to avoid that we trade simplification and replay speed for simplicity?
 
 
 TODO (incomplete list):
@@ -485,11 +504,6 @@ TODO (incomplete list):
    5. The first step within the grammar simplification process is:
       Try to replay with the original YY grammar and give up in case that goal was not achieved.
       Handle this amount of trials better if required.
-   7. Simplify also the amount of reporters, validators, transformers and threads.
-      Open:
-      Whatever simplification (grammar, reporters, ...) goes with steps doing different things.
-      - So which order of steps to use?
-      - How to avoid that we trade simplification and replay speed for simplicity?
 -- Improve RQG components like reporters and validators as soon as I am forced to use them and
    meet trouble.
    This might sound banal but per my experience many parts of RQG are the opposite of well prepared
@@ -543,7 +557,6 @@ TODO (incomplete list):
      rqg_batch.pl could process that file and preserve binaries and whatever information if
      not already done for some finished RQG run.
      IMHO acceptable weak point: Modification of binary during rqg_batch.pl runtime.
--- checker.pl or needs to be made capable to check config (cc and cfg) files.
 -- Let rqg_batch.pl run mysqltest simplification
 -- Implement several optional "strangler" which cause that some ongoing simplifications attempt
    is stopped in case it is extreme likely that we will get no more a replay with this one.
