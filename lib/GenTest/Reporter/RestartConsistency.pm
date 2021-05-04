@@ -307,6 +307,7 @@ sub report {
             "$dump_return_after) differ. " . Auxiliary::build_wrs($recovery_status));
         return $status;
     }
+    $executor->disconnect();
 
     return compare_dumps();
 }

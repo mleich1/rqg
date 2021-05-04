@@ -77,9 +77,14 @@ sub unique_components {
 #
 # Example of logics
 # -----------------
+# actual solution
 # rule:
 #     a | b |
-#     a | d ; ==> unique_component_list: d, a, b ;
+#     a | d ; ==> unique_component_list consisting of a, b, d in some order.
+# old
+# rule:
+#     a | b |
+#     a | d ; ==> unique_component_list: d, a, b
 #
 #
 # Example code (tested) how to invoke that maybe for a unit test
@@ -115,31 +120,49 @@ sub unique_components {
     my %rule_component_hash;
     my @rule_unique_component_list;
 
+    my $msg_part = "DEBUG: Rule '" . $rule->name() . "'";
     my $components = $rule->components();
     foreach my $component (@$components) {
         my $component_string = join('', @$component);
-        # print("DEBUG: CS component_string ->$component_string<-\n");
         if (not exists $rule_component_hash{$component_string}) {
             $rule_component_hash{$component_string} = 1;
-            push @rule_unique_component_list , $component_string if '' ne $component_string;
+            # print("$msg_part component_string ->$component_string<- added to hash\n");
         } else {
-            # print("Did exist in rule_component_hash: $component_string\n");
+            # print("$msg_part  component_string ->$component_string<- is already in hash\n");
         }
     }
-
     # We have read the rule components lines top down and in the lines left to right.
-    # The "agreement" for the grammmar simplifier is to attack the components lines
-    # bottom up and in the lines right to left.
-    # FIXME 1:
-    # 1. Never add a unique_component '' except this really exists.
-    # 2. Reorder the rule_unique_component_list so that
-    #    - '' (if existing) are placed first
-    #    - RELEASE (if existing) are placed at end
-    #    - KILL (if existing) are placed before RELEASE
-    #    - SET GLOBAL/SESSION/@@* are placed before KILL
-    #    - ALTER (if existing) are placed before SET systemvariable
-    @rule_unique_component_list = reverse @rule_unique_component_list;
+    # The "agreement" for the old grammmar simplifier is to attack the components lines
+    # bottom up and in the lines right to left. This isn't bad but has become less
+    # important with the increasing use of *_add, *_init_add.
+    # Hence I we reorder the rule_unique_component_list and hereby the order of attack of elements
+    # to
+    # First the elements which cause likely
+    # - power wasting (like RELEASE) or making analysis complicated (like ALTER)
+    # till last
+    # - the empty string who might lead to reduced complexity of statements
+    #   and is also required for some totally empty component.
+    #
+    # I am aware that
+    # - this kind of reordering gives no benefit for languages != SQL
+    # - the patterns used for matching are a bit short
+    my @rule_unique_component_list;
+    foreach my $keyword ('ALTER', 'SET @@', 'SET SESSION', 'SET GLOBAL', 'KILL', 'RELEASE') {
+        foreach my $component_string (keys %rule_component_hash) {
+            if ( $component_string =~ /$keyword/i ) {
+                unshift @rule_unique_component_list, $component_string;
+                delete $rule_component_hash{$component_string};
+            }
+        }
+    }
+    foreach my $component_string (keys %rule_component_hash) {
+        if ( $component_string ne '' ) {
+            push @rule_unique_component_list, $component_string;
+            delete $rule_component_hash{$component_string};
+        }
+    }
     push @rule_unique_component_list, '' if exists $rule_component_hash{''};
+    # print("$msg_part UCL ->" . join("<->", @rule_unique_component_list) . "<-\n");
     return @rule_unique_component_list;
 }
 

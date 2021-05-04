@@ -2189,8 +2189,10 @@ sub get_string_after_pattern {
         emergency_exit($status);
     } elsif ('' eq $value) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        Carp::cluck("ERROR: Auxiliary::get_string_after_pattern returned ''.");
-        emergency_exit($status);
+        # There might be cases where the line does not exist and than its on the
+        # caller to decide if its a failure or not. But at least warn.
+        Carp::cluck("WARN: Auxiliary::get_string_after_pattern returned ''.");
+        return '';
     } else {
         return $value;
     }

@@ -2033,10 +2033,10 @@ sub getSchemaMetaData {
        # SQL syntax error or DB server dead.
        # In case of empty result sets we will not end up here.
        my $error = $self->dbh()->err();
-       Carp::cluck("FATAL ERROR: getSchemaMetaData: selectall_arrayref failed.");
-       say("FATAL ERROR: getSchemaMetaData: The query was ->$query<-.");
-       say("FATAL ERROR: $error: " . $self->dbh()->errstr());
-       say("FATAL ERROR: getSchemaMetaData: Will return undef.");
+       Carp::cluck("ERROR: getSchemaMetaData: selectall_arrayref failed.");
+       say("ERROR: getSchemaMetaData: The query was ->$query<-.");
+       say("ERROR: $error: " . $self->dbh()->errstr());
+       say("ERROR: getSchemaMetaData: Will return undef.");
        return undef;
    }
 
@@ -2055,10 +2055,10 @@ sub getSchemaMetaData {
              # SQL syntax error or DB server dead.
              # In case of empty result sets we will not end up here.
              my $error = $self->dbh()->err();
-             Carp::cluck("FATAL ERROR: getSchemaMetaData: selectrow_arrayref failed.");
-             say("FATAL ERROR: getSchemaMetaData: The query was ->$query<-.");
-             say("FATAL ERROR: $error: " . $self->dbh()->errstr());
-             say("FATAL ERROR: getSchemaMetaData: Will return undef.");
+             Carp::cluck("ERROR: getSchemaMetaData: selectrow_arrayref failed.");
+             say("ERROR: getSchemaMetaData: The query was ->$query<-.");
+             say("ERROR: $error: " . $self->dbh()->errstr());
+             say("ERROR: getSchemaMetaData: Will return undef.");
              ########## my $error_type = $err2type{$error} || STATUS_OK;
              return undef;
          }
