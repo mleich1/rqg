@@ -294,7 +294,6 @@ nohup perl ./rqg_batch.pl                                              \
 --basedir2=$BASEDIR2                                                   \
 --config=$CONFIG                                                       \
 --trials=$TRIALS                                                       \
---duration=300                                                         \
 --discard_logs                                                         \
 --max_runtime=$MAX_RUNTIME                                             \
 --no-mask                                                              \
