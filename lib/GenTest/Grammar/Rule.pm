@@ -146,7 +146,6 @@ sub unique_components {
     # I am aware that
     # - this kind of reordering gives no benefit for languages != SQL
     # - the patterns used for matching are a bit short
-    my @rule_unique_component_list;
     foreach my $keyword ('ALTER', 'SET @@', 'SET SESSION', 'SET GLOBAL', 'KILL', 'RELEASE') {
         foreach my $component_string (keys %rule_component_hash) {
             if ( $component_string =~ /$keyword/i ) {
