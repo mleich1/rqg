@@ -1729,9 +1729,9 @@ if ($final_result == STATUS_OK) {
                 my $dump_result = $server[$i]->dumpSomething("$dump_options", $dump_prefix);
                 if ( $dump_result > 0 ) {
                     my $status = STATUS_CRITICAL_FAILURE;
-                    say("ERROR: 'mysqldump' failed. Will return status : " .
+                    say("ERROR: 'mysqldump' failed. Will exit with status : " .
                         status2text($status) . "($status).");
-                    return $status;
+                    exit_test($status);
                 }
             }
         # }
@@ -1909,7 +1909,8 @@ say("RESULT: The core of the RQG run ended with status " . status2text($final_re
 
 
 if ($final_result >= STATUS_CRITICAL_FAILURE) {
-    if (killServers() != STATUS_OK) {
+    # if (killServers() != STATUS_OK) {
+    if (stopServers($final_result) != STATUS_OK) {
         say("ERROR: Killing the server(s) failed somehow.");
     } else {
         say("INFO: Any remaining servers were killed.");
