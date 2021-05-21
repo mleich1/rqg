@@ -161,7 +161,7 @@ my @dsns;
 my (@basedirs, @mysqld_options, @vardirs, $rpl_mode,
     @engine, $help, $debug, @validators, @reporters, @transformers,
     $grammar_file, $skip_recursive_rules,
-    @redefine_files, $seed, $mask, $mask_level, $mem, $rows,
+    @redefine_files, $seed, $mask, $mask_level, $rows,
     $varchar_len, $xml_output, $valgrind, @valgrind_options, @vcols, @views,
     $start_dirty, $filter, $build_thread, $sqltrace, $testname,
     $report_xml_tt, $report_xml_tt_type, $report_xml_tt_dest,
@@ -253,7 +253,6 @@ if (not GetOptions(
     'mask:i'                      => \$mask,
     'mask-level:i'                => \$mask_level,
     'mask_level:i'                => \$mask_level,
-    'mem'                         => \$mem,
     'rows=s'                      => \$rows,
     'varchar-length=i'            => \$varchar_len,
     'xml-output=s'                => \$xml_output,
@@ -272,7 +271,7 @@ if (not GetOptions(
     'vcols2:s'                    => \$vcols[2],
     'vcols3:s'                    => \$vcols[3],
     # Hint:
-    # views is NOT a boolean because assigning some view type is supported.
+    # views is NOT just a boolean because assigning some view type is supported.
     'views:s'                     => \$views[0],
     'views1:s'                    => \$views[1],
     'views2:s'                    => \$views[2],
@@ -1640,7 +1639,8 @@ $gentestProps->property('max_gd_duration',$max_gd_duration); #  if defined $max_
 # directory. And that should be specific to the RQG run like vardir.
 # Example: Mariabackup_linux
 
-say("---------------------------------------------------------------");
+say("---------------------------------------------------------------" .
+    "\nConfiguration");
 $gentestProps->printProps;
 say("---------------------------------------------------------------");
 
@@ -1743,8 +1743,6 @@ if ($final_result == STATUS_OK) {
             }
         # }
     }
-
-
 }
 
 if ($final_result > STATUS_OK) {
@@ -2102,7 +2100,7 @@ $0 - Run a complete random query generation (RQG) test.
 
     Options related to one standalone MariaDB server:
 
-    --basedir   : Specifies the base directory of the stand-alone MariaDB installation;
+    --basedir   : Specifies the base directory of the stand-alone MariaDB installation (location of binaries)
     --mysqld    : Options passed to the MariaDB server
     --vardir    : vardir of the RQG run. The vardirs of the servers will get created within it.
                   Depending on certain requirements it is recommended to use
@@ -2168,9 +2166,9 @@ $0 - Run a complete random query generation (RQG) test.
                      Different values can be provided to servers through --views1 | --views2 | --views3
     --valgrind     : Start the DB server with valgrind, adjust timeouts to the use of valgrind
     --valgrind_options : Use these additional options for any start under valgrind
-    --rr           : Start the DB server and maybe more programs with rr, adjust timeouts to the use of rr
+    --rr           : Start the DB server and maybe more programs under rr rr, adjust timeouts to the use of rr
     --rr_options   : Use these additional options for any start under rr
-    --filter       : Passed to lib/GenTest/App/Gentest.pm.
+    --filter       : File for disabling the execution of SQLs containing certain patterns. Passed to lib/GenTest/App/Gentest.pm.
     --mtr-build-thread: Value used for MTR_BUILD_THREAD when servers are started and accessed
     --debug        : Debug mode
     --short_column_names: use short column names in gendata (c<number>)
