@@ -21,52 +21,53 @@ package GenTest::Reporter;
 require Exporter;
 @ISA = qw(GenTest Exporter);
 @EXPORT = qw(
-	REPORTER_TYPE_PERIODIC
-	REPORTER_TYPE_DEADLOCK
-	REPORTER_TYPE_CRASH
-	REPORTER_TYPE_SUCCESS
-	REPORTER_TYPE_SERVER_KILLED
-	REPORTER_TYPE_ALWAYS
-	REPORTER_TYPE_DATA
-	REPORTER_TYPE_END
+    REPORTER_TYPE_PERIODIC
+    REPORTER_TYPE_DEADLOCK
+    REPORTER_TYPE_CRASH
+    REPORTER_TYPE_SUCCESS
+    REPORTER_TYPE_SERVER_KILLED
+    REPORTER_TYPE_ALWAYS
+    REPORTER_TYPE_DATA
+    REPORTER_TYPE_END
 );
 
 use strict;
 use GenTest;
 use GenTest::Result;
 use GenTest::Random;
+use GenTest::Constants;
 use DBI;
 use File::Find;
 use File::Spec;
 use Carp;
 
-use constant REPORTER_PRNG              => 0;
-use constant REPORTER_SERVER_DSN        => 1;
-use constant REPORTER_SERVER_VARIABLES  => 2;
-use constant REPORTER_SERVER_INFO       => 3;
-use constant REPORTER_SERVER_PLUGINS    => 4;
-use constant REPORTER_TEST_START        => 5;
-use constant REPORTER_TEST_END          => 6;
-use constant REPORTER_TEST_DURATION     => 7;
-use constant REPORTER_PROPERTIES        => 8;
-use constant REPORTER_SERVER_DEBUG      => 9;
-use constant REPORTER_CUSTOM_ATTRIBUTES => 10;
+use constant REPORTER_PRNG                  => 0;
+use constant REPORTER_SERVER_DSN            => 1;
+use constant REPORTER_SERVER_VARIABLES      => 2;
+use constant REPORTER_SERVER_INFO           => 3;
+use constant REPORTER_SERVER_PLUGINS        => 4;
+use constant REPORTER_TEST_START            => 5;
+use constant REPORTER_TEST_END              => 6;
+use constant REPORTER_TEST_DURATION         => 7;
+use constant REPORTER_PROPERTIES            => 8;
+use constant REPORTER_SERVER_DEBUG          => 9;
+use constant REPORTER_CUSTOM_ATTRIBUTES     => 10;
 # TEST_START is roughly when the YY grammar processing starts.
 # TEST_END   is when the YY grammar processing should end.
 # REPORTER_START_TIME is when the data has been generated, and reporter was started
 # (more or less when the test flow started)
-use constant REPORTER_START_TIME        => 11;
-use constant REPORTER_NAME              => 12;
+use constant REPORTER_START_TIME            => 11;
+use constant REPORTER_NAME                  => 12;
 
-use constant REPORTER_TYPE_PERIODIC     => 2;
-use constant REPORTER_TYPE_DEADLOCK     => 4;
-use constant REPORTER_TYPE_CRASH        => 8;
-use constant REPORTER_TYPE_SUCCESS      => 16;
+use constant REPORTER_TYPE_PERIODIC         => 2;
+use constant REPORTER_TYPE_DEADLOCK         => 4;
+use constant REPORTER_TYPE_CRASH            => 8;
+use constant REPORTER_TYPE_SUCCESS          => 16;
 use constant REPORTER_TYPE_SERVER_KILLED    => 32;
-use constant REPORTER_TYPE_ALWAYS       => 64;
-use constant REPORTER_TYPE_DATA         => 128;
+use constant REPORTER_TYPE_ALWAYS           => 64;
+use constant REPORTER_TYPE_DATA             => 128;
 # New reporter type which can be used at the end of a test.
-use constant REPORTER_TYPE_END          => 256;
+use constant REPORTER_TYPE_END              => 256;
 
 1;
 
@@ -83,54 +84,106 @@ sub new {
         debug_server    => REPORTER_SERVER_DEBUG,
         properties      => REPORTER_PROPERTIES,
         name            => REPORTER_NAME
-	}, @_);
+    }, @_);
 
-    # FIXME: Use an executor or similar.
-    # We need here timeouts
-    # and especially more detailed information.
-    my $dbh = DBI->connect($reporter->dsn(), undef, undef, {
-                           mysql_connect_timeout  => Runtime::get_connect_timeout(),
-                           mysql_multi_statements => 1,
-                           RaiseError             => 0 ,
-                           PrintError             => 1 });
-    if (not defined $dbh) {
-        say("ERROR: $who_am_i Getting a connection for a reporter failed. Will return undef.");
+    my $dsn = $reporter->dsn();
+    # - Errors must be handled (return undef) and not cause perl errors or similar.
+    # - Even a SHOW VARIABLES could become the victim of some too short max_statement_time.
+    # - SQL tracing should happen if enabled.
+    # Hence we use an executor.
+    my $executor = GenTest::Executor->newFromDSN($dsn);
+    # Set the number to which server we will connect.
+    # This number is
+    # - used for more detailed messages only
+    # - not used for to which server to connect etc. There only the dsn rules.
+    # Hint:
+    # Server id reported: n ----- dsn(n-1) !
+    $executor->setId(1);
+    $executor->setRole($reporter->name());
+    $executor->setTask(GenTest::Executor::EXECUTOR_TASK_REPORTER);
+    my $status = $executor->init();
+    # This is exact one connect attempt!
+    if ($status != STATUS_OK) {
+        $executor->disconnect();
+        say("ERROR: $who_am_i No connection for monitoring got. Will return undef.");
         return undef;
     }
-    # say("DEBUG: Reporter '" . $reporter->name() . "' after first connect before collecting " .
-    #     "server variables.");
-    # FIXME: This can fail (in theory only)
-	my $sth = $dbh->prepare("SHOW VARIABLES");
-    # FIXME: This can fail
-	$sth->execute();
 
-    # FIXME: This can fail because of various reasons like max_statement_time (observed 2020-11)
-	while (my $array_ref = $sth->fetchrow_arrayref()) {
-		$reporter->[REPORTER_SERVER_VARIABLES]->{$array_ref->[0]} = $array_ref->[1];
-	}
+    my $query = "SHOW VARIABLES";
+    my $res   = $executor->execute($query);
+    $status   = $res->status;
+    if (STATUS_OK != $status) {
+        my $err    = $res->err;
+        my $errstr = $res->errstr;
+        say("ERROR: $who_am_i ->" . $query . "<- failed with $err : $errstr.");
+        # Getting a proper working reporter is essential.
+        # Hence any status > 0 has to be treated as fatal for reporters.
+        $executor->disconnect();
+        say("ERROR: $who_am_i Will return undef.");
+        return undef;
+    }
 
-	$sth->finish();
+    my $key_ref = $res->data;
+    foreach my $val (@$key_ref) {
+        # variable_name , value
+        my $v0 = $val->[0];
+        my $v1 = $val->[1];
+        # say("DEBUG: $who_am_i Variable_name: $v0 - Value: $v1");
+        $reporter->[REPORTER_SERVER_VARIABLES]->{$val->[0]} = $val->[1];
+    }
 
-	# SHOW SLAVE HOSTS may fail if user does not have the REPLICATION SLAVE privilege
-	$dbh->{PrintError} = 0;
-	my $slave_info = $dbh->selectrow_arrayref("SHOW SLAVE HOSTS");
-	$dbh->{PrintError} = 1;
-	if (defined $slave_info) {
-		$reporter->[REPORTER_SERVER_INFO]->{slave_host} = $slave_info->[1];
-		$reporter->[REPORTER_SERVER_INFO]->{slave_port} = $slave_info->[2];
-	}
+    $query  = "SHOW SLAVE HOSTS";
+    $res    = $executor->execute($query);
+    $status = $res->status;
+    if (STATUS_OK != $status) {
+        my $err    = $res->err;
+        my $errstr = $res->errstr;
+        my $msg_snip = "$who_am_i ->" . $query . "<- failed with $err : $errstr.";
+        if (1227 == $err) {
+            # Error 1227 ER_SPECIFIC_ACCESS_DENIED_ERROR
+            # SHOW SLAVE HOSTS may fail if the user does not have the
+            # REPLICATION MASTER ADMIN privilege
+            say("WARN: " . $msg_snip);
+        } else {
+            # Getting a proper working reporter is essential.
+            # Hence any status > 0 has to be treated as fatal for reporters.
+            $executor->disconnect();
+            say("ERROR: " . $msg_snip);
+            say("ERROR: $who_am_i Will return undef.");
+            return undef;
+        }
+    }
 
-	if ($reporter->serverVariable('version') !~ m{^5\.0}sgio) {
-		$reporter->[REPORTER_SERVER_PLUGINS] = $dbh->selectall_arrayref("
-	                SELECT PLUGIN_NAME, PLUGIN_LIBRARY
-	                FROM INFORMATION_SCHEMA.PLUGINS
-	                WHERE PLUGIN_LIBRARY IS NOT NULL
-	        ");
-	}
+    my $slave_info = $res->data;
+    if (defined $slave_info) {
+        $reporter->[REPORTER_SERVER_INFO]->{slave_host} = $slave_info->[1];
+        $reporter->[REPORTER_SERVER_INFO]->{slave_port} = $slave_info->[2];
+    }
 
-	$dbh->disconnect();
+    $query  = "SELECT PLUGIN_NAME, PLUGIN_LIBRARY\n" .
+              "FROM INFORMATION_SCHEMA.PLUGINS\n"    .
+              "WHERE PLUGIN_LIBRARY IS NOT NULL";
+    $res    = $executor->execute($query);
+    $status = $res->status;
+    if (STATUS_OK != $status) {
+        my $err    = $res->err;
+        my $errstr = $res->errstr;
+        $executor->disconnect();
+        say("ERROR: $who_am_i ->" . $query . "<- failed with $err : $errstr.");
+        say("ERROR: $who_am_i Will return undef.");
+        return undef;
+    }
+    if ($reporter->serverVariable('version') !~ m{^5\.0}sgio) {
+        $reporter->[REPORTER_SERVER_PLUGINS] = $res->data;
+        my $plugins = $reporter->[REPORTER_SERVER_PLUGINS];
+        # foreach my $plugin (@$plugins) {
+        #     say("DEBUG: PLUGINS: --plugin-load=" . $plugin->[0] . '=' . $plugin->[1]);
+        # };
+    }
 
-	$reporter->updatePid();
+    $executor->disconnect();
+
+    $reporter->updatePid();
 
     my $binary;
     my $bindir;
@@ -164,7 +217,7 @@ sub new {
         if ((-e $binary)) {
             $reporter->[REPORTER_SERVER_INFO]->{bindir} = $bindir;
             $reporter->[REPORTER_SERVER_INFO]->{binary} = $binary;
-        }else {
+        } else {
             # If we dont find non-debug server use debug(mysqld_debug) server.
             $binname = osWindows() ? 'mysqld-debug.exe' : 'mysqld-debug';
             ($bindir,$binary)=$reporter->findMySQLD($binname);
@@ -175,41 +228,41 @@ sub new {
         }
     }
 
-	foreach my $client_path (
-		"client/RelWithDebInfo", "client/Debug",
-		"client", "../client", "bin", "../bin"
+    foreach my $client_path (
+        "client/RelWithDebInfo", "client/Debug",
+        "client", "../client", "bin", "../bin"
 	) {
-	        if (-e $reporter->serverVariable('basedir').'/'.$client_path) {
-			$reporter->[REPORTER_SERVER_INFO]->{'client_bindir'} = $reporter->serverVariable('basedir').'/'.$client_path;
-	                last;
-	        }
-	}
+        if (-e $reporter->serverVariable('basedir').'/'.$client_path) {
+            $reporter->[REPORTER_SERVER_INFO]->{'client_bindir'} = $reporter->serverVariable('basedir').'/'.$client_path;
+            last;
+	    }
+    }
 
-	# look for error log relative to datadir
-	foreach my $errorlog_path (
-		"../log/master.err",  # MTRv1 regular layout
-		"../log/mysqld1.err", # MTRv2 regular layout
-		"../mysql.err"        # DBServer::MySQL layout
+    # look for error log relative to datadir
+    foreach my $errorlog_path (
+        "../log/master.err",  # MTRv1 regular layout
+        "../log/mysqld1.err", # MTRv2 regular layout
+        "../mysql.err"        # DBServer::MySQL layout
 	) {
-		my $possible_path = File::Spec->catfile($reporter->serverVariable('datadir'),$errorlog_path);
-		if (-e $possible_path) {
-			$reporter->[REPORTER_SERVER_INFO]->{'errorlog'} = $possible_path;
-			last;
-		}
-	}
+        my $possible_path = File::Spec->catfile($reporter->serverVariable('datadir'),$errorlog_path);
+        if (-e $possible_path) {
+            $reporter->[REPORTER_SERVER_INFO]->{'errorlog'} = $possible_path;
+            last;
+        }
+    }
 
-	my $prng = GenTest::Random->new( seed => 1 );
-	$reporter->[REPORTER_PRNG] = $prng;
+    my $prng = GenTest::Random->new( seed => 1 );
+    $reporter->[REPORTER_PRNG] = $prng;
 
-	# general properties area for sub-classes
-	$reporter->[REPORTER_CUSTOM_ATTRIBUTES]={};
-	$reporter->[REPORTER_START_TIME]= time();
+    # general properties area for sub-classes
+    $reporter->[REPORTER_CUSTOM_ATTRIBUTES]={};
+    $reporter->[REPORTER_START_TIME]= time();
 
-	return $reporter;
+    return $reporter;
 }
 
 sub updatePid {
-	my $pid_file = $_[0]->serverVariable('pid_file');
+    my $pid_file = $_[0]->serverVariable('pid_file');
 
     # Observation: 2019-12
     # --------------------
@@ -222,61 +275,61 @@ sub updatePid {
     # So what to do in case the pid_file disappears because of regular shutdown?
     #
 
-	open (PF, $pid_file);
-	read (PF, my $pid, -s $pid_file);
-	close (PF);
+    open (PF, $pid_file);
+    read (PF, my $pid, -s $pid_file);
+    close (PF);
 
-	$pid =~ s{[\r\n]}{}sio;
+    $pid =~ s{[\r\n]}{}sio;
 
-	$_[0]->[REPORTER_SERVER_INFO]->{pid} = $pid;
+    $_[0]->[REPORTER_SERVER_INFO]->{pid} = $pid;
 }
 
 sub monitor {
-	die "Default monitor() called.";
+    die "Default monitor() called.";
 }
 
 sub report {
-	die "Default report() called.";
+    die "Default report() called.";
 }
 
 sub dsn {
-	return $_[0]->[REPORTER_SERVER_DSN];
+    return $_[0]->[REPORTER_SERVER_DSN];
 }
 
 sub serverVariable {
-	return $_[0]->[REPORTER_SERVER_VARIABLES]->{$_[1]};
+    return $_[0]->[REPORTER_SERVER_VARIABLES]->{$_[1]};
 }
 
 sub serverInfo {
-	$_[0]->[REPORTER_SERVER_INFO]->{$_[1]};
+    $_[0]->[REPORTER_SERVER_INFO]->{$_[1]};
 }
 
 sub serverPlugins {
-	return $_[0]->[REPORTER_SERVER_PLUGINS];
+    return $_[0]->[REPORTER_SERVER_PLUGINS];
 }
 
 sub testStart {
-	return $_[0]->[REPORTER_TEST_START];
+    return $_[0]->[REPORTER_TEST_START];
 }
 
 sub reporterStartTime {
-	return $_[0]->[REPORTER_START_TIME];
+    return $_[0]->[REPORTER_START_TIME];
 }
 
 sub testEnd {
-	return $_[0]->[REPORTER_TEST_END];
+    return $_[0]->[REPORTER_TEST_END];
 }
 
 sub prng {
-	return $_[0]->[REPORTER_PRNG];
+    return $_[0]->[REPORTER_PRNG];
 }
 
 sub testDuration {
-	return $_[0]->[REPORTER_TEST_DURATION];
+    return $_[0]->[REPORTER_TEST_DURATION];
 }
 
 sub properties {
-	return $_[0]->[REPORTER_PROPERTIES];
+    return $_[0]->[REPORTER_PROPERTIES];
 }
 
 sub serverDebug {
@@ -284,14 +337,14 @@ sub serverDebug {
 }
 
 sub customAttribute() {
-	if (defined $_[2]) {
-		$_[0]->[GenTest::Reporter::REPORTER_CUSTOM_ATTRIBUTES]->{$_[1]}=$_[2];
-	}
-	return $_[0]->[GenTest::Reporter::REPORTER_CUSTOM_ATTRIBUTES]->{$_[1]};
+    if (defined $_[2]) {
+        $_[0]->[GenTest::Reporter::REPORTER_CUSTOM_ATTRIBUTES]->{$_[1]}=$_[2];
+    }
+    return $_[0]->[GenTest::Reporter::REPORTER_CUSTOM_ATTRIBUTES]->{$_[1]};
 }
 
 sub name {
-   return $_[0]->[REPORTER_NAME];
+    return $_[0]->[REPORTER_NAME];
 }
 
 sub configure {
