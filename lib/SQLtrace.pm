@@ -121,9 +121,14 @@ use GenTest::Constants;
 
 # my $sqltrace = SQL_TRACE_INIT;
 my $sqltrace;
+my $sqltrace_file;
+my $file_handle;
 sub check_and_set_sqltracing {
-    ($sqltrace) = @_;
+    ($sqltrace, my $workdir) = @_;
 
+use utf8;
+
+    my $status = STATUS_OK;
     if (not defined $sqltrace) {
         $sqltrace = SQLTRACE_NONE;
         say("INFO: sqltrace was not defined and therefore set to '" . $sqltrace . "'.");
@@ -136,13 +141,30 @@ sub check_and_set_sqltracing {
     if ($result != STATUS_OK) {
         Auxiliary::print_list("The values supported for 'sqltrace' are :" ,
                               SQLTRACE_ALLOWED_VALUE_LIST);
-        my $status = STATUS_ENVIRONMENT_FAILURE;
+        $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: " . Auxiliary::build_wrs($status));
         return $status;
-    } else {
-        say("INFO: sqltrace_mode is set to : '$sqltrace'.");
-        return STATUS_OK;
     }
+    say("INFO: sqltrace_mode is set to : '$sqltrace'.");
+    if ($sqltrace eq SQLTRACE_FILE) {
+        $sqltrace_file = $workdir . "/rqg.trc";
+        $result = Auxiliary::make_file ($sqltrace_file, "# " . isoTimestamp());
+        if ($result != STATUS_OK) {
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: " . Auxiliary::build_wrs($status));
+            return $status;
+        } else {
+            say("INFO: SQL trace file '$sqltrace_file' created.");
+            if (not open ($file_handle, '>>', $sqltrace_file)) {
+                say("ERROR: Open file '>>$sqltrace_file' failed : $!");
+                $status = STATUS_ENVIRONMENT_FAILURE;
+                say("ERROR: " . Auxiliary::build_wrs($status));
+                return $status;
+            }
+           binmode $file_handle, ':utf8';
+        }
+    }
+    return $status;
 }
 
 my $sqltrace_query;
@@ -159,6 +181,8 @@ sub sqltrace_before_execution {
         return STATUS_OK;
     } elsif (SQLTRACE_CONCURRENCY eq $sqltrace) {
         print STDOUT "SEND: [$$] $sqltrace_query;\n";
+    } elsif (SQLTRACE_FILE eq $sqltrace) {
+        print $file_handle "$sqltrace_query;\n";
     } else {
         say("INTERNAL_ERROR: Handling of \$sqltrace $sqltrace is not implemented.");
         Carp::confess("mleich: Fix that error");
@@ -174,6 +198,7 @@ sub sqltrace_after_execution {
     Carp::confess("INTERNAL_ERROR: \$sqltrace is not set.")    if not defined $sqltrace;
     if      (SQLTRACE_NONE eq $sqltrace) {
     } elsif (SQLTRACE_SIMPLE eq $sqltrace) {
+    } elsif (SQLTRACE_FILE eq $sqltrace) {
     } elsif (SQLTRACE_MARKERRORS eq $sqltrace) {
         if (defined $error) {
             # Mark invalid queries in the trace by prefixing each line.
