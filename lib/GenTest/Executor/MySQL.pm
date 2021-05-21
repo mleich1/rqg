@@ -223,6 +223,8 @@ use constant  ER_ROW_IS_REFERENCED                              => 1217;
 use constant  ER_WRONG_USAGE                                    => 1221;
 use constant  ER_CANT_UPDATE_WITH_READLOCK                      => 1223;
 use constant  ER_DUP_ARGUMENT                                   => 1225;
+# No privilege. Just for information because we connect as user root all time.
+use constant  ER_SPECIFIC_ACCESS_DENIED_ERROR                   => 1227;
 use constant  ER_WRONG_VALUE_FOR_VAR                            => 1231;
 use constant  ER_VAR_CANT_BE_READ                               => 1233;
 use constant  ER_CANT_USE_OPTION_HERE                           => 1234;
