@@ -169,7 +169,7 @@ my (@basedirs, @mysqld_options, @vardirs, $rpl_mode,
     $short_column_names, $strict_fields, $freeze_time, $wait_debugger, @debug_server,
     $skip_gendata, $skip_shutdown, $galera, $use_gtid, $annotate_rules,
     $restart_timeout, $gendata_advanced, $scenario, $upgrade_test,
-    $ps_protocol, @gendata_sql_files, $config_file,
+    $ps_protocol, @gendata_sql_files, $gendata_dump, $config_file,
     $workdir, $queries, $script_debug_value, $rr, $rr_options, $max_gd_duration,
     $options);
 
@@ -243,6 +243,7 @@ if (not GetOptions(
     'gendata-advanced'            => \$gendata_advanced,
     'skip-gendata'                => \$skip_gendata,
     'skip_gendata'                => \$skip_gendata,
+    'gendata_dump'                => \$gendata_dump,
     'genconfig:s'                 => \$genconfig,
     'notnull'                     => \$notnull,
     'short_column_names'          => \$short_column_names,
@@ -545,6 +546,12 @@ if (not defined $redefine_ref) {
     run_end($status);
 }
 @redefine_files = @$redefine_ref;
+
+if (defined $gendata_dump) {
+    $gendata_dump = 1;
+} else {
+    $gendata_dump = 0;
+}
 
 if (not defined $grammar_file) {
     say("ERROR: Grammar file is not defined.");
@@ -1703,7 +1710,7 @@ if ($final_result == STATUS_OK) {
     say("INFO: " . $message);
 
     # Dump here the inital content
-    if ($final_result == STATUS_OK) {
+    if ($final_result == STATUS_OK and $gendata_dump) {
         my @dump_files;
         # For testing:
         # system("killall -9 mysqld mariadbd; sleep 3");
@@ -2082,7 +2089,7 @@ sub help {
 
     print <<EOF
 Copyright (c) 2010,2011 Oracle and/or its affiliates. All rights reserved. Use is subject to license terms.
-Copyright (c) 2018,2020 MariaDB Corporation Ab.
+Copyright (c) 2018,2021 MariaDB Corporation Ab.
 
 $0 - Run a complete random query generation (RQG) test.
      Sorry, the description here is partially outdated.
@@ -2143,6 +2150,9 @@ $0 - Run a complete random query generation (RQG) test.
     --gendata-advanced: Generate the data using GendataAdvanced instead of default GendataSimple
     --gendata_sql  : Generate data option. Passed to lib/GenTest/App/Gentest.pm. Takes files containing SQL as argument.
                      These files get processed after running Gendata, GendataSimple or GendataAdvanced.
+    --gendata_dump : After running the work phase Gendata dump the content of the first DB server to the
+                     file 'after_gendata.dump'. (OPTIONAL)
+                     Sometimes useful for test simplification but otherwise a wasting of resources.
     --logfile      : Generates rqg output log at the path specified.(Requires the module Log4Perl)
     --seed         : PRNG seed. Passed to lib/GenTest/App/Gentest.pm.
     --mask         : Grammar mask. Passed to lib/GenTest/App/Gentest.pm.
