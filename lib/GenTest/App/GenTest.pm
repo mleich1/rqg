@@ -87,12 +87,17 @@ sub new {
     my $self = $class->SUPER::new({
         'config' => GT_CONFIG}, @_);
 
+    # Reporters get used
+    # - immediate after gendata steps if needed (server not reponding or similar)
+    # - during gentest if assigned or after gentest if needed (server not reponding or similar)
     if ($self->config->reporters and not ref $self->config->reporters eq 'ARRAY') {
         $self->config->reporters([ split /,/, $self->config->reporters ]);
     }
+    # Validators get used during gentest if assigned
     if ($self->config->validators and not ref $self->config->validators eq 'ARRAY') {
         $self->config->validators([ split /,/, $self->config->validators ]);
     }
+    # Transformers get used during gentest if assigned
     if ($self->config->transformers and not ref $self->config->transformers eq 'ARRAY') {
         $self->config->transformers([ split /,/, $self->config->transformers ]);
     }
@@ -180,9 +185,8 @@ sub do_init {
     # Either
     # - never run SQL here (valid 2019-11)
     # or
-    # - take care that
-    #   - sqltracing is done according to configuration
-    #   - whatever sqltrace to test converter pick even the SQL done here
+    # - take care that sqltracing is done according to configuration
+    #   Whatever sqltrace to test converter might need to pick even the SQL done here.
     #
     # Artificial negative example:
     # Here gets some global or session server variable set -> in sqltrace if enabled.
@@ -226,8 +230,8 @@ sub do_init {
         $queries =~ s{M}{000000}so;
         $self->config->property('queries', $queries);
 
-        say("-------------------------------\nConfiguration");
-        $self->config->printProps;
+      # say("-------------------------------\nConfiguration");
+      # $self->config->printProps;
         $initialized = 1;
         say("DEBUG: GenTest::App::GenTest::do_init: Have initialized.") if $debug_here;
     } else {
@@ -378,7 +382,7 @@ sub doGenTest {
     # sleep 5;
 
     # We initialize here the reporters again.
-    # Reason: The get now correct values for testStart and testEnd.
+    # Reason: They get now correct values for testStart and testEnd.
     $status = $self->initReporters();
     return $status if $status != STATUS_OK;
     # initReporters tries to connect!
@@ -1545,7 +1549,7 @@ sub check_for_crash {
 #
     my ($self, $status) = @_;
 
-    my $who_am_i = "GenTest::GenTest1::check_for_crash:";
+    my $who_am_i = "GenTest::GenTest::check_for_crash:";
     my $final_status =  STATUS_INTERNAL_ERROR;
     my $reporter_manager = $self->reporterManager();
     my @report_results;
