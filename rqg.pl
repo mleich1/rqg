@@ -2191,8 +2191,6 @@ $0 - Run a complete random query generation (RQG) test.
                      Some directory assigned: We use the assigned directory and expect that certain files already exist.
     --help         : This help message
 
-    If you specify --basedir1 and --basedir2, two servers will be started and the results from the queries
-    will be compared between them.
 EOF
     ;
     print "\n$0 arguments were: " . join(' ', @ARGV_saved) . "\n";

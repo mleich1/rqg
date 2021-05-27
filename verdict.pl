@@ -230,9 +230,11 @@ sub help() {
    "                         status reported by RQG runner--names of text patterns found\n\n"      .
    "         Verdict    | Reaction of tools calling verdict.pl\n"                                  .
    "         -----------+-----------------------------------------------------------\n"            .
-   "         'replay'   | archiving of results and progress if test simplification\n"              .
-   "         'interest' | archiving of results\n"                                                  .
-   "         'ignore*'  | no archiving of results\n\n"                                             .
+   "         'replay'   | archiving of results (*) and progress if test simplification\n"          .
+   "         'interest' | archiving of results (*)\n"                                              .
+   "         'ignore*'  | no archiving of results and removal of rqg.log(**)\n\n"                  .
+   "         (*)  if not disabled via   --noarchiving\n"                                           .
+   "         (**) if enabled via        --discard_logs\n\n"                                          .
    "    perl verdict.pl [[--config_file=<value>|--verdict_file=<value>]] [--log=<value>] "         .
    "[--workdir=<value>] [--script_debug=<value>]\\n"                                               .
    "Some typical calls:\n"                                                                         .

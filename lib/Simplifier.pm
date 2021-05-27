@@ -2695,15 +2695,16 @@ sub replay_runtime_adapt {
             say("DEBUG: Replayer   duration fifo (r_mean, r_value) == ($r_mean, $r_value)\n" .
                 "DEBUG: Speculativ duration fifo (e_mean, e_value) == ($e_mean, $e_value)\n" .
                 "DEBUG: Adapted duration guessed: $value") if Auxiliary::script_debug("S4");
-         #  if ($value < 30) {
-         #      $value = 30;
-         #  }
         } else {
             my $status = STATUS_INTERNAL_ERROR;
             Carp::cluck("INTERNAL ERROR: replay_runtime_adapt : The duration_adaption " .
                 "'$duration_adaption' is unknown. Will exit with status " .
                 status2text($status) . "($status)");
             Batch::emergency_exit($status);
+        }
+        # I have doubts if values < 10 are useful.
+        if ($value < 10) {
+            $value = 10;
         }
         return $value;
     } else {
