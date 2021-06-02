@@ -159,7 +159,7 @@ my $user     = 'root';
 my @dsns;
 
 my (@basedirs, @mysqld_options, @vardirs, $rpl_mode,
-    @engine, $help, $debug, @validators, @reporters, @transformers,
+    @engine, $help, $help_vardir, $help_sqltrace, $debug, @validators, @reporters, @transformers,
     $grammar_file, $skip_recursive_rules,
     @redefine_files, $seed, $mask, $mask_level, $rows,
     $varchar_len, $xml_output, $valgrind, @valgrind_options, @vcols, @views,
@@ -233,6 +233,8 @@ if (not GetOptions(
     'queries=i'                   => \$queries,
     'duration=i'                  => \$duration,
     'help'                        => \$help,
+    'help_sqltrace'               => \$help_sqltrace,
+    'help_vardir'                 => \$help_vardir,
     'debug'                       => \$debug,
     'validators=s@'               => \@validators,
     'reporters=s@'                => \@reporters,
@@ -302,9 +304,26 @@ if (not GetOptions(
     'ps_protocol'                 => \$ps_protocol,
     'script_debug:s'              => \$script_debug_value,
     )) {
-    help();
-    exit STATUS_CONFIG_ERROR;
+    if (not defined $help and not defined $help_sqltrace and
+        not defined $help_vardir) {
+        help();
+        exit STATUS_CONFIG_ERROR;
+    }
 };
+
+if ( defined $help ) {
+    help();
+    exit STATUS_OK;
+}
+if ( defined $help_sqltrace) {
+    SQLtrace::help();
+    exit STATUS_OK;
+}
+if ( defined $help_vardir) {
+    help_vardir();
+    exit STATUS_OK;
+}
+
 # say("\@ARGV after : " . join(' ',@ARGV));
 
 # Example (independent of perl call with -w or not)
@@ -322,11 +341,6 @@ $duration =        $default_duration        if not defined $duration;
 $max_gd_duration = $default_max_gd_duration if not defined $max_gd_duration;
 
 # say("DEBUG: After reading command line options");
-
-if ( defined $help ) {
-    help();
-    exit STATUS_OK;
-}
 
 # FIXME: Maybe move into Auxiliary.pm
 my $rr_rules = 0;
@@ -2190,6 +2204,8 @@ $0 - Run a complete random query generation (RQG) test.
                      Nothing assigned: We use the current working directory of the RQG runner process, certain files will be created.
                      Some directory assigned: We use the assigned directory and expect that certain files already exist.
     --help         : This help message
+    --help_sqltrace : help about SQL tracing by RQG
+    --help_vardir   : help about the parameter vardir
 
 EOF
     ;

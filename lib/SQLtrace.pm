@@ -96,7 +96,8 @@ use constant SQLTRACE_CONCURRENCY            => 'Concurrency';
 
 use constant SQLTRACE_FILE                   => 'File';
     # Idea
-    # This is a variant of "before execution" tracing. TO BE IMPLEMENTED
+    ######
+    # This is a variant of "before execution" tracing.
     # CREATE PROCEDURE ....
     # END §
     # Some tool extracting or running such a file could interpret the '§' as statement end.
@@ -105,8 +106,6 @@ use constant SQLTRACE_FILE                   => 'File';
     # And if that works well than simplify the amount of SQL.
     # The difference to SQLTRACE_SIMPLE is that the SQL trace does not need to be extracted
     # from some RQG log.
-
-# use constant SQL_TRACE_INIT                  => 'Init';
 
 use constant SQLTRACE_ALLOWED_VALUE_LIST => [
        SQLTRACE_NONE,
@@ -119,16 +118,15 @@ use constant SQLTRACE_ALLOWED_VALUE_LIST => [
 use GenTest;
 use GenTest::Constants;
 
-# my $sqltrace = SQL_TRACE_INIT;
-my $sqltrace;
-my $sqltrace_file;
-my $file_handle;
-sub check_and_set_sqltracing {
-    ($sqltrace, my $workdir) = @_;
-
 use utf8;
+my $sqltrace;
+sub check_sqltracing {
+# To be used by rqg_batch.pl.
+# Return in case of
+# - success    The value for sqltracing (-> SQL_TRACE_*)
+# - failure    undef
+    ($sqltrace) = @_;
 
-    my $status = STATUS_OK;
     if (not defined $sqltrace) {
         $sqltrace = SQLTRACE_NONE;
         say("INFO: sqltrace was not defined and therefore set to '" . $sqltrace . "'.");
@@ -139,16 +137,33 @@ use utf8;
     my $result = Auxiliary::check_value_supported ('sqltrace', SQLTRACE_ALLOWED_VALUE_LIST,
                                                    $sqltrace);
     if ($result != STATUS_OK) {
-        Auxiliary::print_list("The values supported for 'sqltrace' are :" ,
-                              SQLTRACE_ALLOWED_VALUE_LIST);
+        help();
+        return undef;
+    } else {
+        return $sqltrace;
+    }
+}
+
+my $sqltrace_file;
+my $file_handle;
+sub check_and_set_sqltracing {
+# To be used by rqg.pl. Only that runs finally sqltracing.
+    ($sqltrace, my $workdir) = @_;
+
+    my $status = STATUS_OK;
+    $sqltrace = check_sqltracing($sqltrace);
+    if (not defined $sqltrace) {
         $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: " . Auxiliary::build_wrs($status));
         return $status;
     }
-    say("INFO: sqltrace_mode is set to : '$sqltrace'.");
+    # FIXME:
+    # Does this work well for more than one session regarding
+    # - (unsorted) content == No written statement missing in file
+    # - sorting ~ roughly
     if ($sqltrace eq SQLTRACE_FILE) {
         $sqltrace_file = $workdir . "/rqg.trc";
-        $result = Auxiliary::make_file ($sqltrace_file, "# " . isoTimestamp());
+        my $result = Auxiliary::make_file ($sqltrace_file, "# " . isoTimestamp());
         if ($result != STATUS_OK) {
             $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: " . Auxiliary::build_wrs($status));
@@ -161,7 +176,7 @@ use utf8;
                 say("ERROR: " . Auxiliary::build_wrs($status));
                 return $status;
             }
-           binmode $file_handle, ':utf8';
+            binmode $file_handle, ':utf8';
         }
     }
     return $status;
@@ -171,7 +186,6 @@ my $sqltrace_query;
 sub sqltrace_before_execution {
     ($sqltrace_query) = @_;
     Carp::confess("INTERNAL_ERROR: \$sqltrace_query is undef") if not defined $sqltrace_query;
-    # Carp::confess("INTERNAL_ERROR: \$sqltrace is not set.") if SQL_TRACE_INIT eq $sqltrace;
     Carp::confess("INTERNAL_ERROR: \$sqltrace is not set.")    if not defined $sqltrace;
     if      (SQLTRACE_NONE eq $sqltrace) {
         return STATUS_OK;
@@ -194,7 +208,6 @@ sub sqltrace_before_execution {
 sub sqltrace_after_execution {
     my ($error) = @_;
     Carp::confess("INTERNAL_ERROR: \$sqltrace_query is undef") if not defined $sqltrace_query;
-    # Carp::confess("INTERNAL_ERROR: \$sqltrace is not set.") if SQL_TRACE_INIT eq $sqltrace;
     Carp::confess("INTERNAL_ERROR: \$sqltrace is not set.")    if not defined $sqltrace;
     if      (SQLTRACE_NONE eq $sqltrace) {
     } elsif (SQLTRACE_SIMPLE eq $sqltrace) {
@@ -225,5 +238,51 @@ sub sqltrace_after_execution {
     return STATUS_OK;
 }
 
+sub help {
+    print("\nRQG option 'sqltrace'\n\n" .
+          "Client side tracing of SQL statements.\n"                                                                               .
+          "    The threads processing the YY grammar should trace roughly perfect.\n"                                              .
+          "    Some RQG components (DBServer, Gendata, Reporter, Validator) do not print all SQL statements issued.\n"             .
+          "    None of the tracing variants below is capable to show the real order of SQL processing within the DB server!\n\n"   .
+          "Supported values\n"                                                                                                     .
+          "None    (default)\n"                                                                                                    .
+          "    No tracing of SQL.\n"                                                                                               .
+          "    --sqltrace=None and ./rqg.pl <nothing with --sqltrace> have the same effect.\n"                                     .
+          "Simple\n"                                                                                                               .
+          "    --sqltrace=Simple and ./rqg.pl --sqltrace<nothing assigned> have the same effect.\n"                                .
+          "    Write the trace entries into the RQG log.\n"                                                                        .
+          "    Make the trace entry before the statement is sent to the DB server.\n"                                              .
+          "    Example trace entry:\n"                                                                                             .
+          "    SELECT 1 /* E_R Thread1 QNO 17 CON_ID 9 */ ;\n"                                                                     .
+          "MarkErrors\n"                                                                                                           .
+          "    Write the trace entries into the RQG log.\n"                                                                        .
+          "    Make the trace entry when receiving the response of the DB server.\n"                                               .
+          "    Example trace entries:\n"                                                                                           .
+          "    [9298] SELECT * FROM t1 /* E_R Thread1 QNO 11 CON_ID 16 */ ;\n"                                                     .
+          "    # [9298] [sqltrace] ERROR 1146: SELECT * FROM not_exists /* E_R Thread1 QNO 11 CON_ID 16 */ ;\n"                    .
+          "Concurrency\n"                                                                                                          .
+          "    Write the trace entries into the RQG log.\n"                                                                        .
+          "    Print when sending SQL to the DB server and receiving response from the server.\n"                                  .
+          "    Example trace entries:\n"                                                                                           .
+          "        SEND == Before execution entry, REAP == Post execution entry\n"                                                 .
+          "    SEND: [9517] SELECT * FROM not_exists /* E_R Thread8 QNO 17 CON_ID 16 */ ;\n"                                       .
+          "    SEND: [9488] SELECT 1 /* E_R Thread1 QNO 17 CON_ID 9 */ ;\n"                                                        .
+          "    REAP: [9517] ERROR 1146: SELECT * FROM not_exists /* E_R Thread8 QNO 17 CON_ID 16 */ ;\n"                           .
+          "File(experimental)\n"                                                                                                                 .
+          "    Write the trace entries into <workdir of RQG run>/rqg.trc\n"                                                        .
+          "    Make the trace entry before the statement is sent to the DB server.\n"                                              .
+          "    Example trace entry:\n"                                                                                             .
+          "    SELECT 1 /* E_R Thread1 QNO 17 CON_ID 9 */ ;\n\n"                                                                   .
+          "Details and hints:\n"                                                                                                   .
+          "- The '[9488]' above shows the id of the process who was issuing the SQL statement.\n"                                  .
+          "- The comment '/* E_R Thread1 QNO 17 CON_ID 9 */' within the SQL statements gets added by Executor.pm or Reporters\n"   .
+          "  Value after -- meaning\n"                                                                                             .
+          "     E_R         Role/Task of that executor like\n"                                                                     .
+          "                 'Thread1'        (YY grammar processing in GenTest)\n"                                                 .
+          "                 'CrashRecovery1' (Reporter)\n"                                                                         .
+          "     QNO         Number of the query (only for Threads roughly accurate)\n"                                             .
+          "     CON_ID      Connection id in the processlist of that DB server\n\n"
+    );
+}
 
 1;

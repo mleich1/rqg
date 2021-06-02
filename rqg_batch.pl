@@ -63,6 +63,7 @@ use Verdict;
 use Batch;
 use Combinator;
 use Simplifier;
+use SQLtrace;
 use GenTest;
 use GenTest::Random;
 use GenTest::Constants;
@@ -163,8 +164,9 @@ my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar
     $seed, $testname, $xml_output, $report_xml_tt, $report_xml_tt_type, $max_runtime,
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
     $parallel, $servers, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
-    $help, $help_simplifier, $help_combinator, $help_verdict, $help_rr, $help_archiving, $help_rqg_home, $runner, $noarchiving,
-    $rr, $rr_options,
+    $help, $help_simplifier, $help_combinator, $help_verdict, $help_rr, $help_archiving,
+    $help_rqg_home, $runner, $noarchiving,
+    $rr, $rr_options, $sqltrace,
     $stop_on_replay, $script_debug_value, $runid, $threads, $type, $algorithm, $resource_control);
 
 use constant DEFAULT_MAX_RQG_RUNTIME => 3600;
@@ -305,6 +307,7 @@ if (not GetOptions(
            'rr:s'                      => \$rr,                     # Swallowed and handled by rqg_batch
            'rr_options=s'              => \$rr_options,             # Swallowed and handled by rqg_batch
            'servers=i'                 => \$servers,                # Swallowed and handled by rqg_batch
+           'sqltrace:s'                => \$sqltrace,               # Swallowed and handled by rqg_batch
 #          'threads=i'                 => \$threads,                # Pass through (@ARGV).
            'discard_logs'              => \$discard_logs,           # Swallowed and handled by rqg_batch
            'discard-logs'              => \$discard_logs,
@@ -312,10 +315,39 @@ if (not GetOptions(
            'script_debug=s'            => \$script_debug_value,     # Swallowed and handled by rqg_batch
            'runid:i'                   => \$runid,                  # Swallowed and handled by rqg_batch
                                                    )) {
-    # Somehow wrong option.
-    help();
-    safe_exit(STATUS_ENVIRONMENT_FAILURE);
+    if (not defined $help            and
+        not defined $help_simplifier and not defined $help_combinator and
+        not defined $help_verdict    and not defined $help_rr         and
+        not defined $help_archiving  and not defined $help_rqg_home      ) {
+        # Somehow wrong option.
+        help();
+        safe_exit(STATUS_ENVIRONMENT_FAILURE);
+    }
 };
+
+# Do not fiddle with other stuff when help is requested.
+if (defined $help) {
+    help();
+    safe_exit(0);
+} elsif (defined $help_combinator) {
+    Combinator::help();
+    safe_exit(0);
+} elsif (defined $help_simplifier) {
+    Simplifier::help();
+    safe_exit(0);
+} elsif (defined $help_rqg_home) {
+    Auxiliary::help_rqg_home();
+    safe_exit(0);
+} elsif (defined $help_verdict) {
+    Verdict::help();
+    safe_exit(0);
+} elsif (defined $help_rr) {
+    Auxiliary::help_rr();
+    safe_exit(0);
+} elsif (defined $help_archiving) {
+    Batch::help_archiving();
+    safe_exit(0);
+}
 
 
 # Support script debugging as soon as possible.
@@ -354,30 +386,6 @@ $script_debug_value = Auxiliary::script_debug_init($script_debug_value);
 #    no --script_debug=...... assigned
 #        INFO: script_debug :
 #
-# Do not fiddle with other stuff when only help is requested.
-if (defined $help) {
-    help();
-    safe_exit(0);
-} elsif (defined $help_combinator) {
-    Combinator::help();
-    safe_exit(0);
-} elsif (defined $help_simplifier) {
-    Simplifier::help();
-    safe_exit(0);
-} elsif (defined $help_rqg_home) {
-    Auxiliary::help_rqg_home();
-    safe_exit(0);
-} elsif (defined $help_verdict) {
-    Verdict::help();
-    safe_exit(0);
-} elsif (defined $help_rr) {
-    Auxiliary::help_rr();
-    safe_exit(0);
-} elsif (defined $help_archiving) {
-    Batch::help_archiving();
-    safe_exit(0);
-}
-
 
 # For testing
 # $type='omo';
@@ -429,7 +437,6 @@ check_and_set_config_file();
 my $cl_end = ' ';
 
 # $basedir_info is required for result.txt and setup.txt.
-# MLMLMLML
 my $basedir_info = '';
 # For testing:
 # $basedirs[1] = '/weg';
@@ -453,6 +460,12 @@ if (not defined $workdir) {
     say("ERROR: Making the multi_runner_infrastructure failed. Abort");
     safe_exit($status);
 }
+
+$sqltrace = SQLtrace::check_sqltracing($sqltrace);
+if (not defined $sqltrace) {
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    safe_exit($status);
+};
 
 my $info;
 $info = "INFO: RQG_HOME   : ->" . $rqg_home . "<- ";
@@ -516,6 +529,7 @@ $cl_end .= " --report-xml-tt-dest=$report_xml_tt_dest "
     if defined $report_xml_tt_dest and $report_xml_tt_dest ne '';
 $cl_end .= " --script_debug=" . $script_debug_value
     if $script_debug_value ne '';
+$cl_end .= " --sqltrace=" . $sqltrace;
 
 my $cl_begin = '';
 
@@ -1433,7 +1447,7 @@ sub help() {
    "RQG Worker\n"                                                                                  .
    "      A child process which\n"                                                                 .
    "      1. Runs an extreme small 'prepare play ground'\n"                                        .
-   "      2. Starts via Perl 'system' a RQG run (--> rqg.pl)\n"                                    .
+   "      2. Starts via Perl 'system' a RQG run (--> rqg.pl or other RQG runner)\n"                .
    "      3. Obtains via Perl 'system' a verdict about that RQG run (--> verdict.pl)\n"            .
    "      4. Archives data of that RQG run depending on the verdict got and the setup\n"           .
    "Regular finished RQG run\n"                                                                    .
@@ -1461,6 +1475,8 @@ sub help() {
    "      Information about how and when to invoke the tool 'rr' (https://rr-project.org/)\n"      .
    "--help_archiving\n"                                                                            .
    "      Information about how and when archives of the binaries used and results are made\n"     .
+   "--help_sqltrace\n"                                                                             .
+   "      Information about how SQL tracing by RQG\n"                                              .
    "\n"                                                                                            .
    "--type=<Which type of work ("                                                                  .
    Auxiliary::list_values_supported(Batch::BATCH_TYPE_ALLOWED_VALUE_LIST) . "') to do>\n"          .
@@ -1538,6 +1554,7 @@ sub help() {
    "  Simplifier: Ignore any grammar and redefine file maybe assigned in config file.\n"           .
    "--threads=<n>\n"                                                                               .
    "--no_mask      (Assigning --mask or --mask-level on command line is not supported anyway.)\n"  .
+   "--sqltrace=...\n"                                                                              .
    "--testname=...\n"                                                                              .
    "--xml-output=...\n"                                                                            .
    "--report-xml-tt=...\n"                                                                         .
@@ -1612,4 +1629,12 @@ sub check_and_set_config_file {
     say("DEBUG: Config file '$config_file', suffix '$suffix'.");
 }
 
+sub check_and_set_sqltrace {
+    my $status = SQLtrace::check_and_set_sqltracing($sqltrace, $workdir);
+    if (STATUS_OK != $status) {
+        say("$0 will exit with exit status " . status2text($status) . "($status)");
+        run_end($status);
+    };
+}
+    
 1;
