@@ -377,7 +377,7 @@ sub cacheMetaData {
     my $who_am_i = "GenTest::Executor::cacheMetaData";
 
     my $trace_addition = '/* E_R ' . $self->role . ' QNO 0 CON_ID ' .
-                         $self->connectionId . '*/';
+                         $self->connectionId . ' */';
     if($self->type == DB_MYSQL) {
         # @@max_statement_time might be so small that some of the initial SQL's which need
         # to pass all fail (observed 2020-11). So go without limit in this initial phase.
