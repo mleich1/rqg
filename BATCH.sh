@@ -273,6 +273,10 @@ set -o pipefail
 # Please be aware that some increasing number of Combinations config files already
 # enable the use of "rr".
 #
+# 9. SQL tracing within RQG (Client side tracing)
+# --sql_trace=Simple                                                   \
+#
+#
 
 # perl -w -d:ptkdb ./rqg_batch.pl                                      \
 #

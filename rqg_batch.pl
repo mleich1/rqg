@@ -461,11 +461,13 @@ if (not defined $workdir) {
     safe_exit($status);
 }
 
-$sqltrace = SQLtrace::check_sqltracing($sqltrace);
-if (not defined $sqltrace) {
-    my $status = STATUS_ENVIRONMENT_FAILURE;
-    safe_exit($status);
-};
+if (defined $sqltrace) {
+    $sqltrace = SQLtrace::check_sqltracing($sqltrace);
+    if (not defined $sqltrace) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        safe_exit($status);
+    };
+}
 
 my $info;
 $info = "INFO: RQG_HOME   : ->" . $rqg_home . "<- ";
@@ -529,7 +531,7 @@ $cl_end .= " --report-xml-tt-dest=$report_xml_tt_dest "
     if defined $report_xml_tt_dest and $report_xml_tt_dest ne '';
 $cl_end .= " --script_debug=" . $script_debug_value
     if $script_debug_value ne '';
-$cl_end .= " --sqltrace=" . $sqltrace;
+$cl_end .= " --sqltrace=" . $sqltrace if defined $sqltrace;
 
 my $cl_begin = '';
 

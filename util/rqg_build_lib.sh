@@ -174,6 +174,20 @@ function check_environment()
         mkdir "$OOS_DIR"
         set +e
     fi
+    SRV_DIR="/dev/shm/srv_dir"
+    if [ ! -d "$SRV_DIR" ]
+    then
+        echo "No '$SRV_DIR' found. Will create it"
+        set -e
+        mkdir "$SRV_DIR"
+        set +e
+    else
+        echo "SRV_DIR '$SRV_DIR' found. Will drop and recreate it."
+        set -e
+        rm -rf "$OOS_DIR"
+        mkdir "$OOS_DIR"
+        set +e
+    fi
 
     INSTALL_PREFIX="$GENERAL_BIN_DIR""/""$RELEASE""$BUILD_TYPE"
 
@@ -275,7 +289,13 @@ function archiving()
     rm -f "$TARGET" "$TARGET_PRT"
 
     echo "    Will use ->$COMP_PROG<- for compression"                      | tee -a "$BLD_PROT"
-    tar --use-compress-program="$COMP_PROG" -cf "$TARGET" .          2>&1   | tee -a "$BLD_PROT"
+    # Archives of trees with binaries serve
+    # - for the rather rare case that we need to restore an old tree with binaries
+    #   for running a rr replay.
+    # - not for running MTR tests on some historic tree
+    # Hence we can save space by removing all MTR tests.
+    tar --use-compress-program="$COMP_PROG" --exclude="mysql-test"          \
+                                            -cf "$TARGET" .          2>&1   | tee -a "$BLD_PROT"
     MD5SUM=`md5sum "$TARGET" | cut -f1 -d' '`
     echo "MD5SUM of archive: $MD5SUM"                                       | tee -a "$BLD_PROT"
     DATE=`date -u +%s`

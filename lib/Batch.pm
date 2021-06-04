@@ -1239,7 +1239,7 @@ sub reap_workers {
                         }
                         if (not defined $rqg_arc) {
                             if (not $archive_warning_emitted) {
-                                say("WARN: The archive '$rqg_arc' does not exist. This might be " .
+                                say("WARN: Some archive does not exist. This might be " .
                                     "intentional or a mistake. Further warnings of this kind "    .
                                     "will be suppressed.");
                                 $archive_warning_emitted = 1;

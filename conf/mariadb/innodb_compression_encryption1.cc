@@ -1,3 +1,20 @@
+# Copyright (C) 2019, 2021 MariaDB Corporation.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; version 2 of the License.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301
+# USA
+#
+
 # conf/mariadb/innodb_compression_encryption1.cc
 # ----------------------------------------------
 # This is a derivate of conf/mariadb/innodb_compression_encryption.cc
@@ -68,13 +85,12 @@ $combinations = [
           --duration=300
           --engine=InnoDB
           --queries=100000000
-          --mysqld=--loose_innodb_use_native_aio=1
           --reporters=Backtrace,ErrorLog,Deadlock1,RestartConsistency
           --restart_timeout=120
           --mysqld=--log_output=none
           --sqltrace=MarkErrors
           --grammar=conf/mariadb/innodb_compression_encryption.yy
-          --gendata=conf/mariadb/innodb_compression_encryption.zz
+          --gendata=conf/mariadb/innodb_compression_encryption.zz --max_gd_duration=1500
           --mysqld=--loose-innodb-use-atomic-writes
           --mysqld=--plugin-load-add=file_key_management.so
           --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt
@@ -91,11 +107,18 @@ $combinations = [
         '--mysqld=--loose-innodb-encryption-threads=1 ',
         '--mysqld=--loose-innodb-encryption-threads=7 ',
     ],[
+        '--mysqld=--loose-innodb_encryption_rotate_key_age=0 ',
+        '--mysqld=--loose-innodb_encryption_rotate_key_age=2 ',
+    ],[
         '--threads=1  ',
         '--threads=13 ',
     ],[
         ' ',
         '--mysqld=--innodb-encrypt-log ',
+    ],[
+        " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='\"--chaos --wait\"' ",
+        " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='\"--wait\"' ",
+        " --mysqld=--innodb_use_native_aio=1 ",
     ],[
         ' ',
         '--mysqld=--innodb-encrypt-tables '
