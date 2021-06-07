@@ -93,6 +93,7 @@ use constant MYSQLD_PID_FILE                     => "mysql.pid";
 use constant MYSQLD_ERRORLOG_FILE                => "mysql.err";
 use constant MYSQLD_BOOTSQL_FILE                 => "boot.sql";
 use constant MYSQLD_BOOTLOG_FILE                 => "boot.log";
+use constant MYSQLD_BOOTERR_FILE                 => "boot.err";
 use constant MYSQLD_LOG_FILE                     => "mysql.log";
 use constant MYSQLD_DEFAULT_PORT                 =>  19300;
 use constant MYSQLD_DEFAULT_DATABASE             => "test";
@@ -531,9 +532,12 @@ sub createMysqlBase  {
     }
 
     my $command;
+    my $command_begin = '';
+    my $command_end   = '';
+    my $booterr       = $self->vardir . "/" . MYSQLD_BOOTERR_FILE;
+    push @$boot_options, "--log_error=$booterr";
 
     if (not $self->_isMySQL or $self->_olderThan(5,7,5)) {
-
        # Add the whole init db logic to the bootstrap script
        print BOOT "CREATE DATABASE mysql;\n";
        print BOOT "USE mysql;\n";
@@ -544,16 +548,15 @@ sub createMysqlBase  {
         }
 
         push(@$boot_options,"--bootstrap") ;
-        $command = $self->generateCommand($boot_options);
         if (osWindows()) {
-            $command = "$command < \"$boot\"";
+            $command_end = " < \"$boot\" ";
         } else {
-            $command = "cat \"$boot\" | $command";
+            $command_begin = "cat \"$boot\" | ";
         }
     } else {
         push @$boot_options, "--initialize-insecure", "--init-file=$boot";
-        $command = $self->generateCommand($boot_options);
     }
+    my $command = $self->generateCommand($boot_options);
 
     # FIXME: Maybe add the user in a clean way like CREATE USER ... GRANT .... if possible.
     ## Add last strokes to the boot/init file: don't want empty users, but want the test user instead
@@ -591,9 +594,10 @@ sub createMysqlBase  {
             }
             # $command = "rr record --mark-stdio $rr_options $command";
             # like used in sub startServer does not work well here just because
-            # the output of cat get "[rr <pid>] " prependet per line.
+            # the output of cat gets "[rr <pid>] " prepended per line.
             # FIXME: Try to use a modified command.
-            $command = "ulimit -c 0; rr record $rr_options $command";
+            $command_begin = "ulimit -c 0; " .  $command_begin . " rr record $rr_options --mark-stdio ";
+            # $command = "ulimit -c 0; rr record $rr_options --mark-stdio $command";
         }
     }
     # The bootstrap can end up with a freeze. Example: Innodb Parameter incompatible with bootstrap.
@@ -603,12 +607,15 @@ sub createMysqlBase  {
     #    Disadvantages: ~ 1800s elapsed time and incomplete rr trace of bootstrap
     # b) sigaction SIGALRM ... like lib/GenTest/Reporter/Deadlock*.pm
     # c) fork like in startServer etc.
-    say("Bootstrap command: $command");
     my $bootlog = $self->vardir . "/" . MYSQLD_BOOTLOG_FILE;
-    system("$command > \"" . $bootlog . "\" 2>&1");
+    $command_end .= " > \"$bootlog\" 2>&1";
+    $command = $command_begin . $command . $command_end;
+    say("Bootstrap command: ->" . $command . "<-");
+    system("$command");
     my $rc = $? >> 8;
     if ($rc != DBSTATUS_OK) {
        say("ERROR: Bootstrap failed");
+       sayFile($booterr);
        sayFile($bootlog);
        say("ERROR: Will return the status got for Bootstrap : $rc");
     }
