@@ -1542,8 +1542,13 @@ sub help() {
    "      verdict is '" . Verdict::RQG_VERDICT_REPLAY . "' or '" . Verdict::RQG_VERDICT_INTEREST   .
    "'.\n"                                                                                          .
    "      Advantage: RQG test simplification will be significant faster + save storage space.\n"   .
-   "      Disadvantage: You will have to repeat some run for getting cores and similar.\n"         .
-   "      Default: Generate an archive in case getting such a positive verdict.\n"                 .
+   "      Disadvantage: You will have to repeat some run for getting cores and similar.\n\n"       .
+   "      The default is to generate an archive in case getting such a positive verdict.\n"        .
+   "      Content of the archive:\n"                                                               .
+   "      - Any file where the name starts with 'rqg*' from the workdir of the RQG run.\n"         .
+   "        Examples: rqg.log rqg.yy rqg.sql rqg.zz rqg.trc rqg_gd.dump\n"                         .
+   "      - The vardir of the RQG run.\n"                                                          .
+   "        Examples: data dirs of DB servers, core files, rr traces\n"                            .
    "-------------------------------------------------------------------------------------------\n" .
    "Group of parameters which get either passed through to the Simplifier or appended to the\n"    .
    "final command line of the RQG runner. Both things cause that certain settings within the\n"    .

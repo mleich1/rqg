@@ -1746,7 +1746,7 @@ if ($final_result == STATUS_OK) {
                 my $databases_string = join(' ', @{$result});
                   say("DEBUG: databases_string ->$databases_string<-");
                 # $vardirs[$server_id+1],
-                my $dump_prefix =  $vardirs[$i + 1] . "/after_gendata";
+                my $dump_prefix =  $vardirs[$i + 1] . "/rqg_after_gendata";
                 my $dump_options = "--force --hex-blob --no-tablespaces --compact --order-by-primary ".
                                    "--skip-extended-insert --databases $databases_string";
                 my $dump_result = $server[$i]->dumpSomething("$dump_options", $dump_prefix);

@@ -597,7 +597,6 @@ sub createMysqlBase  {
             # the output of cat gets "[rr <pid>] " prepended per line.
             # FIXME: Try to use a modified command.
             $command_begin = "ulimit -c 0; " .  $command_begin . " rr record $rr_options --mark-stdio ";
-            # $command = "ulimit -c 0; rr record $rr_options --mark-stdio $command";
         }
     }
     # The bootstrap can end up with a freeze. Example: Innodb Parameter incompatible with bootstrap.
@@ -610,7 +609,7 @@ sub createMysqlBase  {
     my $bootlog = $self->vardir . "/" . MYSQLD_BOOTLOG_FILE;
     $command_end .= " > \"$bootlog\" 2>&1";
     $command = $command_begin . $command . $command_end;
-    say("Bootstrap command: ->" . $command . "<-");
+    # say("Bootstrap command: ->" . $command . "<-");
     system("$command");
     my $rc = $? >> 8;
     if ($rc != DBSTATUS_OK) {
