@@ -1439,7 +1439,8 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         if (not defined $server[$server_id]) {
             say("ERROR: Preparing the server[$server_id] for the start failed.");
             my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("$0 will exit with exit status " . status2text($status) . "($status)");
+            say("RESULT: The RQG run ended with status " . status2text($status) . " ($status)");
+            $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
             exit_test($status);
         }
 
@@ -1448,7 +1449,8 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
             # exit_test will run killServers
             say("ERROR: Could not start all servers");
             my $status = STATUS_CRITICAL_FAILURE;
-            say("$0 will exit with exit status " . status2text($status) . "($status)");
+            say("RESULT: The RQG run ended with status " . status2text($status) . " ($status)");
+            $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
             exit_test($status);
         }
 
@@ -1943,10 +1945,10 @@ if ($final_result >= STATUS_CRITICAL_FAILURE) {
         if ($final_result > STATUS_CRITICAL_FAILURE) {
             say("DEBUG: The current status is already high enough. So it will be not modified.");
         } else {
-            say("DEBUG: Raising status from " . $final_result . " to " . STATUS_ALARM);
-            $final_result = STATUS_ALARM;
+            say("DEBUG: Raising status from " . $final_result . " to " . STATUS_CRITICAL_FAILURE);
+            $final_result = STATUS_CRITICAL_FAILURE;
         }
-        # FIXME: In case there is a core file make a backtrace
+        # FIXME: In case there is a core file make a backtrace what than?
     }
 }
 
