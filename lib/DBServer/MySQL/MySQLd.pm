@@ -609,7 +609,8 @@ sub createMysqlBase  {
     my $bootlog = $self->vardir . "/" . MYSQLD_BOOTLOG_FILE;
     $command_end .= " > \"$bootlog\" 2>&1";
     $command = $command_begin . $command . $command_end;
-    # say("Bootstrap command: ->" . $command . "<-");
+    # The next line is required by the pattern matching.
+    say("Bootstrap command: ->" . $command . "<-");
     system("$command");
     my $rc = $? >> 8;
     if ($rc != DBSTATUS_OK) {
