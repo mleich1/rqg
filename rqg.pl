@@ -1440,7 +1440,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
             say("ERROR: Preparing the server[$server_id] for the start failed.");
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("RESULT: The RQG run ended with status " . status2text($status) . " ($status)");
-            $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
+            # $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
             exit_test($status);
         }
 
@@ -1450,7 +1450,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
             say("ERROR: Could not start all servers");
             my $status = STATUS_CRITICAL_FAILURE;
             say("RESULT: The RQG run ended with status " . status2text($status) . " ($status)");
-            $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
+            # $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
             exit_test($status);
         }
 
@@ -1954,7 +1954,7 @@ if ($final_result >= STATUS_CRITICAL_FAILURE) {
 
 # For experiments requiring that a RQG test has failed:
 # $final_result = STATUS_SERVER_CRASHED;
-$return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
+# $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
 say("RESULT: The RQG run ended with status " . status2text($final_result) . " ($final_result)");
 
 exit_test($final_result);
@@ -2230,7 +2230,8 @@ sub exit_test {
     # Hence some harsh killServers instead of stopServers is acceptable.
     killServers($status);
 
-    my $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_ANALYZE);
+    # my $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_ANALYZE);
+    my $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
 
     $message = "RQG total runtime in s : " . (time() - $rqg_start_time);
     $summary .= "SUMMARY: $message\n";

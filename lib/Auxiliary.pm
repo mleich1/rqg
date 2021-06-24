@@ -1735,6 +1735,8 @@ sub archive_results {
     # Failing cmd for experimenting
     # $cmd = "cd $workdir ; tar csf $archive rqg* $vardir 2>$archive_err";
     #
+    # Having a compressed archive and appending files to it is not supported!
+    #
     # Some thoughts about why not prepending a nice -19 to the tar command.
     # ---------------------------------------------------------------------
     # 1. Less elapsed time for tar with compression means shorter remaining lifetime for the

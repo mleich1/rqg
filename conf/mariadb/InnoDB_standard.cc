@@ -241,6 +241,11 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_adaptive_hash_index=on ',
   ],
   [
+    ' --mysqld=--log-bin ',      # Binary logging is more likely used.
+    ' --mysqld=--log-bin ',      # Binary logging is more likely used.
+    '',                          # Without binary logging certain bugs replay better.
+  ],
+  [
     ' --mysqld=--loose-innodb_evict_tables_on_commit_debug=off ',
 #   ' --mysqld=--loose-innodb_evict_tables_on_commit_debug=on  ',
   ],
@@ -264,8 +269,13 @@ $combinations = [ $grammars,
     ' --threads=33 ',
   ],
   [
+    # rr
+    # - trace analysis is serious more comfortable than analyzing cores
+    # - replays certain bugs significant less likely than without rr
+    # - has trouble with (libaio or liburing)
     " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='\"--chaos --wait\"' ",
     " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='\"--wait\"' ",
+    # Coverage for libaio or liburing.
     " --mysqld=--innodb_use_native_aio=1 ",
   ],
   [
@@ -274,6 +284,9 @@ $combinations = [ $grammars,
     # 2. An innodb-buffer-pool-size=5M should work well with innodb_page_size < 32K
     # 3. A huge innodb-buffer-pool-size will not give an advantage if the tables are small.
     # 4. Small innodb-buffer-pool-size and small innodb_page_size stress Purge more.
+    # 5. Gendata is faster when using a big innodb-buffer-pool-size.
+    # 6. If huge innodb-buffer-pool sizes get accepted at all and work well does not fit into
+    #    the characteristics of the current test battery.
     ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=5M   ',
     ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=256M ',
     ' --mysqld=--innodb_page_size=8K  --mysqld=--innodb-buffer-pool-size=8M   ',

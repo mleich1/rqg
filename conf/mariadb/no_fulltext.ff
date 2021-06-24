@@ -1,0 +1,3 @@
+$rules = {
+  'optimize' => sub { $_ =~ m{FULLTEXT}is },
+}
