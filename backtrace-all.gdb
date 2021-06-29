@@ -1,5 +1,5 @@
 # Copyright (C) 2008 Sun Microsystems, Inc. All rights reserved.
-# Copyright (C) 2020 MariaDB Corporation Ab.
+# Copyright (C) 2020, 2021 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -17,8 +17,14 @@
 # USA
 
 set print elements 0
-echo #===== Output of GDB     thread apply all backtrace full   ===================#
-thread apply all backtrace full
+# "full" consumes a rather not acceptable amount of CPU time and elapsed time.
+# Given the facts that
+# - search patterns are based on non "full" backtraces if at all
+# - we have frequent several hits for one problem and only one archive gets finally picked
+#   for analysis
+# the generation of a backtrace with "full" can be made later for the case picked.
+# echo #===== Output of GDB     thread apply all backtrace full   ===================#
+# thread apply all backtrace full
 echo #===== Output of GDB     thread apply all backtrace        ===================#
 thread apply all backtrace
 
