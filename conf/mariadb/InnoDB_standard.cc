@@ -218,7 +218,6 @@ $combinations = [ $grammars,
     --reporters=Backtrace --reporters=ErrorLog --reporters=Deadlock1
     --validators=None
     --mysqld=--log_output=none
-    --mysqld=--log-bin
     --mysqld=--log_bin_trust_function_creators=1
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
@@ -241,9 +240,10 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_adaptive_hash_index=on ',
   ],
   [
-    ' --mysqld=--log-bin ',      # Binary logging is more likely used.
-    ' --mysqld=--log-bin ',      # Binary logging is more likely used.
-    '',                          # Without binary logging certain bugs replay better.
+    # With the default --mysqld=--sync-binlog=0 we risk to get 'TBR-1136' in Crashrecovery tests.
+    ' --mysqld=--log-bin --mysqld=--sync-binlog=1 ',      # Binary logging is more likely used.
+    ' --mysqld=--log-bin --mysqld=--sync-binlog=1 ',      # Binary logging is more likely used.
+    '',                                                   # Without binary logging certain bugs replay better.
   ],
   [
     ' --mysqld=--loose-innodb_evict_tables_on_commit_debug=off ',
@@ -277,6 +277,9 @@ $combinations = [ $grammars,
     " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='\"--wait\"' ",
     # Coverage for libaio or liburing.
     " --mysqld=--innodb_use_native_aio=1 ",
+    # rr+InnoDB running on usual filesystem on HDD or SSD need
+    #     --mysqld=--innodb_flush_method=fsync
+    # Otherwise already bootstrap fails.
   ],
   [
     # 1. innodb_page_size >= 32K requires a innodb-buffer-pool-size >=24M
