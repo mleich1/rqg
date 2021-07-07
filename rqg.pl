@@ -1106,11 +1106,11 @@ if ($genconfig) {
     );
 }
 
-if (defined $rr) {
-    if (defined $rr_options) {
-        $rr_options = '"' . $rr_options . '"';
-    }
-}
+# if (defined $rr) {
+#     if (defined $rr_options) {
+#         $rr_options = $rr_options ;
+#     }
+# }
 
 ### What follows should be checked (if at all) before any server is started.
 # Otherwise it could happen that we have started some server and the test aborts later with
