@@ -1114,6 +1114,12 @@ sub init {
             $status = $executor->set_safe_max_statement_time ;
             return $status if $status != STATUS_OK;
         }
+        # Experimental code. Do not remove even though currently disabled.
+        # Intention: Accelerate the generation of data by temporary increase of buffer pool size.
+        # if ($executor->task() == GenTest::Executor::EXECUTOR_TASK_GENDATA) {
+        #     $status = $executor->set_innodb_buffer_pool_size ;
+        #     return $status if $status != STATUS_OK;
+        # }
     }
     return STATUS_OK;
 }
@@ -1323,8 +1329,10 @@ sub execute {
     if (defined $err) {
         $err_type = $err2type{$err} || STATUS_OK;
         if ($err == ER_GET_ERRNO) {
-            my ($se_err) = $sth->errstr() =~ m{^Got error\s+(\d+)\s+from storage engine}sgio;
-            $err_type = STATUS_OK if (defined $acceptable_se_errors{$se_err});
+            my $se_err = $sth->errstr() =~ m{^Got error\s+(\d+)\s+from storage engine}sgio;
+            if (defined $se_err and exists $acceptable_se_errors{$se_err}) {
+                $err_type = STATUS_OK;
+            }
         }
         if ($err == ER_DUP_KEY) {
             # InnoDB: Error (Duplicate key) writing word node to FTS auxiliary index table
@@ -1770,9 +1778,19 @@ sub is_query_explainable {
 }
 
 sub disconnect {
-   my $executor = shift;
-   $executor->dbh()->disconnect() if defined $executor->dbh();
-   $executor->setDbh(undef);
+    my $executor = shift;
+    if (defined $executor->dbh()) {
+        # Experimental code. Do not remove even though currently disabled.
+        # Intention: Accelerate the generation of data by temporary increase of buffer pool size.
+        # if ($executor->task() == GenTest::Executor::EXECUTOR_TASK_GENDATA) {
+        #     my $status = $executor->restore_innodb_buffer_pool_size ;
+        #     # FIXME: What to do with $status?
+        # }
+        say('DEBUG: /* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
+                         $executor->connectionId() . ' before disconnect. */ ');
+        $executor->dbh()->disconnect();
+    }
+    $executor->setDbh(undef);
 }
 
 sub DESTROY {
@@ -2153,7 +2171,8 @@ sub exp_server_kill {
 
 sub run_do {
 # Just some SQL command without result set.
-    # my $status = GenTest::Executor::MySQL::run_do($dbh, $role, $query);
+# Sample call:
+# my $status = GenTest::Executor::MySQL::run_do($dbh, $role, $query);
 
     my ($dbh, $role, $query) = @_;
 
@@ -2174,21 +2193,6 @@ sub run_do {
                     "Will exit with STATUS_INTERNAL_ERROR");
         exit STATUS_INTERNAL_ERROR;
     }
-
-# FIXME: Add the tracing
-#   my $trace_addition = ' /* E_R ' . $executor_role . ' QNO ' . (++$query_no) .
-#                        ' CON_ID ' . $executor->connectionId() . ' */ ';
-#   $query = $query . $trace_addition;
-#
-# The role comes from the assigned variables.
-# The query comes from the assigned variables.
-# $query_no is global but could be the wrong one.
-# Example: Query 10 of Thread1 gets killed by QueryKiller which is a different session
-# connectionId is currently unknown
-# Most probably good improvement:
-# 1. Remove $role from the variables.
-# 2. Already the caller should enhance the query with /* E_R <Role> .... */
-#
 
     SQLtrace::sqltrace_before_execution($query);
     # exp_server_kill($who_am_i, $query);
@@ -2220,58 +2224,114 @@ sub set_safe_max_statement_time {
 
     my $who_am_i = "GenTest::Executor::MySQL::set_safe_max_statement_time:";
 
-    if($executor->type == DB_MYSQL) {
-        my $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
+    my $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
                              $executor->connectionId() . ' */ ';
 
-        # @@max_statement_time might be so small that
-        # - some of the initial SQL's of any executor could fail but all must pass
-        # - some of the SQL's of Reporters fail (observed 2020-11 for Deadlock, but rare)
-        # - some of the SQL's of MetadataCacher fail (observed 2020-11 and not rare)
-    #   my $aux_query = '/*!100108 SET @max_statement_time_save = @@global.max_statement_time */ ' .
-    #                   $trace_addition;
-    #   # exp_server_kill($who_am_i, $aux_query);
-    #   my $status = GenTest::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
-    #   if (STATUS_OK != $status) {
-    #       say("ERROR: $who_am_i " . $executor->role .
-    #           " Will return status : " . status2text($status) . "($status).");
-    #       return $status;
-    #   }
-        my $aux_query = '/*!100108 SET @@max_statement_time = 0 */ ' . $trace_addition;
-        # exp_server_kill($who_am_i, $aux_query);
-        my $status = GenTest::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
-        if (STATUS_OK != $status) {
-            say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
-            return $status;
-        } else {
-            return STATUS_OK;
-        }
+    # @@max_statement_time might be so small that
+    # - some of the initial SQL's of any executor could fail but all must pass
+    # - some of the SQL's of Reporters fail (observed 2020-11 for Deadlock, but rare)
+    # - some of the SQL's of MetadataCacher fail (observed 2020-11 and not rare)
+    # exp_server_kill($who_am_i, $aux_query);
+    my $aux_query = '/*!100108 SET @@max_statement_time = 0 */ ' . $trace_addition;
+    # exp_server_kill($who_am_i, $aux_query);
+    my $status = GenTest::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
+    if (STATUS_OK != $status) {
+        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        return $status;
     } else {
         return STATUS_OK;
     }
 }
-
 sub restore_max_statement_time {
     my $executor = shift;
 
     my $who_am_i = "GenTest::Executor::MySQL::restore_max_statement_time:";
 
-    if($executor->type == DB_MYSQL) {
-        my $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
-                             $executor->connectionId() . ' */ ';
-        # my $aux_query = '/*!100108 SET @@max_statement_time = @max_statement_time_save */ ' .
-        my $aux_query = '/*!100108 SET @@max_statement_time = @@global.max_statement_time */ ' .
-                        $trace_addition;
-        # exp_server_kill($who_am_i, $aux_query);
-        my $status = GenTest::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
-        if (STATUS_OK != $status) {
-            say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
-            return $status;
-        } else {
-            return STATUS_OK;
-        }
+    my $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
+                         $executor->connectionId() . ' */ ';
+    # my $aux_query = '/*!100108 SET @@max_statement_time = @max_statement_time_save */ ' .
+    my $aux_query = '/*!100108 SET @@max_statement_time = @@global.max_statement_time */ ' .
+                    $trace_addition;
+    # exp_server_kill($who_am_i, $aux_query);
+    my $status = GenTest::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
+    if (STATUS_OK != $status) {
+        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        return $status;
     } else {
         return STATUS_OK;
+    }
+}
+
+
+# 2021-05
+# I am aware that the SQL's which follow could fail in case the MariaDB version used does not
+# support dynamic setting of innodb_buffer_pool_size or innodb_disable_resize_buffer_pool_debug.
+sub set_innodb_buffer_pool_size {
+    my $executor = shift;
+
+    my $who_am_i = "GenTest::Executor::MySQL::set_innodb_buffer_pool_size:";
+
+    my $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
+                         $executor->connectionId() . ' */ ';
+    my $aux_query;
+    my $status;
+    # exp_server_kill($who_am_i, $aux_query);
+    $aux_query = 'SET @innodb_buffer_pool_size_save = ' .
+                 '@@global.innodb_buffer_pool_size ' . $trace_addition;
+    $status = GenTest::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
+    if (STATUS_CRITICAL_FAILURE <= $status) {
+        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        return $status;
+    }
+    #
+    $aux_query = 'SET @innodb_disable_resize_buffer_pool_debug_save = ' .
+                 '@@global.innodb_disable_resize_buffer_pool_debug ' . $trace_addition;
+    $status = GenTest::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
+    if (STATUS_CRITICAL_FAILURE <= $status) {
+        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        return $status;
+    }
+    #
+    $aux_query = 'SET @@global.innodb_disable_resize_buffer_pool_debug = 0 ' .
+                 $trace_addition;
+    $status = GenTest::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
+    if (STATUS_CRITICAL_FAILURE <= $status) {
+        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        return $status;
+    }
+    #
+    $aux_query = 'SET @@global.innodb_buffer_pool_size = IF(268435456 > ' .
+                 '@@innodb_buffer_pool_size, 268435456, @@innodb_buffer_pool_size) ' .
+                 $trace_addition;
+    $status = GenTest::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
+    if (STATUS_CRITICAL_FAILURE <= $status) {
+        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        return $status;
+    }
+}
+sub restore_innodb_buffer_pool_size {
+    my $executor = shift;
+
+    my $who_am_i = "GenTest::Executor::MySQL::restore_innodb_buffer_pool_size:";
+
+    my $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
+                         $executor->connectionId() . ' */ ';
+    my $aux_query;
+    my $status;
+    $aux_query = 'SET @@global.innodb_buffer_pool_size = ' .
+                 '@innodb_buffer_pool_size_save ' . $trace_addition;
+    $status = GenTest::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
+    if (STATUS_CRITICAL_FAILURE <= $status) {
+        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        return $status;
+    }
+    #
+    $aux_query = 'SET @@global.innodb_disable_resize_buffer_pool_debug = ' .
+                 '@innodb_disable_resize_buffer_pool_debug_save ' . $trace_addition;
+    $status = GenTest::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
+    if (STATUS_CRITICAL_FAILURE <= $status) {
+        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        return $status;
     }
 }
 
