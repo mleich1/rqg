@@ -1446,8 +1446,21 @@ sub execute {
             # Could it happen that we meet some just initiated server shutdown and what would
             # happen than?
             $status = STATUS_CRITICAL_FAILURE;
-            say("INFO: $trace_addition :  The server is not connectable. Will return a result " .
-                "containing the status " . status2text($status) . "($status).");
+            say("INFO: $trace_addition :  The server is not connectable. Will sleep 3s and than " .
+                "return a result containing the status " . status2text($status) . "($status).");
+            # The sleep is for preventing the following scenario:
+            # A reporter like CrashRecovery has send SIGKILL/SIGSEGV/SIGABRT to the server and
+            # exited immediate with STATUS_SERVER_KILLED. Of course worker threads will detect
+            # the dead server too and exit with STATUS_CRITICAL_FAILURE if not been killed earlier.
+            # Caused by heavy load and unfortunate scheduling it can happen that the main process
+            # (RQG runner executing GenTest) detects the exited thread before the exited reporter
+            # and than we might end up with the final status STATUS_CRITICAL_FAILURE.
+            # The reporter Backtrace will later confirm the crash and GenTest will transform that
+            # status to STATUS_SERVER_CRASHED.
+            # In case the main process would receive the status STATUS_SERVER_KILLED first than
+            # the crash would be confirmed by Backtrace and the status would get transformed
+            # to STATUS_OK.
+            sleep(3);
          }
          return GenTest::Result->new(
                query        => $query,
