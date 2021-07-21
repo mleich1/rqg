@@ -99,7 +99,7 @@ use GenTest::Grammar;
 
 # TODO:
 # Direct
-# - nearly all output to $rqg_workdir/rqg.log
+# - nearly all output to $workdir/rqg.log
 #   This would be
 #   - clash free in case a clash free $workdir is assigned.
 #   - not clash free in case $workdir is not assigned -> pick cwd().
@@ -111,7 +111,7 @@ use GenTest::Grammar;
 # Example:
 # 1. combinations.pl reports that it calls rqg.pl.
 # 2. rqg.pl reports into combinations.pl that it has taken over.
-# 3. rqg.pl does its main work and reports into $rqg_workdir/rqg.log.
+# 3. rqg.pl does its main work and reports into $workdir/rqg.log.
 # 4. rqg.pl reports at end something of interest into combinations.pl.
 #
 
@@ -1783,7 +1783,6 @@ if ($final_result > STATUS_OK) {
     say("INFO: Printing content of all server error logs End ==========");
 }
 
-
 if ($final_result == STATUS_OK) {
     # FIXME maybe:
     # Shutdown, maybe file backup, Restart but now including rr/valgrind/...
@@ -1797,6 +1796,34 @@ if ($final_result == STATUS_OK) {
     say("INFO: " . $message);
 }
 
+####################################################################################################
+# FIXME:
+# The server could crash during actions performed after doGenTest.
+# Non rare case: The regular shutdown of the server ends with a crash.
+# So we need backtracing if required.
+####################################################################################################
+
+
+# Disabled sample code (used for some MDEV) about how to do some additional checks.
+# 1. Doing that or similar stuff via some reporter would be also possible.
+# 2. Checking all non system databases could be performed by using $server[$i]->nonSystemDatabases1
+#    like above.
+if (0) {
+    if ($final_result == STATUS_OK) {
+        $cmd = "$client_basedir/mysqlcheck --user=root --protocol=tcp --port=$ports[0] -o test " .
+               "1>$workdir/mysqlcheck.out 2>$workdir/mysqlcheck.err";
+        system($cmd);
+        if(0 != ($? >> 8)) {
+            my $status = STATUS_CRITICAL_FAILURE;
+            say("ERROR: 'mysqlcheck' failed. Will exit with status : " .
+                status2text($status) . "($status).");
+            sayFile("$workdir/mysqlcheck.err");
+            exit_test($status);
+        } else {
+            sayFile("$workdir/mysqlcheck.out");
+        }
+    }
+}
 
 # If
 # - none of the GenTest work phases produced a failure
