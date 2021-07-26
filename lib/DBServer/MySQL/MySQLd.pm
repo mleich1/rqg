@@ -24,12 +24,11 @@ package DBServer::MySQL::MySQLd;
 # IMHO it is rather questionable if the current Reporter Backtrace is needed at all.
 # The reasons:
 # The server could die non intentional during
-# - during bootstrap or first start
-#   I need to look into rqg.pl some backtracing already kicks in.
-# - gendata -- rqg.pl initiates backtracing based on the reporter Backtrace
-# - gentest -- backtracing gets initiated by GenTest based on the reporter Backtrace
+# - bootstrap or first start after that
+# - gendata -- GenTest initiates backtracing based on the reporter Backtrace
+# - gentest -- GenTest initiates backtracing based on the reporter Backtrace
 # - some reporter Reporter initiates a shutdown or TERM server
-# - when stopping the servers smooth after GenTest
+# - when stopping the servers smooth after GenTest fails
 # Hint: Backtraces of mariabackup are also needed.
 #
 
@@ -596,7 +595,8 @@ sub createMysqlBase  {
             # like used in sub startServer does not work well here just because
             # the output of cat gets "[rr <pid>] " prepended per line.
             # FIXME: Try to use a modified command.
-            $command_begin = "ulimit -c 0; " .  $command_begin . " rr record $rr_options --mark-stdio ";
+            $command_begin = "ulimit -c 0; " .  $command_begin .
+                             " rr record " . $rr_options . " --mark-stdio ";
         }
     }
     # The bootstrap can end up with a freeze. Example: Innodb Parameter incompatible with bootstrap.
@@ -611,7 +611,7 @@ sub createMysqlBase  {
     $command = $command_begin . $command . $command_end;
     # The next line is required by the pattern matching.
     say("Bootstrap command: ->" . $command . "<-");
-    system("$command");
+    system($command);
     my $rc = $? >> 8;
     if ($rc != DBSTATUS_OK) {
        say("ERROR: Bootstrap failed");
@@ -812,13 +812,13 @@ sub startServer {
                 if (1 == $reaped) {
                     delete $aux_pids{$pid};
                     if (DBSTATUS_OK == $status) {
-                        say("DEBUG: Auxpid $pid exited with exit status STATUS_OK.")
+                        say("DEBUG: $who_am_i Auxpid $pid exited with exit status STATUS_OK.")
                     } else {
-                        say("WARN: Auxpid $pid exited with exit status $status.")
+                        say("WARN: $who_am_i Auxpid $pid exited with exit status $status.")
                     }
                 }
                 if (0 == $reaped and DBSTATUS_OK != $status) {
-                    say("ERROR: Attempt to reap Auxpid $pid failed with status $status.");
+                    say("ERROR: $who_am_i Attempt to reap Auxpid $pid failed with status $status.");
                 }
             }
         };
@@ -849,6 +849,7 @@ sub startServer {
             $tool_startup = 10;
             $rr_trace_dir = $self->vardir . '/rr';
             if (not -d $rr_trace_dir) {
+                # Thinkable reason: We go with --start-diry.
                 if (not mkdir $rr_trace_dir) {
                     my $status = DBSTATUS_FAILURE;
                     say("ERROR: startserver: Creating the 'rr' trace directory '$rr_trace_dir' " .
@@ -858,14 +859,14 @@ sub startServer {
             }
             # In case of using 'rr' and core file generation enabled in addition
             # - core files do not offer more information than already provided by rr traces
-            # - gdb -c <core file> <mysqld binary>   gives often rotten output from
+            # - gdb -c <core file> <mysqld binary> gives sometimes rotten output from
             #   whatever unknown reason
             # - cores files consume ~ 1 GB in vardir (often located in tmpfs) temporary
+            #   And that is serious bigger than rr traces.
             # So we prevent the writing of core files via ulimit.
-            # $command = "ulimit -c 0; exec rr record --mark-stdio $rr_options $command";
-              $command = "ulimit -c 0; rr record --mark-stdio $rr_options $command";
-            # say("DEBUG ---- 2 ->" . $command . "<-");
-            # say("DEBUG: command with rr ->" . $command . "<-");
+            $command = "ulimit -c 0; rr record " . $rr_options . " --mark-stdio $command";
+            # say("DEBUG: ---- 1 ->" . $rr_options . "<-");
+            # say("DEBUG: ---- 2 ->" . $command . "<-");
         }
 
         if (exists $ENV{'RUNNING_UNDER_RR'} or defined $self->[MYSQLD_RR]) {
@@ -909,7 +910,7 @@ sub startServer {
             # b) It might look attractive if the child l just runs exec "DB server" because
             #    than l is the DB server.
             #    But this does not help in case we invoke "rr".
-            #    l will be the running rr and that forks a process m being the running DB server.
+            #    l will be the running rr and that forks a process m being the running DB server??
             # Nevertheless observing MYSQLD_AUXPID (l) makes sense because that process will
             # disappear if the db server or rr process is gone.
 
@@ -939,7 +940,7 @@ sub startServer {
             # For experimenting
             # $self->stop_server_for_debug(3, -9, 'mysqld', 0);
             my $start_time = time();
-            my $wait_end = $start_time + $tool_startup + $pid_seen_timeout;
+            my $wait_end =   $start_time + $tool_startup + $pid_seen_timeout;
             while (1) {
                 Time::HiRes::sleep($wait_time);
 
@@ -2251,6 +2252,149 @@ sub waitForAuxpidGone {
             return $status;
         }
     }
+}
+
+
+sub xwaitForAuxpidGone {
+# Purpose:
+# - Ensure that there is sufficient time for finishing writing core files and "rr" traces.
+# - Ensure that we get informed by error messages about not disappearing processes etc.
+#   rqg_batch.pl might finally fix the situation by killing the processgroup.
+#   Even than we had some wasting of resources over some significant timespan.
+#
+# Scenarios:
+# A1) Current process is main process (rqg.pl) and parent of auxpid
+# A2) Current process is main process (rqg.pl) but not parent of auxpid
+#     because a reporter started auxpid.
+#     iIt should be possible to figure out the auxpid and server pid.
+# B1) Current process is non main process (reporter) and parent of auxpid
+#     like CrashRecovery --> does know auxpid
+# B2) Current process is non main process (reporter) and not parent of auxpid
+#     like Deadlock --> does know auxpid per heritage because of fork
+# Eliminating A2) and B1) would have serious advantages because all auxpid and server pids would be
+# known by the main process. But this would make periodic reporters like Mariabackup impossible.
+# Alternative approach:
+# - reporters are allowed to stop servers started by the main process
+# - reporters are allowed to start servers but than they should also take care of stopping them
+# - the main process should not take care of servers started by reporters
+    my $self =          shift;
+    my $who_am_i =      "DBServer::MySQL::MySQLd::waitForAuxpidGone:";
+    my $wait_timeout =  DEFAULT_AUXPID_GONE_TIMEOUT;
+    $wait_timeout =     $wait_timeout * Runtime::get_runtime_factor();
+    my $wait_time =     0.5;
+    my $start_time =    time();
+    my $wait_end =      $start_time + $wait_timeout;
+    # For debugging:
+    # Auxiliary::print_ps_tree($self->forkpid);
+    # Auxiliary::print_ps_tree($$);
+    if (not defined $self->forkpid) {
+        my $status = DBSTATUS_FAILURE;
+        say("INTERNAL ERROR: $who_am_i The auxiliary process is undef/unknown. " .
+            "Will return status DBSTATUS_FAILURE($status).");
+        return $status;
+    }
+    while (1) {
+        Time::HiRes::sleep($wait_time);
+        my $pid = $self->forkpid;
+        if (exists $aux_pids{$pid} and $$ == $aux_pids{$pid}) {
+            # The current process is the parent of the auxiliary process.
+            # I fear that the sigalarm in startServer is not sufficient for ensuring that
+            # auxiliary processes get reaped. So lets do this here again.
+            # Auxiliary::print_ps_tree($pid);
+            # Returns of Auxiliary::reapChild
+            # -------------------------------
+            # $reaped -- 0 (not reaped) or 1 (reaped)
+            # $status -- exit status of the process if reaped,
+            #            otherwise STATUS_OK or STATUS_INTERNAL_ERROR
+            #     0, STATUS_INTERNAL_ERROR -- most probably already reaped
+            #                              == Defect in RQG logics
+            my ($reaped, $status) = Auxiliary::reapChild($pid,
+                                                         "waitForAuxpidGone");
+            if (1 == $reaped) {
+                delete $aux_pids{$pid};
+                if (DBSTATUS_OK == $status) {
+                    say("DEBUG: $who_am_i Auxpid " . $pid . " exited with exit status STATUS_OK.")
+                } else {
+                    say("WARN: $who_am_i Auxpid $pid exited with exit status $status.")
+                }
+            }
+            if (0 == $reaped and DBSTATUS_OK != $status) {
+                say("ERROR: $who_am_i Attempt to reap Auxpid $pid failed with status $status.");
+            }
+        } else {
+            # The current process is not the parent of $pid. Hence delete the entry.
+            delete $aux_pids{$pid};
+            # Maybe the auxiliary process has already finished and was reaped.
+            if (not kill(0, $pid)) {
+                my $status = DBSTATUS_OK;
+                # say("DEBUG: The auxiliary process is no more running." .
+                #     " Will return status DBSTATUS_OK" . "($status).");
+                return $status;
+            } else {
+                # 1. It is not our child == reaping is done by other process.
+                # 2. We need to loop around till the process is gone == the
+                #    other process has reaped or we exceed the timeout.
+                # This all means we have nothing to do in this branch.
+                #
+            }
+        }
+        if (time() >= $wait_end) {
+            # For debugging:
+            # system("ps -elf | grep " . $pid);
+            my $status = DBSTATUS_FAILURE;
+            say("WARN: $who_am_i The auxiliary process has not disappeared within $wait_timeout" .
+                "s waiting. Will return status DBSTATUS_FAILURE($status).");
+        #   kill KILL => $pid;
+        #   # FIXME MAYBE:   Provisoric solution
+        #   sleep 30;
+            return $status if not exists $aux_pids{$pid};
+            my $reaped;
+            ($reaped, $status) = Auxiliary::reapChild($pid,
+                                                      "waitForAuxpidGone");
+            return $status;
+        }
+    }
+}
+
+# Experimental (mleich) and not yet finished.
+sub make_backtrace {
+# In case of UNIX nothing else than auxpid should count.
+# As soon as auxpid is reaped, either by our current process or some other if that is the parent
+# than mysqld or rr should have been reaped by the auxiliary process and writing of rr trace or
+# core files should have been finished. But that does not hold in case of core files.
+# Debug build + core file writing enabled and no use of rr.
+# auxpid disappeared short after the server pid but there was no core file even after 360s waiting.
+#
+# Q1: Is or was the server dying at all or is a timeout too short?
+# Q2: Is the server dying or already dead?
+# Q3: If the server is already dead has the writing of rr trace and/or core file finished?
+#
+# Observations:
+# 1. The server process and auxpid disappear at roughly the same point of time.
+# 2. If going
+#    - with rr (-> core generation disabled) the rr traces were roughly all time complete
+#    - without rr (-> core generation enabled) the core file
+#      - most often shows up and gets detected ~ 1s later
+#      - sometimes (IMHO too often) does not show up even if using a timeout of 480s.
+#        This seems to happen when having many concurrent RQG's (>~ 250) and a high fraction of
+#        server crashes leading to temporary excessive filesystem space (tmpfs) use, CPU time consumption
+#        (gdb is a serious consumer) and maybe use of filedescriptors, ports, ....
+#        But the server error log contains all time some assert followed by some fragmentaric
+#        backtrace like with non debug builds.
+#        pstree(parent process of auxpid, usually rqg.pl) did never show unexpected processes.
+#      - timediffs between pid disappear and core file show up of more than 10s were never observed
+#
+    my $self = shift;
+    # my $server_running = kill (0, serverpid());
+    my $who_am_i = "DBServer::MySQL::MySQLd::make_backtrace:";
+    # Use a derivate of waitForAuxpidGone, especiallly without the kill at end.
+    my $status   = $self->waitForAuxpidGone();
+    if (DBSTATUS_OK != $status) {
+        say("ERROR: $who_am_i Trouble with waitForAuxpidGone. Will return DBSTATUS_FAILURE($status).");
+        return DBSTATUS_FAILURE;
+    }
+    say("FIXME: $who_am_i Here is code missing.");
+    return DBSTATUS_OK;
 }
 
 1;

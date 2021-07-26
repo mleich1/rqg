@@ -240,7 +240,8 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_adaptive_hash_index=on ',
   ],
   [
-    # With the default --mysqld=--sync-binlog=0 we risk to get 'TBR-1136' in Crashrecovery tests.
+    # With log-bin and the default sync-binlog=0 we risk to get 'TBR-1136' (just to be expected
+    # and not a bug) in Crashrecovery tests.
     ' --mysqld=--log-bin --mysqld=--sync-binlog=1 ',      # Binary logging is more likely used.
     ' --mysqld=--log-bin --mysqld=--sync-binlog=1 ',      # Binary logging is more likely used.
     '',                                                   # Without binary logging certain bugs replay better.
@@ -271,10 +272,19 @@ $combinations = [ $grammars,
   [
     # rr
     # - trace analysis is serious more comfortable than analyzing cores
+    #   -> 2/3 of all runs should use it
     # - replays certain bugs significant less likely than without rr
+    #   -> at least 1/3 of all runs go without it
+    #   -> maybe running rr with and without --chaos helps a bit
     # - has trouble with (libaio or liburing)
-    " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='\"--chaos --wait\"' ",
-    " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='\"--wait\"' ",
+    #   -> runs with rr use --mysqld=--innodb-use-native-aio=0
+    #   -> runs without rr use --mysqld=--innodb-use-native-aio=1 so that InnoDB using
+    #      libaio/liburing is covered at all
+    # In case rr denies to work because it does not know the CPU family than the rr option
+    # --microarch can be set like in next line.
+    # " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='--chaos --wait --microarch=\"Intel Kabylake\"' ",
+    " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='--chaos --wait' ",
+    " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='--wait' ",
     # Coverage for libaio or liburing.
     " --mysqld=--innodb_use_native_aio=1 ",
     # rr+InnoDB running on usual filesystem on HDD or SSD need
