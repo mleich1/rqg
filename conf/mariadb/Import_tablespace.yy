@@ -62,25 +62,32 @@ set_names:
     table_name imp_table_name source_ibd used_ibd ;
 
 table_name:
-    { $table_name = "table0_innodb" ;  return undef } |
-    { $table_name = "table1_innodb" ;  return undef } |
-    { $table_name = "table10_innodb" ; return undef } ;
+#   { $table_name = "table0_innodb" ;              return undef } |
+#   { $table_name = "table0_innodb_int" ;          return undef } |
+#   { $table_name = "table0_innodb_varchar_255" ;  return undef } |
+#   { $table_name = "table1_innodb" ;              return undef } |
+#   { $table_name = "table1_innodb_int" ;          return undef } |
+#   { $table_name = "table1_innodb_varchar_255" ;  return undef } |
+#   { $table_name = "table10_innodb" ;             return undef } |
+#   { $table_name = "table10_innodb_int" ;         return undef } |
+#   { $table_name = "table10_innodb_varchar_255" ; return undef } ;
+    { $table_name = $prng->arrayElement(\@ta)    ; return undef } ;
 
 imp_table_name:
     { $imp_table_name = "imp_" . $table_name ; return undef } ;
 
 query_init:
-    set_tmp ;
+    set_tmp set_table_array ;
 
 thread1_init:
-    set_tmp ; FLUSH TABLES table0_innodb , table1_innodb , table10_innodb FOR EXPORT ; unlock_tables ;
-
-layout:
-    (col_int INT, col_varchar_255 VARCHAR(255), col_text TEXT) ;
+    set_tmp set_table_array ; FLUSH TABLES { $table_list = join(", ", @ta)  } FOR EXPORT ; unlock_tables ;
 
 set_tmp:
     # The "our" is essential!
-    { our $tmp = $ENV{TMP} ; return undef };
+    { our $tmp = $ENV{TMP} ; return undef } ;
+
+set_table_array:
+    { our @ta = ( "table0_innodb", "table0_innodb_int", "table0_innodb_varchar_255", "table1_innodb", "table1_innodb_int", "table1_innodb_varchar_255", "table10_innodb", "table10_innodb_int", "table10_innodb_varchar_255" ) ; return undef } ;
 
 source_ibd:
     { $source_ibd = $tmp . '/1/data/test/' . $table_name     . '.ibd'       ; return undef } ;
@@ -96,59 +103,78 @@ remove_used:
 
 create_table:
     CREATE TABLE IF NOT EXISTS $imp_table_name LIKE $table_name ; target_distortion ;
+
 target_distortion:
      | | | | | | | | | | | | | | | | | |
      | | | | | | | | | | | | | | | | | |
-    ALTER TABLE $imp_table_name CONVERT TO CHARACTER SET character_set                                ddl_algorithm_lock_option |
-    ALTER TABLE $imp_table_name ADD KEY IF NOT EXISTS idx ( idx_col )                                 ddl_algorithm_lock_option |
-    ALTER TABLE $imp_table_name DROP KEY IF EXISTS idx                                                ddl_algorithm_lock_option |
-    ALTER TABLE $imp_table_name ADD PRIMARY KEY  ( idx_col )                                          ddl_algorithm_lock_option |
-    ALTER TABLE $imp_table_name DROP PRIMARY KEY                                                      ddl_algorithm_lock_option |
-    ALTER TABLE $imp_table_name ADD COLUMN IF NOT EXISTS some_col_with_type null_not_null             ddl_algorithm_lock_option |
-    ALTER TABLE $imp_table_name DROP COLUMN IF EXISTS    some_col                                     ddl_algorithm_lock_option |
-    ALTER TABLE $imp_table_name MODIFY COLUMN modify_type                                             ddl_algorithm_lock_option |
-    ALTER TABLE $imp_table_name MODIFY COLUMN modify_pos                                              ddl_algorithm_lock_option |
-    ALTER TABLE $imp_table_name ENGINE = InnoDB ROW_FORMAT = row_format PAGE_COMPRESSED = compression ddl_algorithm_lock_option ;
+    ALTER TABLE $imp_table_name CONVERT TO CHARACTER SET character_set                                ddl_algorithm_lock_option |   # ok
+    ALTER TABLE $imp_table_name ADD KEY idx ( some_col_to_some_key )                    ddl_algorithm_lock_option |   # ok
+    ALTER TABLE $imp_table_name DROP KEY some_col_with_key                                  ddl_algorithm_lock_option |   # ok
+    ALTER TABLE $imp_table_name ADD PRIMARY KEY ( some_col_to_some_key )                              ddl_algorithm_lock_option |   # ok
+    # Does not exist in all source tables!
+    ALTER TABLE $imp_table_name DROP PRIMARY KEY                                                      ddl_algorithm_lock_option |   # ok
+    ALTER TABLE $imp_table_name ADD COLUMN col_extra some_type some_position                          ddl_algorithm_lock_option |   # ok
+    ALTER TABLE $imp_table_name DROP COLUMN some_col                                     ddl_algorithm_lock_option |   # ok
+    ALTER TABLE $imp_table_name MODIFY COLUMN some_col some_type some_position                        ddl_algorithm_lock_option |   # ok
+    ALTER TABLE $imp_table_name ENGINE = InnoDB ROW_FORMAT = row_format PAGE_COMPRESSED = compression ddl_algorithm_lock_option ;   # ok
 character_set:
     ascii |
     utf8  ;
 
-idx_col:
-    col_int         |
-    col_varchar_255 |
-    col_text(13)    ;
-modify_type:
-    col_int BIGINT               |
-    col_int SMALLINT             |
-    col_int VARCHAR(255)         |
-    col_int TEXT                 |
-    col_varchar_255 VARCHAR(511) |
-    col_varchar_255 VARCHAR(127) |
-    col_varchar_255 INT          |
-    col_varchar_255 TEXT         |
-    col_text INT                 |
-    col_text TEXT                |
-    col_varchar_255 TEXT         ;
-modify_pos:
-    col_int INT                  FIRST                 |
-    col_int INT                  AFTER col_varchar_255 |
-    col_int INT                  AFTER col_text        |
-    col_varchar_255 VARCHAR(255) FIRST                 |
-    col_varchar_255 VARCHAR(255) AFTER col_int         |
-    col_varchar_255 VARCHAR(255) AFTER col_text        |
-    col_text TEXT                FIRST                 |
-    col_text TEXT                AFTER col_int         |
-    col_text TEXT                AFTER col_varchar_255 ;
+some_position:
+                    |
+    FIRST           |
+    AFTER some_col  ;
+
+# For DROP COLUMN, move to FIRST, move AFTER, modify type
 some_col:
-    col_extra       |
-    col_int         |
-    col_varchar_255 |
-    col_text        ;
-some_col_with_type:
-    col_extra FLOAT              |
-    col_int INT                  |
-    col_varchar_255 VARCHAR(255) |
-    col_text TEXT                ;
+    some_col_with_key               |
+    some_col_with_key               |
+    some_col_without_key            |
+    some_col_without_key            |
+    # Does not exist in all source tables!
+    pk                              ;
+
+# For rule some_col, DROP KEY
+some_col_with_key:
+    col_int_key                |
+    col_text_latin1_key        |
+    col_text_utf8_key          |
+    col_varchar_255_latin1_key |
+    col_varchar_255_utf8_key   ;
+
+# For rule some_col, ADD KEY
+some_col_without_key:
+    col_int                    |
+    col_text_latin1            |
+    col_text_utf8              |
+    col_varchar_255_latin1     |
+    col_varchar_255_utf8       ;
+
+some_col_to_some_key:
+    col_int                    |
+    col_text_latin1(12)        |
+    col_text_utf8(12)          |
+    col_varchar_255_latin1     |
+    col_varchar_255_utf8       ;
+
+# For modify type, ADD COLUMN
+some_type:
+    FLOAT                       null_not_null |
+    SMALLINT                    null_not_null |
+    INTEGER                     null_not_null |
+    BIGINT                      null_not_null |
+    VARCHAR(255) latin1_or_utf8 null_not_null |
+    VARCHAR(127) latin1_or_utf8 null_not_null |
+    VARCHAR(511) latin1_or_utf8 null_not_null |
+    TEXT         latin1_or_utf8 null_not_null |
+    TEXT         latin1_or_utf8 null_not_null ;
+
+latin1_or_utf8:
+    CHARACTER SET latin1       |
+    CHARACTER SET utf8         ;
+
+
 null_not_null:
     # The default is NULL.
     | | | | | | | | | | | | | | | | | |

@@ -16,18 +16,18 @@
 #
 
 $tables = {
-   rows => [0, 1, 10 ],
-   pk   => [ undef ]
+   rows     => [0, 1, 10 ],
+   pk       => [ undef , 'int', 'varchar(255)' ]
 };
 
 $fields = {
-   types   => [ 'int', 'varchar(255)', 'text' ],
-   indexes => [ undef ],
-   charsets => [ 'utf8' ],
+   types    => [ 'int', 'varchar(255)', 'text' ],
+   indexes  => [ undef, 'key' ],
+   charsets => [ 'utf8', 'latin1' ],
 };
 
 $data = {
-   numbers   => [ 'digit', 'null', undef ],
-   strings   => [ 'letter', 'english', 'char(255)' ],
-   blobs     => [ 'english' ],
+   numbers  => [ 'digit', 'null', undef ],
+   strings  => [ 'letter', 'english', 'char(255)' ],
+   blobs    => [ 'english' ],
 };
