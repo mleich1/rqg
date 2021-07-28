@@ -555,7 +555,7 @@ sub createMysqlBase  {
     } else {
         push @$boot_options, "--initialize-insecure", "--init-file=$boot";
     }
-    my $command = $self->generateCommand($boot_options);
+    $command = $self->generateCommand($boot_options);
 
     # FIXME: Maybe add the user in a clean way like CREATE USER ... GRANT .... if possible.
     ## Add last strokes to the boot/init file: don't want empty users, but want the test user instead

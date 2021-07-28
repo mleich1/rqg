@@ -71,6 +71,7 @@ echo '--------------------------------------------------------------------------
 echo "INFO: The remainings of RQG runs being not of interest are already deleted."      \
                                                                                  | tee -a "$NEW_RESULT"
 cat "$NEW_RESULT"                                                                      >> "$NEW_SETUP"
+# ~ 1s per rqg log
 for log_file in "$WRK_DIR"/*.log
 do
     INFO=`perl verdict.pl --verdict_config=$RQG_DIR/Verdict_tmp.cfg --log="$log_file" 2>&1 \
