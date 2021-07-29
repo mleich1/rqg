@@ -54,7 +54,8 @@ use constant SPACE_FREE     => 10000;
 # Maximum storage space in MB required in vardir by one ongoing RQG run without core.
 # FIXME: measure
 # average run          ~  300 MB
-# rr for all processes ~ 2000 MB
+# rr for all processes ~ 2000 MB   roughly never used
+# rr for bootstrap, start, restart with recovery  ~ 500MB
 use constant SPACE_USED     => 300;   # <-- FIXME: measure
                                       # Problem: We could have temporary doubling or similar.
 # Maximum storage space in MB required in vardir by a core (ASAN Build).
@@ -382,10 +383,6 @@ sub init {
     }
     return $load_status, $workers_mid, $workers_min;
 
-    # Return an estimation
-    # - when to start with delaying
-    # - How many test in max in parallel
-    # ??
 }
 
 
@@ -514,7 +511,7 @@ sub report {
 
     # FIXME maybe refine:
     # Zero paging assumed $mem_consumed contains already the space consumption in tmpfs.
-    # So an additional RQG worker eats in unfortunte scenario:
+    # So an additional RQG worker eats in unfortunate scenario:
     #        ~ MEM_USED + $space_estimation + SPACE_CORE
     # An additional RQG worker needs some memory (tmpfs not counted).
     if ($worker_active > 0) {
@@ -526,7 +523,9 @@ sub report {
     }
     $mr_K = $mem_est_free - $md_K;
 
-    $sr_K = $sr_D; # Have no good idea.
+    # Tried but not good because jumping from INCREASE without hitting KEEP between to DECREASE.
+    # $sr_K = $sr_D;
+    $sr_K = $sr_D - $md_K / 2;
 
     # In case the estimated space consumed in memory ($md_K) and the estimated space in vardir
     # ($vd_K) exceeds the total amount of RAM ($mem_total) than we will maybe
@@ -569,7 +568,7 @@ sub report {
 #           $load_status = LOAD_GIVE_UP;
         } elsif (0 > $sr_U) {
             $info_m = "G4";
-            $info = "INFO: $info_m The free swap ($swap_free MB) $end_part";
+            $info = "INFO: $info_m The free virtual memory (RAM+SWAP) $end_part";
             $load_status = LOAD_GIVE_UP;
         } elsif (0 > $wr_U) {
             $info_m = "G5";
@@ -602,7 +601,7 @@ sub report {
 #           $load_status = LOAD_DECREASE;
         } elsif (0 > $sr_D) {
             $info_m = "D4";
-            $info = "INFO: $info_m The free swap ($swap_free MB) $end_part";
+            $info = "INFO: $info_m The free virtual memory (RAM+SWAP) $end_part";
             $load_status = LOAD_DECREASE;
         } elsif (0 > $wr_D) {
             $info_m = "D5";
@@ -631,7 +630,7 @@ sub report {
 #           $load_status = LOAD_KEEP;
         } elsif (0 > $sr_K) {
             $info_m = "K4";
-            $info = "INFO: $info_m The free swap ($swap_free MB) $end_part";
+            $info = "INFO: $info_m The free virtual memory (RAM+SWAP) $end_part";
             $load_status = LOAD_KEEP;
         } elsif (0 > $wr_K) {
             $info_m = "K5";

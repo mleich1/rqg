@@ -62,16 +62,18 @@ set_names:
     table_name imp_table_name source_ibd used_ibd ;
 
 table_name:
-#   { $table_name = "table0_innodb" ;              return undef } |
-#   { $table_name = "table0_innodb_int" ;          return undef } |
-#   { $table_name = "table0_innodb_varchar_255" ;  return undef } |
-#   { $table_name = "table1_innodb" ;              return undef } |
-#   { $table_name = "table1_innodb_int" ;          return undef } |
-#   { $table_name = "table1_innodb_varchar_255" ;  return undef } |
-#   { $table_name = "table10_innodb" ;             return undef } |
-#   { $table_name = "table10_innodb_int" ;         return undef } |
-#   { $table_name = "table10_innodb_varchar_255" ; return undef } ;
-    { $table_name = $prng->arrayElement(\@ta)    ; return undef } ;
+# The next line is sufficient and elegant
+#   { $table_name = $prng->arrayElement(\@ta)    ; return undef } ;
+# but it has some bad impact during grammar simplification.
+    { $table_name = "table0_innodb" ;              return undef } |
+    { $table_name = "table0_innodb_int" ;          return undef } |
+    { $table_name = "table0_innodb_varchar_255" ;  return undef } |
+    { $table_name = "table1_innodb" ;              return undef } |
+    { $table_name = "table1_innodb_int" ;          return undef } |
+    { $table_name = "table1_innodb_varchar_255" ;  return undef } |
+    { $table_name = "table10_innodb" ;             return undef } |
+    { $table_name = "table10_innodb_int" ;         return undef } |
+    { $table_name = "table10_innodb_varchar_255" ; return undef } ;
 
 imp_table_name:
     { $imp_table_name = "imp_" . $table_name ; return undef } ;
