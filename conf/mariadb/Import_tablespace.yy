@@ -29,12 +29,11 @@
 # Attention
 # ---------
 # You will need some temporary modified lib/GenTest/Executor/MySQL.pm where nearly all mapping
-# to STATUS_DATABASE_CORRUPTION has to be disabled disabled.
-# If not
-# IMPORT of logical not fitting or physical rotten tablespaces etc. could harvest error messages
+# to STATUS_DATABASE_CORRUPTION has to be disabled.
+# If not the IMPORT of logical not fitting or physical rotten tablespaces etc. could harvest errors
 # which get mapped to STATUS_DATABASE_CORRUPTION and cause an abort of the RQG run.
-# But we just want test what could happen if .... the application does not abort.
-# Without DISCARD/IMPORT a missing tablespace is a serious bug except "gaming" with partitions.
+# But we just want to test what would happen if the server stays under further DDL/DML load.
+# Without DISCARD/IMPORT a missing tablespace is a serious bug except "playing" with partitions.
 # With DISCARD, omitting of copy ibd file to destination followed by IMPORT attempt we will get
 # criticized because of missing tablespace. But that is just some failure of the user.
 #
