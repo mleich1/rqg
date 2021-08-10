@@ -1847,6 +1847,7 @@ sub serverVariables {
        }
        $sth->finish();
        $self->[MYSQLD_SERVER_VARIABLES] = \%vars;
+       $dbh->disconnect();
     }
     return $self->[MYSQLD_SERVER_VARIABLES];
 }
