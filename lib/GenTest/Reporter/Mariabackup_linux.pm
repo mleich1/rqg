@@ -212,6 +212,7 @@ sub monitor {
 
     my $lc_messages_dir = $reporter->serverVariable('lc_messages_dir');
     my $datadir         = $reporter->serverVariable('datadir');
+    my $flush_method    = $reporter->serverVariable('innodb_flush_method');
     $datadir =~ s{[\\/]$}{}sgio;
     # 2020-02-27 The start of the server on the backuped data failed because this data
     # goes with a different InnoDB page size than the server default of 16K.
@@ -273,7 +274,7 @@ sub monitor {
     # $backup_binary = "not_exists ";
     # my $backup_backup_cmd = "$backup_binary --port=$source_port --hickup " .
     my $backup_backup_cmd = $rr_addition . " $backup_binary --port=$source_port --backup " .
-                            "--datadir=$datadir --target-dir=$clone_datadir";
+                            "--innodb_flush_method=$flush_method --datadir=$datadir --target-dir=$clone_datadir";
 
     # Mariabackup could hang.
     my $exit_msg      = '';
@@ -393,7 +394,7 @@ sub monitor {
 
     system("ls -ld " . $clone_datadir . "/ib_logfile*");
     my $backup_prepare_cmd = $rr_addition . " $backup_binary --port=$clone_port --prepare " .
-                             "--target-dir=$clone_datadir";
+                             "--target-dir=$clone_datadir --innodb_flush_method=$flush_method ";
     say("Executing first prepare: $backup_prepare_cmd");
     $exit_msg      = "Prepare operation 1 did not finish in " . $alarm_timeout . "s.";
     alarm ($prepare_timeout);
@@ -431,32 +432,32 @@ sub monitor {
     }
 
     system("ls -ld " . $clone_datadir . "/ib_logfile*");
-    $backup_prepare_cmd = $rr_addition . " $backup_binary --port=$clone_port --prepare " .
-                          "--target-dir=$clone_datadir";
-    say("Executing second prepare: $backup_prepare_cmd");
-    $exit_msg      = "Prepare operation 2 did not finish in " . $alarm_timeout . "s.";
-    # Less time because its the second prepare.
-    alarm ($backup_timeout);
-    system($backup_prepare_cmd);
-    $res = $?;
-    alarm (0);
-    if ($res != 0) {
-        direct_to_std();
-        my $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $who_am_i : Second prepare returned $res. The command output is around end of " .
-            "'$reporter_prt'. Will exit with status " . status2text($status) . "($status)");
-        sayFile($reporter_prt);
-        exit $status;
-    }
-    @filestats = stat($ib_logfile0);
-    $filesize  = $filestats[7];
-    if (0 != $filesize) {
-        direct_to_std();
-        my $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $who_am_i : Size of '$ib_logfile0' is $filesize bytes but not 0 like expected. " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-    }
+#   $backup_prepare_cmd = $rr_addition . " $backup_binary --port=$clone_port --prepare " .
+#                         "--target-dir=$clone_datadir --innodb_flush_method=$flush_method ";
+#   say("Executing second prepare: $backup_prepare_cmd");
+#   $exit_msg      = "Prepare operation 2 did not finish in " . $alarm_timeout . "s.";
+#   # Less time because its the second prepare.
+#   alarm ($backup_timeout);
+#   system($backup_prepare_cmd);
+#   $res = $?;
+#   alarm (0);
+#   if ($res != 0) {
+#       direct_to_std();
+#       my $status = STATUS_BACKUP_FAILURE;
+#       say("ERROR: $who_am_i : Second prepare returned $res. The command output is around end of " .
+#           "'$reporter_prt'. Will exit with status " . status2text($status) . "($status)");
+#       sayFile($reporter_prt);
+#       exit $status;
+#   }
+#   @filestats = stat($ib_logfile0);
+#   $filesize  = $filestats[7];
+#   if (0 != $filesize) {
+#       direct_to_std();
+#       my $status = STATUS_BACKUP_FAILURE;
+#       say("ERROR: $who_am_i : Size of '$ib_logfile0' is $filesize bytes but not 0 like expected. " .
+#           "Will exit with status " . status2text($status) . "($status)");
+#       exit $status;
+#   }
 
     # Per Marko:
     # Legal operation in case somebody wants to just have a clone of the source DB.
@@ -497,6 +498,7 @@ sub monitor {
         '--innodb',
         '--loose_innodb_use_native_aio=0',
         '--sql_mode=NO_ENGINE_SUBSTITUTION',
+        '--innodb_flush_method=$flush_method',
     );
 
     foreach my $plugin (@$plugins) {
