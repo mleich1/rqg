@@ -788,10 +788,16 @@ while($Batch::give_up <= 1) {
 
     my $just_forked = 0;
 
-    my $free_worker = Batch::get_free_worker;
-    if (defined $free_worker        # We have a free (inactive) RQG worker.
-        and 0 == $Batch::give_up    # We do not need to bring the current phase of work to an end.
-        and not $delay_start    ) { # We have no resource problem.
+    if (0 < Batch::count_free_workers   # Free workers exist
+        and 0 == $Batch::give_up        # We do not need to bring the current phase of work to an end.
+        and not $delay_start    ) {     # We have no to be feared resource problem or similar.
+
+        my $free_worker = Batch::get_free_worker;
+        if (not defined $free_worker) {
+            say("INTERNAL ERROR: No free worker got though there should be some. Abort.");
+            my $status = STATUS_INTERNAL_ERROR;
+            Batch::emergency_exit($status);
+        }
         # We count per bookkeeping active RQG workers and hand it to ...::get_job.
         # This allows get_job to judge if an ordered switch_phase (--> Simplifier only) is called
         # in the right situation.
@@ -813,8 +819,9 @@ while($Batch::give_up <= 1) {
             # use constant JOB_MEMO2      => 3;  # Parent grammar or Parent rvt_snip
             # use constant JOB_MEMO3
         } else {
-            # In case we ever land here than its before starting the first worker.
-            # So exiting should not make trouble later.
+            # A batch campaign has exact one type.
+            # So in case we are in the current branch than its before starting the first worker.
+            # Hence exiting should not make trouble later.
             say("INTERNAL ERROR: The batch type '$Batch::batch_type' is unknown. Abort");
             safe_exit(4);
         }
@@ -1633,7 +1640,7 @@ sub check_and_set_config_file {
     }
     $config_file = Cwd::abs_path($config_file);
     my ($throw_away1, $throw_away2, $suffix) = fileparse($config_file, qr/\.[^.]*/);
-    say("DEBUG: Config file '$config_file', suffix '$suffix'.");
+    say("INFO: Config file '$config_file', suffix '$suffix'.");
 }
 
 sub check_and_set_sqltrace {
@@ -1643,5 +1650,5 @@ sub check_and_set_sqltrace {
         run_end($status);
     };
 }
-    
+
 1;

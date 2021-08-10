@@ -288,6 +288,22 @@ use constant STOP_REASON_RQG_LIMIT   => 'rqg_limit';
 #   Any delay or fail of abort because of trouble when writing the entry is not acceptable.
 #   So WORKER_STOP_REASON needs to be undef.
 #
+
+our @free_worker_queue = ();
+# @free_worker_queue is run as a FIFO.
+# sub worker_reset    - Add number of worker to right end.
+#                       Creating the worker management structure and also the final processing
+#                       of the result of some worker call worker_reset.
+# sub get_free_worker - Shift number of worker from left end.
+# Advantage of the FIFO:
+# Maximize the delay till some Worker and hereby certain ports get used again.
+# The goal is to prevent that a starting DB server meets a port claimed to be in use.
+# The latter seems to be caused by
+#   too limited number of ports - heavy use of ports per many parallel RQGs -
+#   maybe missing disconnects - excessive CPU load - too fast reuse of ports
+# 2021-08 The already small fraction of such problems disappeared after implementation.
+#
+
 # Whenever lib/Batch.pm calls Combinator/Simplifier::register_result than that routine will
 # return a string how to proceed.
 # The constants are for that.
@@ -348,8 +364,7 @@ use constant BATCH_TYPE_ALLOWED_VALUE_LIST => [
     # BATCH_TYPE_COMBINATOR, BATCH_TYPE_VARIATOR, BATCH_TYPE_MASKING, BATCH_TYPE_RQG_SIMPLIFIER];
       BATCH_TYPE_COMBINATOR,                                          BATCH_TYPE_RQG_SIMPLIFIER];
 
-# my $workers;
-# our $workers;
+
 our $workers_max;
 our $workers_mid;
 our $workers_min;
@@ -403,30 +418,43 @@ sub worker_reset {
     $worker_array[$worker_num][WORKER_STOP_REASON] = undef;
     $worker_array[$worker_num][WORKER_V_INFO]      = undef;
     $worker_array[$worker_num][WORKER_COMMAND]     = undef;
+
+    push @free_worker_queue, $worker_num;
 }
 
 sub get_free_worker {
-    for my $worker_num (1..$workers_max) {
-        # -1 == $worker_array[$worker_num][WORKER_PID]
-        # --> No main process of the RQG worker
-        #     Either never in use or already reaped
-        # not defined $worker_array[$worker_num][WORKER_VERDICT]
-        # --> Its not the state where
-        #     The main process of the RQG worker was just reaped
-        #     and the processing of the result is missing.
-        if (-1 == $worker_array[$worker_num][WORKER_PID] and
-            not defined $worker_array[$worker_num][WORKER_VERDICT]) {
-            say("DEBUG: RQG worker [$worker_num] is free. Leaving search loop " .
-                "for non busy workers.") if Auxiliary::script_debug("T6");
-            return $worker_num;
+    my $free_worker = shift @free_worker_queue;
+    if (defined $free_worker) {
+        say("DEBUG: Worker[$free_worker] picked. \@free_worker_queue: " .
+        join("-", @free_worker_queue)) if Auxiliary::script_debug("T6");
+        # -1 == $worker_array[$free_worker][WORKER_PID]
+        # --> No main process of the RQG worker known in bookkeeping.
+        #     Either never in use or already reaped.
+        # not defined $worker_array[$worker_num][WORKER_VERDICT] in addition
+        # --> The main process of the RQG worker was just reaped
+        #     and the processing of the result was already done.
+        if (-1 == $worker_array[$free_worker][WORKER_PID] and
+            not defined $worker_array[$free_worker][WORKER_VERDICT]) {
+            return $free_worker;
+        } else {
+            say("ERROR: $free_worker was picked from \@free_worker_queue but \@worker_array " .
+                "contains pid: " . $worker_array[$free_worker][WORKER_PID] . " verdict: "     .
+                $worker_array[$free_worker][WORKER_VERDICT]);
+            Carp::cluck("INTERNAL ERROR: Inconsistency betweeen \@free_worker_queue and "     .
+                        "\@worker_array. Abort.");
+            my $status = STATUS_INTERNAL_ERROR;
+            emergency_exit($status);
         }
+    } else {
+        say("DEBUG: No free worker found.") if Auxiliary::script_debug("T6");
+        return $free_worker;
     }
-    return undef;
 }
 
-# $worker_array[$worker_num][WORKER_PID] != -1
-# --> main RQG worker process was running during the last reap_workers call
-# defined $worker_array[$worker_num][WORKER_VERDICT]
+sub count_free_workers {
+    return scalar @free_worker_queue;
+}
+
 
 sub count_active_workers {
 # Purpose:
