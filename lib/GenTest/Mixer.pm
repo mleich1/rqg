@@ -345,16 +345,24 @@ sub next {
             #      kick in. There is some significant risk that such a valditor is not
             #      prepared for a query failing because of connection loss or a few
             #      queries running in some maybe wrong environment.
-            #   Solution:
-            #   Omit all remaining queries from QUERY. This will than force to ask the Generator
-            #   for the next QUERY and than we will get "*_connect" etc.
-            #
+            #    Solution:
+            #    Omit all remaining queries from QUERY. This will than force to ask the Generator
+            #    for the next QUERY and than we will get "*_connect" etc.
+            # 5. Some remaining problem of the RQG builtin replication (statements based):
+            #    Example:
+            #    Server one runs some autocommitted UPDATE with success
+            #    Server two runs some autocommitted UPDATE but fails
+            #    Now we might have some inconsistency.
             say("INFO: $mixer_role in Mixer : STATUS_SKIP_RELOOP got.");
             # Disconnect all executors (one per server).
             # The next $executor->execute will than do a reconnect.
             foreach my $executor (@{$mixer->executors()}) {
-               $executor->execute("ROLLBACK"); # I prefer to be sure.
-               $executor->disconnect();
+               if (not defined $executor->dbh) {
+                   next;
+               } else {
+                   $executor->execute("ROLLBACK"); # I prefer to be sure.
+                   $executor->disconnect();
+               }
             }
             # Set GENERATOR_RECONNECT to 1 so that the generator looks first for the "*_connect"
             # rules if being asked for the next QUERY.
@@ -368,7 +376,7 @@ sub next {
             last query;
 
             # By what follows we can figure out which generator we use.
-            # But is not needed here.
+            # But it is not needed here.
             # if (ref($mixer->generator()) eq 'GenTest::Generator::FromGrammar') {
             #    say("DEBUG: Mixer Generator is FromGrammar");
             # }

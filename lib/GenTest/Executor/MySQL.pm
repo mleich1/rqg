@@ -1247,14 +1247,27 @@ sub execute {
                 my $message_part = "ERROR: $who_am_i $executor_role Auxiliary query ->" .
                                    $aux_query . "<- failed: $error " .  $dbh->errstr();
                 my $status = $error_type;
-                if ((($status == STATUS_SERVER_CRASHED) || ($status == STATUS_SERVER_KILLED))
-                    and (STATUS_OK == $executor->is_connectable())) {
-                    $status = STATUS_SKIP_RELOOP;
+                if (($error_type == STATUS_SERVER_CRASHED) || ($error_type == STATUS_SERVER_KILLED)) {
+                   $executor->disconnect(); # FIXME: Would be that good?
+                   if (STATUS_OK == $executor->is_connectable()) {
+                      $status = STATUS_SKIP_RELOOP;
+                      say("INFO: $message_part");
+                      say("INFO: $trace_addition : The server is connectable. Will return a result " .
+                          "containing the status " . status2text($status) . "($status).");
+                   } else {
+                      $status = STATUS_CRITICAL_FAILURE;
+                      say("ERROR: $message_part");
+                      say("INFO: $trace_addition :  The server is not connectable. Will sleep 3s and than " .
+                          "return a result containing the status " . status2text($status) . "($status).");
+                      sleep(3);
+                   }
+                } else {
+                   say("ERROR: $message_part. Will return a result containing the status " .
+                       status2text($status) . "($status).");
                 }
-                say("$message_part. Will return status : " . status2text($status) . "($status).");
                 return GenTest::Result->new(
-                    query       => '/* During auxiliary query */',
-                    status      => $status,
+                   query       => $query . '/* During additional auxiliary query */',
+                   status      => $status,
                 );
             }
 
@@ -1319,6 +1332,9 @@ sub execute {
 
     ######## HERE THE QUERY GETS SENT TO THE SERVER ?? ########
     my $affected_rows =  $sth->execute();
+       # In case the RQG log contains a
+       # DBD::mysql::st execute warning:  at /data/RQG_mleich1/lib/GenTest/Executor/MySQL.pm line 1321, <CONF> line 72
+       # than we have lost the connection and tried to execute a statement.
     my $end_time =       Time::HiRes::time();
     my $execution_time = $end_time - $start_time;
 
@@ -1403,6 +1419,7 @@ sub execute {
             my $query_for_print= shorten_message($query);
             say("$who_am_i $executor_role Query: $query_for_print failed: $err " . $sth->errstr())
                 if not ($execution_flags & EXECUTOR_FLAG_SILENT);
+            $executor->disconnect();
          # Lets assume some evil and complicated scenario (lost connection but no real crash)
          # ----------------------------------------------------------------------------------
          # Query from generator is a multi statement query like
@@ -1488,7 +1505,7 @@ sub execute {
          my $errstr = $executor->normalizeError($sth->errstr());
          $executor->[EXECUTOR_ERROR_COUNTS]->{$errstr}++;
          my $query_for_print= shorten_message($query);
-         say("$who_am_i $executor_role Query: $query_for_print failed: $err " . $sth->errstr());
+         say("$who_am_i $executor_role Query: $query_for_print failed: $err , errstr: " . $sth->errstr());
       }
 
       $result = GenTest::Result->new(
@@ -1647,10 +1664,31 @@ sub execute {
           my $error_type = STATUS_OK;
           if (defined $error) {
               $error_type = $err2type{$error} || STATUS_OK;
-              my $message_part = "ERROR: $who_am_i $executor_role. Auxiliary query ->" .
-                                 $aux_query . "<- failed: $error " .  $dbh->errstr();
-              say("$message_part. Will just return the result we have.");
-              return $result;
+              my $message_part = "$who_am_i $executor_role. Auxiliary query ->" . $aux_query .
+                                 "<- failed: $error " .  $dbh->errstr();
+              my $status = $error_type;
+              if (($error_type == STATUS_SERVER_CRASHED) || ($error_type == STATUS_SERVER_KILLED)) {
+                 $executor->disconnect(); # FIXME: Would be that good?
+                 if (STATUS_OK == $executor->is_connectable()) {
+                    $status = STATUS_SKIP_RELOOP;
+                    say("INFO: $message_part");
+                    say("INFO: $trace_addition : The server is connectable. Will return a result " .
+                        "containing the status " . status2text($status) . "($status).");
+                 } else {
+                    $status = STATUS_CRITICAL_FAILURE;
+                    say("ERROR: $message_part");
+                    say("INFO: $trace_addition :  The server is not connectable. Will sleep 3s and than " .
+                        "return a result containing the status " . status2text($status) . "($status).");
+                    sleep(3);
+                 }
+              } else {
+                 say("ERROR: $message_part. Will return a result containing the status " .
+                     status2text($status) . "($status).");
+              }
+              return GenTest::Result->new(
+                 query       => $query . '/* During additional auxiliary query */',
+                 status      => $status,
+              );
           }
           $result->setWarnings($warnings);
       }
