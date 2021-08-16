@@ -262,13 +262,13 @@ set -o pipefail
 #    Box having "Intel Skylake" CPU's, "rr" version 4 contains the string "Intel Skylake" but
 #    claims to have met some unknown CPU.
 #    Please becareful with the single and double quotes.
-# --rr_options="\'--microarch='Intel Kabylake'\'"                      \
+# --rr_options='--chaos --microarch=\"Intel Kabylake\"'                \
 #
 #    The "rr" option "--chaos" which seems to be recommended anywhere.
-# --rr_options="'--chaos'"                                             \
+# --rr_options='--chaos'                                               \
 #
-#    The combination "--chaos --wait" is currently studied.
-# --rr_options="'--chaos --wait'"                                      \
+#    The combination "--chaos --wait" is currently studied
+# --rr_options='--chaos --wait'                                       \
 #
 # Please be aware that some increasing number of Combinations config files already
 # enable the use of "rr".
