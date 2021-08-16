@@ -23,12 +23,14 @@ package DBServer::MySQL::MySQLd;
 # And than every piece in RQG wanting a backtrace should call the routine from here.
 # IMHO it is rather questionable if the current Reporter Backtrace is needed at all.
 # The reasons:
-# The server could die non intentional during
-# - bootstrap or first start after that
-# - gendata -- GenTest initiates backtracing based on the reporter Backtrace
-# - gentest -- GenTest initiates backtracing based on the reporter Backtrace
-# - some reporter Reporter initiates a shutdown or TERM server
-# - when stopping the servers smooth after GenTest fails
+# The server could die intentional or non intentional during
+# - during bootstrap
+# - during server start
+# - during gendata -- GenTest initiates backtracing based on the reporter Backtrace
+# - during gentest -- GenTest initiates backtracing based on the reporter Backtrace
+# - during some reporter Reporter initiates a shutdown or TERM server
+# - during stopping the servers smooth after GenTest fails
+# - via SIGABRT/SIGSEGV/SIGKILL sent by some reporter
 # Hint: Backtraces of mariabackup are also needed.
 #
 
@@ -149,6 +151,7 @@ sub new {
                 'rr_options'            => MYSQLD_RR_OPTIONS
     },@_);
 
+if(0) {
     # Inform in case of error + return undef so that the caller can clean up.
     if (osWindows() and $self->[MYSQLD_VALGRIND]) {
         Carp::cluck("ERROR: No valgrind support on windows. Will return undef.");
@@ -169,6 +172,7 @@ sub new {
     if ($self->[MYSQLD_VALGRIND]) {
         Runtime::set_runtime_factor_valgrind;
     }
+}
 
     if (not defined $self->[MYSQLD_VARDIR]) {
         $self->[MYSQLD_VARDIR] = "mysql-test/var";
@@ -573,7 +577,8 @@ sub createMysqlBase  {
     }
     close BOOT;
 
-    my $rr = $self->[MYSQLD_RR];
+    # my $rr = $self->[MYSQLD_RR];
+    my $rr = Runtime::get_rr();
     if (defined $rr) {
         # Experiments showed that the rr trace directory must exist in advance.
         my $rr_trace_dir = $self->vardir . '/rr';
@@ -586,38 +591,45 @@ sub createMysqlBase  {
             }
         }
         $ENV{'_RR_TRACE_DIR'} = $rr_trace_dir;
-        if ($rr eq Auxiliary::RR_TYPE_EXTENDED) {
-            my $rr_options = '';
-            if (defined $self->[MYSQLD_RR_OPTIONS]) {
-                $rr_options = $self->[MYSQLD_RR_OPTIONS];
-            }
-            # $command = "rr record --mark-stdio $rr_options $command";
-            # like used in sub startServer does not work well here just because
-            # the output of cat gets "[rr <pid>] " prepended per line.
-            # FIXME: Try to use a modified command.
+        # if ($rr eq Auxiliary::RR_TYPE_EXTENDED) {
+        if ($rr eq Runtime::RR_TYPE_EXTENDED) {
+        #   my $rr_options = '';
+        #   if (defined $self->[MYSQLD_RR_OPTIONS]) {
+        #       $rr_options = $self->[MYSQLD_RR_OPTIONS];
+        #   }
+            my $rr_options = Runtime::get_rr_options();
+            $rr_options =    '' if not defined $rr_options;
+            # 1. ulimit -c 0
+            #    because we do not want to waste space for core files we do not need if using rr.
+            # 2. Maybe banal:
+            #    Do not place the rr call somewhere at begin of the command sequence or similar.
+            #    Either we trace everything starting with the shell or just one of the commands
+            #    but not the server. In addition the '--mark-stdio' causes that the output of
+            #    commands might be decorated with rr event ids which some consuming command
+            #    is unable to understand. Example: cat <bootstrap file> | ....
             $command_begin = "ulimit -c 0; " .  $command_begin .
                              " rr record " . $rr_options . " --mark-stdio ";
         }
     }
-    # The bootstrap can end up with a freeze. Example: Innodb Parameter incompatible with bootstrap.
+    # In theory the bootstrap can end up with a freeze.
     # FIXME/DECIDE: How to handle that.
     # a) (exists) rqg_batch.pl observes that the maximum runtime for a RQG test gets exceeded
     #    and stops the test with SIGKILL processgroup
     #    Disadvantages: ~ 1800s elapsed time and incomplete rr trace of bootstrap
     # b) sigaction SIGALRM ... like lib/GenTest/Reporter/Deadlock*.pm
-    # c) fork like in startServer etc.
-    my $bootlog = $self->vardir . "/" . MYSQLD_BOOTLOG_FILE;
+    # c) fork and go with timeouts like in startServer etc.
+    my $bootlog =   $self->vardir . "/" . MYSQLD_BOOTLOG_FILE;
     $command_end .= " > \"$bootlog\" 2>&1";
-    $command = $command_begin . $command . $command_end;
-    # The next line is required by the pattern matching.
+    $command =      $command_begin . $command . $command_end;
+    # The next line is maybe required for the pattern matching.
     say("Bootstrap command: ->" . $command . "<-");
     system($command);
     my $rc = $? >> 8;
     if ($rc != DBSTATUS_OK) {
-       say("ERROR: Bootstrap failed");
-       sayFile($booterr);
-       sayFile($bootlog);
-       say("ERROR: Will return the status got for Bootstrap : $rc");
+        say("ERROR: Bootstrap failed");
+        sayFile($booterr);
+        sayFile($bootlog);
+        say("ERROR: Will return the status got for Bootstrap : $rc");
     }
     return $rc
 } # End sub createMysqlBase
@@ -745,7 +757,7 @@ sub startServer {
         # The goals:
         # - minimize the amount of zombies at any point of time
         # - we need complete written cores and rr traces
-        #   In case we wait till we can reap the auxiliary process than than rr or
+        #   In case we wait till we can reap the auxiliary process than rr or
         #   whatever should have had enough time for finishing writing.
         $SIG{CHLD} = sub {
             local ($?, $!); # Don't change $! or $? outside handler
@@ -824,28 +836,34 @@ sub startServer {
         };
 
         # say("DEBUG ---- 0 ->" . $command . "<-");
-        if ($self->[MYSQLD_VALGRIND]) {
-            my $val_opt         = "";
-            $tool_startup       = 10;
-            if (defined $self->[MYSQLD_VALGRIND_OPTIONS]) {
-                $val_opt = join(' ',@{$self->[MYSQLD_VALGRIND_OPTIONS]});
-            }
+        # if ($self->[MYSQLD_VALGRIND]) {
+        if (defined Runtime::get_valgrind()) {
+            $tool_startup =        10;
+            # my $valgrind_options = "";
+            # if (defined $self->[MYSQLD_VALGRIND_OPTIONS]) {
+            #     # $valgrind_options = join(' ',@{$self->[MYSQLD_VALGRIND_OPTIONS]});
+            #     $valgrind_options = $self->[MYSQLD_VALGRIND_OPTIONS];
+            # }
+            my $valgrind_options = Runtime::get_valgrind_options();
+            $valgrind_options =    '' if not defined $valgrind_options;
             # FIXME: Do we check somewhere that the $self->valgrind_suppressionfile exists?
             $command = "valgrind --time-stamp=yes --leak-check=yes --suppressions=" .
-                       $self->valgrind_suppressionfile . " " . $val_opt . " " . $command;
+                       $self->valgrind_suppressionfile . " " . $valgrind_options . " " . $command;
             # say("DEBUG ---- 1 ->" . $command . "<-");
         }
 
         my $rr_trace_dir;
-        if ($self->[MYSQLD_RR]) {
+        my $rr = Runtime::get_rr();
+        # if ($self->[MYSQLD_RR]) {
+        if (defined $rr) {
             # The rqg runner has to check in advance that 'rr' is installed on the current box.
-            # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
-            # in the DB server error log.
-            my $rr = $self->[MYSQLD_RR];
-            my $rr_options = '';
-            if (defined $self->[MYSQLD_RR_OPTIONS]) {
-                $rr_options = $self->[MYSQLD_RR_OPTIONS];
-            }
+            # my $rr = $self->[MYSQLD_RR];
+            # my $rr_options = '';
+            # if (defined $self->[MYSQLD_RR_OPTIONS]) {
+            #     $rr_options = $self->[MYSQLD_RR_OPTIONS];
+            # }
+            my $rr_options = Runtime::get_rr_options();
+            $rr_options = '' if not defined $rr_options;
             $tool_startup = 10;
             $rr_trace_dir = $self->vardir . '/rr';
             if (not -d $rr_trace_dir) {
@@ -864,12 +882,15 @@ sub startServer {
             # - cores files consume ~ 1 GB in vardir (often located in tmpfs) temporary
             #   And that is serious bigger than rr traces.
             # So we prevent the writing of core files via ulimit.
+            # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
+            # in the DB server error log.
             $command = "ulimit -c 0; rr record " . $rr_options . " --mark-stdio $command";
             # say("DEBUG: ---- 1 ->" . $rr_options . "<-");
             # say("DEBUG: ---- 2 ->" . $command . "<-");
         }
 
-        if (exists $ENV{'RUNNING_UNDER_RR'} or defined $self->[MYSQLD_RR]) {
+        # if (exists $ENV{'RUNNING_UNDER_RR'} or defined $self->[MYSQLD_RR]) {
+        if (exists $ENV{'RUNNING_UNDER_RR'} or defined $rr) {
             # rr tracing is already active ('RQG') or will become active for the calls of
             # certain binaries. In all cases where the server binaries run under "rr" we need
             # a bigger timeouts.
@@ -897,10 +918,6 @@ sub startServer {
             # By that any future child like the reporter 'Crashrecovery*' knows that it cannot reap
             # that auxiliary process.
             $aux_pids{$self->[MYSQLD_AUXPID]} = $$;
-
-            # This is the parent (usually GenTest?) observing his child.
-            #-----------------------------------------------------------
-            # MYSQLD_AUXPID is the id of the child process.
             # Unfortunately it cannot be guaranteed that this child process will be later
             # the DB server. Two examples:
             # Parent is k, the child is l
@@ -926,10 +943,11 @@ sub startServer {
             #    Per observation: An empty file exists first. The pid value gets added later.
             # b) exists and is complete written than there is the pid only
             #    If that process is running or no more running is another story.
-            # c) existed and has disappeared than the server made some controlled "give up"
+            # c) existed and has disappeared than the server made some controlled "give up".
             #    It is extreme unlikely that a server process is running.
+            #    There is some short delay between pid file removal and that process disappering
+            #    OS processlist.
             # d) just does not exist than the situation is complete unclear.
-
 
             my $wait_time      = 0.2;
             my $pid;
@@ -986,7 +1004,7 @@ sub startServer {
 
             # $self->stop_server_for_debug(5, 'mysqld', -6, 5);
             $start_time = time();
-            $wait_end = $start_time + $startup_timeout;
+            $wait_end =   $start_time + $startup_timeout;
             while (1) {
                 Time::HiRes::sleep($wait_time);
                 if (not kill(0, $pid)) {
@@ -1083,15 +1101,18 @@ sub startServer {
             }
             $self->printInfo;
         } else {
-            # Here is the child process who tries soon to start the server.
-            # Warning: Current PID could be != PID found in server error log or pid file because
+            # THIS IS THE CHILD with pid MYSQLD_AUXPID who tries soon to start the server.
+            # ----------------------------------------------------------------------------
+            # Warning: Current pid is != PID found in server error log or pid file because
             # of natural reasons like     bash -> rr -> mysqld
             # say("DEBUG ----: Here is $$ before exec to DB server");
-            $ENV{'_RR_TRACE_DIR'} = $rr_trace_dir;
+            $ENV{'_RR_TRACE_DIR'} = $rr_trace_dir if defined $rr_trace_dir;
             # say("DEBUG ---- 4 ->" . $command . "<-");
-            # Reason for going with $command >> \"$errorlog\"  2>&1 :
+            # Reason for going with $command >> \"$errorlog\" 2>&1 :
             # In case "rr" has problems or similar than it laments about its problems into $errorlog.
-            exec("$command >> \"$errorlog\"  2>&1") || Carp::cluck("ERROR: Could not start mysql server");
+            # IDEA:
+            # Maybe append a perl program looking for crash and making a backtrace after the start?
+            exec("$command >> \"$errorlog\" 2>&1") || Carp::cluck("ERROR: Could not start mysql server");
             #    say("DEBUG ---- 5 !!!!");
         }
     }

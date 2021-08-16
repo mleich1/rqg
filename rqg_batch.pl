@@ -62,6 +62,7 @@ use Auxiliary;
 use Verdict;
 use Batch;
 use Combinator;
+use Runtime;
 use Simplifier;
 use SQLtrace;
 use GenTest;
@@ -120,6 +121,7 @@ use ResourceControl;
 use constant BATCH_WORKDIR_SYMLINK    => 'last_batch_workdir';
 
 my $command_line= "$0 ".join(" ", @ARGV);
+my @ARGV_saved = @ARGV;
 
 $| = 1;
 
@@ -342,7 +344,7 @@ if (defined $help) {
     Verdict::help();
     safe_exit(0);
 } elsif (defined $help_rr) {
-    Auxiliary::help_rr();
+    Runtime::help_rr();
     safe_exit(0);
 } elsif (defined $help_archiving) {
     Batch::help_archiving();
@@ -391,37 +393,14 @@ $script_debug_value = Auxiliary::script_debug_init($script_debug_value);
 # $type='omo';
 Batch::check_and_set_batch_type($type);
 
-if (defined $rr) {
-    my $status = STATUS_OK;
-    if (STATUS_OK != Auxiliary::find_external_command("rr")) {
-        $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: The external binary 'rr' is required but was not found.");
-        safe_exit($status);
-    }
-    if($rr eq '') {
-        $rr = Auxiliary::RR_TYPE_DEFAULT;
-    }
-
-    my $result = Auxiliary::check_value_supported (
-                'rr', Auxiliary::RR_TYPE_ALLOWED_VALUE_LIST, $rr);
-    if ($result != STATUS_OK) {
-        Auxiliary::help_rr();
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("$0 will exit with exit status " . status2text($status) . "($status)");
-        run_end($status);
-    }
-    say("INFO: 'rr' invocation type '$rr'.");
-} else {
-    if (defined $rr_options) {
-        say("WARN: Setting rr_options('rr_options') to undef because 'rr' is not defined.");
-        $rr_options = undef;
-    }
+my $status = Runtime::check_and_set_rr_valgrind ($rr, $rr_options, undef, undef, 1);
+if ($status != STATUS_OK) {
+    say("The $0 arguments were ->" . join(" ", @ARGV_saved) . "<-");
+    say("$0 will exit with exit status " . status2text($status) . "($status)");
+    safe_exit($status);
 }
-if (defined $rr_options) {
-    say("INFO: rr_options ->$rr_options<-");
-}
-
-
+$rr =         Runtime::get_rr();
+$rr_options = Runtime::get_rr_options();
 
 # FIXME:
 # Hard (apply no matter what duration is) or soft (adjust how?) border?
@@ -933,31 +912,26 @@ while($Batch::give_up <= 1) {
             #  But backtraces are detailed.
 
 
-            # $command = "perl " . ($Carp::Verbose?"-MCarp=verbose ":"") . " $rqg_home" .
             $command = "perl -w " . ($Carp::Verbose?"-MCarp=verbose ":"") . " $rqg_home" .
                        "/" . $runner . ' ' . $command;
 
             if (defined $rr) {
-                # Let the child create the $rr_trace_dir before starting the RQG runner?
                 my $rr_trace_dir = $rqg_vardir . "/rr_trace";
-                if (not mkdir $rr_trace_dir) {
-                    my $status = STATUS_ENVIRONMENT_FAILURE;
-                    say("ERROR: Creating the 'rr' trace directory '$rr_trace_dir' failed : $!. " .
-                        "Will return status DBSTATUS_FAILURE" . "($status)");
-                    return $status;
-                }
                 my ($rr_snip_begin, $rr_snip_end);
-                if ($rr eq 'RQG' or $runner eq 'rqg.pl') {
-                    # $rr_snip_begin = "_RR_TRACE_DIR=$rr_trace_dir ";
+                if ($rr eq Runtime::RR_TYPE_RQG) {
+                    if (not mkdir $rr_trace_dir) {
+                        my $status = STATUS_ENVIRONMENT_FAILURE;
+                        say("ERROR: Creating the 'rr' trace directory '$rr_trace_dir' failed : $!. " .
+                            "Will return status DBSTATUS_FAILURE" . "($status)");
+                        return $status;
+                    }
                     $ENV{_RR_TRACE_DIR} = $rr_trace_dir;
-                }
-                if ($rr eq 'RQG') {
                     $rr_snip_begin .= "rr record --mark-stdio ";
                     if (defined $rr_options) {
-                        $rr_snip_begin .= "'$rr_options' ";
+                        $rr_snip_begin .= " " . $rr_options . " ";
                     }
                 }
-                if ($rr ne 'RQG' and $runner eq 'rqg.pl') {
+                if ($rr ne Runtime::RR_TYPE_RQG and $runner eq 'rqg.pl') {
                     $rr_snip_end = " --rr=$rr ";
                     if (defined $rr_options) {
                         $rr_snip_end .= "--rr_options='$rr_options' ";
@@ -965,7 +939,6 @@ while($Batch::give_up <= 1) {
                 }
                 $command = $rr_snip_begin . $command if defined $rr_snip_begin;
                 $command = $command . $rr_snip_end   if defined $rr_snip_end;
-
             } else {
                 # Unclear of 100% needed.
                 $ENV{_RR_TRACE_DIR} = undef;

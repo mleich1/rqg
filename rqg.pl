@@ -57,7 +57,7 @@ BEGIN {
 
 my $rqg_start_time = time();
 
-my $start_cwd     = Cwd::getcwd();
+my $start_cwd      = Cwd::getcwd();
 
 if (not -e $rqg_home . "/lib/GenTest.pm") {
     print("ERROR: The rqg_home ('$rqg_home') determined does not look like the root of a " .
@@ -162,7 +162,7 @@ my (@basedirs, @mysqld_options, @vardirs, $rpl_mode,
     @engine, $help, $help_vardir, $help_sqltrace, $debug, @validators, @reporters, @transformers,
     $grammar_file, $skip_recursive_rules,
     @redefine_files, $seed, $mask, $mask_level, $rows,
-    $varchar_len, $xml_output, $valgrind, @valgrind_options, @vcols, @views,
+    $varchar_len, $xml_output, $valgrind, $valgrind_options, @vcols, @views,
     $start_dirty, $filter, $build_thread, $sqltrace, $testname,
     $report_xml_tt, $report_xml_tt_type, $report_xml_tt_dest,
     $notnull, $logfile, $logconf, $report_tt_logdir, $querytimeout, $no_mask,
@@ -265,7 +265,7 @@ if (not GetOptions(
     'restart_timeout=i'           => \$restart_timeout,
     'testname=s'                  => \$testname,
     'valgrind!'                   => \$valgrind,
-    'valgrind_options=s@'         => \@valgrind_options,
+    'valgrind_options=s'          => \$valgrind_options,
     'rr:s'                        => \$rr,
     'rr_options=s'                => \$rr_options,
     'vcols:s'                     => \$vcols[0],
@@ -342,7 +342,14 @@ $max_gd_duration = $default_max_gd_duration if not defined $max_gd_duration;
 
 # say("DEBUG: After reading command line options");
 
-# FIXME: Maybe move into Auxiliary.pm
+my $status = Runtime::check_and_set_rr_valgrind ($rr, $rr_options, $valgrind, $valgrind_options, 0);
+if ($status != STATUS_OK) {
+    say("The $0 arguments were ->" . join(" ", @ARGV_saved) . "<-");
+    say("$0 will exit with exit status " . status2text($status) . "($status)");
+    safe_exit($status);
+}
+if (0) {
+# Moved to Runtime.pm and there modified.
 my $rr_rules = 0;
 # $rr_rules is used for deciding if a SIGKILL of the server is acceptable or not.
 if (defined $rr) {
@@ -404,6 +411,9 @@ if (defined $valgrind) {
         safe_exit($status);
     }
 }
+}
+
+my $rr_rules = Runtime::get_rr_rules;
 
 # FIXME: Make $workdir mandatory??
 if (not defined $workdir) {
@@ -484,6 +494,7 @@ if (STATUS_OK != $return){
 # say("DEBUG: RQG phase is '$return'");
 
 if (defined $scenario) {
+    # WARNING: run-scenario.pl does not know of stuff set in Runtime.pm
     system("perl $ENV{RQG_HOME}/run-scenario.pl @ARGV_saved");
     exit $? >> 8;
 }
@@ -1150,7 +1161,7 @@ if ($upgrade_rep_found && (not defined $upgrade_test)) {
 }
 
 # sqltracing
-my $status = SQLtrace::check_and_set_sqltracing($sqltrace, $workdir);
+$status = SQLtrace::check_and_set_sqltracing($sqltrace, $workdir);
 if (STATUS_OK != $status) {
     say("$0 will exit with exit status " . status2text($status) . "($status)");
     run_end($status);
@@ -1193,7 +1204,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                  mode                => $rpl_mode,
                  server_options      => $mysqld_options[1],
                  valgrind            => $valgrind,
-                 valgrind_options    => \@valgrind_options,
+                 valgrind_options    => $valgrind_options,
                  rr                  => $rr,
                  rr_options          => $rr_options,
                  general_log         => 1,
@@ -1243,7 +1254,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         first_port         => $ports[0],
         server_options     => $mysqld_options[1],
         valgrind           => $valgrind,
-        valgrind_options   => \@valgrind_options,
+        valgrind_options   => $valgrind_options,
         rr                 => $rr,
         rr_options         => $rr_options,
         general_log        => 1,
@@ -1312,7 +1323,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                                               port             => $ports[0],
                                               start_dirty      => $start_dirty,
                                               valgrind         => $valgrind,
-                                              valgrind_options => \@valgrind_options,
+                                              valgrind_options => $valgrind_options,
                                               rr               => $rr,
                                               rr_options       => $rr_options,
                                               server_options   => $mysqld_options[0],
@@ -1392,7 +1403,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                    port              => $ports[0],          # Same port as for the first server!
                    start_dirty       => 1,
                    valgrind          => $valgrind,
-                   valgrind_options  => \@valgrind_options,
+                   valgrind_options  => $valgrind_options,
                    rr                => $rr,
                    rr_options        => $rr_options,
                    server_options    => $mysqld_options[1],
@@ -1428,7 +1439,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                             port               => $ports[$server_id],
                             start_dirty        => $start_dirty,
                             valgrind           => $valgrind,
-                            valgrind_options   => \@valgrind_options,
+                            valgrind_options   => $valgrind_options,
                             rr                 => $rr,
                             rr_options         => $rr_options,
                             server_options     => $mysqld_options[$server_id],

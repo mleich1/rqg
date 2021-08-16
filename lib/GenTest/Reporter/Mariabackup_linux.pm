@@ -256,25 +256,27 @@ sub monitor {
         $backup_binary .= " --innodb-use-native-aio=0 ";
     }
 
-    my $rr =          $reporter->properties->rr();
-    my $rr_options =  '';
+    # my $rr =          $reporter->properties->rr();
+    my $rr = Runtime::get_rr();
+    my $rr_options = Runtime::get_rr_options();
+    # my $rr_options =  '';
     my $rr_addition = '';
-    if (defined $rr and $rr eq Auxiliary::RR_TYPE_EXTENDED) {
-        # FIXME:
-        # Using the rr trace sub directory of the first server could make trouble.
-        # The first server crashes, backtrace generation based on rr replay <no program>
-        # starts, hence mariabackup gets picked ...
-        if (defined $reporter->properties->rr_options()) {
-            $rr_options =   $reporter->properties->rr_options();
-        }
-        $rr_addition =     "_RR_TRACE_DIR=$clone_rrdir rr record $rr_options";
+    # if (defined $rr and $rr eq Auxiliary::RR_TYPE_EXTENDED) {
+    if (defined $rr and $rr eq Runtime::RR_TYPE_EXTENDED) {
+        # if (defined $reporter->properties->rr_options()) {
+        #     $rr_options =   $reporter->properties->rr_options();
+        # }
+        $rr_options =  '' if not defined $rr_options;
+        $ENV{'_RR_TRACE_DIR'} = $clone_rrdir;
+        $rr_addition = "ulimit -c 0; rr record --mark-stdio $rr_options";
     }
 
     # For experimenting:
     # $backup_binary = "not_exists ";
     # my $backup_backup_cmd = "$backup_binary --port=$source_port --hickup " .
     my $backup_backup_cmd = $rr_addition . " $backup_binary --port=$source_port --backup " .
-                            "--innodb_flush_method=$flush_method --datadir=$datadir --target-dir=$clone_datadir";
+                            "--innodb_flush_method=$flush_method " .
+                            "--datadir=$datadir --target-dir=$clone_datadir";
 
     # Mariabackup could hang.
     my $exit_msg      = '';
