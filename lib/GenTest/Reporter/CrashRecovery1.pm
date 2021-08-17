@@ -286,7 +286,7 @@ sub report {
             my @walk_queries;
 
             while (my $key_hashref = $sth_keys->fetchrow_hashref()) {
-                my $key_name = $key_hashref->{Key_name};
+                my $key_name =    $key_hashref->{Key_name};
                 my $column_name = $key_hashref->{Column_name};
 
                 # What follows is correct in case the column has really the data type derived from
@@ -442,18 +442,25 @@ sub report {
                     if (defined $err) {
                         if ( 1178 == $err or
                              1317 == $err or
+                             # 4047 == $err or
                              1969 == $err   ) {
                              # 1178, "The storage engine for the table doesn\'t support ...
                              # 1317, "Query execution was interrupted" seen on 10.2 for OPTIMIZE ...
                              #       reason was max_statement_time exceeded
                              # 1969, "Query execution was interrupted (max_statement_time exceeded)
+                             # 4047, "InnoDB refuses to write tables with ROW_FORMAT=COMPRESSED or KEY_BLOCK_SIZE"
+                             #       Scenario:
+                             #       YY grammar flips innodb_read_only_compressed to OFF
+                             #       + creates a table using that compression
+                             #       We restart here with the default innodb_read_only_compressed=ON
+                             #       and get 4047.
                             say("DEBUG: $sql harvested harmless $errstr.");
                             next;
                         } else {
                             say("ERROR: $sql harvested $err: $errstr. " .
                                 "Will return STATUS_RECOVERY_FAILURE later.");
-                            sayFile($server->errorlog);
                             $dbh->disconnect;
+                            sayFile($server->errorlog);
                             return STATUS_RECOVERY_FAILURE;
                         }
                     }
@@ -539,6 +546,7 @@ sub report {
                             print $result;
                             my $status = STATUS_RECOVERY_FAILURE;
                             $dbh->disconnect();
+                            sayFile($server->errorlog);
                             say("ERROR: $who_am_i Failures found in the output above. " . Auxiliary::build_wrs($status));
                             return $status;
                         }
@@ -549,6 +557,7 @@ sub report {
                     my $status = STATUS_RECOVERY_FAILURE;
                     $dbh->disconnect();
                     say("ERROR: $who_am_i Prepare failed: " . $dbh->errrstr() . " " .  Auxiliary::build_wrs($status));
+                    sayFile($server->errorlog);
                     return $status;
                 }
             }
