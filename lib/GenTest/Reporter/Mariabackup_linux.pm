@@ -213,6 +213,8 @@ sub monitor {
     my $lc_messages_dir = $reporter->serverVariable('lc_messages_dir');
     my $datadir         = $reporter->serverVariable('datadir');
     my $flush_method    = $reporter->serverVariable('innodb_flush_method');
+    # flush_method read that way could be ''.
+    # But when assigning that later mariabackup/mariadb abort (10.2).
     $datadir =~ s{[\\/]$}{}sgio;
     # 2020-02-27 The start of the server on the backuped data failed because this data
     # goes with a different InnoDB page size than the server default of 16K.
@@ -255,6 +257,8 @@ sub monitor {
     if (not osWindows()) {
         $backup_binary .= " --innodb-use-native-aio=0 ";
     }
+    $backup_binary .= '--innodb_flush_method="' . $flush_method . '" '
+        if (defined $flush_method and '' ne $flush_method);
 
     # my $rr =          $reporter->properties->rr();
     my $rr = Runtime::get_rr();
@@ -275,7 +279,6 @@ sub monitor {
     # $backup_binary = "not_exists ";
     # my $backup_backup_cmd = "$backup_binary --port=$source_port --hickup " .
     my $backup_backup_cmd = $rr_addition . " $backup_binary --port=$source_port --backup " .
-                            "--innodb_flush_method=$flush_method " .
                             "--datadir=$datadir --target-dir=$clone_datadir";
 
     # Mariabackup could hang.
@@ -396,7 +399,7 @@ sub monitor {
 
     system("ls -ld " . $clone_datadir . "/ib_logfile*");
     my $backup_prepare_cmd = $rr_addition . " $backup_binary --port=$clone_port --prepare " .
-                             "--target-dir=$clone_datadir --innodb_flush_method=$flush_method ";
+                             "--target-dir=$clone_datadir ";
     say("Executing first prepare: $backup_prepare_cmd");
     $exit_msg      = "Prepare operation 1 did not finish in " . $alarm_timeout . "s.";
     alarm ($prepare_timeout);
@@ -435,7 +438,7 @@ sub monitor {
 
     system("ls -ld " . $clone_datadir . "/ib_logfile*");
 #   $backup_prepare_cmd = $rr_addition . " $backup_binary --port=$clone_port --prepare " .
-#                         "--target-dir=$clone_datadir --innodb_flush_method=$flush_method ";
+#                         "--target-dir=$clone_datadir ";
 #   say("Executing second prepare: $backup_prepare_cmd");
 #   $exit_msg      = "Prepare operation 2 did not finish in " . $alarm_timeout . "s.";
 #   # Less time because its the second prepare.
@@ -500,7 +503,6 @@ sub monitor {
         '--innodb',
         '--loose_innodb_use_native_aio=0',
         '--sql_mode=NO_ENGINE_SUBSTITUTION',
-        '--innodb_flush_method=$flush_method',
     );
 
     foreach my $plugin (@$plugins) {
@@ -510,6 +512,8 @@ sub monitor {
         if defined $fkm_file;
     push @mysqld_options, '--innodb_page_size="' . $innodb_page_size . '"'
         if defined $innodb_page_size;
+    push @mysqld_options, '--innodb_flush_method="' . $flush_method . '"'
+        if (defined $flush_method and '' ne $flush_method);
 
     $|=1;
 
