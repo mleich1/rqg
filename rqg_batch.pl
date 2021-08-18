@@ -772,12 +772,6 @@ while($Batch::give_up <= 1) {
         and 0 == $Batch::give_up        # We do not need to bring the current phase of work to an end.
         and not $delay_start    ) {     # We have no to be feared resource problem or similar.
 
-        my $free_worker = Batch::get_free_worker;
-        if (not defined $free_worker) {
-            say("INTERNAL ERROR: No free worker got though there should be some. Abort.");
-            my $status = STATUS_INTERNAL_ERROR;
-            Batch::emergency_exit($status);
-        }
         # We count per bookkeeping active RQG workers and hand it to ...::get_job.
         # This allows get_job to judge if an ordered switch_phase (--> Simplifier only) is called
         # in the right situation.
@@ -814,6 +808,12 @@ while($Batch::give_up <= 1) {
             #    Some might be in execution and all other must be in @try_over_queue.
             say("DEBUG: No order got") if Auxiliary::script_debug("T6");
         } else {
+            my $free_worker = Batch::get_free_worker;
+            if (not defined $free_worker) {
+                say("INTERNAL ERROR: No free worker got though there should be some. Abort.");
+                my $status = STATUS_INTERNAL_ERROR;
+                Batch::emergency_exit($status);
+            }
             # We have now a free/non busy RQG runner and a job
             say("DEBUG: Preparing command for RQG worker [$free_worker] based on valid " .
                 "order $order_id.") if Auxiliary::script_debug("T6");
