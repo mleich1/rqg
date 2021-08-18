@@ -114,7 +114,7 @@ then
    PARALLEL=270
 fi
 
-TRIALS=64
+TRIALS=128
 
 # MAX_RUNTIME is a limit for defining the size of a simplification campaign.
 # Please be aware that the runtime of util/issue_grep.sh is not included.
@@ -230,14 +230,35 @@ set -o pipefail
 # 8. Use "rr" (https://github.com/mozilla/rr/wiki/Usage) for tracing DB servers and other
 #    programs.
 #
-#    Get the default which is 'Server'
-# --rr                                                                 \
+#    Attention:
+#    1. rr tracing makes the test simplification process serious slower.
+#    2. The combination of rr tracing and --noarchiving makes no sense and is therefore
+#       not supported.
+#    3. Only the combination of rr tracing, archiving not disabled and some config file with
+#       - some never hit searchpattern like
+#         $patterns_replay =
+#         [
+#             [ 'whatever' , '1234_fake_pattern_4321' ],
+#         ];
+#       - simplify_chain
+#         first_replay and thread1_replay and rvt_simp set to comment
+#       - a big number of trials like 3200
+#       could sometimes make sense.
+#       Impact:
+#       The simplifier tries to replay some never replayable text pattern via manipulations
+#       of the YY grammar and running corresponding RQG tests. There is some chance that certain
+#       manipulations of the grammar change the runtime properties of the grammar so drastic that
+#       the likelihood to replay up till today never observed bugs becomes high enough.
+#       And than we would get some rr trace in addition.
 #
-#    Preserve the 'rr' traces of all servers started
-#        lib/DBServer/MySQL/MySQLd.pm    sub startServer
+#    "rr" tracing of all servers started ( lib/DBServer/MySQL/MySQLd.pm    sub startServer)
+#    This is the default.
+# --rr                                                                 \
+#    or better
 # --rr=Server                                                          \
 #
-#    Preserve the 'rr' traces of the bootstrap or server or soon mariabackup ... prepare ... started
+#    Preserve the 'rr' traces of the bootstrap, server starts and mariabackup calls.
+#    This is the optimal setting for InnoDB QA.
 # --rr=Extended                                                        \
 #
 #    Make a 'rr' trace of the complete RQG run like even of the perl code of the RQG runner.
@@ -254,10 +275,23 @@ set -o pipefail
 #    Box having "Intel Skylake" CPU's, "rr" version 4 contains the string "Intel Skylake" but
 #    claims to have met some unknown CPU.
 #    Please becareful with the single and double quotes.
-# --rr_options="\'--microarch='Intel Kabylake'\'"                     \
+# --rr_options='--chaos --microarch=\"Intel Kabylake\"'                \
 #
-#    One rr option which seems to be recommended anywhere
-# --rr_options="--chaos"                                              \
+#    The "rr" option "--chaos" which seems to be recommended anywhere.
+# --rr_options='--chaos'                                               \
+#
+#    The combination "--chaos --wait" is currently studied
+# --rr_options='--chaos --wait'                                        \
+#
+# Please be aware that some increasing number of Combinations config files already
+# enable the use of "rr".
+#
+# 9. SQL tracing within RQG (Client side tracing)
+# --sql_trace=Simple                                                   \
+#
+#
+
+# perl -w -d:ptkdb ./rqg_batch.pl                                      \
 #
 
 # In case you distrust the rqg_batch.pl mechanics or the config file etc. than going with some

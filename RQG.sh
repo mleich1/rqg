@@ -9,9 +9,10 @@ export LANG=C
 USAGE="USAGE: $0 <Basedir>"
 CALL_LINE="$0 $*"
 
-# killall -9 perl ; killall -9 mysqld ; rm -rf /dev/shm/var_*
+# killall -9 perl ; killall -9 mysqld ;  killall -9 rr ; rm -rf /dev/shm/var_*
 
 set -e
+RQG_HOME=`pwd`
 RUNID=SINGLE_RQG
 VARDIR="/dev/shm/vardir/""$RUNID"
 rm -rf $VARDIR ;
@@ -64,10 +65,9 @@ else
    BASEDIR2_SETTING=""
 fi
 
-YY_GRAMMAR="conf/mariadb/table_stress_innodb_nocopy.yy"
-# YY_GRAMMAR="evil.yy"
 SQL_GRAMMAR="conf/mariadb/table_stress.sql"
 ZZ_GRAMMAR="conf/mariadb/table_stress.zz"
+YY_GRAMMAR="conf/mariadb/table_stress.yy"
 
 export ASAN_OPTIONS=abort_on_error=1,disable_coredump=0
 
@@ -100,11 +100,12 @@ then
    exit
 fi
 
-perl -w ./rqg.pl                                                                 \
+perl -w ./rqg.pl                                                               \
 --seed=random                                                                  \
 --queries=1000000                                                              \
 --reporter=ErrorLog,Backtrace,Deadlock1,None                                   \
 --validator=None                                                               \
+--sqltrace=MarkErrors                                                          \
 --duration=300                                                                 \
 --gendata="$ZZ_GRAMMAR"                                                        \
 --gendata_sql="$SQL_GRAMMAR"                                                   \
@@ -127,12 +128,17 @@ $BASEDIR2_SETTING                                                              \
 --mysqld=--innodb-lock-wait-timeout=50                                         \
 --mysqld=--log-output=none                                                     \
 --mysqld=--log-bin                                                             \
+--mysqld=--sync-binlog=1                                                       \
 --mysqld=--log_bin_trust_function_creators=1                                   \
 --mysqld=--loose-max-statement-time=30                                         \
 --mysqld=--loose-debug_assert_on_not_freed_memory=0                            \
 --engine=InnoDB                                                                \
+--mysqld=--plugin-load-add=file_key_management.so                              \
+--mysqld=--loose-file-key-management-filename="$RQG_HOME"/conf/mariadb/encryption_keys.txt \
 --querytimeout=30                                                              \
 --threads=10                                                                   \
+--rr =Extended                                                                 \
+--rr_options='--chaos --wait --microarch="Intel Kabylake"'                     \
 --vardir="$VARDIR"                                                             \
 --workdir="$WORKDIR"                                                           \
 --mask-level=0                                                                 \

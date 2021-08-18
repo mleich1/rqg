@@ -30,9 +30,10 @@
 # - combinations.pl
 #   Parallelization + combinations mechanism
 # There we have GNU General Public License version 2 too and
-# Copyright (c) 2008, 2011 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018, MariaDB Corporation Ab.
+#    Copyright (c) 2008, 2011 Oracle and/or its affiliates. All rights reserved.
+#    Copyright (c) 2013, Monty Program Ab.
+#    Copyright (c) 2018, MariaDB Corporation Ab.
+# Both perl programs were removed from my current RQG version.
 #
 # The amount of parameters (call line + config file) is in the moment
 # not that stable.

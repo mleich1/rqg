@@ -309,17 +309,19 @@ sub nativeReport {
     } else {
         say("INFO: $who_am_i The pattern '$core_dumped_pattern' was not found in '$error_log'.");
         if (defined $reporter->properties->rr) {
-            # We try to generate a backtrace form the rr trace.
+            # We try to generate a backtrace from the rr trace.
             my $rr_trace_dir = $vardir . '/rr';
             my $backtrace =    $vardir . '/backtrace.txt';
             my $backtrace_cfg = $rqg_homedir . "backtrace-rr.gdb";
-            # Note: STDERR just shows the content of the server error log which we have anyway.
+            # Note:
+            # The rr option --mark-stdio would print STDERR etc. when running 'continue'.
+            # But this just shows the content of the server error log which we have anyway.
             my $command = "_RR_TRACE_DIR=$rr_trace_dir rr replay >$backtrace 2>/dev/null < $backtrace_cfg";
             system('bash -c "set -o pipefail; '. $command .'"');
             sayFile($backtrace);
         }
         say("INFO: $who_am_i No core file to be expected. Will return " .
-                "STATUS_SERVER_CRASHED, undef");
+            "STATUS_SERVER_CRASHED, undef");
         return STATUS_SERVER_CRASHED, undef;
     }
 
@@ -425,7 +427,7 @@ sub nativeReport {
     my @debugs;
 
     # 2021-02-15 Observation:
-    # Strong box, only on RQG worker is active, "rr" is not used
+    # Strong box, only one RQG worker is active, "rr" is not used
     # 14:42:53 the last concurrent RQG worker finished.
     # gdb with backtrace-all.gdb is running + consuming CPU
     # Last entry into RQG log is
