@@ -892,8 +892,7 @@ sub startServer {
         # if (exists $ENV{'RUNNING_UNDER_RR'} or defined $self->[MYSQLD_RR]) {
         if (exists $ENV{'RUNNING_UNDER_RR'} or defined $rr) {
             # rr tracing is already active ('RQG') or will become active for the calls of
-            # certain binaries. In all cases where the server binaries run under "rr" we need
-            # a bigger timeouts.
+            # certain binaries.
             # Having more events ('rr' point of view) could make debugging faster.
             # We just try that via more dense logging of events in the server.
             # Example:

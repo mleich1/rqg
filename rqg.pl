@@ -348,70 +348,6 @@ if ($status != STATUS_OK) {
     say("$0 will exit with exit status " . status2text($status) . "($status)");
     safe_exit($status);
 }
-if (0) {
-# Moved to Runtime.pm and there modified.
-my $rr_rules = 0;
-# $rr_rules is used for deciding if a SIGKILL of the server is acceptable or not.
-if (defined $rr) {
-    my $status = STATUS_OK;
-    if (STATUS_OK != Auxiliary::find_external_command("rr")) {
-        $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: The external binary 'rr' is required but was not found.");
-        safe_exit($status);
-    }
-    if($rr eq '') {
-        $rr = Auxiliary::RR_TYPE_DEFAULT;
-    }
-
-    my $result = Auxiliary::check_value_supported (
-                'rr', Auxiliary::RR_TYPE_ALLOWED_VALUE_LIST, $rr);
-    if ($result != STATUS_OK) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("$0 will exit with exit status " . status2text($status) . "($status)");
-        run_end($status);
-    }
-    if ($rr eq Auxiliary::RR_TYPE_RQG) {
-        say("ERROR: Only 'rqg_batch.pl' supports the 'rr' invocation type '$rr'.");
-        $status = STATUS_ENVIRONMENT_FAILURE;
-        safe_exit($status);
-    }
-    say("INFO: The 'rr' invocation type '$rr'.");
-    $rr_rules = 1;
-} else {
-    if (defined $rr_options) {
-        say("WARN: Setting rr_options('$rr_options') to undef because 'rr' is not defined.");
-        $rr_options = undef;
-    }
-}
-if (defined $rr_options) {
-    say("INFO: rr_options ->$rr_options<-");
-}
-my $env_var = $ENV{RUNNING_UNDER_RR};
-if (defined $env_var) {
-    say("INFO: The environment variable RUNNING_UNDER_RR is set. " .
-        "This means the complete RQG run (-> all processes) are under the control of 'rr'.");
-    if (defined $rr) {
-        say("ERROR: 'rqg.pl' should invoke 'rr' even though already running under control " .
-            "of 'rr'. This makes no sense.");
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        safe_exit($status);
-    }
-    $rr_rules = 1;
-}
-if($rr_rules) {
-    Runtime::set_runtime_factor_rr;
-}
-
-if (defined $valgrind) {
-    if (STATUS_OK == Auxiliary::find_external_command("valgrind")) {
-        Runtime::set_runtime_factor_valgrind;
-    } else {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: valgrind is required but was not found.");
-        safe_exit($status);
-    }
-}
-}
 
 my $rr_rules = Runtime::get_rr_rules;
 
@@ -1116,12 +1052,6 @@ if ($genconfig) {
                                                   debug     => $debug
     );
 }
-
-# if (defined $rr) {
-#     if (defined $rr_options) {
-#         $rr_options = $rr_options ;
-#     }
-# }
 
 ### What follows should be checked (if at all) before any server is started.
 # Otherwise it could happen that we have started some server and the test aborts later with

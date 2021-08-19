@@ -65,6 +65,10 @@ sub monitor {
         say("INFO: $who_am_i First monitoring");
         $first_monitoring = 0;
     }
+    # FIXME maybe
+    # Making some connect attempt and only in case of success going on looks attractive.
+    # But that attempt might maybe last longer than 19s. And than all worker threads would have
+    # disconnected and the crash is maybe too harmless.
     if (time() > $reporter->testEnd() - 19) {
     my $kill_msg = "$who_am_i Sending SIGKILL to server with pid $pid in order to force a crash.";
         say("INFO: $kill_msg");
@@ -246,7 +250,8 @@ sub report {
         say("ERROR: $who_am_i SHOW DATABASES failed. " . Auxiliary::build_wrs($status));
         return $status;
     }
-    foreach my $database (@$databases) {
+    my @databases = sort @$databases;
+    foreach my $database (@databases) {
         next if $database =~ m{^(rqg|mysql|information_schema|pbxt|performance_schema)$}sio;
         $dbh->do("USE $database");
         my $tabl_ref = $dbh->selectcol_arrayref("SHOW FULL TABLES", { Columns=>[1,2] });
@@ -277,8 +282,8 @@ sub report {
                 } else {
                     say("ERROR: $who_am_i $stmt harvested $err: $errstr. " .
                         "Will return status STATUS_RECOVERY_FAILURE later.");
-                    sayFile($server->errorlog);
                     $dbh->disconnect;
+                    sayFile($server->errorlog);
                     return STATUS_RECOVERY_FAILURE;
                 }
             }
@@ -358,8 +363,8 @@ sub report {
                     say("ERROR:  $msg_snip " .
                         "Will return status STATUS_RECOVERY_FAILURE later.");
                     $sth_rows->finish();
-                    sayFile($server->errorlog);
                     $dbh->disconnect;
+                    sayFile($server->errorlog);
                     return STATUS_RECOVERY_FAILURE;
                 }
 
@@ -565,8 +570,8 @@ sub report {
     }
 
     my $status = STATUS_OK;
-    say("INFO: $who_am_i No failures found. " . Auxiliary::build_wrs($status));
     $dbh->disconnect();
+    say("INFO: $who_am_i No failures found. " . Auxiliary::build_wrs($status));
     return $status;
 }
 

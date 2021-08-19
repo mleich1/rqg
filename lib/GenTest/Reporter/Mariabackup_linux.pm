@@ -260,16 +260,10 @@ sub monitor {
     $backup_binary .= '--innodb_flush_method="' . $flush_method . '" '
         if (defined $flush_method and '' ne $flush_method);
 
-    # my $rr =          $reporter->properties->rr();
-    my $rr = Runtime::get_rr();
-    my $rr_options = Runtime::get_rr_options();
-    # my $rr_options =  '';
+    my $rr =          Runtime::get_rr();
+    my $rr_options =  Runtime::get_rr_options();
     my $rr_addition = '';
-    # if (defined $rr and $rr eq Auxiliary::RR_TYPE_EXTENDED) {
     if (defined $rr and $rr eq Runtime::RR_TYPE_EXTENDED) {
-        # if (defined $reporter->properties->rr_options()) {
-        #     $rr_options =   $reporter->properties->rr_options();
-        # }
         $rr_options =  '' if not defined $rr_options;
         $ENV{'_RR_TRACE_DIR'} = $clone_rrdir;
         $rr_addition = "ulimit -c 0; rr record --mark-stdio $rr_options";
@@ -585,13 +579,13 @@ sub monitor {
         " and is connectable.");
 
     if ($reporter->testEnd() <= time() + 5) {
+        $clone_dbh->disconnect();
         my $status = STATUS_OK;
         direct_to_std();
         $clone_server->killServer();
         foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
             File::Path::rmtree($dir);
         }
-        $clone_dbh->disconnect();
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
         return $status;
     }
@@ -602,13 +596,13 @@ sub monitor {
     my $databases = $clone_dbh->selectcol_arrayref("SHOW DATABASES");
     foreach my $database (@$databases) {
         if ($reporter->testEnd() <= time() + 5) {
+            $clone_dbh->disconnect();
             my $status = STATUS_OK;
             direct_to_std();
             $clone_server->killServer();
             foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
                 File::Path::rmtree($dir);
             }
-            $clone_dbh->disconnect();
             say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
             return $status;
         }
@@ -633,7 +627,7 @@ sub monitor {
                 sayFile($clone_err);
                 sayFile($reporter_prt);
                 # The damage is some corruption.
-                # Based on the fact that this is found in the server running on the backupedd data
+                # Based on the fact that this is found in the server running on the backuped data
                 # I prefer to return STATUS_BACKUP_FAILURE and not STATUS_DATABASE_CORRUPTION.
                 my $status = STATUS_BACKUP_FAILURE;
                 say("ERROR: $who_am_i : Will exit with status " . status2text($status) . "($status)");
