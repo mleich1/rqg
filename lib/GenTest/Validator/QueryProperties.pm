@@ -1,5 +1,5 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
-# Copyright (C) 2016 MariaDB Corporation.
+# Copyright (C) 2016, 2021 MariaDB Corporation.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -34,6 +34,7 @@ my @properties = (
     'RESULTSET_IS_SINGLE_INTEGER_ONE',
     'RESULTSET_HAS_ZERO_OR_ONE_ROWS',
     'RESULTSET_HAS_ONE_ROW',
+    'RESULTSET_HAS_NO_ROW',
     'QUERY_IS_REPLICATION_SAFE'
 );
 
@@ -73,7 +74,7 @@ sub validate {
                 if ($error !~ m{^\d*$}) {
                     say("ERROR: Query: $query needs to use a numeric code in in query property $query_property.");
                     return STATUS_ENVIRONMENT_FAILURE;
-                } 
+                }
                 push @error_codes, $error;
             }
         }
@@ -96,7 +97,7 @@ sub validate {
     if ($query_status != STATUS_OK) {
         print Dumper $results if rqg_debug();
     }
-    
+
     return $query_status;
 }
 
@@ -112,7 +113,7 @@ sub RESULTSET_HAS_SAME_DATA_IN_EVERY_ROW {
         my $data_item = join('<field>', @{$row});
         $data_hash{$data_item}++;
     }
-    
+
     if (keys(%data_hash) > 1) {
         return STATUS_CONTENT_MISMATCH;
     } else {
@@ -122,7 +123,7 @@ sub RESULTSET_HAS_SAME_DATA_IN_EVERY_ROW {
 
 sub RESULTSET_HAS_ZERO_OR_ONE_ROWS {
     my ($validator, $result) = @_;
-    
+
     if ($result->rows() > 1) {
         return STATUS_LENGTH_MISMATCH;
     } else {
@@ -132,8 +133,18 @@ sub RESULTSET_HAS_ZERO_OR_ONE_ROWS {
 
 sub RESULTSET_HAS_ONE_ROW {
     my ($validator, $result) = @_;
-    
+
     if ($result->rows() != 1) {
+        return STATUS_LENGTH_MISMATCH;
+    } else {
+        return STATUS_OK;
+    }
+}
+
+sub RESULTSET_HAS_NO_ROW {
+    my ($validator, $result) = @_;
+
+    if ($result->rows() != 0) {
         return STATUS_LENGTH_MISMATCH;
     } else {
         return STATUS_OK;
@@ -142,7 +153,7 @@ sub RESULTSET_HAS_ONE_ROW {
 
 sub RESULTSET_IS_SINGLE_INTEGER_ONE {
     my ($validator, $result) = @_;
-    
+
     if (
         (not defined $result->data()) ||
         ($#{$result->data()} != 0) ||
