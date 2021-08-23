@@ -1544,7 +1544,7 @@ sub check_for_crash {
 # In case a non final phase of the work flow invoked connecting and achieved some
 # status != STATUS_OK than try to run some automatic analysis checking if its a crash.
 # Goal: Generate a backtrace even if crashing before the final phase genTest etc.
-#       Be able to exploit that result for making some mor qualified verdict.
+#       Be able to exploit that result for making some more qualified verdict.
 # We just use for that existing and future reporters.
 #
     my ($self, $status) = @_;
