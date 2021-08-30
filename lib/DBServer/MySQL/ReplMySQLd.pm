@@ -193,7 +193,7 @@ sub new {
 
         if (not defined $self->slave) {
             $self->master->stopServer;
-            croak("Could not create slave");
+            Carp::cluck("ERROR: Could not create slave");
         }
     }
 

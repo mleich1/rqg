@@ -2823,6 +2823,14 @@ sub print_ps_tree {
     }
 }
 
+sub print_ps_group {
+    my $prgp = getpgrp;
+    my $cmd = "ps -T -u `id -u` -o uid,pid,ppid,pgid,sid,args | egrep '" . $prgp . "|UID  *PID' " .
+           "| sort | cut -c1-200";
+    my $ps_group = `$cmd`;
+    say($ps_group);
+}
+
 use POSIX;
 
 sub reapChild {

@@ -1109,6 +1109,8 @@ sub startServer {
             # say("DEBUG ---- 4 ->" . $command . "<-");
             # Reason for going with $command >> \"$errorlog\" 2>&1 :
             # In case "rr" has problems or similar than it laments about its problems into $errorlog.
+            # Maybe add syncing whatever data or should routines consuming that data like the
+            # reporter Backtrace take care of that?
             # IDEA:
             # Maybe append a perl program looking for crash and making a backtrace after the start?
             exec("$command >> \"$errorlog\" 2>&1") || Carp::cluck("ERROR: Could not start mysql server");
@@ -2227,6 +2229,8 @@ sub waitForAuxpidGone {
             #            otherwise STATUS_OK or STATUS_INTERNAL_ERROR
             #     0, STATUS_INTERNAL_ERROR -- most probably already reaped
             #                              == Defect in RQG logics
+            #     0, STATUS_OK -- either just running or waitpid ... delivered undef
+            #                     == Try to reap again after some short sleep.
             my ($reaped, $status) = Auxiliary::reapChild($pid,
                                                          "waitForAuxpidGone");
             if (1 == $reaped) {

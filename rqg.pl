@@ -1143,8 +1143,12 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                  config              => $cnf_array_ref,
                  user                => $user
     );
-    # FIXME:
-    # Could already making the setup above fail?
+    # ReplMySQLd->new --> MySQLd->new --> createMysqlBase(== bootstrap) except start_dirty is 1.
+    if (not defined $rplsrv) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        sayError("Could not create replicating server pair.");
+        exit_test($status);
+    }
 
     my $status = $rplsrv->startServer();
 
@@ -1637,6 +1641,9 @@ if (not defined $gentest) {
 #
 
 # The branch is just for the optics :-).
+# FIXME:
+# We could set an alarm also from other reason.
+# And than the error message about max_gd_duration would be misleading.
 if ($final_result == STATUS_OK) {
     sigaction SIGALRM, new POSIX::SigAction sub {
         my $status = STATUS_ALARM;
@@ -1644,6 +1651,8 @@ if ($final_result == STATUS_OK) {
             Runtime::get_runtime_factor() . ") was exceeded. " .
             "Will kill DB servers and exit with STATUS_ALARM(" . $status . ") later.");
         killServers();
+        say("RESULT: The RQG run ended with status " . status2text($status) . " ($status)");
+        exit_test($status);
         # FIXME:
         # Check if killServers() fits here well in case rr is running.
         # Background:
