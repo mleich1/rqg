@@ -414,6 +414,7 @@ sub rename_file {
         Carp::cluck("ERROR: The target file '$target_file' does already exist.");
         return STATUS_FAILURE;
     }
+    system("sync -d $source_file");
     # Perl documentation claims that
     # - "File::Copy::move" is platform independent
     # - "rename" is not and might have probems accross filesystem boundaries etc.
@@ -588,8 +589,9 @@ sub set_rqg_phase {
         return STATUS_FAILURE;
     }
 
-    $result = Auxiliary::rename_file ($workdir . '/rqg_phase.' . $old_phase,
-                                      $workdir . '/rqg_phase.' . $new_phase);
+    my $old_name = $workdir . '/rqg_phase.' . $old_phase;
+    my $new_name = $workdir . '/rqg_phase.' . $new_phase;
+    $result = Auxiliary::rename_file ($old_name, $new_name);
     if ($result) {
         say("ERROR: Auxiliary::set_rqg_phase from '$old_phase' to '$new_phase' failed.");
         return STATUS_FAILURE;
@@ -1202,6 +1204,8 @@ sub getFileSlice {
         return undef;
     }
 
+    system("sync -d $file_to_read");
+
     my $file_handle;
     if (not open ($file_handle, '<', $file_to_read)) {
         say("ERROR: Open '$file_to_read' failed : $!. Will return undef.");
@@ -1277,6 +1281,8 @@ sub getFileSection {
     my $end_marker   = '^# Section ' . $section_name . ' -+ end$';
     # say("begin_marker: ->" . $begin_marker . "<-");
     # say("end_marker:   ->" . $end_marker   . "<-");
+
+    system("sync -d $file_to_read");
 
     my $file_handle;
     if (not open ($file_handle, '<', $file_to_read)) {
@@ -1719,6 +1725,7 @@ sub archive_results {
         sayFile($archive_err);
         return STATUS_FAILURE;
     }
+    system("sync -f $workdir $vardir");
 
     # FIXME/DECIDE:
     # - Use the GNU tar long options because the describe better what is done
@@ -1761,6 +1768,7 @@ sub archive_results {
     # messages like 'tar: Removing leading `/' from member names' etc.
     sayFile($archive_err) if script_debug("A5");
     unlink $archive_err;
+    system("sync -d $archive");
     return STATUS_OK;
 }
 
@@ -2715,7 +2723,7 @@ sub search_in_file {
         return undef;
     }
     if (not osWindows()) {
-        system ("sync $search_file");
+        system ("sync -d $search_file");
     }
     if (open(LOGFILE, "$search_file")) {
         while(<LOGFILE>) {
@@ -2877,6 +2885,34 @@ sub reapChild {
 
 } # End sub reapChild
 
+sub reapChildren {
+    my $child;
+    do {
+        # Roughly from waitpid.html + edited
+        # ----------------------------------
+        # waitpid PID,FLAGS
+        # waitpid -> only child processes count (grand children NOT)
+        #            rqg.pl is child of rqg_batch.pl but has a different process group ID.
+        #            auxpid in DBServer is child of rqg.pl and has same process group ID.
+        #            main DB server process is child of auxpid and has same process group ID.
+        # FLAG POSIX::WNOHANG set -> non blocking wait
+        # PID set
+        #     0 -> child process whose pgid is equal to that of the current process
+        #     -1 -> wait for any child process no matter if same or other pgid
+        #     some_int < -1 -> wait for any child process having a pgid -some_int
+        # Return values if assigning WNOHANG
+        # - pid of the deceased process    Only once next time 0.
+        # - 0 if there are child processes matching PID but none have terminated yet.
+        # - -1 if there is no such child process
+        #   or on some systems, a return value of -1 could mean that child processes are
+        #   being automatically reaped.
+        # - undef     Only once and typical for some box under extreme load.
+        #             Per experience the next waitpid call harvests the pid of the deceased process.
+        # The status is returned in $?.
+        $child = waitpid(-1, POSIX::WNOHANG);
+        $child = waitpid(-1, POSIX::WNOHANG) if not defind $child;
+    } while $child > 0;
+}
 
 sub build_wrs {
 # Just generate a frequent used sentence like "Will return status STATUS_SERVER_CRASHED(101)."
