@@ -1714,9 +1714,19 @@ sub archive_results {
     my $rc;
     my $status;
     $cmd  = "cd $workdir 2>rqg_arch.err";
-    $cmd .= "; find rqg* $vardir         -print0 | xargs --null chmod g+rw  2>>$archive_err";
+    # 1. chmod on /data/vardir/1630409747/<M>/1/rr/mysqld-0/mmap_hardlink_3_mariadbd affects
+    #    <basedir>/bin/mariadbd and by that any maybe existing
+    #    /data/vardir/1630409747/<N>/1/rr/mysqld-0/mmap_hardlink_3_mariadbd
+    #    which might be just during archiving.
+    # 2. xargs ... --no-run-if-empty for the case of processing a file matching "mmap_hardlink"
+    #    filtering that out, having than some empty value fed into chmod end getting an error.
+    # 3. There was in history a
+    #    find .... -print0 and xargs --null for handling filenames containing spaces etc.
+    #    This had to be removed because of chmod complaining about missing files etc.
+    $cmd .= "; find rqg* $vardir         -print | grep -v 'mmap_hardlink' | " .
+            "xargs --no-run-if-empty chmod g+rw  2>>$archive_err";
     # Even though using umask 002 the directories data/mysql and data/test lack often the 'x'.
-    $cmd .= "; find rqg* $vardir -type d -print0 | xargs --null chmod g+x 2>>$archive_err";
+    $cmd .= "; find rqg* $vardir -type d -print | grep -v 'mmap_hardlink' | xargs chmod g+x 2>>$archive_err";
     say("DEBUG: cmd : ->$cmd<-") if script_debug("A5");
     system($cmd);
     $rc = $? >> 8;
@@ -1725,7 +1735,10 @@ sub archive_results {
         sayFile($archive_err);
         return STATUS_FAILURE;
     }
-    system("sync -f $workdir $vardir");
+    # WARNING:
+    # Never run a    system("sync -f $workdir $vardir");    here
+    # because that easy last > 2000s on a box with many concurrent RQG runs which all
+    # work on some HDD.
 
     # FIXME/DECIDE:
     # - Use the GNU tar long options because the describe better what is done

@@ -1651,12 +1651,18 @@ if ($final_result == STATUS_OK) {
             Runtime::get_runtime_factor() . ") was exceeded. " .
             "Will kill DB servers and exit with STATUS_ALARM(" . $status . ") later.");
         killServers();
+        # IMHO it is extreme unlikely that content of $vardirs[0] == rqg_vardir explains why
+        # max_gd_duration was exceeded.
+        # Free space as soon as possible because parallel RQG runs might need it.
+        # Welcome sideeffects:
+        # A far way smaller archive and far way shorter load during compressing the archive.
+        foreach my $i (1..10) {
+            my $db_vardir = $vardirs[0] . "/" . $i;
+            File::Path::rmtree($db_vardir) if -e $db_vardir;
+        }
+        say("INFO: The vardirs of the servers were deleted.");
         say("RESULT: The RQG run ended with status " . status2text($status) . " ($status)");
         exit_test($status);
-        # FIXME:
-        # Check if killServers() fits here well in case rr is running.
-        # Background:
-        # Tests ended with "killing ... servers" as last protocol line.
     } or die "ERROR: rqg.pl: Error setting SIGALRM handler: $!\n";
 
     my $start_time = time();
