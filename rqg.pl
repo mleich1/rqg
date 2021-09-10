@@ -20,24 +20,6 @@
 # USA
 
 
-# TODO:
-# Make here some very strict version
-# 0. Check the use of
-#    - sub exit_test  stop servers, cleanup etc. and call run_end
-#    - sub run_end  status is decided, give summary, flip to RQG_PHASE_COMPLETE, run safe_exit
-#    - safe_exit from GenTest.pm making POSIX::_exit($exit_status)... but not setting RQG_PHASE
-# 1. Conflicts option1 vs option2 are not allowed and lead to abort of test
-# 2. Computing the number of servers based on number of basedirs or vardirs must not happen
-# 3. vardir must be assigned but it is only a directory where the RQG runner itself will
-#    handle all vardirs for servers required.
-# 4. Zero ambiguity.
-#    The tool calling the RQG runner, the RQG runner itself and all ingredients taken by it must
-#    must belong to the same version.
-#    We focus on  File::Basename::dirname(Cwd::abs_path($0)) only and ignore RQG_HOME!
-# 5. workdir is rather mandatory
-# 6. Maybe reduce the horrible flood of options
-# 7. Introduce a config file for the RQG runner
-
 use Carp;
 use File::Basename; # We use dirname
 use Cwd;            # We use abs_path , getcwd
@@ -71,7 +53,7 @@ $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
 $Carp::MaxArgNums= 8;
 
-use constant RQG_RUNNER_VERSION  => 'Version 3.3.2 (2021-01)';
+use constant RQG_RUNNER_VERSION  => 'Version 3.4 (2021-09)';
 use constant STATUS_CONFIG_ERROR => 199;
 
 use strict;
@@ -195,9 +177,15 @@ my @ARGV_saved = @ARGV;
 # say("\@ARGV_saved : " . join(' ',@ARGV_saved));
 
 # Take the options assigned in command line and
-# - fill them into the of variables allowed in command line
+# - fill them into the variables allowed in command line
 # - abort in case of meeting some not supported options
 my $opt_result = {};
+
+# Example (independent of perl call with -w or not)
+# -------------------------------------------------
+# Call line          $debug_server[0]
+# --debug-server -->               1
+# <not set>      -->           undef
 
 if (not GetOptions(
     $opt_result,
@@ -324,13 +312,9 @@ if ( defined $help_vardir) {
     exit STATUS_OK;
 }
 
+# say("DEBUG: After reading command line options");
 # say("\@ARGV after : " . join(' ',@ARGV));
 
-# Example (independent of perl call with -w or not)
-# -------------------------------------------------
-# Call line          $debug_server[0]
-# --debug-server -->               1
-# <not set>      -->           undef
 
 # Support script debugging as soon as possible and print its value.
 $script_debug_value = Auxiliary::script_debug_init($script_debug_value);
@@ -466,7 +450,17 @@ say("Please see http://forge.mysql.com/wiki/Category:RandomQueryGenerator for mo
 # 2018-11-16T10:28:26 [200006] # --mysqld=--connect_timeout=60 \
 #    Do not add a space after the '\' around line end. Otherwise when converting the printout to
 #    a shell script the shell assumes command end after the '\ '.
-say("Starting \n# $0 \\\n# " . join(" \\\n# ", @ARGV_saved));
+# - rqg_options value does not get replaced by the effective value
+# - vardir_type gets maybe printed
+# say("Starting \n# $0 \\\n# " . join(" \\\n# ", @ARGV_saved));
+$message = "# -------- Informations useful for bug reports --------------------------------------" .
+           "----------------------\n" .
+           "# git clone https://github.com/mleich1/rqg --branch experimental RQG\n#\n" .
+           "# " . Auxiliary::get_git_info($rqg_home) . "\n" .
+           "# rqg.pl  : " . RQG_RUNNER_VERSION . "\n#\n" .
+           "# $0 \\\n# " . join(" \\\n# ", @ARGV_saved) . "\n#\n";
+$message =~ s|$rqg_home|\$RQG_HOME|g;
+print($message);
 
 # FIXME:
 # $gendata gets precharged with '' at begin.
