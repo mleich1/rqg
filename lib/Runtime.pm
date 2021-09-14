@@ -32,7 +32,7 @@ use Auxiliary;
 use GenTest;
 use GenTest::Constants;
 
-use constant RUNTIME_FACTOR_RR                   => 1.5;
+use constant RUNTIME_FACTOR_RR                   => 2;
 use constant RUNTIME_FACTOR_VALGRIND             => 2;
 
 use constant CONNECT_TIMEOUT                     => 45;

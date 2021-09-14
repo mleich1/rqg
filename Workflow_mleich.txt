@@ -14,7 +14,7 @@ Use rqg_batch.pl on some Linux
 #                                                                                                  #
 # In the rare case that this does not help than what else to do?                                   #
 #                                                                                                  #
-#   killall -9 perl ; killall -9 mysqld mariadbd rr ; killall -9 mariadbd ; rm -rf /dev/shm/var*   #
+#   killall -9 perl ; killall -9 mysqld mariadbd rr ; rm -rf /dev/shm/var*                         #
 #                                                                                                  #
 ####################################################################################################
 #                                                                                                  #
@@ -40,10 +40,11 @@ Some general recommendations
     to the corresponding processgroup
   - the resource control is based on perl libs expecting that the system has the usual proc
     filesystem like Linux.
-  - the archiver feature expects that "tar" is available
-- How to install "my RQG"
-  git clone https://github.com/mleich1/rqg --branch experimental RQG_mleich1
-  cd RQG_mleich1
+  - the archiver feature expects that "tar" and the compressor "xz" is available
+  - usage of GNU tools
+- How to install my version of RQG
+  git clone https://github.com/mleich1/rqg --branch experimental RQG
+  cd RQG
 
   RQG needs certain Perl modules (Example for Ubuntu)
   ---------------------------------------------------
@@ -86,7 +87,7 @@ Some general recommendations
   test runs using the same setup by concept and thorough picking directories for storage etc.
   But
   - having two parallel rqg_batch runs with same setup will clash on ports because using the same
-    MTR buildthread. Ok, this could be prevented by different buildthreads assigned.
+    MTR buildthreads. Ok, this could be prevented by different buildthreads assigned.
   - it cannot protect you or itself against mistakes in code which it does not have under control.
     Examples:
     YY grammars, reporters, validators, transformers or even MTR tests creating or deleting
@@ -130,7 +131,6 @@ Some general recommendations
      - high values for parallel if doable    and/or
      - MariaDB builds with debug or ASAN or whatever else making them slow
        Using ASAN builds was frequent surprising effective.
-       But that timespan seems to be gone.
      I guess that this often also overloads the I/O system even if working on tmpfs towards RAM.
   b) "overload" the I/O system by using
      - high values for parallel if doable    and
@@ -211,14 +211,14 @@ parallel
    than some value of parallel which is oversized regarding CPU and memory should be no problem.
    I use    --parallel=(3 * NPROC)    on my main testing boxes running Ubuntu
    -   8 CPU(HT already included),  32 GB RAM notebook
-   - 112 CPU(HT already included), 196 GB RAM "batlecruiser"
+   - 104 CPU(HT already included), 384 GB RAM "batlecruiser"
    without serious trouble (resource control is supported!).
    The resource control starts to prevent the start of additional RQG runs up till stopping
    already ongoing RQG run as soon as trouble with resources is either predicted or obvious
    short ahead.
    So I usually end up with
-   - 12 till 24 parallel RQG runs on my notebook
-   - 70 till 150 parallel RQG runs on the "batlecruiser"
+   - 12 till 32 parallel RQG runs on my notebook
+   - 70 till 270 parallel RQG runs on the "battlecruiser"
 
    rqg_batch in general and especially its resource control does not check if OS or user
    limits are hit.
@@ -228,7 +228,7 @@ parallel
    - modify your OS or limits
    or
    - assign a smaller value to parallel.
-   I have an Ubuntu 17.10 on my notebook and no trouble with OS or user limits.
+   I have since Ubuntu 17.10 on my notebook and no trouble with OS or user limits.
 
    In case of
      whatever fears or
@@ -254,30 +254,29 @@ vardir
    rqg_batch.pl itself will only try to remove /dev/shm/vardir/*.
    The run will mostly rely on CPU and I/O to RAM speed.
 
-   Significant paging should be avoided by rqg_batch.pl resource control AND
-   using a swappiness of ~ 3.
-
    Adjust swappiness
    -----------------
+   Highly recommended: Disable the swap device.
+   sudo swapoff -a
+   Remove the entry for swap device from /etc/fstab.
+
+   If that is impossible than push down swappiness to the smallest possible value.
+   But please keep in mind that rqg_batch ResourceControl is focused on low till no use of
+   swap space. And that could cause throtteling in rqg_batch up till abort.
    With root rights
          cat /proc/sys/vm/swappiness
    delivers often the value 60 (seems to be the default in many Linuxes)
    This value causes some fair preemptive paging and is maybe bad in case the swap device is a SSD.
-   Also rqg_batch ResourceControl is focused on low till no use of swap space.
 
-   Use a value >= 10 instead. I made good experiences with 3.
-   echo 3 > /proc/sys/vm/swappiness   # Change the actual value. It gets lost after restart.
+   Use at least the value 0 instead.
+   echo 0 > /proc/sys/vm/swappiness   # Change the actual value. It gets lost after restart.
 
    Edit the system config file (Ubuntu: /etc/sysctl.conf) so that it does not get lost during
    restart of system.
    Add
       # Make using the swap rare.
       #
-      vm.swappiness = 3
-
-   Maybe make some already "angry" rqg_batch ResourceControl "happy" by
-      swapoff -a      # Switch swap off in order to make it empty.
-      swapon -a       # Switch swap on in order to have a swap.
+      vm.swappiness = 0
 
    Please be aware that
    - heavy writing to a SSD like
@@ -293,7 +292,7 @@ vardir
    From experiences in history (2014-2016) I can confirm that
    - prepending a "nice -19 " to the rqg_batch.pl start seems to have
      - sometimes a nice impact on system responsitivity
-     - also sometimes no impact on responsitivity at all
+     - also sometimes no bad impact on responsitivity at all
        In case the HDD was overloaded by paging and the test writing than it was roughly
        out of control.
    - prepending some "ionice -n0 ..." to some program determining the space consumption of
@@ -316,21 +315,52 @@ type and config file
 
 Make some serious bughunt run ==> Combinator running over several hours
 =======================================================================
-1. Copy a config file template and adjust it to your goals.
+1. Copy a config file (Recommended: conf/mariadb/InnoDB_standard.cc) and adjust it to your goals.
    Perform the rqg_batch.pl run.
    In case the summary at end shows counters > 0 for the verdicts
-   - replay
    - interest
+   - replay
    than you might have hit something important.
-2. In case you have the files last_batch_workdir/issue*.txt than inspect them.
-   - Depending on the reason for the end of the Combinator run they might be missing.
-     You can create them via
-         util/issue_grep.sh
-   - util/issue_grep.sh is focussed on asserts and the files last_batch_workdir/issue*.txt try
-     to provide a collection and aggregates of the asserts observed.
-   In case the issue*.txt files stay missing than you need to inspect the logs of the RQG runs
-   ending with the verdicts 'replay' and 'interest'.
-   The file last_batch_workdir/results.txt gives an overview.
+2. Inspect
+   last_batch_workdir/result.txt
+        List if RQG test runs which completed. Details about runtime properties and verdict.
+        At the end is a summary about how often which verdict was achieved.
+   last_batch_workdir/setup.txt
+        List if RQG test runs which completed. Details about setup and verdict.
+
+   Result classification:
+   Any test result gets automatic inspected and classified based on verdict_general.cfg.
+
+   Some example:
+   Verdict
+   'replay'   -- extreme desired result (usually only defined/set by the Simplifier)
+                 --> preserve the RQG log and maybe an archive
+   'interest' -- moderate interesting result
+                 --> preserve the RQG log and maybe an archive
+   'ignore'   -- "unwanted"  result
+                 --> remove the RQG log and do not generate an archive at all
+                     Use case:
+                     - Known effect of the non fixed MDEV-nnnnn hit.
+                       There is already some replay test for MDEV-nnnnn or it is unlikely
+                       that this MDEV gets fixed soon.
+                     - Known weakness of RQG or "rr" or ...
+
+    STATUS_SERVER_CRASHED--rr--TBR-1193-MDEV-26578
+               |            |       |       |
+               |            |       |       + Open bug MDEV-26578 shows error pattern TBR-1193.
+               |            |       |         Even if MDEV-26578 is fixed error pattern TBR-1193
+               |            |       |         might show up again later.
+               |            |       |
+               |            |       + Name of an error pattern.
+               |            |
+               |            + This RQG run invoked rr.
+               |
+               + Status reported by RQG
+                 == SEGV, SIGUSR, Assert or similar of the DB server.
+                    Server starts failing after intentional server kill or shutdown or ...
+                    get some different status.
+   [ 'TBR-1193-MDEV-26578', 'ERROR: AddressSanitizer: heap-use-after-free on address .+#2 .{1,30} in dict_table_t::is_temporary_name.+#3 .{1,30} in table_name_t::is_temporary.+#4 .{1,30} in row_purge_parse_undo_rec.+#5 .{1,30} in row_purge.+#6 .{1,30} in row_purge_step.+#7 .{1,30} in que_thr_step.+#8 .{1,30} in que_run_threads_low.+#9 .{1,30} in que_run_threads.+RESULT: The RQG run ended with status STATUS_SERVER_CRASHED' ],
+
 3. Lets assume you have found something bad of interest and a feature developer asks for
    - further simplification of the test for getting a better overview and better speculations
      Knowing which SQL seems to be required and which SQL is not required at all is of
