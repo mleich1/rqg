@@ -11,7 +11,7 @@ query_add:
 
 
 flip_pt1_pt2:
-   { if ($pt_refresh + 30 < time()) { $pt_refresh = time(); $pt1 = ''; $pt2 = '' } else { $pt1 = '/*'; $pt2 = '*/' } ; return undef } ;
+   { $pt_refresh = time() if not defined $pt_refresh ; if ($pt_refresh + 30 < time()) { $pt_refresh = time(); $pt1 = ''; $pt2 = '' } else { $pt1 = '/*'; $pt2 = '*/' } ; return undef } ;
 pt_values:
    1  |
    2  |
