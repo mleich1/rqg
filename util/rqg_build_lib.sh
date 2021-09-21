@@ -93,6 +93,17 @@ function set_comp_prog()
 
 function check_environment()
 {
+    git config --global submodule.storage/rocksdb.update none
+    git config --global submodule.storage/columnstore.update none
+    git config --global submodule.storage/xpand.update none
+    git config --global submodule.storage/spider.update none
+    git config --global submodule.storage/mroonga.update none
+    git config --global submodule.storage/connect.update none
+    git config --global submodule.storage/sphinx.update none
+    git config --global submodule.storage/oqgraph.update none
+    git config --global submodule.storage/federated.update none
+    git config --global submodule.storage/federatedx.update none
+    git config --global submodule.storage/archive.update none
     MESSAGE_END="does not exist or is not a directory."
     if [ "$GENERAL_SOURCE_DIR" = "" ]
     then
