@@ -63,7 +63,7 @@ our $grammars =
   #    or specific features if possible.
   #
   # Suffers in old releases massive from https://jira.mariadb.org/browse/MDEV-19449
-  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy',    # This looked once like a dud.
+  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy',    # This looked once like a dud.
   # Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
   # '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --grammar=conf/percona_qa/BT-16274/BT-16274.yy ' .
   #     '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
@@ -85,7 +85,7 @@ our $grammars =
   '--grammar=conf/mariadb/partitions_innodb.yy',
   '--grammar=conf/mariadb/partitions_innodb.yy --gendata-advanced --skip-gendata',
   '--grammar=conf/replication/replication.yy --gendata=conf/replication/replication-5.1.zz --max_gd_duration=1200', # rr on asan_Og exceeded 900 * 1.5
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=600 ',
+  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 ',
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata-advanced --skip-gendata',
   '--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz',
 
@@ -114,24 +114,25 @@ our $grammars =
   '--gendata=conf/mariadb/fk_truncate.zz --grammar=conf/mariadb/fk_truncate.yy',
 
   # DML only together with Mariabackup
-  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --grammar=conf/mariadb/oltp.yy --reporters=Mariabackup_linux ',
+  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --reporters=Mariabackup_linux ',
   '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=Mariabackup_linux ',
   '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=Mariabackup_linux ',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --reporters=Mariabackup_linux ',
+  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --reporters=Mariabackup_linux ',
   # DML only together with RestartConsistency
-  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --grammar=conf/mariadb/oltp.yy --reporters=RestartConsistency ',
+  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --reporters=RestartConsistency ',
   '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=RestartConsistency ',
   '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=RestartConsistency ',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --reporters=RestartConsistency ',
+  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --reporters=RestartConsistency ',
   # DML only together with CrashRecovery1
-  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --grammar=conf/mariadb/oltp.yy --reporters=CrashRecovery1 ',
+  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --reporters=CrashRecovery1 ',
   '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=CrashRecovery1 ',
   '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=CrashRecovery1 ',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --reporters=CrashRecovery1 ',
+  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --reporters=CrashRecovery1 ',
 
   # Tests checking transactional properties
   # FIXME: Add variations of the ISOLATION LEVEL is useful
-  ' --grammar=conf/transactions/transactions.yy --gendata=conf/transactions/transactions.zz --validators=DatabaseConsistency ',
+  # Disabled because not compatible with max_statement_timeout and other timeouts etc.
+  # ' --grammar=conf/transactions/transactions.yy --gendata=conf/transactions/transactions.zz --validators=DatabaseConsistency ',
   ' --grammar=conf/transactions/repeatable_read.yy --gendata=conf/transactions/transactions.zz --validators=RepeatableRead ',
 
   # Most probably not relevant for InnoDB testing

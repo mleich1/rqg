@@ -221,6 +221,7 @@ if (1 == $variant) {
 }
 
 say("\nVerdict: " . $verdict . ", Extra_info: " . $extra_info);
+safe_exit(STATUS_OK);
 
 sub help() {
    print(
