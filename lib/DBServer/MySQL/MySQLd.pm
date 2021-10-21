@@ -1123,6 +1123,9 @@ sub startServer {
             "Will return DBSTATUS_FAILURE" . "($status)");
         return DBSTATUS_FAILURE;
     } else {
+        # Scenario: start server, have load, shutdown, restart with modified system variables.
+        # So reset the hash with server variables because we want actual data.
+        %{$self->[MYSQLD_SERVER_VARIABLES]} = ();
         $self->serverVariablesDump();
         return DBSTATUS_OK;
     }
