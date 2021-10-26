@@ -45,6 +45,8 @@ my @end_line_patterns = (
     'core dumped',
     '^Segmentation fault$',
     'mysqld: Shutdown complete$',
+#   Next line is NOT an end_line_pattern. Even after 360s waiting the server process might
+#   be alive and the core file not yet written.
 #   'mysqld got signal',
     '^Killed$'
 );

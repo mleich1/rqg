@@ -170,7 +170,7 @@ sub report {
         } elsif ($_ =~ m{exception}sio) {
             $recovery_status = STATUS_DATABASE_CORRUPTION;
         } elsif ($_ =~ m{ready for connections}sio) {
-            say("INFO: $who_am_i Server Recovery was apparently successfull.") if $recovery_status == STATUS_OK ;
+            say("INFO: $who_am_i Server restart was apparently successfull.") if $recovery_status == STATUS_OK ;
             last;
         } elsif ($_ =~ m{device full error|no space left on device}sio) {
             # Give a clear comment explaining on which facts the status STATUS_ENVIRONMENT_FAILURE

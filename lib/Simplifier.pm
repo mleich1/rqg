@@ -222,7 +222,8 @@ use constant SIMP_ALGO_MASKING      => 'masking'; # not yet implemented
 #     - sometimes serious slower than SIMP_ALGO_WEIGHT
 #     In average over different simplification setups (especially different grammars) the historic
 #     SIMP_ALGO_WEIGHT was faster than the historic SIMP_ALGO_MASKING.
-#     The current SIMP_ALGO_WEIGHT two major additional improvements.
+#     The current SIMP_ALGO_WEIGHT contains several additional improvements.
+#     One of them adds grammar simplifications like SIMP_ALGO_MASKING would do.
 # So if SIMP_ALGO_RANDOM and/or SIMP_ALGO_MASKING get ever implemented than for academic and/or
 # research purposes only.
 #
