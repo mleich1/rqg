@@ -1,5 +1,5 @@
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2020, MariaDB Corporation Ab.
+# Copyright (c) 2020, 2021 MariaDB Corporation Ab.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -36,21 +36,32 @@ sub report {
 	return STATUS_WONT_HANDLE if $reporter_called == 1;
 	$reporter_called = 1;
 
-	my $master_dbh = DBI->connect($reporter->dsn(), undef, undef, {PrintError => 0});
+	my $master_dbh = DBI->connect($reporter->dsn(), undef, undef, {
+                          mysql_connect_timeout  => Runtime::get_connect_timeout(),
+                          PrintError             => 0});
+	return STATUS_CRITICAL_FAILURE if not defined $master_dbh;
+      say("DEBUG: master dsn ->" . $reporter->dsn() . "<-");
 	my $master_port = $reporter->serverVariable('port');
 	my $slave_port;
 
     # FIXME: Can't call method "selectrow_arrayref" on an undefined value at lib/GenTest/Reporter/ReplicationConsistency.pm line 43, <CONF> line 72
 	my $slave_info = $master_dbh->selectrow_arrayref("SHOW SLAVE HOSTS");
+    # SHOW SLAVE HOSTS;  MTR example output
+    # Server_id   Host    Port    Master_id
+    # 3   slave2  SLAVE_PORT  1
+    # 2   localhost   SLAVE_PORT  1
 	if (defined $slave_info) {
 		$slave_port = $slave_info->[2];
 	} else {
 		$slave_port = $master_port + 2;
 	}
 
-        my $slave_dsn = "dbi:mysql:host=127.0.0.1:port=".$slave_port.":user=root";
-        my $slave_dbh = DBI->connect($slave_dsn, undef, undef, { PrintError => 1 } );
-
+    #   my $slave_dsn = "dbi:mysql:host=127.0.0.1:port=".$slave_port.":user=root";
+    my $slave_dsn = "dbi:mysql:host=127.0.0.1:port=".$slave_port.":user=root:database=test";
+      say("DEBUG: slave dsn ->" . $slave_dsn . "<-");
+    my $slave_dbh = DBI->connect($slave_dsn, undef, undef, {
+                         mysql_connect_timeout  => Runtime::get_connect_timeout(),
+                         PrintError             => 1 } );
 	return STATUS_REPLICATION_FAILURE if not defined $slave_dbh;
 
 	$slave_dbh->do("START SLAVE");
