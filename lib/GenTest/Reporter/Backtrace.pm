@@ -218,19 +218,28 @@ sub nativeReport {
         # say("DEBUG: server pid : $pid , server_running : $server_running");
         my $content = Auxiliary::getFileSlice($error_log, 1000000);
         if (not defined $content or '' eq $content) {
-            say("FATAL ERROR: $who_am_i No server error log content got. Will return undef.");
+            say("FATAL ERROR: $who_am_i No server error log content got. " .
+                "Will return STATUS_ENVIRONMENT_FAILURE, undef.");
             return STATUS_ENVIRONMENT_FAILURE, undef;
         }
         my $return = Auxiliary::content_matching($content, \@end_line_patterns, '', 0);
         if      ($return eq Auxiliary::MATCH_YES) {
             $end_line_found = 1;
+            say("INFO: $who_am_i end_line_pattern in server error log found.");
+            # This does not imply that the server pid must have disappeared.
         } elsif ($return eq Auxiliary::MATCH_NO) {
             # Do nothing
         } else {
-            say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. Will return " .
-                "STATUS_ENVIRONMENT_FAILURE, undef");
+            say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. " .
+                "Will return STATUS_ENVIRONMENT_FAILURE, undef.");
             return STATUS_ENVIRONMENT_FAILURE, undef;
         }
+    }
+    if (Time::HiRes::time() > $max_end_time) {
+        say("ERROR: $who_am_i Neither the server process $pid has disappeared nor a end_line_pattern has shown up.");
+        say("INFO: $who_am_i Most probably false alarm. Will return STATUS_OK, undef.");
+        say("INFO: Reporter 'Backtrace' ------------------------------ End");
+        return STATUS_OK, undef;
     }
 
     my $wait_time     = Time::HiRes::time() - $start_time;
@@ -275,7 +284,7 @@ sub nativeReport {
         say("INFO: $who_am_i The pid_file '$pid_file' did not disappear.");
     } else {
         say("WARN: $who_am_i The pid_file '$pid_file' did disappear. Hence (likely) the server " .
-            "was able to remove it or (less likely) a DBDerver routine did that.");
+            "was able to remove it or (less likely) a DBServer routine did that.");
         my $found = Auxiliary::search_in_file($error_log, 'mysqld: Shutdown complete^');
         if      (not defined $found) {
             say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. Will return " .
