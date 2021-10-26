@@ -105,9 +105,9 @@ our $grammars =
   '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=RestartConsistency',
   '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup_linux',
   '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=CrashRecovery1',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --rpl_mode=statement',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --rpl_mode=mixed',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --rpl_mode=row',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--log-bin --rpl_mode=statement',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--log-bin --rpl_mode=mixed',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--log-bin --rpl_mode=row',
   '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --redefine=conf/mariadb/xa.yy',
 
   # Fiddle with FOREIGN Keys and TRUNCATE
@@ -245,9 +245,11 @@ $combinations = [ $grammars,
   [
     # With log-bin and the default sync-binlog=0 we risk to get 'TBR-1136' (just to be expected
     # and not a bug) in Crashrecovery tests.
-    ' --mysqld=--log-bin --mysqld=--sync-binlog=1 ',      # Binary logging is more likely used.
-    ' --mysqld=--log-bin --mysqld=--sync-binlog=1 ',      # Binary logging is more likely used.
-    '',                                                   # Without binary logging certain bugs replay better.
+    ' --mysqld=--log-bin --mysqld=--sync-binlog=1 ', # Binary logging is more likely used.
+    ' --mysqld=--log-bin --mysqld=--sync-binlog=1 ', # Binary logging is more likely used.
+    # MariaDB replication needs binary logging.
+    # Hence tests invoking MariaDB replication need to enable binary logging. --> $grammars section above.
+    '',                                              # Certain bugs replay better if binary logging is not enabled.
   ],
   [
     ' --mysqld=--loose-innodb_evict_tables_on_commit_debug=off ',
