@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, MariaDB
+#  Copyright (c) 2018, 2021 MariaDB
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -44,8 +44,7 @@ alttcol_list:
 
 # Can't put it on the list, as ORDER BY should always go last
 alttcol_order_by:
-# Disabled due to MDEV-17725
-#  | | | | | | | | | | , ORDER BY alttcol_column_list
+  | | | | | | | | | | , ORDER BY alttcol_column_list
 ;
 
 alttcol_item_alg_lock:

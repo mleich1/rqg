@@ -1,4 +1,4 @@
-#  Copyright (c) 2019, MariaDB
+#  Copyright (c) 2019, 2021 MariaDB
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -44,8 +44,7 @@ alttind_list:
 
 # Can't put it on the list, as ORDER BY should always go last
 alttind_order_by:
-# Disabled due to MDEV-17725
-#  | | | | | | | | | | , ORDER BY alttind_column_list
+  | | | | | | | | | | , ORDER BY alttind_column_list
 ;
 
 alttind_item_alg_lock:

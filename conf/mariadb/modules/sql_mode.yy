@@ -1,4 +1,4 @@
-#  Copyright (c) 2018,2020 MariaDB
+#  Copyright (c) 2018,2021 MariaDB
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -29,8 +29,7 @@ sql_mode_session_or_global:
 sql_mode_value:
   sql_mode_list | '' | DEFAULT
 ;
-# NO_ZERO_DATE is disabled due to MDEV-18042
-# TRADITIONAL is disabled due to MDEV-18042
+
 sql_mode_list:
   { @modes= qw(
       ALLOW_INVALID_DATES
@@ -55,6 +54,7 @@ sql_mode_list:
       NO_KEY_OPTIONS
       NO_TABLE_OPTIONS
       NO_UNSIGNED_SUBTRACTION
+      NO_ZERO_DATE
       NO_ZERO_IN_DATE
       ONLY_FULL_GROUP_BY
       ORACLE
@@ -66,6 +66,7 @@ sql_mode_list:
       STRICT_ALL_TABLES
       STRICT_TRANS_TABLES
       TIME_ROUND_FRACTIONAL
+      TRADITIONAL
     ); $length=$prng->int(1,scalar(@modes) - 1); "'" . (join ',', @{$prng->shuffleArray(\@modes)}[0..$length]) . "'"
   }
 ;

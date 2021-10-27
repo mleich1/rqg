@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, MariaDB
+#  Copyright (c) 2018, 2021 MariaDB
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -35,7 +35,6 @@ alt_query:
   | alt_dml | alt_dml | alt_dml
   | alt_alter | alt_alter | alt_alter | alt_alter | alt_alter | alt_alter | alt_alter | alt_alter | alt_alter
   | alt_alter | alt_alter | alt_alter | alt_alter | alt_alter | alt_alter | alt_alter | alt_alter | alt_alter
-# Disable with ASAN due to MDEV-13828
   | alt_rename_multi
   | alt_alter_partitioning
   | alt_flush
@@ -137,8 +136,7 @@ alt_table_option:
   | STATS_PERSISTENT alt_eq_optional alt_zero_or_one_or_default
   | STATS_SAMPLE_PAGES alt_eq_optional alt_stats_sample_pages
 #  | TABLESPACE tablespace_name
-# Disabled due to MDEV-13982 (0 also fails)
-#  | TRANSACTIONAL alt_eq_optional alt_zero_or_one
+  | TRANSACTIONAL alt_eq_optional alt_zero_or_one
 #  | UNION [=] (tbl_name[,tbl_name]...)
 ;
 
@@ -199,8 +197,7 @@ alt_transaction:
 ;
 
 alt_lock_unlock_table:
-# Disabled due to MDEV-13553 and MDEV-12466
-#    FLUSH TABLE alt_table_name FOR EXPORT
+    FLUSH TABLE alt_table_name FOR EXPORT
     LOCK TABLE alt_table_name READ
   | LOCK TABLE alt_template_table_name WRITE
   | SELECT * FROM alt_table_name FOR UPDATE
@@ -450,11 +447,9 @@ alt_change_column:
   CHANGE COLUMN alt_if_exists alt_col_name alt_col_name_and_definition alt_algorithm alt_lock
 ;
 
-# MDEV-14694 - ALTER COLUMN does not accept IF EXISTS
-# alt_if_exists
 alt_alter_column:
-    ALTER COLUMN alt_col_name SET DEFAULT alt_default_val
-  | ALTER COLUMN alt_col_name DROP DEFAULT
+    ALTER COLUMN alt_if_exists alt_col_name SET DEFAULT alt_default_val
+  | ALTER COLUMN alt_if_exists alt_col_name DROP DEFAULT
 ;
 
 alt_if_exists:
@@ -482,9 +477,8 @@ alt_column_list:
   alt_col_name | alt_col_name, alt_column_list
 ;
 
-# Disabled due to MDEV-11071
 alt_temporary:
-#  | | | | TEMPORARY
+  | | | | TEMPORARY
 ;
 
 alt_flush:

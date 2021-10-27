@@ -1,4 +1,4 @@
-#  Copyright (c) 2017, MariaDB
+#  Copyright (c) 2017, 2021 MariaDB
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -548,11 +548,9 @@ vers_ia_col_location:
   | | | | | FIRST | AFTER ia_col_name
 ;
 
-# MDEV-14694 - ALTER COLUMN does not accept IF EXISTS
-# vers_ia_if_exists
 vers_ia_alter_column:
-    ALTER COLUMN vers_ia_col_name SET DEFAULT vers_ia_default_val
-  | ALTER COLUMN vers_ia_col_name DROP DEFAULT
+    ALTER COLUMN vers_ia_if_exists vers_ia_col_name SET DEFAULT vers_ia_default_val
+  | ALTER COLUMN vers_ia_if_exists vers_ia_col_name DROP DEFAULT
 ;
 
 vers_ia_if_exists:
@@ -580,9 +578,8 @@ vers_ia_column_list:
   vers_ia_col_name | vers_ia_col_name, vers_ia_column_list
 ;
 
-# Disabled due to MDEV-11071
 vers_ia_temporary:
-#  | | | | TEMPORARY
+   | | | | TEMPORARY
 ;
 
 vers_ia_flush:

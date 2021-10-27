@@ -72,9 +72,8 @@ seq_drop_list:
   seq_name | seq_name | seq_name, seq_drop_list
 ;
 
-# Due to MDEV-14762, TEMPORARY sequences are disabled
 seq_temporary:
-#  | | | TEMPORARY
+   | | | TEMPORARY
 ;
 
 seq_set_val:

@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, MariaDB
+#  Copyright (c) 2018, 2021 MariaDB
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -70,8 +70,7 @@ fk_lock:
   |
   | , LOCK=NONE
   | , LOCK=SHARED
-# Disabled due to MDEV-17595:
-#  | , LOCK=EXCLUSIVE
+  | , LOCK=EXCLUSIVE
   | , LOCK=DEFAULT
 ;
   
