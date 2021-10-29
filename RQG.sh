@@ -105,8 +105,7 @@ perl -w ./rqg.pl                                                               \
 --queries=1000000                                                              \
 --reporter=ErrorLog,Backtrace,Deadlock1,None                                   \
 --validator=None                                                               \
---sqltrace=MarkErrors                                                          \
---duration=300                                                                 \
+--duration=100                                                                 \
 --gendata="$ZZ_GRAMMAR"                                                        \
 --gendata_sql="$SQL_GRAMMAR"                                                   \
 --grammar="$YY_GRAMMAR"                                                        \
@@ -137,8 +136,6 @@ $BASEDIR2_SETTING                                                              \
 --mysqld=--loose-file-key-management-filename="$RQG_HOME"/conf/mariadb/encryption_keys.txt \
 --querytimeout=30                                                              \
 --threads=10                                                                   \
---rr =Extended                                                                 \
---rr_options='--chaos --wait --microarch="Intel Kabylake"'                     \
 --vardir="$VARDIR"                                                             \
 --workdir="$WORKDIR"                                                           \
 --mask-level=0                                                                 \
