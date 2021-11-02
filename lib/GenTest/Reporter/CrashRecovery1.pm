@@ -98,14 +98,11 @@ sub report {
     $first_reporter = $reporter if not defined $first_reporter;
     return STATUS_OK if $reporter ne $first_reporter;
 
-    # The "monitor" has sent the SIGKILL and that should have had some impact.
-    # By using $server->killServer now the rr tracing should get sufficient time for finishing
-    # its write operations.
     my $server = $reporter->properties->servers->[0];
 
     my $datadir = $reporter->serverVariable('datadir');
     $datadir =~ s{[\\/]$}{}sgio;
-    my $datadir_copy = $datadir.'_copy';
+    my $datadir_copy = $datadir . '_copy';
     my $pid = $reporter->serverInfo('pid');
 
     # Docu 2019-05
@@ -311,8 +308,46 @@ sub report {
                 #   RQG will generate
                 #   CREATE TABLE .... (c1_int INT, c1_char INT)
                 #
+                # Most if not all grammars do not generate index names containing a backtick.
+                # But the automatic grammar simplifier could cause such names when running in
+                # destructive mode.
+                # CREATE TABLE t5 (
+                # col1 int(11) NOT NULL,
+                # col_text text DEFAULT NULL,
+                # PRIMARY KEY (col1),
+                # KEY `idx2``idx2` (col_text(9))
+                # ) ENGINE=InnoDB;
+                # SHOW CREATE TABLE t5;
+                # Table   Create Table
+                # t5      CREATE TABLE `t5` (
+                # `col1` int(11) NOT NULL,
+                # `col_text` text DEFAULT NULL,
+                # PRIMARY KEY (`col1`),
+                # KEY `idx2``idx2` (`col_text`(9))
+                # ) ENGINE=InnoDB DEFAULT CHARSET=latin1
+                # SELECT TABLE_NAME, INDEX_NAME, COLUMN_NAME
+                # FROM information_schema.statistics WHERE table_name = 't5';
+                # TABLE_NAME      INDEX_NAME      COLUMN_NAME
+                # t5      PRIMARY col1
+                # t5      idx2`idx2       col_text
+                # SELECT * FROM t5 FORCE INDEX(`idx2``idx2`);
+                # col1    col_text
+                # SELECT * FROM t5 FORCE INDEX("idx2`idx2");
+                # ERROR 42000: You have an error in your SQL syntax; ..... to use near '"idx2`idx2")' at line 1
+                # SELECT * FROM t5 FORCE INDEX("idx2``idx2");
+                # ERROR 42000: You have an error in your SQL syntax; ..... to use near '"idx2``idx2")' at line 1
+                # SELECT * FROM t5 FORCE INDEX(idx2``idx2);
+                # ERROR 42000: You have an error in your SQL syntax; ..... to use near '``idx2)' at line 1
 
                 # say("DEBUG: $who_am_i key_name->" . $key_name . "<- Column_name->" . $column_name . "<-");
+                # Protect any backtick from being interpreted as begin or end of the name.
+                # Otherwise we could harvest
+                #    ERROR: SELECT * FROM `cool_down`.`t1` FORCE INDEX (`Marvão_idx2`Marvão_idx2`) ...
+                #    ... the right syntax to use near 'Marvão_idx2`)
+                # and assume to have hit some recovery failure.
+                # $key_name =~ s§`§``§g;
+                $key_name =~ s{`}{``}g;
+                # say("DEBUG: $who_am_i key_name transformed->" . $key_name . "<-");
                 foreach my $select_type ('*' , "`$column_name`") {
                     my $main_predicate;
                     if ($column_name =~ m{int}sio) {
@@ -326,16 +361,22 @@ sub report {
                         $main_predicate = "WHERE (`$column_name` >= '-838:59:59' OR " .
                                           "`$column_name` = '00:00:00') ";
                     } else {
-                        next;
+                        # $main_predicate stays undef.
+                        # Nothing I can do.
                     }
 
-                    if ($key_hashref->{Null} eq 'YES') {
+                    # say("DEBUG: $who_am_i main_predicate->" . $main_predicate . "<-");
+                    if (defined $main_predicate and $main_predicate ne '') {
                         $main_predicate = $main_predicate . " OR `$column_name` IS NULL" .
+                                              " OR `$column_name` IS NOT NULL";
+                    } else {
+                        $main_predicate = " WHERE `$column_name` IS NULL" .
                                           " OR `$column_name` IS NOT NULL";
                     }
-
-                    push @walk_queries, "SELECT $select_type FROM $table_to_check " .
-                                        "FORCE INDEX (`$key_name`) " . $main_predicate;
+                    my $my_query = "SELECT $select_type FROM $table_to_check " .
+                                   "FORCE INDEX (`$key_name`) " . $main_predicate;
+                    # say("DEBUG: Walkquery ==>" . $my_query . "<=");
+                    push @walk_queries, $my_query;
                 }
             };
 
@@ -349,11 +390,6 @@ sub report {
                 my $err    = $sth_rows->err();
                 my $errstr = '';
                 $errstr    = $sth_rows->errstr() if defined $sth_rows->errstr();
-
-                # 2021-03-18 Observation again on some development tree
-                # ERROR: SELECT * FROM `cool_down`.`t1` FORCE INDEX (`Marvão_idx2`Marvão_idx2`) ... harvested 1064:
-                # ... the right syntax to use near 'Marvão_idx2`)
-                # Will return status STATUS_RECOVERY_FAILURE later.
                 if (defined $err) {
                     my $msg_snip = "$walk_query harvested $err: $errstr.";
                     if (4078 == $err) {
