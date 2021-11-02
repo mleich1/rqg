@@ -353,6 +353,7 @@ sub dump_database {
                              "--password='' --databases $databases_string "                        .
                              "> $dump_file 2>$dump_err_file ");
     # mleich1: Experiment end
+    $dump_result = $dump_result >> 8;
     if (0 < $dump_result) {
         say("ERROR: $who_am_i Dumping the server $suffix restart failed with $dump_result.");
         sayFile($dump_err_file);

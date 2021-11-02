@@ -86,16 +86,13 @@ our $grammars =
   # ' --grammar=conf/transactions/transactions.yy --gendata=conf/transactions/transactions.zz --validators=DatabaseConsistency ',
   ' --grammar=conf/transactions/repeatable_read.yy --gendata=conf/transactions/transactions.zz --validators=RepeatableRead ',
 
+  "$test_compression_encryption                                                                                               ",
   "$test_compression_encryption                                                                --mysqld=--loose-innodb-encryption-threads=1 ",
   "$test_compression_encryption                                                                --mysqld=--loose-innodb-encryption-threads=7 ",
   "$test_compression_encryption                                                                --mysqld=--loose-innodb_encryption_rotate_key_age=1 ",
   "$test_compression_encryption                                                                --mysqld=--loose-innodb_encryption_rotate_key_age=2 ",
-  "$test_compression_encryption                                                                --reporters=RestartConsistency ",
-  "$test_compression_encryption                                                                --reporters=CrashRecovery1     ",
   "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables                                ",
-  "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables --reporters=RestartConsistency ",
-  "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables --reporters=CrashRecovery1     ",
-  "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables --reporters=CrashRecovery1 --redefine=conf/mariadb/redefine_innodb_undo.yy --mysqld=--innodb-immediate-scrub-data-uncompressed=1 ",
+  "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables --redefine=conf/mariadb/redefine_innodb_undo.yy --mysqld=--innodb-immediate-scrub-data-uncompressed=1 ",
 ];
 
 
@@ -154,7 +151,10 @@ $combinations = [ $grammars,
     #    during Gentest. --> Mariabackup_linux
     ' --reporters=CrashRecovery1     --duration=100 '
     ' --reporters=CrashRecovery1     --duration=100 '
+    ' --reporters=CrashRecovery1     --duration=300 '
     ' --reporters=RestartConsistency --duration=100 ',
+    ' --reporters=RestartConsistency --duration=300 ',
+    ' --reporters=Mariabackup_linux  --duration=300 ',
     ' --reporters=Mariabackup_linux  --duration=300 ',
   ],
   [

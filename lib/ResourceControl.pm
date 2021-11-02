@@ -1,4 +1,4 @@
-#  Copyright (c) 2018 - 2020 MariaDB Corporation Ab.
+#  Copyright (c) 2018 - 2021 MariaDB Corporation Ab.
 #  Use is subject to license terms.
 #
 #  This program is free software; you can redistribute it and/or modify
@@ -138,7 +138,14 @@ my $parallel;
 my $pcpu_count;
 my $tcpu_count;
 
-my $lxs;
+my $cpu_idle;
+my $cpu_iowait;
+my $cpu_system;
+my $cpu_user;
+
+my $lxs;   # All stuff of interest except CPU
+my $lxs1;  # CPU only
+our $lxs1_last_ts;
 
 my $previous_load_status = '';
 my $previous_estimation  = '';
@@ -254,8 +261,8 @@ sub init {
         # swaptotal  -  The total size of swap space.
         # pcpucount  -  The total number of physical CPUs.
         # tcpucount  -  The total number of CPUs (cores, hyper threading). <== ?
-        cpustats  => 0,    # Does not work well from unknown reason
-        # Not that important but maybe used later
+        cpustats  => 0,
+        # Except iowait and maybe idle not that important
         # user    -  Percentage of CPU utilization at the user level.
         # nice    -  Percentage of CPU utilization at the user level with nice priority.
         # system  -  Percentage of CPU utilization at the system level.
@@ -288,9 +295,51 @@ sub init {
         # Not that important but maybe used later
     );
     $lxs->init;
+    $lxs1 = Sys::Statistics::Linux->new(
+        sysinfo   => 0,
+        # memtotal   -  The total size of memory.
+        # swaptotal  -  The total size of swap space.
+        # pcpucount  -  The total number of physical CPUs.
+        # tcpucount  -  The total number of CPUs (cores, hyper threading). <== ?
+        cpustats  => 1,
+        # Except iowait and maybe idle not that important
+        # user    -  Percentage of CPU utilization at the user level.
+        # nice    -  Percentage of CPU utilization at the user level with nice priority.
+        # system  -  Percentage of CPU utilization at the system level.
+        # idle    -  Percentage of time the CPU is in idle state.
+        # total   -  Total percentage of CPU utilization.
+        # Statistics with kernels >= 2.6 give in addition
+        # iowait  -  Percentage of time the CPU is in idle state because an I/O operation
+        #            is waiting to complete.
+        # irq     -  Percentage of time the CPU is servicing interrupts.
+        # softirq -  Percentage of time the CPU is servicing softirqs.
+        # steal   -  Percentage of stolen CPU time, which is the time spent in other
+        #            operating systems when running in a virtualized environment (>=2.6.11).
+        memstats  => 0,
+        # memfree     -  Total size of free memory in kilobytes. Free RAM           <======
+        # realfree    -  Total size of memory is real free (memfree + buffers + cached).
+        #                This is not useful because space consumption in tmpfs is in cached as far
+        #                as not already in swap.
+        # cached      -  Total size of cached memory in kilobytes.                  <======
+        # buffers     -  Total size of buffers used from memory in kilobytes.
+        # swapused    -  Total size of swap space is used is kilobytes.             <======
+        # swapusedper -  Total size of swap space is used in percent
+        pgswstats => 0,
+        # Not that important but maybe used later
+        # FIXME maybe: Heavy paging seen in 2018 + most probably bad if towards SSD
+        # pgpgin      -  Number of pages the system has paged in from disk per second.
+        # pgpgout     -  Number of pages the system has paged out to disk per second.
+        # pswpin      -  Number of pages the system has swapped in from disk per second.
+        # pswpout     -  Number of pages the system has swapped out to disk per second.
+        processes => 0,
+        # Not that important but maybe used later
+    );
+    $lxs1->init;
+    $lxs1_last_ts = time();
+    # Without the following sleep certain initial CPU load values can be 0.
+    sleep(1);
 
     measure();
-
 
     $vardir_free_init   = $vardir_free;
     $workdir_free_init  = $workdir_free;
@@ -361,10 +410,11 @@ sub init {
             "$iso_ts vardir  '$vardir'  free : $vardir_free_init\n"                         .
             "$iso_ts workdir '$workdir' free : $workdir_free_init\n"                        .
             "$iso_ts memory total            : $mem_total\n"                                .
-            "$iso_ts memory real free        : $mem_est_free_init\n"                       .
+            "$iso_ts memory real free        : $mem_est_free_init\n"                        .
             "$iso_ts swap space total        : $swap_total\n"                               .
             "$iso_ts swap space used         : $swap_used_init\n"                           .
             "$iso_ts cpu cores (HT included) : $tcpu_count\n"                               .
+            "$iso_ts cpu idle - cpu iowait   : $cpu_idle - $cpu_iowait\n"                   .
             "$iso_ts parallel (est. min)     : $workers_min\n"                              .
             "$iso_ts parallel (est. mid)     : $workers_mid\n"                              .
             "$iso_ts return (to rqg_batch)   : $load_status, $workers_mid, $workers_min\n"  .
@@ -373,7 +423,8 @@ sub init {
             "$iso_ts     *_consumed means amount lost since start of our rqg_batch run\n"   .
             "$iso_ts worker , vardir_consumed - vardir_free , "                             .
                      "workdir_consumed - workdir_free , "                                   .
-                     "mem_consumed - mem_est_free , "                                      .
+                     "mem_consumed - mem_est_free , "                                       .
+                     "cpu_idle - cpu_iowait , "                                             .
                      "swap_consumed - swap_free = load_status\n";
         if ($rqg_batch_debug) {
             $line .= "$iso_ts     vsz - rsz - sz - size #### rqg_batch process\n";
@@ -616,7 +667,15 @@ sub report {
 
     if (not defined $load_status) {
         my $end_part = "is not better than just sufficient.";
-        if      (0 > $vr_K) {
+# FIXME: TO BE ENABLED SOON
+#       if ($cpu_iowait > 10) {
+#           # We are most probably running on some slow device like HDD.
+#           # Adding some RQG run more will only increase CPU iowait and that does not make sense.
+#           $info_m = "K0";
+#           $info = "INFO: $info_m The value for CPU iowait $cpu_iowait is bigger than 20.";
+#           $load_status = LOAD_KEEP;
+#       } elsif (0 > $vr_K) {
+        if (0 > $vr_K) {
             $info_m = "K1";
             $info = "INFO: $info_m The free space in '$vardir' ($vardir_free MB) $end_part";
             $load_status = LOAD_KEEP;
@@ -657,8 +716,9 @@ sub report {
     my $line = "$iso_ts $worker_active , " .
                    $vardir_consumed   . " - " . $vardir_free   . " , " .
                    $workdir_consumed  . " - " . $workdir_free  . " , " .
-                   $mem_consumed      . " - " . $mem_est_free . " , " .
-                   $swap_consumed     . " - " . $swap_free     . " = " .
+                   $mem_consumed      . " - " . $mem_est_free  . " , " .
+                   $swap_consumed     . " - " . $swap_free     . " , " .
+                   $cpu_idle          . " - " . $cpu_iowait    . " = " .
                    $load_status       . " $info_m\n";
     if ($rqg_batch_debug) {
         my $val  = mem_usage();
@@ -766,6 +826,23 @@ sub measure {
 
     $swap_used    = int($stat->memstats->{swapused} / 1024);
     $mem_est_free = int(($stat->memstats->{memfree} + $stat->memstats->{cached}) / 1024);
+
+    my $current_ts = time();
+    # Only all 5s in order to avoid too flaky values.
+    if ($current_ts >= $lxs1_last_ts + 5) {
+        my $stat1 = $lxs1->get();
+        $cpu_idle   = int($stat1->cpustats->{cpu}->{idle});
+        # say("CPU: idle :   $cpu_idle");
+        $cpu_iowait = int($stat1->cpustats->{cpu}->{iowait});
+        # say("CPU: iowait : $cpu_iowait");
+        $cpu_system = int($stat1->cpustats->{cpu}->{system});
+        # say("CPU: system : $cpu_system");
+        $cpu_user   = int($stat1->cpustats->{cpu}->{user});
+        # say("CPU: user :   $cpu_user");
+        $lxs1_last_ts = $current_ts;
+    } else {
+        # say("DEBUG: Generation of new CPU statistics omitted $current_ts -- $lxs1_last_ts");
+    }
 
 }
 

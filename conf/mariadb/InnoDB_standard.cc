@@ -228,7 +228,7 @@ $combinations = [ $grammars,
     ' .
     # Some grammars need encryption, file key management
     " $encryption_setup " .
-    " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=$duration "
+    " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=300 ",
   ],
   [
     ' --mysqld=--loose-innodb-sync-debug ',
@@ -298,10 +298,12 @@ $combinations = [ $grammars,
   ],
   [
     '',
-    # Next line is set to comment because
-    # - it suffers too much of MDEV-26450
-    # - innodb_undo_log_truncate=ON is not default. So it should run less frequent.
-    # ' --mysqld=--innodb_undo_tablespaces=3 --mysqld=--innodb_undo_log_truncate=ON ',
+    '',
+    '',
+    '',
+    # Next line suffered in history much of MDEV-26450.
+    # innodb_undo_log_truncate=ON is not default. So it should run less frequent.
+    ' --mysqld=--innodb_undo_tablespaces=3 --mysqld=--innodb_undo_log_truncate=ON ',
   ],
   [
     # 1. innodb_page_size >= 32K requires a innodb-buffer-pool-size >=24M
@@ -310,8 +312,10 @@ $combinations = [ $grammars,
     # 3. A huge innodb-buffer-pool-size will not give an advantage if the tables are small.
     # 4. Small innodb-buffer-pool-size and small innodb_page_size stress Purge more.
     # 5. Gendata is faster when using a big innodb-buffer-pool-size.
-    # 6. If huge innodb-buffer-pool sizes get accepted at all and work well does not fit into
-    #    the characteristics of the current test battery.
+    # 6. If huge innodb-buffer-pool sizes
+    #    - get accepted at all
+    #    - work well
+    #    does not fit into the characteristics of the current test battery.
     ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=5M   ',
     ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=256M ',
     ' --mysqld=--innodb_page_size=8K  --mysqld=--innodb-buffer-pool-size=8M   ',

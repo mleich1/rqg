@@ -39,10 +39,10 @@ our $grammars =
   # '--grammar=conf/mariadb/functions.yy --gendata-advanced --skip-gendata',
 
     # DML only
-    '--gendata=conf/mariadb/oltp.zz --max_gd_duration=600 --grammar=conf/mariadb/oltp.yy ',
+    '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy ',
     '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz ',
     '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy ',
-    '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=600 ',
+    '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 ',
 
     # DDL/DML mix
     '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql ',
@@ -83,8 +83,7 @@ our $grammars =
 $combinations = [ $grammars,
   [
     '
-    --mysqld=--innodb_use_native_aio=1
-    --mysqld=--innodb_lock_schedule_algorithm=fcfs
+    --mysqld=--loose-innodb_lock_schedule_algorithm=fcfs
     --mysqld=--loose-idle_write_transaction_timeout=0
     --mysqld=--loose-idle_transaction_timeout=0
     --mysqld=--loose-idle_readonly_transaction_timeout=0
@@ -103,7 +102,7 @@ $combinations = [ $grammars,
     --reporters=Backtrace --reporters=ErrorLog --reporters=Deadlock1 --reporters=CrashRecovery1
     --validators=None
     --mysqld=--log_output=none
-    --mysqld=--log-bin
+    --mysqld=--log-bin --mysqld=--sync-binlog=1
     --mysqld=--log_bin_trust_function_creators=1
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
@@ -112,7 +111,23 @@ $combinations = [ $grammars,
     ' .
     # Some grammars need encryption, file key management
     " $encryption_setup " .
-    " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=$duration ",
+    " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=300 ",
+  ],
+  [
+    ' --mysqld=--loose-innodb-sync-debug ',
+    '',
+  ],
+  [
+    ' --mysqld=--innodb_stats_persistent=off ',
+    ' --mysqld=--innodb_stats_persistent=on ',
+  ],
+  [
+    ' --mysqld=--innodb_adaptive_hash_index=off ',
+    ' --mysqld=--innodb_adaptive_hash_index=on ',
+  ],
+  [
+    ' --mysqld=--loose-innodb_evict_tables_on_commit_debug=off ',
+#   ' --mysqld=--loose-innodb_evict_tables_on_commit_debug=on  ',
   ],
   [
     # Warning (mleich 2020-06):
@@ -134,13 +149,48 @@ $combinations = [ $grammars,
     ' --threads=33 ',
   ],
   [
+    # rr
+    # - trace analysis is serious more comfortable than analyzing cores
+    #   -> 2/3 of all runs should use it
+    # - replays certain bugs significant less likely than without rr
+    #   -> at least 1/3 of all runs go without it
+    #   -> maybe running rr with and without --chaos helps a bit
+    # - has trouble with (libaio or liburing)
+    #   -> runs with rr use --mysqld=--innodb-use-native-aio=0
+    #   -> runs without rr use --mysqld=--innodb-use-native-aio=1 so that InnoDB using
+    #      libaio/liburing is covered at all
+    # In case rr denies to work because it does not know the CPU family than the rr option
+    # --microarch can be set like in next line.
+    # " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='--chaos --wait --microarch=\"Intel Kabylake\"' ",
+    " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='--chaos --wait' ",
+    " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='--wait' ",
+    # Coverage for libaio or liburing.
+    " --mysqld=--innodb_use_native_aio=1 ",
+    # rr+InnoDB running on usual filesystem on HDD or SSD need
+    #     --mysqld=--innodb_flush_method=fsync
+    # Otherwise already bootstrap fails.
+  ],
+  [
+    '',
+    '',
+    '',
+    '',
+    # Next line suffered in history much of MDEV-26450.
+    # innodb_undo_log_truncate=ON is not default. So it should run less frequent.
+    ' --mysqld=--innodb_undo_tablespaces=3 --mysqld=--innodb_undo_log_truncate=ON ',
+  ],
+  [
     # 1. innodb_page_size >= 32K requires a innodb-buffer-pool-size >=24M
     #    otherwise the start of the server will fail.
     # 2. An innodb-buffer-pool-size=5M should work well with innodb_page_size < 32K
     # 3. A huge innodb-buffer-pool-size will not give an advantage if the tables are small.
     # 4. Small innodb-buffer-pool-size and small innodb_page_size stress Purge more.
+    # 5. Gendata is faster when using a big innodb-buffer-pool-size.
+    # 6. If huge innodb-buffer-pool sizes
+    #    - get accepted at all
+    #    - work well
+    #    does not fit into the characteristics of the current test battery.
     ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=5M   ',
-    ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=8M   ',
     ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=256M ',
     ' --mysqld=--innodb_page_size=8K  --mysqld=--innodb-buffer-pool-size=8M   ',
     ' --mysqld=--innodb_page_size=8K  --mysqld=--innodb-buffer-pool-size=256M ',
