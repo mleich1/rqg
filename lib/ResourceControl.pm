@@ -335,9 +335,9 @@ sub init {
         # Not that important but maybe used later
     );
     $lxs1->init;
-    $lxs1_last_ts = time();
-    # Without the following sleep certain initial CPU load values can be 0.
-    sleep(1);
+    # Without $lxs1_last_ts < time() - 5 measure() will omit pulling the cpu load.
+    # And than values stay undef and cause confusion when being printed.
+    $lxs1_last_ts = 0;
 
     measure();
 
@@ -406,26 +406,29 @@ sub init {
     if ($rc_type) {
         my $iso_ts = isoTimestamp();
         my $line =
-            "$iso_ts ResourceControl type    : $rc_type\n"                                  .
-            "$iso_ts vardir  '$vardir'  free : $vardir_free_init\n"                         .
-            "$iso_ts workdir '$workdir' free : $workdir_free_init\n"                        .
-            "$iso_ts memory total            : $mem_total\n"                                .
-            "$iso_ts memory real free        : $mem_est_free_init\n"                        .
-            "$iso_ts swap space total        : $swap_total\n"                               .
-            "$iso_ts swap space used         : $swap_used_init\n"                           .
-            "$iso_ts cpu cores (HT included) : $tcpu_count\n"                               .
-            "$iso_ts cpu idle - cpu iowait   : $cpu_idle - $cpu_iowait\n"                   .
-            "$iso_ts parallel (est. min)     : $workers_min\n"                              .
-            "$iso_ts parallel (est. mid)     : $workers_mid\n"                              .
-            "$iso_ts return (to rqg_batch)   : $load_status, $workers_mid, $workers_min\n"  .
-            "---------------------------------------------------------------------------\n" .
-            "$iso_ts Unit for memory and storage space is MB\n"                             .
-            "$iso_ts     *_consumed means amount lost since start of our rqg_batch run\n"   .
-            "$iso_ts worker , vardir_consumed - vardir_free , "                             .
-                     "workdir_consumed - workdir_free , "                                   .
-                     "mem_consumed - mem_est_free , "                                       .
-                     "cpu_idle - cpu_iowait , "                                             .
-                     "swap_consumed - swap_free = load_status\n";
+          "$iso_ts ResourceControl type    : $rc_type\n"                                           .
+          "$iso_ts vardir  '$vardir'  free : $vardir_free_init\n"                                  .
+          "$iso_ts workdir '$workdir' free : $workdir_free_init\n"                                 .
+          "$iso_ts memory total            : $mem_total\n"                                         .
+          "$iso_ts memory real free        : $mem_est_free_init\n"                                 .
+          "$iso_ts swap space total        : $swap_total\n"                                        .
+          "$iso_ts swap space used         : $swap_used_init\n"                                    .
+          "$iso_ts cpu cores (HT included) : $tcpu_count\n"                                        .
+          "$iso_ts cpu idle - cpu iowait   : $cpu_idle - $cpu_iowait\n"                            .
+          "$iso_ts parallel (est. min)     : $workers_min\n"                                       .
+          "$iso_ts parallel (est. mid)     : $workers_mid\n"                                       .
+          "$iso_ts return (to rqg_batch)   : $load_status, $workers_mid, $workers_min\n"           .
+          "---------------------------------------------------------------------------\n"          .
+          "$iso_ts Unit for memory and storage space is MB\n"                                      .
+          "$iso_ts     *_consumed means amount lost since start of our rqg_batch run\n"            .
+          "$iso_ts The distance between non cpu measurements depends on the needs of RQG Batch.\n" .
+          "$iso_ts The minimal distance between cpu measurements: 5s\n"                            .
+          "---------------------------------------------------------------------------\n"          .
+          "$iso_ts worker , vardir_consumed - vardir_free , "                                      .
+                   "workdir_consumed - workdir_free , "                                            .
+                   "mem_consumed - mem_est_free , "                                                .
+                   "swap_consumed - swap_free , "                                                  .
+                   "cpu_idle - cpu_iowait = load_status\n";
         if ($rqg_batch_debug) {
             $line .= "$iso_ts     vsz - rsz - sz - size #### rqg_batch process\n";
         }
@@ -667,15 +670,13 @@ sub report {
 
     if (not defined $load_status) {
         my $end_part = "is not better than just sufficient.";
-# FIXME: TO BE ENABLED SOON
-#       if ($cpu_iowait > 10) {
-#           # We are most probably running on some slow device like HDD.
-#           # Adding some RQG run more will only increase CPU iowait and that does not make sense.
-#           $info_m = "K0";
-#           $info = "INFO: $info_m The value for CPU iowait $cpu_iowait is bigger than 20.";
-#           $load_status = LOAD_KEEP;
-#       } elsif (0 > $vr_K) {
-        if (0 > $vr_K) {
+        if ($cpu_iowait > 20) {
+            # We are most probably running on some slow device like HDD.
+            # Adding some RQG run more will only increase CPU iowait and that does not make sense.
+            $info_m = "K0";
+            $info = "INFO: $info_m The value for CPU iowait $cpu_iowait is bigger than 20.";
+            $load_status = LOAD_KEEP;
+        } elsif (0 > $vr_K) {
             $info_m = "K1";
             $info = "INFO: $info_m The free space in '$vardir' ($vardir_free MB) $end_part";
             $load_status = LOAD_KEEP;
@@ -858,5 +859,4 @@ sub ask_tool {
 }
 
 1;
-
 
