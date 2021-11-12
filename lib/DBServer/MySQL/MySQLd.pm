@@ -116,7 +116,7 @@ use constant DEFAULT_TERM_TIMEOUT                => 60;
 use constant DEFAULT_PID_SEEN_TIMEOUT            => 60;
 # Maximum timespan between the pid getting printed into the server error log
 # and the message about the server being connectable.
-use constant DEFAULT_STARTUP_TIMEOUT             => 600;
+use constant DEFAULT_STARTUP_TIMEOUT             => 300;
 # Maximum timespan between time of server process disappeared or KILL or similar for server
 # the process and the auxiliary process reaped.
 # Main task: Give sufficient time for finishing write of rr trace or core file or ...
@@ -716,6 +716,19 @@ sub startServer {
     # after the server pid showed up in the server error log.
     # After that the server is considered hanging).
     my $startup_timeout     = DEFAULT_STARTUP_TIMEOUT * Runtime::get_runtime_factor();
+    # Variant:
+    # 1. No start dirty == First start after Bootstrap --> Should be quite fast
+    # 2. start dirty
+    # 2.1 Start on data "formed" by some smooth/slow shutdown or a copy of that
+    #     or Mariabackup prepare finished --> Should be quite fast
+    # 2.2 Start on data "formed" by some rude shutdown or server kill or a copy of that
+    #     --> Could be quite slow
+    # As long as assigning a specific restart timeout via test setup is not supported by
+    # corresponding code here and on other places I assume that the "start dirty" invokes
+    # a crash recovery processing of a lengthy part of the log etc.
+    if ($self->[MYSQLD_START_DIRTY]) {
+        $startup_timeout = $startup_timeout * 5;
+    }
 
     if (osWindows) {
         my $proc;

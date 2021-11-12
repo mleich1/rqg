@@ -212,6 +212,7 @@ if      (defined $config_file and defined $verdict_file) {
     Verdict::load_verdict_config($content);
 } else {
     say("ERROR: No idea what to do for the command:\n" . $command_line);
+    help();
     safe_exit(STATUS_ENVIRONMENT_FAILURE);
 }
 
