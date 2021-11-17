@@ -484,7 +484,8 @@ sub monitor {
     # standard names are used.
     my @mysqld_options = (
         '--server-id=3',
-        '--core-file',
+        # DBServer::MySQL::MySQLd::startServer will add '--core-file' is it makes sense.
+        # '--core-file',
         '--loose-console',
         '--loose-lc-messages-dir="' . $lc_messages_dir . '"',
         '--datadir="' . $clone_datadir . '"',

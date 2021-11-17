@@ -187,11 +187,6 @@ our $grammars =
 #     --sqltrace=MarkErrors
 #
 
-# Sometimes useful settings
-#   --mysqld=--innodb_stats_persistent=off
-#   --mysqld=--innodb_adaptive_hash_index=OFF
-#   --mysqld=--innodb_use_native_aio=0
-#
 # Reason for not writing '--reporters=Backtrace,ErrorLog,Deadlock1':
 # Current RQG requires using either
 #   --reporters=<list> ... but never --reporters=... again
@@ -224,11 +219,21 @@ $combinations = [ $grammars,
     --mysqld=--log_bin_trust_function_creators=1
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
-    --restart_timeout=240
+    --restart_timeout=360
     ' .
     # Some grammars need encryption, file key management
     " $encryption_setup " .
     " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=300 ",
+  ],
+  [
+    # Since ~ 10.5 or 10.6 going with ROW_FORMAT = Compressed is no more recommended because
+    # ROW_FORMAT = <whatever !=Compressed> PAGE_COMPRESSED=1 is better.
+    # In order to accelerate the move away from ROW_FORMAT = Compressed the variable
+    # innodb_read_only_compressed with the default ON was introduced.
+    # Impact on older tests + setups: ROW_FORMAT = Compressed is mostly no more checked.
+    # Hence we need to enable checking of that feature till ist removed via
+    # innodb_read_only_compressed=OFF.
+    ' --mysqld=--loose-innodb_read_only_compressed=OFF ',
   ],
   [
     ' --mysqld=--loose-innodb-sync-debug ',
@@ -243,13 +248,19 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_adaptive_hash_index=on ',
   ],
   [
+    # Binary logging is more likely enabled.
     # With log-bin and the default sync-binlog=0 we risk to get 'TBR-1136' (just to be expected
     # and not a bug) in Crashrecovery tests.
-    ' --mysqld=--log-bin --mysqld=--sync-binlog=1 ', # Binary logging is more likely used.
-    ' --mysqld=--log-bin --mysqld=--sync-binlog=1 ', # Binary logging is more likely used.
-    # MariaDB replication needs binary logging.
-    # Hence tests invoking MariaDB replication need to enable binary logging. --> $grammars section above.
-    '',                                              # Certain bugs replay better if binary logging is not enabled.
+    ' --mysqld=--log-bin --mysqld=--sync-binlog=1 ',
+    ' --mysqld=--log-bin --mysqld=--sync-binlog=1 ',
+    #
+    # Tests invoking MariaDB replication need binary logging too.
+    # This has to be ensured per test in the $grammars section above!
+    #
+    # Binary logging is less likely disabled.
+    # But this has to be checked too.
+    # In adition certain bugs replay better if binary logging is not enabled.
+    '',
   ],
   [
     ' --mysqld=--loose-innodb_evict_tables_on_commit_debug=off ',
@@ -285,9 +296,17 @@ $combinations = [ $grammars,
     #   -> runs with rr use --mysqld=--innodb-use-native-aio=0
     #   -> runs without rr use --mysqld=--innodb-use-native-aio=1 so that InnoDB using
     #      libaio/liburing is covered at all
+    #
     # In case rr denies to work because it does not know the CPU family than the rr option
-    # --microarch can be set like in next line.
+    # --microarch can be set like in the next line.
     # " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='--chaos --wait --microarch=\"Intel Kabylake\"' ",
+    #
+    # Experiments (try the values 1000, 300, 150) with the rr option "--num-cpu-ticks=<value>"
+    # showed some remarkable impact on the user+nice versus system CPU time.
+    # Lower values lead to some significant increase of system CPU time and context switches
+    # per second. And that seems to cause a higher fraction of tests invoking rr where the
+    # max_gd_timeout gets exceeded.
+    # But up till now the impact on the fraction of bugs found or replayed is unclear.
     " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='--chaos --wait' ",
     " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='--wait' ",
     # Coverage for libaio or liburing.
@@ -331,6 +350,6 @@ $combinations = [ $grammars,
 
 # Marko: (sentence is edited)
 # @matthias.leich You can be more mad DBA than usual:
-# enable STATS_AUTO_RECALC (on per default and needs innodb_stats_persistent enabled, also default))
+# enable STATS_AUTO_RECALC (on per default and needs innodb_stats_persistent enabled, also default)
 # and do not hesitate to run ALTER TABLE mysql.innodb_index_stats FORCE in parallel to normal
 # DDL/DML workload (including concurrent ALTER TABLE or ANALYZE TABLE on user tables).

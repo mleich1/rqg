@@ -655,8 +655,11 @@ sub startServer {
     my $command = $self->generateCommand(
                         [@defaults],
                         $self->[MYSQLD_STDOPTS],
-                        ["--core-file",
-                            # Not added to STDOPTS, because datadir could have changed.
+                        # Do not add "--core-file" here because it wastes resources in case
+                        # rr is invoked.
+                        # ["--core-file",
+                        [
+                         # Not added to STDOPTS, because datadir could have changed.
                          "--datadir="  . $self->datadir,
                          "--max-allowed-packet=128Mb", # Allow loading bigger blobs
                          "--port="     . $self->port,
@@ -848,15 +851,8 @@ sub startServer {
             }
         };
 
-        # say("DEBUG ---- 0 ->" . $command . "<-");
-        # if ($self->[MYSQLD_VALGRIND]) {
         if (defined Runtime::get_valgrind()) {
             $tool_startup =        10;
-            # my $valgrind_options = "";
-            # if (defined $self->[MYSQLD_VALGRIND_OPTIONS]) {
-            #     # $valgrind_options = join(' ',@{$self->[MYSQLD_VALGRIND_OPTIONS]});
-            #     $valgrind_options = $self->[MYSQLD_VALGRIND_OPTIONS];
-            # }
             my $valgrind_options = Runtime::get_valgrind_options();
             $valgrind_options =    '' if not defined $valgrind_options;
             # FIXME: Do we check somewhere that the $self->valgrind_suppressionfile exists?
@@ -867,18 +863,12 @@ sub startServer {
 
         my $rr_trace_dir;
         my $rr = Runtime::get_rr();
-        # if ($self->[MYSQLD_RR]) {
         if (defined $rr) {
             # The rqg runner has to check in advance that 'rr' is installed on the current box.
-            # my $rr = $self->[MYSQLD_RR];
-            # my $rr_options = '';
-            # if (defined $self->[MYSQLD_RR_OPTIONS]) {
-            #     $rr_options = $self->[MYSQLD_RR_OPTIONS];
-            # }
             my $rr_options = Runtime::get_rr_options();
-            $rr_options = '' if not defined $rr_options;
-            $tool_startup = 10;
-            $rr_trace_dir = $self->vardir . '/rr';
+            $rr_options =    '' if not defined $rr_options;
+            $tool_startup =  10;
+            $rr_trace_dir =  $self->vardir . '/rr';
             if (not -d $rr_trace_dir) {
                 # Thinkable reason: We go with --start-diry.
                 if (not mkdir $rr_trace_dir) {
@@ -894,15 +884,13 @@ sub startServer {
             #   whatever unknown reason
             # - cores files consume ~ 1 GB in vardir (often located in tmpfs) temporary
             #   And that is serious bigger than rr traces.
-            # So we prevent the writing of core files via ulimit.
+            # So we prevent the writing of core files via ulimit for the case that making
+            # core files is dictated via server startup option.
             # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
             # in the DB server error log.
             $command = "ulimit -c 0; rr record " . $rr_options . " --mark-stdio $command";
-            # say("DEBUG: ---- 1 ->" . $rr_options . "<-");
-            # say("DEBUG: ---- 2 ->" . $command . "<-");
         }
 
-        # if (exists $ENV{'RUNNING_UNDER_RR'} or defined $self->[MYSQLD_RR]) {
         if (exists $ENV{'RUNNING_UNDER_RR'} or defined $rr) {
             # rr tracing is already active ('RQG') or will become active for the calls of
             # certain binaries.
@@ -915,7 +903,9 @@ sub startServer {
             # [rr 19150 <event_number>] <timestamp> might help to find the right region of
             # events where debugging should start.
             $command .= " --log_warnings=4";
-            # say("DEBUG ---- 3 ->" . $command . "<-");
+        } else {
+            # In case rr is not invoked than we want core files.
+            $command .= " --core-file";
         }
 
         # This is too early. printInfo needs the pid which is currently unknown!

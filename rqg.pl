@@ -97,7 +97,6 @@ use GenTest::Grammar;
 # 4. rqg.pl reports at end something of interest into combinations.pl.
 #
 
-$| = 1;
 my $logger;
 eval
 {
