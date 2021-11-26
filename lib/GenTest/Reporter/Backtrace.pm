@@ -235,22 +235,14 @@ sub nativeReport {
             return STATUS_ENVIRONMENT_FAILURE, undef;
         }
     }
-    if (Time::HiRes::time() > $max_end_time) {
-        say("ERROR: $who_am_i Neither the server process $pid has disappeared nor a end_line_pattern has shown up.");
-        say("INFO: $who_am_i Most probably false alarm. Will return STATUS_OK, undef.");
-        say("INFO: Reporter 'Backtrace' ------------------------------ End");
-        return STATUS_OK, undef;
-    }
 
-    my $wait_time     = Time::HiRes::time() - $start_time;
-    my $message_begin = "ALARM: $who_am_i $wait_time" . "s waited but the server";
-    if (not defined $server_running) {
-        say("ERROR: $who_am_i kill 0 on server process $pid delivered undef.");
-        system("ps -elf | egrep 'mysqld|mariadbd' | grep $pid");
-    } elsif ( $server_running ) {
-        say("$message_begin process $pid has not disappeared.");
-        # It does not make sense to wait longer.
-        say("INFO: Most probably false alarm. Will return STATUS_OK, undef.");
+    while ($server_running and (Time::HiRes::time() < $max_end_time)) {
+        sleep 1;
+        $server_running = kill (0, $pid);
+    }
+    if (Time::HiRes::time() > $max_end_time) {
+        say("ERROR: $who_am_i The server process $pid has not disappeared.");
+        say("INFO: $who_am_i Most probably false alarm. Will return STATUS_OK, undef.");
         say("INFO: Reporter 'Backtrace' ------------------------------ End");
         return STATUS_OK, undef;
     } else {
