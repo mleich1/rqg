@@ -484,7 +484,7 @@ sub monitor {
     # standard names are used.
     my @mysqld_options = (
         '--server-id=3',
-        # DBServer::MySQL::MySQLd::startServer will add '--core-file' is it makes sense.
+        # DBServer::MySQL::MySQLd::startServer will add '--core-file' if it makes sense.
         # '--core-file',
         '--loose-console',
         '--loose-lc-messages-dir="' . $lc_messages_dir . '"',
@@ -533,6 +533,8 @@ sub monitor {
 
     system("ls -ld " . $clone_datadir . "/ib_logfile*");
     say("INFO: Attempt to start a DB server on the cloned data.");
+    say("INFO: Per Marko messages like InnoDB: 1 transaction(s) which must be rolled etc. " .
+        "are normal. MB prepare is not allowed to do rollbacks.");
     my $status = $clone_server->startServer();
     if ($status != STATUS_OK) {
         direct_to_std();
@@ -609,9 +611,10 @@ sub monitor {
         }
         # next if $database =~ m{^(mysql|information_schema|performance_schema)$}sio;
         # Experimental: Check the SCHEMA mysql too
-        next if $database =~ m{^(information_schema|performance_schema)$}sio;
+        next if $database =~ m{^(rqg|information_schema|performance_schema)$}sio;
         $clone_dbh->do("USE $database");
         my $tabl_ref = $clone_dbh->selectcol_arrayref("SHOW FULL TABLES", { Columns=>[1,2] });
+        # FIXME: The command above can fail.
         my %tables = @$tabl_ref;
         foreach my $table (keys %tables) {
             # Should not do CHECK etc., and especially ALTER, on a view
@@ -627,6 +630,23 @@ sub monitor {
                 $clone_dbh->disconnect();
                 sayFile($clone_err);
                 sayFile($reporter_prt);
+                # FIXME:
+                # It should be possible to replay what happened based on
+                # - the data backup copy and starting+checking
+                # - some rr trace if enabled
+                # Hence running some killServer now will not destroy valuable information or
+                # to generate it later.
+                # But reacting on some dying server with killServer
+                # - can lead to confusion based on error log content like
+                #   Was the server already dying or came the 'mysqld got signal ' from the
+                #   killServer?
+                # - has an influence how the final death happens and the error log content
+                # Provisional solution:
+                if ($clone_dbh->err() == 2013 or $clone_dbh->err() == 2006) {
+                    sleep 30;
+                }
+                say("ERROR: $who_am_i : Will kill the server running on cloned data");
+                my $throw_away_status = $clone_server->killServer();
                 # The damage is some corruption.
                 # Based on the fact that this is found in the server running on the backuped data
                 # I prefer to return STATUS_BACKUP_FAILURE and not STATUS_DATABASE_CORRUPTION.
@@ -656,8 +676,11 @@ sub monitor {
     if (STATUS_OK != $status) {
         direct_to_std();
         $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $who_am_i : Shutdown of DB server on cloned data made trouble.");
+        say("ERROR: $who_am_i : Shutdown of DB server on cloned data made trouble. ".
+            "Hence trying to kill it and return STATUS_BACKUP_FAILURE later.");
+        my $throw_away_status = $clone_server->killServer();
         sayFile($clone_err);
+        sayFile($reporter_prt);
         say("ERROR: $who_am_i : Will return status " . status2text($status) . "($status)");
         return $status;
     }
