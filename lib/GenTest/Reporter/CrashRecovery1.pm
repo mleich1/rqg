@@ -218,7 +218,7 @@ sub report {
     }
 
     if ($recovery_status > STATUS_OK) {
-        $dbh->disconnect();
+        $dbh->disconnect() if defined $dbh;
         # Do not set STATUS_RECOVERY_FAILURE if we already have STATUS_ENVIRONMENT_FAILURE etc.
         if ($recovery_status < STATUS_CRITICAL_FAILURE) {
             $recovery_status = STATUS_RECOVERY_FAILURE;
