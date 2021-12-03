@@ -210,18 +210,27 @@ sub report {
     if (not defined $dbh) {
         say("ERROR: $who_am_i Connect attempt to dsn " . $reporter->dsn() . " after " .
             "restart+recovery failed: " . $DBI::errstr);
-        sayFile($server->errorlog);
-        my $status = STATUS_RECOVERY_FAILURE;
-        say("ERROR: $who_am_i Recovery has failed. " . Auxiliary::build_wrs($status));
-        return $status;
+        # Do not set STATUS_RECOVERY_FAILURE if we already have STATUS_ENVIRONMENT_FAILURE etc.
+        if ($recovery_status < STATUS_CRITICAL_FAILURE) {
+            $recovery_status = STATUS_RECOVERY_FAILURE;
+            say("INFO: $who_am_i Status changed to $recovery_status.");
+        }
     }
 
     if ($recovery_status > STATUS_OK) {
         $dbh->disconnect();
+        # Do not set STATUS_RECOVERY_FAILURE if we already have STATUS_ENVIRONMENT_FAILURE etc.
+        if ($recovery_status < STATUS_CRITICAL_FAILURE) {
+            $recovery_status = STATUS_RECOVERY_FAILURE;
+            say("INFO: $who_am_i Status changed to $recovery_status.");
+        }
         sayFile($server->errorlog);
-        my $status = STATUS_RECOVERY_FAILURE;
-        say("ERROR: $who_am_i Recovery has failed. " . Auxiliary::build_wrs($status));
-        return $status;
+        # Doing the kill here might be not necessary. But I prefer to not rely on the cleanup
+        # abilities of RQG runners and similar.
+        say("INFO: $who_am_i Will kill the server because of previous failure.");
+        $server->killServer;
+        say("ERROR: $who_am_i Recovery has failed. " . Auxiliary::build_wrs($recovery_status));
+        return $recovery_status;
     }
 
     #
