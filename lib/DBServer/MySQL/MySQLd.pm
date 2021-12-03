@@ -116,7 +116,7 @@ use constant DEFAULT_TERM_TIMEOUT                => 60;
 use constant DEFAULT_PID_SEEN_TIMEOUT            => 60;
 # Maximum timespan between the pid getting printed into the server error log
 # and the message about the server being connectable.
-use constant DEFAULT_STARTUP_TIMEOUT             => 300;
+use constant DEFAULT_STARTUP_TIMEOUT             => 600;
 # Maximum timespan between time of server process disappeared or KILL or similar for server
 # the process and the auxiliary process reaped.
 # Main task: Give sufficient time for finishing write of rr trace or core file or ...
@@ -191,9 +191,9 @@ if(0) {
     # earlier that such a directory exists or can be created.
     # Why the assumption that $self->vardir must be than meant relativ to $self->basedir?
     # <runner>.pl command line help does not say that.
-    if (not $self->_absPath($self->vardir)) {
-        $self->[MYSQLD_VARDIR] = $self->basedir."/".$self->vardir;
-    }
+#   if (not $self->_absPath($self->vardir)) {
+#       $self->[MYSQLD_VARDIR] = $self->basedir."/".$self->vardir;
+#   }
 
     # Default tmpdir for server.
     $self->[MYSQLD_TMPDIR] = $self->vardir."/tmp";
@@ -516,8 +516,10 @@ sub createMysqlBase  {
     # Bootstrap with --mysqld=--loose-innodb_force_recovery=5 fails.
     my @cleaned_boot_options;
     foreach my $boot_option (@$boot_options) {
+        # Isnt't the          .* non sense?
         if ($boot_option =~ m{.*innodb_force_recovery} or
-            $boot_option =~ m{.*innodb-force-recovery}   )   {
+            $boot_option =~ m{.*innodb-force-recovery} or
+            $boot_option =~ m{innodb.evict.tables.on.commit.debug})   {
             say("DEBUG: -->" . $boot_option . "<-- will be removed from the bootstrap options.");
             next;
         } else {
@@ -868,27 +870,31 @@ sub startServer {
             my $rr_options = Runtime::get_rr_options();
             $rr_options =    '' if not defined $rr_options;
             $tool_startup =  10;
-            $rr_trace_dir =  $self->vardir . '/rr';
-            if (not -d $rr_trace_dir) {
-                # Thinkable reason: We go with --start-diry.
-                if (not mkdir $rr_trace_dir) {
-                    my $status = DBSTATUS_FAILURE;
-                    say("ERROR: startserver: Creating the 'rr' trace directory '$rr_trace_dir' " .
-                        "failed : $!. Will return status DBSTATUS_FAILURE" . "($status)");
-                    return $status;
+            if ($rr ne Runtime::RR_TYPE_RQG) {
+                $rr_trace_dir =  $self->vardir . '/rr';
+                if (not -d $rr_trace_dir) {
+                    # Thinkable reason: We go with --start-diry.
+                    if (not mkdir $rr_trace_dir) {
+                        my $status = DBSTATUS_FAILURE;
+                        say("ERROR: startserver: Creating the 'rr' trace directory '$rr_trace_dir' " .
+                            "failed : $!. Will return status DBSTATUS_FAILURE" . "($status)");
+                        return $status;
+                    }
                 }
+                # In case of using 'rr' and core file generation enabled in addition
+                # - core files do not offer more information than already provided by rr traces
+                # - gdb -c <core file> <mysqld binary> gives sometimes rotten output from
+                #   whatever unknown reason
+                # - cores files consume ~ 1 GB in vardir (often located in tmpfs) temporary
+                #   And that is serious bigger than rr traces.
+                # So we prevent the writing of core files via ulimit for the case that making
+                # core files is dictated via server startup option.
+                # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
+                # in the DB server error log.
+                $command = "ulimit -c 0; rr record " . $rr_options . " --mark-stdio $command";
+            } else {
+                $command = "ulimit -c 0; $command";
             }
-            # In case of using 'rr' and core file generation enabled in addition
-            # - core files do not offer more information than already provided by rr traces
-            # - gdb -c <core file> <mysqld binary> gives sometimes rotten output from
-            #   whatever unknown reason
-            # - cores files consume ~ 1 GB in vardir (often located in tmpfs) temporary
-            #   And that is serious bigger than rr traces.
-            # So we prevent the writing of core files via ulimit for the case that making
-            # core files is dictated via server startup option.
-            # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
-            # in the DB server error log.
-            $command = "ulimit -c 0; rr record " . $rr_options . " --mark-stdio $command";
         }
 
         if (exists $ENV{'RUNNING_UNDER_RR'} or defined $rr) {
@@ -1020,9 +1026,41 @@ sub startServer {
                     return $status;
                 }
 
+                my $found;
+                # Goal:
+                # Do not search for 'mysqld: ready for connections' if the outcome is already decided.
+                # FIXME: Seen 2021-12-02
+                # Start server on backupped data.
+                # Connect and run SQL
+                # But the sever error log contains:
+                # mysqld: ... Assertion .... failed.
+                # [ERROR] mysqld got signal 6 ;
+                # Attempting backtrace. You can use the following information to find out
+                # [Note] /data/Server_bin/bb-10.6-MDEV-27111_asan/bin/mysqld: ready for connections.
+                # QUESTION: Why the connect before 'ready for connections' was observed.
+                # We search for a line like
+                # [ERROR] mysqld got signal <some signal>
+                $found = Auxiliary::search_in_file($errorlog,
+                                                   "\[ERROR\] mysqld got signal");
+                if (not defined $found) {
+                    # Technical problems!
+                    my $status = DBSTATUS_FAILURE;
+                    say("FATAL ERROR: $who_am_i \$found is undef. Will KILL the server and " .
+                        "return status DBSTATUS_FAILURE($status) later.");
+                    sayFile($errorlog);
+                    $self->killServer;
+                    return $status;
+                } elsif ($found) {
+                    my $status = DBSTATUS_FAILURE;
+                    say("INFO: $who_am_i '[ERROR] mysqld got signal ' observed.");
+                    sayFile($errorlog);
+                    return $status;
+                } else {
+                    say("DEBUG: $who_am_i Up till now no '[ERROR] mysqld got signal ' observed.");
+                }
+
                 # We search for a line like
                 # [Note] /home/mleich/Server_bin/10.5_asan_Og/bin/mysqld: ready for connections.
-                my $found;
                 $found = Auxiliary::search_in_file($errorlog,
                                                    "\[Note\].{1,150}mysqld: ready for connections");
                 # For testing:
