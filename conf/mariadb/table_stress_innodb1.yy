@@ -68,12 +68,36 @@
 #    - after some maximum lifetime and/or
 #    - after detecting the defect (no of columns smaller than expected)
 #
-#
 # _digit --> Range 0 till 9
+#
+# Purpose of the rules fail_<number>
+# ----------------------------------
+# RQG does not have some syntax checker for YY grammars.
+# Its unfortunately quite
+# - easy to write a grammar which contains a tiny defect like ':' typed instead of ';'
+#   where RQG will
+#   - not detect the defect and abort the processing
+#   - generate streams of commands which contain a surprising fraction of SQL with
+#     - valid syntax but non intended content or shape
+#     - strange invalid valid syntax
+#   Example: Grammar rule names or perl code fragments occur in that SQL
+#   Frequent observed impact:
+#   - feature A is not checked though planned
+#   - the intended logics of the test is broken and therefore we get false positives or
+#     negatives
+#   - only a thorough inspection of the generated SQL reveals that the grammar must have a defect
+# - difficult to find the location of the defects in YY grammar files.
+# Place before many of the original grammar rules some additional rule with the shape
+# fail_<number>:
+#     { $fail = 'fail_<number>' ; return undef }; SELECT * FROM $fail ;
+# , do not forget to increment the number per rule added and
+# add all these rules to the root rule 'query'.
+# Than run the RQG test with SQL trace enabled.
+# The defect is most probably before the rule fail_<lowest_number> which does not show up
+# within the SQL trace.
 
 fail_001:
    { $fail = 'fail_001' ; return undef }; SELECT * FROM $fail ;
-
 
 # thread1 manages CREATE/DROP of the tables.
 # Doing that by one thread only avoids clashes compared to trying it by every thread.
