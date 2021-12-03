@@ -31,7 +31,7 @@ then
 fi
 
 set -e
-source rqg_build_lib.sh
+source bld_lib.sh
 set +e
 
 RELEASE=$1

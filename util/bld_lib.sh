@@ -91,8 +91,18 @@ function set_comp_prog()
     fi
 }
 
+# In case one of the following environment variables is set than the corresponding
+# directory must already exist.
+# Variable               | Default
+# -----------------------+--------------
+# GENERAL_SOURCE_DIR     | /Server
+# GENERAL_BIN_DIR        | /Server_bin
+# GENERAL_STORE_DIR      | /data
+
 function check_environment()
 {
+    # The code of these plugins gets pulled when cloning the tree.
+    # The settings below will prevent pulling the changes on "git fetch".
     git config --global submodule.storage/rocksdb.update none
     git config --global submodule.storage/columnstore.update none
     git config --global submodule.storage/xpand.update none
@@ -129,14 +139,14 @@ function check_environment()
         echo -e $USAGE
         exit 16
     fi
-    if [ "$GENERAL_RQG_WORK_DIR" = "" ]
+    if [ "$GENERAL_STORE_DIR" = "" ]
     then
-        GENERAL_RQG_WORK_DIR="/data/Results"
+        GENERAL_STORE_DIR="/data"
     fi
-    GENERAL_RQG_WORK_DIR=`realpath "$GENERAL_RQG_WORK_DIR"`
-    if [ ! -d "$GENERAL_RQG_WORK_DIR" ]
+    GENERAL_WORK_DIR=`realpath "$GENERAL_STORE_DIR"`
+    if [ ! -d "$GENERAL_STORE_DIR" ]
     then
-        echo "ERROR: The general RQG work directory (variable GENERAL_RQG_WORK_DIR) '$GENERAL_RQG_WORK_DIR' $MESSAGE_END"
+        echo "ERROR: The general store directory (variable GENERAL_STORE_DIR ) '$GENERAL_STORE_DIR' $MESSAGE_END"
         echo
         echo -e $USAGE
         exit 16
@@ -149,7 +159,7 @@ function check_environment()
         echo -e $USAGE
         exit 16
     fi
-    RQG_ARCH_DIR="$GENERAL_RQG_WORK_DIR""/bin_archs"
+    RQG_ARCH_DIR="$GENERAL_STORE_DIR""/binarchs"
     ls -ld $RQG_ARCH_DIR
     if [ ! -d "$RQG_ARCH_DIR" ]
     then
