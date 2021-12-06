@@ -31,6 +31,7 @@ package Auxiliary;
 # use Runtime;
 
 use strict;
+use Basics;
 use GenTest::Constants;
 use GenTest;
 use GenTest::Grammar;
@@ -101,8 +102,10 @@ sub script_debug {
     }
 }
 
+# The following sub is currently unused but its fate is not decided finally.
 our $rqg_home;
 sub check_and_set_rqg_home {
+# Used by rqg.pl only.
     ($rqg_home) = @_;
     if (1 != scalar @_) {
         Carp::cluck("INTERNAL ERROR: Exact one parameter(rqg_home) needs to get assigned.");
@@ -222,67 +225,6 @@ sub list_values_supported {
 } # End of sub list_values_supported
 
 
-sub append_string_to_file {
-
-    my ($my_file, $my_string) = @_;
-    if (not defined $my_file) {
-        Carp::cluck("INTERNAL ERROR: The value for the file name is undef.");
-        return STATUS_FAILURE;
-    }
-    if (not defined $my_string) {
-        Carp::cluck("INTERNAL ERROR: The string to be appended to the file '$my_file' is undef.");
-        return STATUS_FAILURE;
-    }
-    if (not -f $my_file) {
-        Carp::cluck("INTERNAL ERROR: The file '$my_file' does not exist or is no plain file.");
-        return STATUS_FAILURE;
-    }
-    if (not open (MY_FILE, '>>', $my_file)) {
-        say("ERROR: Open file '>>$my_file' failed : $!");
-        return STATUS_FAILURE;
-    }
-    if (not print MY_FILE $my_string) {
-        say("ERROR: Print to file '$my_file' failed : $!");
-        return STATUS_FAILURE;
-    }
-    if (not close (MY_FILE)) {
-        say("ERROR: Close file '$my_file' failed : $!");
-        return STATUS_FAILURE;
-    }
-    return STATUS_OK;
-}
-
-
-sub make_file {
-#
-# Purpose
-# -------
-# Make a plain file.
-#
-# Return values
-# -------------
-# STATUS_OK      -- Success
-# STATUS_FAILURE -- No success
-#
-    my ($my_file, $my_string) = @_;
-    if (not open (MY_FILE, '>', $my_file)) {
-        say("ERROR: Open file '>$my_file' failed : $!");
-        return STATUS_FAILURE;
-    }
-    if (defined $my_string) {
-        if (not print MY_FILE $my_string . "\n") {
-            say("ERROR: Print to file '$my_file' failed : $!");
-            return STATUS_FAILURE;
-        }
-    }
-    if (not close (MY_FILE)) {
-        say("ERROR: Close file '$my_file' failed : $!");
-        return STATUS_FAILURE;
-    }
-    return STATUS_OK; # 0
-}
-
-
 sub make_rqg_infrastructure {
 #
 # Purpose
@@ -299,22 +241,44 @@ sub make_rqg_infrastructure {
 # STATUS_FAILURE -- No success
 #
     my ($workdir) = @_;
-    # say("DEBUG: Auxiliary::make_rqg_infrastructure workdir is '$workdir'");
-    $workdir = Cwd::abs_path($workdir);
-    if (not -d $workdir) {
-        say("ERROR: RQG workdir '$workdir' is missing or not a directory.");
+    if (1 != scalar @_) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: " . Basics::who_am_i .
+                    " Exact two parameters(workdir, batch) need to get assigned. " .
+                    Auxiliary::exit_status_text($status));
+        safe_exit($status);
+    }
+
+    if (not defined $workdir or $workdir eq '') {
+        Carp::cluck("INTERNAL ERROR: \$workdir is undef or ''.");
         return STATUS_FAILURE;
     }
+    # say("DEBUG: Auxiliary::make_rqg_infrastructure workdir is '$workdir'");
+    $workdir = Cwd::abs_path($workdir);
+
+    if(-d $workdir) {
+        if(not File::Path::rmtree($workdir)) {
+            say("ERROR: Removal of the already existing tree ->" . $workdir . "<- failed. : $!.");
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            run_end($status);
+        }
+        say("DEBUG: The already existing RQG workdir ->" . $workdir . "<- was removed.");
+    }
+    if (STATUS_OK != Basics::make_dir($workdir)) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        run_end($status);
+    }
+
     my $my_file;
     my $result;
     $my_file = $workdir . '/rqg.log';
-    $result  = make_file ($my_file, undef);
+    $result  = Basics::make_file ($my_file, undef);
     return $result if $result;
     $my_file = $workdir . '/rqg_phase.init';
-    $result  = make_file ($my_file, undef);
+    $result  = Basics::make_file ($my_file, undef);
     return $result if $result;
     $my_file = $workdir . '/rqg.job';
-    $result  = make_file ($my_file, undef);
+    $result  = Basics::make_file ($my_file, undef);
     return $result if $result;
     my $return = Verdict::make_verdict_infrastructure($workdir);
     if (STATUS_OK != $return) {
@@ -384,70 +348,6 @@ sub find_file_at_places {
     say("DEBUG: We searched at various places below '$basedirectory' but '$name' was not found. " .
         "Will return undef.");
     return undef;
-}
-
-
-sub rename_file {
-#
-# Purpose
-# -------
-# Just rename a file.
-# I hope that the operation within the filesystem is roughly atomic especially compared to
-# writing into some file.
-#
-# Typical use case
-# ----------------
-# Signal the current phase of the RQG run and the final verdict.
-#
-# # Return values
-# -------------
-# STATUS_OK      -- Success
-# STATUS_FAILURE -- No success
-#
-
-    my ($source_file, $target_file) = @_;
-    if (not -e $source_file) {
-        Carp::cluck("ERROR: The source file '$source_file' does not exist.");
-        return STATUS_FAILURE;
-    }
-    if (-e $target_file) {
-        Carp::cluck("ERROR: The target file '$target_file' does already exist.");
-        return STATUS_FAILURE;
-    }
-    system("sync -d $source_file");
-    # Perl documentation claims that
-    # - "File::Copy::move" is platform independent
-    # - "rename" is not and might have probems accross filesystem boundaries etc.
-    if (not move ($source_file , $target_file)) {
-        # The move operation failed.
-        Carp::cluck("ERROR: Copying '$source_file' to '$target_file' failed : $!");
-        return STATUS_FAILURE;
-    } else {
-        say("DEBUG: Auxiliary::rename_file '$source_file' to '$target_file'.") if script_debug("A5");
-        return STATUS_OK;
-    }
-}
-
-
-sub copy_file {
-# Typical use case
-# ----------------
-# One grammar replayed the desired outcome and we copy its to or over the best grammar ever had.
-#   my $source = $workdir . "/" . $grammar_used;
-#   my $target = $workdir . "/" . $best_grammar;
-
-    my ($source_file, $target_file) = @_;
-    if (not -e $source_file) {
-        Carp::cluck("ERROR: The source file '$source_file' does not exist.");
-        return STATUS_FAILURE;
-    }
-    if (not File::Copy::copy($source_file, $target_file)) {
-        Carp::cluck("ERROR: Copying '$source_file' to '$target_file' failed : $!");
-        return STATUS_FAILURE;
-    } else {
-        say("DEBUG: Auxiliary::copy_file '$source_file' to '$target_file'.") if script_debug("A5");
-        return STATUS_OK;
-    }
 }
 
 
@@ -591,7 +491,7 @@ sub set_rqg_phase {
 
     my $old_name = $workdir . '/rqg_phase.' . $old_phase;
     my $new_name = $workdir . '/rqg_phase.' . $new_phase;
-    $result = Auxiliary::rename_file ($old_name, $new_name);
+    $result = Basics::rename_file ($old_name, $new_name);
     if ($result) {
         say("ERROR: Auxiliary::set_rqg_phase from '$old_phase' to '$new_phase' failed.");
         return STATUS_FAILURE;
@@ -1503,17 +1403,9 @@ sub get_all_basedir_infos {
     return $info;
 }
 
-sub who_am_i {
-    return (caller(1))[3]. ':';
-}
-sub who_called_me {
-    # FIXME: Returns undef
-    return (caller(2))[3];
-}
-
 sub check_basedirs {
     my @basedirs = @_;
-    my $who_am_i = who_am_i;
+    my $who_am_i = Basics::who_am_i();
     Auxiliary::print_list("INFO: Initial RQG basedirs ",  @basedirs);
     if ((not defined $basedirs[0] or $basedirs[0] eq '') and
         (not defined $basedirs[1] or $basedirs[1] eq '')    ) {
@@ -1820,29 +1712,6 @@ sub help_rqg_home {
     );
 }
 
-# get_run_id
-# ==========
-#
-# Purpose
-# -------
-# Get a most probably unique id to be used for the vardirs and workdirs of RQG tools.
-# In case all these tools call the current routine and use that id for the computation of their
-# own workdirs and vardirs than collisions of the RQG runs managed with historic and concurrent
-# RQG runs should be impossible within these directories.
-# Of course neither the collisions on ports nor overuse of resources could be prevented by that.
-#
-# Number of seconds since the Epoch, 1970-01-01 00:00:00 +0000 (UTC) has many advantages
-# because the time is monotonically increasing.
-# The "sleep 1" is for the unlikely but in reality (unit tests etc.) met case that some run of
-# the same or another RQG tool started and failed less than a second before.
-# And so both runs calculated the same value.
-#
-sub get_run_id {
-    sleep 1;
-    return time();
-}
-
-
 sub check_and_set_build_thread {
 #
 # Purpose
@@ -2107,7 +1976,7 @@ sub unify_gendata {
     if ($gendata eq '' or $gendata eq '1' or $gendata eq 'None') {
         # Do nothing.
     } else {
-        $gendata = $rqg_home . "/" . $gendata if not $gendata =~ m {^/};
+        $gendata = Local::get_rqg_home() . "/" . $gendata if not $gendata =~ m {^/};
         # We run gendata with a ZZ grammar. So the value in $gendata is a file which must exist.
         if (not -f $gendata) {
             sayError("The file '$gendata' assigned to gendata does not exist or is no plain file.");
@@ -2178,7 +2047,7 @@ sub unify_gendata_sql {
         my $is_used   = 0;
         foreach my $file (@gendata_sql_files) {
             $is_used   = 1;
-            $file = $rqg_home . "/" . $file if not $file =~ m {^/};
+            $file = Local::get_rqg_home() . "/" . $file if not $file =~ m {^/};
             if (not -f $file) {
                 say("ERROR: The gendata_sql file '$file' does not exist or is not a plain file.");
                 $not_found = 1;
@@ -2192,7 +2061,7 @@ sub unify_gendata_sql {
         my $gendata_sql_file = $workdir . "/rqg.sql";
         if (not -f $gendata_sql_file and $is_used) {
             foreach my $file (@gendata_sql_files) {
-                $file = $rqg_home . "/" . $file if not $file =~ m {^/};
+                $file = Local::get_rqg_home() . "/" . $file if not $file =~ m {^/};
                 if (not -f $gendata_sql_file) {
                     if (not File::Copy::copy($file, $gendata_sql_file)) {
                         say("ERROR: Copying '$file' to '$gendata_sql_file' failed: $!");
@@ -2206,7 +2075,7 @@ sub unify_gendata_sql {
                         return undef;
                     } else {
                         if (not STATUS_OK ==
-                                Auxiliary::append_string_to_file($gendata_sql_file, $content)) {
+                                Basics::append_string_to_file($gendata_sql_file, $content)) {
                             say("ERROR: Appending the content of '$file' to '$gendata_sql_file' " .
                                 "failed.");
                             return undef;
@@ -2263,7 +2132,7 @@ sub unify_redefine {
         my $is_used   = 0;
         foreach my $file (@redefine_files) {
             $is_used   = 1;
-            $file = $rqg_home . "/" . $file if not $file =~ m {^/};
+            $file = Local::get_rqg_home() . "/" . $file if not $file =~ m {^/};
             if (not -f $file) {
                 say("ERROR: The redefine file '$file' does not exist or is not a plain file.");
                 $not_found = 1;
@@ -2277,7 +2146,7 @@ sub unify_redefine {
         my $redefine_file = $workdir . "/tmp_rqg_redefine.yy";
         if (not -f $redefine_file and $is_used) {
             foreach my $file (@redefine_files) {
-                $file = $rqg_home . "/" . $file if not $file =~ m {^/};
+                $file = Local::get_rqg_home() . "/" . $file if not $file =~ m {^/};
                 if (not -f $redefine_file) {
                     if (not File::Copy::copy($file, $redefine_file)) {
                         say("ERROR: Copying '$file' to '$redefine_file' failed: $!");
@@ -2291,7 +2160,7 @@ sub unify_redefine {
                         return undef;
                     } else {
                         if (not STATUS_OK ==
-                                Auxiliary::append_string_to_file($redefine_file, $content)) {
+                                Basics::append_string_to_file($redefine_file, $content)) {
                             say("ERROR: Appending the content of '$file' to '$redefine_file' " .
                                 "failed. Will return undef.");
                             return undef;
@@ -2320,7 +2189,7 @@ sub unify_grammar {
         Carp::cluck("INTERNAL ERROR: unify_grammar : Parameter grammar is not defined.");
         safe_exit($status);
     } else {
-        $grammar_file = $rqg_home . "/" . $grammar_file if not $grammar_file =~ m {^/};
+        $grammar_file = Local::get_rqg_home() . "/" . $grammar_file if not $grammar_file =~ m {^/};
         if (! -f $grammar_file) {
             my $status = STATUS_INTERNAL_ERROR;
             Carp::cluck("ERROR: Grammar file '$grammar_file' does not exist or is not a plain file.");
@@ -2364,14 +2233,14 @@ sub unify_grammar {
             my $final_grammar_obj = $grammar_obj->patch($masked_top);
             my $grammar2          = $final_grammar_obj->toString;
             # For experimenting/debugging
-            #   Auxiliary::make_file('k1', $grammar1);
-            #   Auxiliary::make_file('k2', $grammar2);
+            #   Basics::make_file('k1', $grammar1);
+            #   Basics::make_file('k2', $grammar2);
             $grammar_obj          = $final_grammar_obj;
         }
     }
     my $grammar_string = $grammar_obj->toString;
     $grammar_file = $workdir . "/rqg.yy";
-    if (STATUS_OK != Auxiliary::make_file($grammar_file, $grammar_string)) {
+    if (STATUS_OK != Basics::make_file($grammar_file, $grammar_string)) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("ERROR: We had trouble generating the final YY grammar.");
         safe_exit($status);
@@ -2419,6 +2288,10 @@ sub unify_rvt_array {
 
 # -----------------------------------------------------------------------------------
 sub check_filter {
+# FIXME:
+# Here is code missing.
+# If filter files get copied to the workdir of the RQG run (like final grammars) than
+# checking $workdir makes sense.
     my ($filter, $workdir) = @_;
     my $who_am_i = "Auxiliary::check_filter:";
     if (@_ != 2) {
@@ -2445,7 +2318,7 @@ sub check_filter {
         }
     }
 
-    $filter = $rqg_home . "/" . $filter if not $filter =~ m {^/};
+    $filter = Local::get_rqg_home() . "/" . $filter if not $filter =~ m {^/};
     # It is very unlikey that a duplicate $workdir/rqg.ff makes sense.
     if (not -f $filter) {
         sayError("The file '$filter' assigned to --filter does not exist or is no plain file." .
@@ -2927,11 +2800,18 @@ sub reapChildren {
         # - -1 if there is no such child process
         #   or on some systems, a return value of -1 could mean that child processes are
         #   being automatically reaped.
-        # - undef     Only once and typical for some box under extreme load.
+        # - undef     If ever only once and typical for some box under extreme load.
         #             Per experience the next waitpid call harvests the pid of the deceased process.
         # The status is returned in $?.
         $child = waitpid(-1, POSIX::WNOHANG);
-        $child = waitpid(-1, POSIX::WNOHANG) if not defind $child;
+        my $max_wait_time = 5;
+        my $wait_end = Time::HiRes::time() + $max_wait_time;
+        while (not defined $child and Time::HiRes::time() < $wait_end) {
+            sleep 0.1;
+            $child = waitpid(-1, POSIX::WNOHANG);
+        }
+        say("WARN: reapChildren : More as " . $max_wait_time . "s undef for waitpid got.")
+            if not defined $child;
     } while $child > 0;
 }
 
@@ -2946,6 +2826,23 @@ sub build_wrs {
     return "Will return status " . status2text($status) . "($status).";
 }
 
+sub get_fs_type {
+    my ($whatever_file) = @_;
+    my $fs_type;
+    if (not -e $whatever_file) {
+        say("INTERNAL ERROR: Whatever file 'whatever_file' does not exist.");
+        my $status = STATUS_INTERNAL_ERROR;
+        safe_exit($status);
+    }
+    if (osWindows()) {
+        return 'unknown';
+    } else {
+        my $cmd = "df --output=fstype " . $whatever_file . " | tail -1";
+        $fs_type = `$cmd`;
+        chomp $fs_type;
+        return $fs_type;
+    }
+}
 
 1;
 

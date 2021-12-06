@@ -868,33 +868,30 @@ sub startServer {
         if (defined $rr) {
             # The rqg runner has to check in advance that 'rr' is installed on the current box.
             my $rr_options = Runtime::get_rr_options();
-            $rr_options =    '' if not defined $rr_options;
-            $tool_startup =  10;
-            if ($rr ne Runtime::RR_TYPE_RQG) {
-                $rr_trace_dir =  $self->vardir . '/rr';
-                if (not -d $rr_trace_dir) {
-                    # Thinkable reason: We go with --start-diry.
-                    if (not mkdir $rr_trace_dir) {
-                        my $status = DBSTATUS_FAILURE;
-                        say("ERROR: startserver: Creating the 'rr' trace directory '$rr_trace_dir' " .
-                            "failed : $!. Will return status DBSTATUS_FAILURE" . "($status)");
-                        return $status;
-                    }
+            $rr_options = '' if not defined $rr_options;
+            $tool_startup = 10;
+            $rr_trace_dir = $self->vardir . '/rr';
+            if (not -d $rr_trace_dir) {
+                # Thinkable reason: We go with --start-diry.
+                if (not mkdir $rr_trace_dir) {
+                    my $status = DBSTATUS_FAILURE;
+                    say("ERROR: startserver: Creating the 'rr' trace directory '$rr_trace_dir' " .
+                        "failed : $!. Will return status DBSTATUS_FAILURE" . "($status)");
+                    return $status;
                 }
-                # In case of using 'rr' and core file generation enabled in addition
-                # - core files do not offer more information than already provided by rr traces
-                # - gdb -c <core file> <mysqld binary> gives sometimes rotten output from
-                #   whatever unknown reason
-                # - cores files consume ~ 1 GB in vardir (often located in tmpfs) temporary
-                #   And that is serious bigger than rr traces.
-                # So we prevent the writing of core files via ulimit for the case that making
-                # core files is dictated via server startup option.
-                # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
-                # in the DB server error log.
-                $command = "ulimit -c 0; rr record " . $rr_options . " --mark-stdio $command";
-            } else {
-                $command = "ulimit -c 0; $command";
             }
+            # In case of using 'rr' and core file generation enabled in addition
+            # - core files do not offer more information than already provided by rr traces
+            # - gdb -c <core file> <mysqld binary> gives sometimes rotten output from
+            #   whatever unknown reason
+            # - cores files consume ~ 1 GB in vardir (often located in tmpfs) temporary
+            #   And that is serious bigger than rr traces.
+            # So we prevent the writing of core files via ulimit.
+            # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
+            # in the DB server error log.
+            $command = "ulimit -c 0; rr record " . $rr_options . " --mark-stdio $command";
+            # say("DEBUG: ---- 1 ->" . $rr_options . "<-");
+            # say("DEBUG: ---- 2 ->" . $command . "<-");
         }
 
         if (exists $ENV{'RUNNING_UNDER_RR'} or defined $rr) {

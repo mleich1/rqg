@@ -1,4 +1,4 @@
-# Copyright (C) 2018, 2021 MariaDB corporation Ab. All rights reserved.
+# Copyright (C) 2018, 2021 MariaDB Corporation Ab. All rights reserved.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -126,6 +126,12 @@ $combinations = [ $grammars,
     ' --threads=2  ',
     ' --threads=9  ',
     ' --threads=33 ',
+  ],
+  [
+    '--mysqld=--transaction-isolation=READ-UNCOMMITTED',
+    '--mysqld=--transaction-isolation=READ-COMMITTED',
+    '--mysqld=--transaction-isolation=REPEATABLE-READ',
+    '--mysqld=--transaction-isolation=SERIALIZABLE'
   ],
   [
     # rr

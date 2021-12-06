@@ -1,7 +1,7 @@
 # Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights
 # reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018, MariaDB Corporation Program Ab.
+# Copyright (c) 2018, 2021 MariaDB Corporation Program Ab.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,7 +20,7 @@
 package GenTest;
 use base 'Exporter';
 
-@EXPORT = ('say', 'sayError', 'sayFile', 'tmpdir', 'settmpdir', 'safe_exit',
+@EXPORT = ('say', 'sayError', 'sayFile', 'tmpdir', 'set_tmpdir', 'safe_exit',
            'osWindows', 'osLinux', 'osSolaris', 'osMac',
            'isoTimestamp', 'isoUTCTimestamp', 'isoUTCSimpleTimestamp',
            'rqg_debug', 'unix2winPath',
@@ -51,35 +51,39 @@ my $ppFile;
 1;
 
 sub BEGIN {
-	foreach my $tmp ($ENV{TMP}, $ENV{TEMP}, $ENV{TMPDIR}, '/tmp', '/var/tmp', cwd()."/tmp" ) {
-		if (
-			(defined $tmp) &&
-			(-e $tmp)
-		) {
-			$tmpdir = $tmp;
-			last;
-		}
-	}
 
-	if (defined $tmpdir) {
-		if (
-			($^O eq 'MSWin32') ||
-			($^O eq 'MSWin64')
-		) {
-			$tmpdir = $tmpdir.'\\';
-		} else {
-			$tmpdir = $tmpdir.'/';
-		}
-	}
-
-	croak("Unable to locate suitable temporary directory.") if not defined $tmpdir;
-	
 	# persistent property file
 	if (! defined $ppFile) {
                 $ppFile=tmpnam();
         }
 	
 	return 1;
+}
+
+sub init {
+    foreach my $tmp ($ENV{TMP}, $ENV{TEMP}, $ENV{TMPDIR}, '/tmp', '/var/tmp', cwd()."/tmp" ) {
+        if (
+            (defined $tmp) &&
+            (-e $tmp)
+        ) {
+            $tmpdir = $tmp;
+            last;
+        }
+    }
+
+
+    if (defined $tmpdir) {
+        if (
+            ($^O eq 'MSWin32') ||
+            ($^O eq 'MSWin64')
+        ) {
+            $tmpdir = $tmpdir.'\\';
+        } else {
+            $tmpdir = $tmpdir.'/';
+        }
+    }
+
+    croak("Unable to locate suitable temporary directory.") if not defined $tmpdir;
 }
 
 sub new {
@@ -184,7 +188,7 @@ sub tmpdir {
 # Certain RQG tools or runner start, get than via sub BEGIN some tmpdir picked which
 # cannot fit to their use cases, calculate than some perfect tmpdir and need to
 # cause that this is used instead.
-sub settmpdir {
+sub set_tmpdir {
     my($new_tmpdir) = @_;
     $tmpdir = $new_tmpdir;
     say("DEBUG: tmpdir set to '$tmpdir'");

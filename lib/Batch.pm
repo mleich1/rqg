@@ -46,6 +46,7 @@ use GenTest;
 use File::Copy;
 use Cwd;
 use Auxiliary;
+use Local;
 use Verdict;
 use ResourceControl;
 use POSIX qw( WNOHANG );
@@ -154,7 +155,8 @@ sub check_and_set_discard_logs {
     ($discard_logs) = @_;
     say("INFO: discard_logs set to $discard_logs.");
 }
-my $dryrun;
+# my $dryrun;
+our $dryrun;
 sub check_and_set_dryrun {
     ($dryrun) = @_;
     if (defined $dryrun) {
@@ -1159,7 +1161,6 @@ sub reap_workers {
                 # and make some radical cleanup.
                 kill '-9', $worker_process_group;
 
-                my $rqg_vardir    = "$vardir"  . $rqg_appendix;
                 my $rqg_log       = "$rqg_workdir" . "/rqg.log";
                 my $rqg_job       = "$rqg_workdir" . "/rqg.job";
 
@@ -1310,9 +1311,11 @@ sub reap_workers {
                         "This should not happen.");
                 }
                 $verdict_collected++;
+                my $rqg_vardir = Local::get_rqg_fast_dir . $rqg_appendix;
+                drop_directory($rqg_vardir);
+                $rqg_vardir = Local::get_rqg_slow_dir . $rqg_appendix;
                 drop_directory($rqg_vardir);
                 drop_directory($rqg_workdir);
-
             } elsif (-1 == $kid) {
                 say("ALARM: RQG worker $worker_num was already reaped.");
                 worker_reset($worker_num);
@@ -1409,13 +1412,10 @@ sub check_rqg_runtime_exceeded {
 
 
 
-# Name of the convenience symlink if symlinking supported by OS
-my $symlink = "last_batch_workdir";
-
-
 # my $script_debug = 0;
 
-sub make_multi_runner_infrastructure {
+##############################
+sub make_infrastructure {
 #
 # Purpose
 # -------
@@ -1459,137 +1459,32 @@ sub make_multi_runner_infrastructure {
 # failure -- undef
 #
 
-    my ($general_workdir, $general_vardir, $run_id, $symlink_name) = @_;
+    ($workdir) = @_;
+    # my ($run_id, $symlink_name) = @_;
 
     my $snip_all     = "for batches of RQG runs";
     my $snip_current = "for the current batch of RQG runs";
 
-    $run_id = Auxiliary::get_run_id() if not defined $run_id;
-
-    my $general_binarch;
-
-    if (not defined $general_workdir or $general_workdir eq '') {
-        $general_workdir = cwd() . '/rqg_workdirs';
-        say("INFO: The general workdir $snip_all was not assigned. " .
-            "Will use the default '$general_workdir'.");
-    } else {
-        $general_workdir = Cwd::abs_path($general_workdir);
-    }
-    if (not -d $general_workdir) {
-        # In case there is a plain file with the name '$general_workdir' than we just fail in mkdir.
-        if (mkdir $general_workdir) {
-            say("DEBUG: The general workdir $snip_all '$general_workdir' " .
-                "created.") if Auxiliary::script_debug("B2");
-        } else {
-            say("ERROR: make_multi_runner_infrastructure : Creating the general workdir " .
-                "$snip_all '$general_workdir' failed: $!. Will return undef.");
-            return undef;
-        }
-    }
-
-    $general_binarch = $general_workdir . "/bin_archs";
-    if (not -e $general_binarch) {
-        if (mkdir $general_binarch) {
-            say("DEBUG: The general binarch $snip_all '$general_binarch' created.")
-                if Auxiliary::script_debug("B2");
-        } else {
-            say("ERROR: make_multi_runner_infrastructure : Creating the directory for archives of " .
-                "binaries '$general_binarch' failed: $!. Will return undef.");
-            return undef;
-        }
-    }
-
-    $workdir = $general_workdir . "/" . $run_id;
-    # Note: In case there is already a directory '$workdir' than we just fail in mkdir.
-    if (mkdir $workdir) {
-        say("DEBUG: The workdir $snip_current '$workdir' created.")
-            if Auxiliary::script_debug("B2");
-    } else {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Creating the workdir $snip_current '$workdir' failed: $!.\n " .
-            "This directory must not exist in advance.\n" .
-            Auxiliary::exit_status_text($status));
-        safe_exit($status);
-    }
-
-    if (not defined $general_vardir or $general_vardir eq '') {
-        $general_vardir = cwd() . '/rqg_vardirs';
-        say("INFO: The general vardir $snip_all was not assigned. " .
-            "Will use the default '$general_vardir'.");
-    } else {
-        $general_vardir = Cwd::abs_path($general_vardir);
-    }
-    if (not -d $general_vardir) {
-        # In case there is a plain file with the name '$general_vardir' than we just fail in mkdir.
-        if (mkdir $general_vardir) {
-            say("DEBUG: The general vardir $snip_all '$general_vardir' created.")
-                if Auxiliary::script_debug("B2");
-        } else {
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: make_multi_runner_infrastructure : Creating the general vardir " .
-                "$snip_all '$general_vardir' failed: $!. " .
-            Auxiliary::exit_status_text($status));
-            safe_exit($status);
-        }
-    }
-    $vardir = $general_vardir . "/" . $run_id;
-    # Note: In case there is already a directory '$vardir' than we just fail in mkdir.
-    if (mkdir $vardir) {
-        say("DEBUG: The vardir $snip_current '$vardir' created.") if Auxiliary::script_debug("B2");
-    } else {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Creating the vardir $snip_current '$vardir' failed: $!.\n " .
-            "This directory must not exist in advance!\n" .
-            Auxiliary::exit_status_text($status));
-        safe_exit($status);
-    }
-
-    # Convenience feature
-    # -------------------
-    # Make a symlink so that the last workdir used by some tool performing multiple RQG runs like
-    #    combinations.pl, bughunt.pl, simplify_grammar.pl
-    # is easier found.
-    # Creating the symlink might fail on some OS (see perlport) but should not abort our run.
-    unlink($symlink_name);
-    my $symlink_exists = eval { symlink($workdir, $symlink_name) ; 1 };
-
-
     # Files for bookkeeping of all the RQG runs somehow finished
     # ---------------------------------------------------------
     $result_file = $workdir . "/result.txt";
-    make_file($result_file, undef);
-    say("DEBUG: The result (summary) file '$result_file' was created.")
-        if Auxiliary::script_debug("B2");
-
+    if (STATUS_OK != Basics::make_file($result_file, undef)) {
+        safe_exit(STATUS_ENVIRONMENT_FAILURE);
+    } else {
+        say("DEBUG: The result (summary) file '$result_file' was created.")
+            if Auxiliary::script_debug("B2");
+    }
     $setup_file = $workdir . "/setup.txt";
-    make_file($setup_file, undef);
-    say("DEBUG: The setup (summary) file '$setup_file' was created.")
-        if Auxiliary::script_debug("B2");
-
-
-    # In case we have a combinations vardir without absolute path than ugly things happen:
-    # Real life example:
-    # vardir assigned to combinations.pl :
-    #    comb_storage/1525794903
-    # vardir planned by combinations.pl for the RQG test and created if required
-    #    comb_storage/1525794903/current_1
-    # vardir1 computed by combinations.pl for the first server + assigned to the RQG run
-    #    comb_storage/1525794903/current_1
-    # The real vardir used by the first server is finally
-    #    /work_m/MariaDB/bld_asan/comb_storage/1525794903/current_1/1
-    #
-    # The solution is to make the path to the vardir absolute (code taken from MTR).
-    unless ( $vardir =~ m,^/, or (osWindows() and $vardir =~ m,^[a-z]:[/\\],i) ) {
-        $vardir= cwd() . "/" . $vardir;
+    my $setup_file = $workdir . "/setup.txt";
+    if (STATUS_OK != Basics::make_file($setup_file, undef)) {
+        safe_exit(STATUS_ENVIRONMENT_FAILURE);
+    } else {
+        say("DEBUG: The setup (summary) file '$setup_file' was created.")
+            if Auxiliary::script_debug("B2");
     }
-    unless ( $workdir =~ m,^/, or (osWindows() and $workdir =~ m,^[a-z]:[/\\],i) ) {
-        $workdir= cwd() . "/" . $workdir;
-    }
-    say("INFO: Final workdir  : '$workdir'\n" .
-        "INFO: Final vardir   : '$vardir'");
-    return $workdir, $vardir, $general_binarch;
+
+    return STATUS_OK;
 }
-
 
 #---------------------------------------------------------------------------------------------------
 # The parent inits some routine and configures hereby what the goal of the current rqg_batch run is
@@ -2122,11 +2017,11 @@ sub reactivate_orders {
 # - further running MariaDB server which consume ressources and block ports etc.
 #
 sub copy_file {
-# Auxiliary::copy_file makes all checks and returns
+# Basics::copy_file makes all checks and returns
 # STATUS_OK or STATUS_FAILURE
 
     my ($source_file, $target_file) = @_;
-    if (Auxiliary::copy_file($source_file, $target_file)) {
+    if (Basics::copy_file($source_file, $target_file)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Copy operation failed. Will ask for emergency exit. " .
             Auxiliary::exit_status_text($status));
@@ -2135,11 +2030,11 @@ sub copy_file {
 }
 
 sub rename_file {
-# Auxiliary::rename_file makes all checks and returns
+# Basics::rename_file makes all checks and returns
 # STATUS_OK or STATUS_FAILURE
 
     my ($source_file, $target_file) = @_;
-    if (Auxiliary::rename_file($source_file, $target_file)) {
+    if (Basics::rename_file($source_file, $target_file)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Rename operation failed. Will ask for emergency exit. " .
             Auxiliary::exit_status_text($status));
@@ -2148,11 +2043,11 @@ sub rename_file {
 }
 
 sub make_file {
-# Auxiliary::make_file makes all checks and returns
+# Basics::make_file makes all checks and returns
 # STATUS_OK or STATUS_FAILURE
 
     my ($file_to_create, $string) = @_;
-    if (Auxiliary::make_file($file_to_create, $string)) {
+    if (Basics::make_file($file_to_create, $string)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: File create and write operation failed. Will ask for emergency exit. " .
             Auxiliary::exit_status_text($status));
@@ -2161,11 +2056,12 @@ sub make_file {
 }
 
 sub append_string_to_file {
-# Auxiliary::append_string_to_file makes all checks and returns
+# Basics::append_string_to_file makes all checks and returns
 # STATUS_OK or STATUS_FAILURE
+# We prepend here aborting all ongoing tests.
 
     my ($file, $string) = @_;
-    if (Auxiliary::append_string_to_file($file, $string)) {
+    if (Basics::append_string_to_file($file, $string)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Write to file operation failed. Will ask for emergency exit. " .
             Auxiliary::exit_status_text($status));

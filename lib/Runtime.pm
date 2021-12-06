@@ -61,10 +61,9 @@ sub get_connect_timeout {
 use constant RR_TYPE_DEFAULT            => 'Server';
 use constant RR_TYPE_SERVER             => 'Server';
 use constant RR_TYPE_EXTENDED           => 'Extended';
-use constant RR_TYPE_RQG                => 'RQG';
 
 use constant RR_TYPE_ALLOWED_VALUE_LIST => [
-      RR_TYPE_SERVER, RR_TYPE_EXTENDED, RR_TYPE_RQG,
+      RR_TYPE_SERVER, RR_TYPE_EXTENDED,
    ];
 
 our $rr;
@@ -82,6 +81,8 @@ our $valgrind_options;
 
 sub check_and_set_rr_valgrind {
     ($rr, $rr_options, $valgrind, $valgrind_options, my $batch_tool) = @_;
+                                                     # 1 -- rqg_batch.pl ist the caller
+                                                     # 0 -- rqg.pl ist the caller
 
     my $who_am_i = "Runtime::check_and_set_rr_valgrind: ";
 
@@ -140,11 +141,6 @@ sub check_and_set_rr_valgrind {
             $status = STATUS_ENVIRONMENT_FAILURE;
             return $status;
         }
-        if ($rr eq RR_TYPE_RQG and not defined $batch_tool) {
-            say("ERROR: $who_am_i Only 'rqg_batch.pl' supports the 'rr' invocation type '$rr'.");
-            $status = STATUS_ENVIRONMENT_FAILURE;
-            return $status;
-        }
         say("INFO: 'rr' invocation type '$rr'.");
         $rr_rules = 1;
         if (defined $rr_options) {
@@ -198,7 +194,6 @@ sub get_valgrind_options {
 }
 
 
-
 sub help_rr {
     print(
 "HELP: About how and when to invoke the tool 'rr' (https://rr-project.org/)\n"                     .
@@ -209,49 +204,18 @@ sub help_rr {
 "           Support by RQG runners: 'rqg.pl' only.\n"                                              .
 "           Any start of a regular DBServer will be done by 'rr record .... mysqld ...'.\n"        .
 "           Serious advantage: Small 'rr' traces like ~ 30 till 40 MB\n"                           .
-"           Disadvantages:\n"                                                                      .
-"           - No tracing of bootstrap, mariabackup or other processes being maybe of interest.\n"  .
-"           - Interweaving of events in different traced processes not good visible.\n"            .
+"           Disadvantage:\n"                                                                       .
+"           No tracing of bootstrap, mariabackup or other processes being maybe of interest.\n"  .
 "      --rr=" . RR_TYPE_EXTENDED . "\n"                                                            .
 "           Supported by 'rqg_batch.pl' which passes this setting through to the RQG runner\n"     .
 "           'rqg.pl'. No pass through to other RQG runners as long as the do not support it.\n"    .
 "           Any start of some essential program will be done by 'rr record ....'.\n"               .
 "              Bootstrap, server starts, soon mariabackup --prepare ... .\n"                       .
 "           Advantages:\n"                                                                         .
-"           - Smaller 'rr' traces than with --rr=" . RR_TYPE_RQG . " ?? MB\n"                      .
 "           - Cover more essential programs\n"                                                     .
 "           Disadvantages:\n"                                                                      .
 "           - No tracing of other processes being maybe of interest too.\n"                        .
 "           - Interweaving of events in different traced processes not good visible.\n"            .
-"      --rr=" . RR_TYPE_RQG . "\n"                                                                 .
-"           Supported by 'rqg_batch.pl' only.\n"                                                   .
-"           Call of the RQG runner like 'rr record perl <RQG runner> ...'.\n"                      .
-"           Hence we get 'rr' tracing of that perl process and all his children etc.\n"            .
-"           Advantages:\n"                                                                         .
-"           - All processes being maybe of interest get traced.\n"                                 .
-"             Good for: MariaDB replication, Galera, Mariabackup, certain RQG reporters\n"         .
-"           - Interweaving of events in different processes will be good visible.\n"               .
-"           - It works probably well for RQG runner != 'rqg.pl'.\n"                                .
-"           Serious disadvantage: Huge 'rr' traces like 2.5 TB.\n"                                 .
-"      Rules of thumb if assigning '--rr=" . RR_TYPE_RQG . "' to rqg_batch.pl\n"                   .
-"      - Do that only if being sure to replay some bad effect with a few RQG runs only.\n"         .
-"      - For the case that this does not hold because of whatever reason\n"                        .
-"        - Assign an upper limit (--trials) for the number of RQG runs.\n"                         .
-"        - Let rqg_batch.pl stop (--stop_on_replay) as soon as the first replay happened.\n"       .
-"        - Have a config file with a corresponding huge amount of 'unwanted' patterns.\n"          .
-"          'unwanted' results will not get archived.\n"                                           .
-"        - Observe the ongoing RQG runs and stop them in case too many archives get generated.\n"  .
-"      - Avoid having rqg_batch.pl/rqg.pl vardirs located on a SSD and also paging to SSD.\n"      .
-"      rqg_batch.pl --trials=<small number> --stop_on_replay <more options>.\n"                    .
-"      Warnings if assigning '--rr=" . RR_TYPE_RQG . "' to rqg_batch.pl\n"                         .
-"      1. 3000 RQG runs means ~ 7.5 TB 'rr' trace get written in the RQG vardir even if the\n"     .
-"         results are not of interest and get not archived.\n"                                      .
-"         And there will be a serious number of writes into server logs and data in addition.\n"   .
-"         Hence vardirs on SSD are most probably dangerous for the lifetime of the SSD.\n"         .
-"      2. Even having the vardirs on RAM based tmpfs and moving only compressed archives of RQG\n" .
-"         results of interest on SSD could be dangerous for that SSD.\n"                           .
-"         'rr' traces are nearly not compressible.\n"                                              .
-"         3000 RQG runs with 10% ending in generation of some archive mean ~ 0.75 TB written.\n\n" .
 "      --rr_options\n"                                                                             .
 "         A list of rr related options like\n"                                                     .
 "             --wait --chaos\n"                                                                    .
@@ -260,6 +224,5 @@ sub help_rr {
 "<to be traced program>\n"
     );
 }
-
 
 1;

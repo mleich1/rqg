@@ -161,6 +161,10 @@ if      (defined $config_file and defined $verdict_file) {
     # rqg_batch.pl uses that variant around begin of its work for generating its Verdict.cfg.
     $variant = 2;
     say("DEBUG: Verdict.pl call variant $variant") if Auxiliary::script_debug("V2");
+    if (not -d $workdir) {
+        say("ERROR: workdir ->$workdir<- was assigned but does not exist.");
+        safe_exit(STATUS_INTERNAL_ERROR);
+    }
     my $verdict_setup_text  = make_verdict_config($config_file);
     my $verdict_config_file;
     if ($workdir eq $rqg_home) {
@@ -169,9 +173,9 @@ if      (defined $config_file and defined $verdict_file) {
         $verdict_config_file = $workdir . "/" . Verdict::VERDICT_CONFIG_FILE;
     }
     unlink($verdict_config_file);
-    my $result = Auxiliary::make_file ($verdict_config_file, $verdict_setup_text);
+    my $result = Basics::make_file ($verdict_config_file, $verdict_setup_text);
     if (STATUS_OK != $result) {
-        # Auxiliary::make_file already reported the problem.
+        # Basics::make_file already reported the problem.
         safe_exit(STATUS_ENVIRONMENT_FAILURE);
     }
     exit STATUS_OK;
@@ -183,9 +187,9 @@ if      (defined $config_file and defined $verdict_file) {
     my $verdict_setup_text = make_verdict_config($config_file);
     my $verdict_config_file = $rqg_home . "/" . Verdict::VERDICT_CONFIG_TMP_FILE;
     unlink($verdict_config_file);
-    my $result = Auxiliary::make_file ($verdict_config_file, $verdict_setup_text);
+    my $result = Basics::make_file ($verdict_config_file, $verdict_setup_text);
     if (STATUS_OK != $result) {
-        # Auxiliary::make_file already reported the problem.
+        # Basics::make_file already reported the problem.
         safe_exit(STATUS_ENVIRONMENT_FAILURE);
     }
 } elsif (not defined $workdir     and defined $log_file and
@@ -197,9 +201,9 @@ if      (defined $config_file and defined $verdict_file) {
     my $verdict_setup_text  = make_verdict_config($verdict_general_config_file);
     my $verdict_config_file = $rqg_home . "/" . Verdict::VERDICT_CONFIG_TMP_FILE;
     unlink($verdict_config_file);
-    my $result = Auxiliary::make_file ($verdict_config_file, $verdict_setup_text);
+    my $result = Basics::make_file ($verdict_config_file, $verdict_setup_text);
     if (STATUS_OK != $result) {
-        # Auxiliary::make_file already reported the problem.
+        # Basics::make_file already reported the problem.
         safe_exit(STATUS_ENVIRONMENT_FAILURE);
     }
 } elsif (not defined $workdir     and defined $log_file and
@@ -211,6 +215,9 @@ if      (defined $config_file and defined $verdict_file) {
     my $content = Auxiliary::getFileSlice($verdict_file, 10000000);
     Verdict::load_verdict_config($content);
 } else {
+    # Bad example:
+    # /data/RQG_NEW/verdict.pl --workdir=/data/rqg/results/1630945004 \
+    #     --log=/data/rqg/results/1630945004/1/rqg.log
     say("ERROR: No idea what to do for the command:\n" . $command_line);
     help();
     safe_exit(STATUS_ENVIRONMENT_FAILURE);

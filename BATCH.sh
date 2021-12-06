@@ -38,7 +38,6 @@ then
    CASE=`basename $CASE0 .cc`
 fi
 
-
 # Path to MariaDB binaries
 BASEDIR1="$2"
 if [ "$BASEDIR1" = "" ]
@@ -68,27 +67,6 @@ fi
 
 PROT="$CASE""-""$BASEDIR1_NAME"".prt"
 
-# My standard work directory for rqg_batch.pl.
-# The workdirs for ongoing RQG runs are in its sub directories.
-# The BATCH_WORKDIR is also for permanent storing results and similar.
-BATCH_WORKDIR="storage"
-if [ ! -d "$BATCH_WORKDIR" ]
-then
-   mkdir $BATCH_WORKDIR
-fi
-
-# My standard var directory on tmpfs (recommended) for rqg_batch.pl.
-# The vardirs for ongoing RQG runs are in its sub directories.
-# rqg_batch.pl cleans BATCH_VARDIR except it gets killed or dies because of internal error.
-BATCH_VARDIR="/dev/shm/vardir"
-if [ ! -d "$BATCH_VARDIR" ]
-then
-   mkdir $BATCH_VARDIR
-fi
-
-set +e
-
-
 # Go with heavy load in case the rqg_batch.pl ResourceControl allows it.
 # The rqg_batch.pl ResourceControl should be capable to avoid trouble with resources.
 # Per experience:
@@ -111,6 +89,7 @@ if [ $PARALLEL -gt 270 ]
 then
    PARALLEL=270
 fi
+set +e
 
 # The size of a testing campaign is controlled by four limiters.
 # --------------------------------------------------------------
@@ -129,7 +108,7 @@ TRIALS=10000
 # RQG batch run elapsed runtime =
 #    assigned max_runtime
 # +  time for stopping the active RQG Workers + cleanup (usually less than 5 seconds)
-MAX_RUNTIME=3600
+MAX_RUNTIME=18000
 
 
 # Only one temporary 'God' (rqg_batch.pl vs. concurrent MTR, single RQG or whatever) on testing box
@@ -140,38 +119,8 @@ MAX_RUNTIME=3600
 # clash on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files) or
 # suffer from tmpfs full etc.
 killall -9 perl ; killall -9 mysqld mariadbd
-rm -rf /dev/shm/var*
+rm -rf /dev/shm/var* /dev/shm/rqg/*
 
-############################################################
-if [ "$PWD" = "$BATCH_VARDIR" ]
-then
-   echo "ERROR: Current working directory equals BATCH_VARDIR '$BATCH_VARDIR'."
-   echo "The call was ->$CALL_LINE<-"
-   exit
-fi
-if [ "$BASEDIR1" = "$BATCH_VARDIR" ]
-then
-   echo "ERROR: BASEDIR1 equals BATCH_VARDIR '$BATCH_VARDIR'."
-   echo "The call was ->$CALL_LINE<-"
-   exit
-fi
-if [ "$BATCH_WORKDIR" = "$BATCH_VARDIR" ]
-then
-   echo "ERROR: BASEDIR1 equals BATCH_VARDIR '$BATCH_VARDIR'."
-   echo "The call was ->$CALL_LINE<-"
-   exit
-fi
-#############################################################
-
-# In case the cleanup above is disabled than at least this.
-rm -rf $BATCH_VARDIR/1*
-
-# There should be usually sufficient space in VARDIR for just a few fat core files caused by ASAN.
-# Already the RQG runner will take care that everything important inside his VARDIR will be
-# saved in his WORKDIR and empty his VARDIR. rqg_batch.pl will empty the VARDIR of this RQG
-# runner again. So the space comsumption of a core is only temporary.
-# The rqg_batch.pl ResourceControl will also take care to avoid VARDIR full.
-# If its not an ASAN build than this environment variable is harmless anyway.
 export ASAN_OPTIONS=abort_on_error=1,disable_coredump=0
 echo "Have set "`env | grep ASAN`
 
@@ -237,6 +186,14 @@ set -o pipefail
 #
 # 8. Use "rr" (https://github.com/mozilla/rr/wiki/Usage) for tracing DB servers and other
 #    programs.
+#    RECOMMENDATION:
+#    Assign within
+#    - the RQG Batch config file when rr should be invoked including rr options which
+#      are independent of the testing box
+#      Please be aware that some increasing number of such config files already do this.
+#    - rr options which are dependent of the testing box
+#         Example: --microarch="Intel Kabylake"
+#      in local.cfg
 #
 #    "rr" tracing of all servers started ( lib/DBServer/MySQL/MySQLd.pm    sub startServer)
 #    This is the default.
@@ -247,13 +204,6 @@ set -o pipefail
 #    Preserve the 'rr' traces of the bootstrap, server starts and mariabackup calls.
 #    This is the optimal setting for InnoDB QA.
 # --rr=Extended                                                        \
-#
-#    Make a 'rr' trace of the complete RQG run like even of the perl code of the RQG runner.
-#    This leads to a huge space consumption (example: 2.6 GB for traces + datadir) during the
-#    RQG test runtime but
-#    - gives a better overview of the interdependence of component activities
-#    - traces also the activities of MariaDB replication or Galera
-# --rr=RQG                                                             \
 #
 #    "rr" checks which CPU is used in your box.
 #    In case your version of "rr" is too old or your CPU is too new than the check might fail
@@ -268,10 +218,7 @@ set -o pipefail
 # --rr_options='--chaos'                                               \
 #
 #    The combination "--chaos --wait" is currently studied
-# --rr_options='--chaos --wait'                                       \
-#
-# Please be aware that some increasing number of Combinations config files already
-# enable the use of "rr".
+# --rr_options='--chaos --wait'                                        \
 #
 # 9. SQL tracing within RQG (Client side tracing)
 # --sql_trace=Simple                                                   \
@@ -283,16 +230,15 @@ set -o pipefail
 
 # In case you distrust the rqg_batch.pl mechanics or the config file etc. than going with some
 # limited number of trials is often useful.
+# TRIALS=3
+# PARALLEL=2
 # TRIALS=2
 # PARALLEL=2
 # TRIALS=1
 # PARALLEL=1
 #
 
-# nohup perl -w ./rqg_batch.pl                                           \
-nohup perl ./rqg_batch.pl                                              \
---workdir=$BATCH_WORKDIR                                               \
---vardir=$BATCH_VARDIR                                                 \
+nohup perl -w ./rqg_batch.pl                                           \
 --parallel=$PARALLEL                                                   \
 --basedir1=$BASEDIR1                                                   \
 --basedir2=$BASEDIR2                                                   \

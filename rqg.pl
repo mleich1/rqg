@@ -53,7 +53,7 @@ $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
 $Carp::MaxArgNums= 8;
 
-use constant RQG_RUNNER_VERSION  => 'Version 3.4 (2021-09)';
+use constant RQG_RUNNER_VERSION  => 'Version 4.0.4 (2021-12)';
 use constant STATUS_CONFIG_ERROR => 199;
 
 use strict;
@@ -61,8 +61,9 @@ use GenTest;
 use Auxiliary;
 use Verdict;
 use Runtime;
+use Basics;
+use Local;
 use SQLtrace;
-# use GenTest::BzrInfo;
 use GenTest::Constants;
 use GenTest::Properties;
 use GenTest::App::GenTest;
@@ -72,30 +73,12 @@ use DBServer::MySQL::MySQLd;
 use DBServer::MySQL::ReplMySQLd;
 use DBServer::MySQL::GaleraMySQLd1; # My version
 
-Auxiliary::check_and_set_rqg_home($rqg_home);
+Local::check_and_set_rqg_home($rqg_home);
 
 
 #--------------------
 use GenTest::Grammar;
 #--------------------
-
-# TODO:
-# Direct
-# - nearly all output to $workdir/rqg.log
-#   This would be
-#   - clash free in case a clash free $workdir is assigned.
-#   - not clash free in case $workdir is not assigned -> pick cwd().
-#     But than we should have no parallel RQG runs anyway and
-#     additional clashes on vardirs etc. are to be feared too.
-# - rare and only early and late output to STDOUT.
-#   This can than be merged into the output of some upper level caller
-#   like combinations.pl.
-# Example:
-# 1. combinations.pl reports that it calls rqg.pl.
-# 2. rqg.pl reports into combinations.pl that it has taken over.
-# 3. rqg.pl does its main work and reports into $workdir/rqg.log.
-# 4. rqg.pl reports at end something of interest into combinations.pl.
-#
 
 my $logger;
 eval
@@ -110,14 +93,6 @@ if (osWindows()) {
     $SIG{CHLD} = "IGNORE";
 }
 
-if (defined $ENV{RQG_HOME}) {
-    if (osWindows()) {
-        $ENV{RQG_HOME} = $ENV{RQG_HOME}.'\\';
-    } else {
-        $ENV{RQG_HOME} = $ENV{RQG_HOME}.'/';
-    }
-}
-
 use Getopt::Long;
 use DBI;
 
@@ -128,9 +103,6 @@ my $message;
 # A summary consisting of a few grep friendly lines to be printed around end of the RQG run.
 my $summary = '';
 
-# job_file is use for auxiliary purposes
-my $job_file;
-
 # This is the "default" database. Connects go into that database.
 my $database = 'test';
 # Connects which do not specify a different user use that user.
@@ -139,8 +111,9 @@ my $database = 'test';
 my $user     = 'root';
 my @dsns;
 
-my (@basedirs, @mysqld_options, @vardirs, $rpl_mode,
-    @engine, $help, $help_vardir, $help_sqltrace, $debug, @validators, @reporters, @transformers,
+my (@basedirs, @mysqld_options, @vardirs, $vardir_type, $rpl_mode, $major_runid, $minor_runid,
+    $batch,
+    @engine, $help, $help_vardir_type, $help_sqltrace, $debug, @validators, @reporters, @transformers,
     $grammar_file, $skip_recursive_rules,
     @redefine_files, $seed, $mask, $mask_level, $rows,
     $varchar_len, $xml_output, $valgrind, $valgrind_options, @vcols, @views,
@@ -160,7 +133,6 @@ my $genconfig = ''; # if template is not set, the server will be run with --no-d
 # Place rather into the preset/default section for all variables.
 my $threads;
 my $default_threads         = 10;
-# my $queries;
 my $default_queries         = 100000000;
 my $duration;
 my $default_duration        = 3600;
@@ -173,7 +145,7 @@ my @ARGV_saved = @ARGV;
 # the difference "_" and "-".
 
 # say("DEBUG: Before reading commannd line options");
-# say("\@ARGV_saved : " . join(' ',@ARGV_saved));
+# say("\@ARGV before: " . join(' ',@ARGV_saved));
 
 # Take the options assigned in command line and
 # - fill them into the variables allowed in command line
@@ -188,7 +160,10 @@ my $opt_result = {};
 
 if (not GetOptions(
     $opt_result,
-    'workdir:s'                   => \$workdir,
+#   'workdir:s'                   => \$workdir,
+    'major_runid:s'               => \$major_runid,
+    'minor_runid:s'               => \$minor_runid,
+    'batch'                       => \$batch,
     'mysqld=s@'                   => \$mysqld_options[0],
     'mysqld1=s@'                  => \$mysqld_options[1],
     'mysqld2=s@'                  => \$mysqld_options[2],
@@ -197,7 +172,8 @@ if (not GetOptions(
     'basedir1=s'                  => \$basedirs[1],
     'basedir2=s'                  => \$basedirs[2],
     'basedir3=s'                  => \$basedirs[3],
-    #'basedir=s@'                 => \@basedirs,
+#   'basedir=s@'                 => \@basedirs,
+    'vardir_type:s'               => \$vardir_type,
     'vardir=s'                    => \$vardirs[0],
 #   'vardir1=s'                   => \$vardirs[1], # used internal only
 #   'vardir2=s'                   => \$vardirs[2], # used internal only
@@ -221,7 +197,7 @@ if (not GetOptions(
     'duration=i'                  => \$duration,
     'help'                        => \$help,
     'help_sqltrace'               => \$help_sqltrace,
-    'help_vardir'                 => \$help_vardir,
+    'help_vardir_type'            => \$help_vardir_type,
     'debug'                       => \$debug,
     'validators=s@'               => \@validators,
     'reporters=s@'                => \@reporters,
@@ -292,7 +268,7 @@ if (not GetOptions(
     'script_debug:s'              => \$script_debug_value,
     )) {
     if (not defined $help and not defined $help_sqltrace and
-        not defined $help_vardir) {
+        not defined $help_vardir_type) {
         help();
         exit STATUS_CONFIG_ERROR;
     }
@@ -306,14 +282,13 @@ if ( defined $help_sqltrace) {
     SQLtrace::help();
     exit STATUS_OK;
 }
-if ( defined $help_vardir) {
-    help_vardir();
+if ( defined $help_vardir_type) {
+    Local::help_vardir_type();
     exit STATUS_OK;
 }
 
 # say("DEBUG: After reading command line options");
 # say("\@ARGV after : " . join(' ',@ARGV));
-
 
 # Support script debugging as soon as possible and print its value.
 $script_debug_value = Auxiliary::script_debug_init($script_debug_value);
@@ -323,7 +298,37 @@ $threads =         $default_threads         if not defined $threads;
 $duration =        $default_duration        if not defined $duration;
 $max_gd_duration = $default_max_gd_duration if not defined $max_gd_duration;
 
-# say("DEBUG: After reading command line options");
+$batch = 0 if not defined $batch;
+if (defined $batch and $batch != 0) {
+    say("DEBUG: The RQG run seems to be under control of RQG Batch.");
+    if (not defined $major_runid) {
+        say("ERROR: \$batch : $batch but major_runid is undef");
+        safe_exit(STATUS_INTERNAL_ERROR);
+    }
+} else {
+    $batch = 0;
+    say("DEBUG: This seems to be a stand alone RQG run.");
+}
+if (defined $major_runid) {
+    say("DEBUG: major_runid : ->$major_runid<-");
+}
+if (defined $minor_runid) {
+    say("DEBUG: minor_runid : ->$minor_runid<-");
+}
+
+# Read local.cfg
+# 1. clean and generate some share of the required infrastructure if batch=0
+# 2. check some share of the infrastructure
+Local::check_and_set_local_config($major_runid, $minor_runid, $vardir_type, $batch);
+$workdir = Local::get_results_dir();
+# say("DEBUG: workdir ->" . $workdir . "<-");
+$vardirs[0] = Local::get_vardir;
+# say("DEBUG: vardirs[0] ->" . $vardirs[0] . "<-");
+
+$rr_options = $rr_options . " " . Local::get_rr_options_add() if defined $rr_options;
+# say("DEBUG: rr_options after processing additions ->" . $rr_options . "<-");
+my $rqg_rr_add = Local::get_rqg_rr_add();
+# say("DEBUG: rqg_rr_add after processing vardir_type ->" . $rqg_rr_add . "<-");
 
 my $status = Runtime::check_and_set_rr_valgrind ($rr, $rr_options, $valgrind, $valgrind_options, 0);
 if ($status != STATUS_OK) {
@@ -334,29 +339,9 @@ if ($status != STATUS_OK) {
 
 my $rr_rules = Runtime::get_rr_rules;
 
-# FIXME: Make $workdir mandatory??
-if (not defined $workdir) {
-    $workdir = Cwd::getcwd() . "/workdir_" . $$;
-    say("INFO: The RQG workdir was not defined. Setting it to '$workdir' and removing+creating it.");
-    if(-d $workdir) {
-        if(not File::Path::rmtree($workdir)) {
-            say("ERROR: Removal of the tree '$workdir' failed. : $!.");
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("$0 will exit with exit status " . status2text($status) . "($status)");
-            safe_exit($status);
-        }
-        say("DEBUG: The already existing RQG workdir '$workdir' was removed.");
-    }
-    if (mkdir $workdir) {
-        say("DEBUG: The RQG workdir '$workdir' was created.");
-    } else {
-        say("ERROR: Creating the RQG workdir '$workdir' failed : $!.");
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("$0 will exit with exit status " . status2text($status) . "($status)");
-        safe_exit($status);
-    }
-
-    my $result = Auxiliary::make_rqg_infrastructure($workdir);
+my $result;
+if (not $batch) {
+    $result = Auxiliary::make_rqg_infrastructure($workdir);
     if ($result) {
         say("ERROR: Auxiliary::make_rqg_infrastructure failed with $result.");
         my $status = STATUS_ENVIRONMENT_FAILURE;
@@ -364,7 +349,7 @@ if (not defined $workdir) {
         safe_exit($status);
     }
 }
-my $result = Auxiliary::check_rqg_infrastructure($workdir);
+$result = Auxiliary::check_rqg_infrastructure($workdir);
 if ($result) {
     say("ERROR: Auxiliary::check_rqg_infrastructure failed with $result.");
     my $status = STATUS_ENVIRONMENT_FAILURE;
@@ -372,8 +357,13 @@ if ($result) {
     safe_exit($status);
 }
 
-
-$job_file = $workdir . "/rqg.job";
+# Jump into $vardirs[0]).
+# Main reason: Clients which fail should not dump core files direct into $RQG_HOME.
+if (not chdir($vardirs[0])) {
+    say("INTERNAL ERROR: chdir to '$vardirs[0]' failed with : $!\n" .
+        "         Will return STATUS_INTERNAL_ERROR.");
+    return STATUS_INTERNAL_ERROR;
+}
 
 say("INFO: RQG workdir : '$workdir' and infrastructure is prepared.");
 ####################################################################################################
@@ -413,7 +403,7 @@ if (STATUS_OK != $return){
 # say("DEBUG: RQG phase is '$return'");
 
 if (defined $scenario) {
-    # WARNING: run-scenario.pl does not know of stuff set in Runtime.pm
+    # WARNING: run-scenario.pl does not know of stuff set in Runtime.pm or Local.pm
     system("perl $ENV{RQG_HOME}/run-scenario.pl @ARGV_saved");
     exit $? >> 8;
 }
@@ -449,7 +439,7 @@ say("Please see http://forge.mysql.com/wiki/Category:RandomQueryGenerator for mo
 # 2018-11-16T10:28:26 [200006] # --mysqld=--connect_timeout=60 \
 #    Do not add a space after the '\' around line end. Otherwise when converting the printout to
 #    a shell script the shell assumes command end after the '\ '.
-# - rqg_options value does not get replaced by the effective value
+# - rqg_options value does not get replaced by the effective value (affected by rqg_options_add)
 # - vardir_type gets maybe printed
 # say("Starting \n# $0 \\\n# " . join(" \\\n# ", @ARGV_saved));
 $message = "# -------- Informations useful for bug reports --------------------------------------" .
@@ -573,7 +563,6 @@ if (defined $filter) {
 #
 # Calculate master and slave ports based on MTR_BUILD_THREAD (MTR Version 1 behaviour)
 #
-
 $build_thread = Auxiliary::check_and_set_build_thread($build_thread);
 if (not defined $build_thread) {
     my $status = STATUS_ENVIRONMENT_FAILURE;
@@ -583,9 +572,10 @@ if (not defined $build_thread) {
 
 # Experiment (adjust to actual MTR, 2019-08) begin
 # Reasons:
-# 1. Galera Clusters at least up till 3 DB servers should be supported.
+# 1. Galera Clusters: At least up till 3 DB servers should be supported.
 # 2. var/my.cnf generated by certain MTR tests could be used as template for setup in RQG.
-# Original: my @ports = (10000 + 10 * $build_thread, 10000 + 10 * $build_thread + 2, 10000 + 10 * $build_thread + 4);
+# Original:
+# my @ports = (10000 + 10 * $build_thread, 10000 + 10 * $build_thread + 2, 10000 + 10 * $build_thread + 4);
 my @ports = (10000 + 20 * $build_thread, 10000 + 20 * $build_thread + 1, 10000 + 20 * $build_thread + 2);
 # Experiment end
 
@@ -678,42 +668,6 @@ $info .= Auxiliary::get_git_info($rqg_home);
 $info .= "\n" . Auxiliary::get_all_basedir_infos(@basedirs);
 say($info);
 
-# Other semantics ?
-# $vardirs[0] set
-#    The RQG runner creates and destroys the required vardirs as subdirs below $vardirs[0].
-# $vardirs[>0] set
-#    The RQG runner will use that vardir. Create/destroy would be ok but what if start-dirty?
-# rmtree or not? What if somebody assigns some valuable dir?
-if (not defined $vardirs[0] or $vardirs[0] eq '') {
-    say("INFO: 'vardirs' is not defined or eq ''. But we need some vardir for the RQG run and " .
-        "its servers.");
-    $vardirs[0] = $workdir . "/vardir";
-    say("INFO: Setting 'vardirs' to its default '$vardirs[0]'.");
-    if(-d $vardirs[0]) {
-        if(not File::Path::rmtree($vardirs[0])) {
-            say("ERROR: Removal of the tree ->" . $vardirs[0] . "<- failed. : $!.");
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            run_end($status);
-        }
-        say("DEBUG: The already existing RQG vardir ->" . $vardirs[0] . "<- was removed.");
-    }
-    if (mkdir $vardirs[0]) {
-        say("DEBUG: The RQG vardir ->" . $vardirs[0] . "<- was created.");
-    } else {
-        say("ERROR: Creating the RQG vardir ->" . $vardirs[0] . "<- failed : $!.");
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        run_end($status);
-    }
-}
-if (not -e $vardirs[0]) {
-    if (mkdir $vardirs[0]) {
-        say("DEBUG: The RQG vardir ->" . $vardirs[0] . "<- was created.");
-    } else {
-        say("ERROR: Creating the RQG vardir ->" . $vardirs[0] . "<- failed : $!.");
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        run_end($status);
-    }
-}
 foreach my $number (1..$number_of_servers) {
     $vardirs[$number] = $vardirs[0] . '/' . $number;
 }
@@ -750,7 +704,8 @@ Auxiliary::print_list("INFO: Final RQG vardirs ",  @vardirs);
 # Put into environment so that child processes will compute via GenTest.pm right.
 # Unfortunately its too late because GenTest.pm was already initialized.
 $ENV{'TMP'} = $vardirs[0];
-# Modify direct so that we get rid of crap values.
+# Modify direct via GenTest::init so that we get rid of crap values.
+GenTest::init;
 say("tmpdir in GenTest ->" . GenTest::tmpdir() . "<-");
 say("tmpdir in DBServer ->" . DBServer::DBServer::tmpdir() . "<-");
 
@@ -808,6 +763,8 @@ if (not defined $engine[0]) {
 
 push @{$mysqld_options[0]}, "--sql-mode=no_engine_substitution"
     if join(' ', @ARGV_saved) !~ m{(sql-mode|sql_mode)}io;
+push @{$mysqld_options[0]}, $rqg_rr_add
+    if $rqg_rr_add ne '';
 
 foreach my $i (1..3) {
     @{$mysqld_options[$i]} = ( defined $mysqld_options[$i]
@@ -1737,6 +1694,11 @@ if ($final_result == STATUS_OK) {
     # Shutdown, maybe file backup, Restart but now including rr/valgrind/...
     my $start_time = time();
     $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENTEST);
+    if (STATUS_OK != $return) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("$0 will exit with exit status " . status2text($status) . "($status)");
+        exit_test($status);
+    }
     $gentest_result = $gentest->doGenTest();
     say("GenTest returned status " . status2text($gentest_result) . " ($gentest_result)");
     $final_result = $gentest_result;
@@ -1817,10 +1779,10 @@ if (($final_result == STATUS_OK)                         and
     }
 
 #   foreach my $i (0..$#server) {
-#      say("MLML: server " . $server[$i])
+#      say("DEBUG: server " . $server[$i])
 #   }
     # The facts that
-    # - the servers are running (detection of trouble in gentest)
+    # - the servers are alive
     # - reporters and validators did not detect trouble during gentest runtime
     #   But not all setups   (can have) or (can have and than also use) sensitive reporters ...
     # - waitForSlaveSync for synchronous MariaDB replication passed
@@ -1836,7 +1798,7 @@ if (($final_result == STATUS_OK)                         and
             # As soon as the caller takes care that any running rqg.pl uses his own exclusive
             # $rqg_vardir and $rqg_wordir + dumpfiles in $rqg_vardir it must be clash free.
             # The numbering of servers -> name of subdir for data etc. starts with 1!
-            $dump_files[$i] = tmpdir() . ($i + 1) . "/DB.dump";
+            $dump_files[$i] = GenTest::tmpdir() . ($i + 1) . "/DB.dump";
             my $result = $server[$i]->nonSystemDatabases1;
             if (not defined $result) {
                 say("ERROR: Trouble running SQL on Server " . ($i + 1) .
@@ -2183,7 +2145,7 @@ $0 - Run a complete random query generation (RQG) test.
                      Some directory assigned: We use the assigned directory and expect that certain files already exist.
     --help         : This help message
     --help_sqltrace : help about SQL tracing by RQG
-    --help_vardir   : help about the parameter vardir
+    --help_vardir_type   : help about the parameter vardir
 
 EOF
     ;
@@ -2228,44 +2190,12 @@ sub run_end {
     say($summary);
     # $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_COMPLETE);
     say("$0 will exit with exit status " . status2text($status) . "($status)");
+    # There might be failures in the process handling of the RQG mechanics.
+    # So better try to kill all left over processes having the same process group
+    # but not the current process.
+    kill '-9', $$;
+    Auxiliary::reapChildren;
     safe_exit($status);
-}
-
-sub help_vardir {
-
-   say("HELP: The vardir of the RQG run ('vardir').\n"                                             .
-       "      The vardirs of all database servers will be created as sub directories within "      .
-       "that directory.\n"                                                                         .
-       "      Also certain dumps, temporary files (variable tmpdir in RQG code) etc. will be "     .
-       "placed there.\n"                                                                           .
-       "      RQG tools and the RQG runners feel 'free' to destroy or create the vardir whenever " .
-       "they want.\n"                                                                              .
-       "      The parent directory of 'vardir' must exist in advance.\n"                           .
-       "      The recommendation is to assign some directory placed on some filesystem which "     .
-       "satisfies your needs.\n"                                                                   .
-       "      Example 1:\n"                                                                        .
-       "         Higher throughput and/or all CPU cores heavy loaded gives better results. "       .
-       "(very often)\n"                                                                            .
-       "         AND\n"                                                                            .
-       "         The RQG test does not consume much storage space during runtime. (often)\n"       .
-       "         Use some vardir placed on a RAM based filesystem(tmpfs) like '/dev/shm/vardir'."  .
-       "      Example 2:\n"                                                                        .
-       "         Slow responding IO system towards data storage gives better results. (rare)\n"    .
-       "         OR\n"                                                                             .
-       "         The RQG test does consume much storage space during runtime. (sometimes)\n"       .
-       "         Use some vardir placed on a disk based filesystem like <RQG workdir>/vardir.\n"   .
-       "         Having the vardir on some SSD is not recommended because RQG runs would write\n"  .
-       "         there a huge amount of data and IO is there maybe not slow enough.\n"             .
-       "      Default(sometimes sub optimal because test properties and your needs are not known " .
-       "to RQG)\n"                                                                                 .
-       "         <RQG workdir>/vardir\n"                                                           .
-       "      Why is it no more supported to set the vardir<n> for the DB servers within the "     .
-       "RQG call?\n"                                                                               .
-       "      - Maximum safety against concurrent activity of other RQG and MTR tests could be\n"  .
-       "        only ensured if the RQG run uses vardirs for servers which are specific to the\n"  .
-       "        RQG run. Just assume the ugly case that concurrent tests create/destroy/modify\n"  .
-       "        in <release>/mysql-test/var.\n"                                                    .
-       "      - Creating/Archiving/Removing only one directory 'vardir' only is easier.");
 }
 
 1;

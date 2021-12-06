@@ -1,8 +1,11 @@
 #!/bin/bash
 
+
 # Please see this shell script rather as template how to call rqg_batch.pl even though
 # it might be already in its current state sufficient for doing a lot around RQG.
 #
+# Example for what to generate:
+# perl rqg_batch.pl --config=short_weg1.cc --trials=50 --basedir1=/Server_bin/10.6_asan/ --duration=100 --rr 2>&1 | tee batch.prt
 
 export LANG=C
 
@@ -296,26 +299,27 @@ set -o pipefail
 
 # In case you distrust the rqg_batch.pl mechanics or the config file etc. than going with some
 # limited number of trials is often useful.
-# TRIALS=2
-# PARALLEL=2
 # TRIALS=1
 # PARALLEL=1
+# TRIALS=2
+# PARALLEL=2
+# TRIALS=3
+# PARALLEL=2
 #
 
 nohup perl -w ./rqg_batch.pl                                           \
---workdir=$BATCH_WORKDIR                                               \
---vardir=$BATCH_VARDIR                                                 \
 --parallel=$PARALLEL                                                   \
 --basedir1=$BASEDIR1                                                   \
 $GRAMMAR_PART                                                          \
 --config=$CONFIG                                                       \
   --trials=$TRIALS                                                     \
+  --parallel=$PARALLEL                                                 \
   --noarchiving                                                        \
   --discard_logs                                                       \
 --type=RQG_Simplifier                                                  \
 --no-mask                                                              \
 --script_debug=_nix_                                                   \
-> $PROT 2>&1 &
+2>&1 > $PROT &
 
 # Avoid that "tail -f ..." starts before the file exists.
 STATE=2

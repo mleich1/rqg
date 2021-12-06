@@ -9,33 +9,10 @@ export LANG=C
 USAGE="USAGE: $0 <Basedir>"
 CALL_LINE="$0 $*"
 
-# killall -9 perl ; killall -9 mysqld ;  killall -9 rr ; rm -rf /dev/shm/var_*
+# killall -9 perl ; killall -9 mysqld ;  killall -9 rr ; rm -rf /dev/shm/var* /dev/shm/rqg
 
-set -e
 RQG_HOME=`pwd`
 RUNID=SINGLE_RQG
-VARDIR="/dev/shm/vardir/""$RUNID"
-rm -rf $VARDIR ;
-mkdir -p $VARDIR
-if [ ! -d $VARDIR ]
-then
-   echo "The attempt to create the VARDIR '$VARDIR' failed"
-   exit
-fi
-
-# Prevent the traditional pollution of directories with remainings of
-# historic, current and future RQG runs.
-TMP="$VARDIR"
-export TMP
-
-WORKDIR="storage/""$RUNID"
-rm -rf $WORKDIR
-mkdir -p $WORKDIR
-touch $WORKDIR/rqg.log
-touch $WORKDIR/rqg.job
-touch $WORKDIR/rqg_phase.init
-touch $WORKDIR/rqg_verdict.init
-set +e
 
 # Path to MariaDB binaries
 BASEDIR1="$1"
@@ -100,46 +77,51 @@ then
    exit
 fi
 
-perl -w ./rqg.pl                                                               \
---seed=random                                                                  \
---queries=1000000                                                              \
---reporter=ErrorLog,Backtrace,Deadlock1,None                                   \
---validator=None                                                               \
---duration=100                                                                 \
---gendata="$ZZ_GRAMMAR"                                                        \
---gendata_sql="$SQL_GRAMMAR"                                                   \
---grammar="$YY_GRAMMAR"                                                        \
---basedir1="$BASEDIR1"/                                                        \
-$BASEDIR2_SETTING                                                              \
---mysqld=--innodb_lock_schedule_algorithm=fcfs                                 \
---mysqld=--innodb_use_native_aio=1                                             \
---mysqld=--loose-idle_write_transaction_timeout=0                              \
---mysqld=--loose-idle_transaction_timeout=0                                    \
---mysqld=--loose-idle_readonly_transaction_timeout=0                           \
---mysqld=--connect_timeout=60                                                  \
---mysqld=--interactive_timeout=28800                                           \
---mysqld=--slave_net_timeout=60                                                \
---mysqld=--net_read_timeout=30                                                 \
---mysqld=--net_write_timeout=60                                                \
---mysqld=--loose-table_lock_wait_timeout=50                                    \
---mysqld=--wait_timeout=28800                                                  \
---mysqld=--lock-wait-timeout=86400                                             \
---mysqld=--innodb-lock-wait-timeout=50                                         \
---mysqld=--log-output=none                                                     \
---mysqld=--log-bin                                                             \
---mysqld=--sync-binlog=1                                                       \
---mysqld=--log_bin_trust_function_creators=1                                   \
---mysqld=--loose-max-statement-time=30                                         \
---mysqld=--loose-debug_assert_on_not_freed_memory=0                            \
---engine=InnoDB                                                                \
---mysqld=--plugin-load-add=file_key_management.so                              \
---mysqld=--loose-file-key-management-filename="$RQG_HOME"/conf/mariadb/encryption_keys.txt \
---querytimeout=30                                                              \
---threads=10                                                                   \
---vardir="$VARDIR"                                                             \
---workdir="$WORKDIR"                                                           \
---mask-level=0                                                                 \
---mask=0                                                                       \
+perl -w ./rqg.pl                                                                              \
+--minor_runid=$RUNID                                                                          \
+--seed=random                                                                                 \
+--queries=1000000                                                                             \
+--reporter=ErrorLog,Backtrace,Deadlock1,None                                                  \
+--validator=None                                                                              \
+--sqltrace=MarkErrors                                                                         \
+--duration=300                                                                                \
+--gendata="$ZZ_GRAMMAR"                                                                       \
+--gendata_sql="$SQL_GRAMMAR"                                                                  \
+--grammar="$YY_GRAMMAR"                                                                       \
+--basedir1="$BASEDIR1"/                                                                       \
+$BASEDIR2_SETTING                                                                             \
+--mysqld=--innodb_lock_schedule_algorithm=fcfs                                                \
+--mysqld=--innodb_use_native_aio=1                                                            \
+--mysqld=--loose-idle_write_transaction_timeout=0                                             \
+--mysqld=--loose-idle_transaction_timeout=0                                                   \
+--mysqld=--loose-idle_readonly_transaction_timeout=0                                          \
+--mysqld=--connect_timeout=60                                                                 \
+--mysqld=--interactive_timeout=28800                                                          \
+--mysqld=--slave_net_timeout=60                                                               \
+--mysqld=--net_read_timeout=30                                                                \
+--mysqld=--net_write_timeout=60                                                               \
+--mysqld=--loose-table_lock_wait_timeout=50                                                   \
+--mysqld=--wait_timeout=28800                                                                 \
+--mysqld=--lock-wait-timeout=86400                                                            \
+--mysqld=--innodb-lock-wait-timeout=50                                                        \
+--mysqld=--log-output=none                                                                    \
+--mysqld=--log-bin                                                                            \
+--mysqld=--sync-binlog=1                                                                      \
+--mysqld=--log_bin_trust_function_creators=1                                                  \
+--mysqld=--loose-max-statement-time=30                                                        \
+--mysqld=--loose-debug_assert_on_not_freed_memory=0                                           \
+--engine=InnoDB                                                                               \
+--mysqld=--plugin-load-add=file_key_management.so                                             \
+--mysqld=--loose-file-key-management-filename="$RQG_HOME"/conf/mariadb/encryption_keys.txt    \
+--querytimeout=30                                                                             \
+--threads=10                                                                                  \
+--vardir_type=fast                                                                            \
+--rr=Extended                                                                                 \
+--rr_options='--chaos --wait'                                                                 \
+--vardir="$VARDIR"                                                                            \
+--workdir="$WORKDIR"                                                                          \
+--mask-level=0                                                                                \
+--mask=0                                                                                      \
  > $WORKDIR/rqg.log 2>&1 &
 
 sleep 3;

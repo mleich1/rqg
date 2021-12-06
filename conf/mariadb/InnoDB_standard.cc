@@ -219,7 +219,7 @@ $combinations = [ $grammars,
     --mysqld=--log_bin_trust_function_creators=1
     --mysqld=--loose-debug_assert_on_not_freed_memory=0
     --engine=InnoDB
-    --restart_timeout=360
+    --restart_timeout=240
     ' .
     # Some grammars need encryption, file key management
     " $encryption_setup " .
@@ -299,16 +299,17 @@ $combinations = [ $grammars,
     #
     # In case rr denies to work because it does not know the CPU family than the rr option
     # --microarch can be set like in the next line.
+    # Recommendation: Set this rr option in local.cfg if required.
     # " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='--chaos --wait --microarch=\"Intel Kabylake\"' ",
     #
     # Experiments (try the values 1000, 300, 150) with the rr option "--num-cpu-ticks=<value>"
     # showed some remarkable impact on the user+nice versus system CPU time.
     # Lower values lead to some significant increase of system CPU time and context switches
     # per second. And that seems to cause a higher fraction of tests invoking rr where the
-    # max_gd_timeout gets exceeded.
-    # But up till now the impact on the fraction of bugs found or replayed is unclear.
-    " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='--chaos --wait' ",
-    " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='--wait' ",
+    # max_gd_timeout gets exceeded. Per current experience the impact on the fraction of bugs found
+    # or replayed is rather neagtive than positive.
+    " --mysqld=--innodb-use-native-aio=0 --mysqld=--loose-gdb --mysqld=--loose-debug-gdb --rr=Extended --rr_options='--chaos --wait' ",
+    " --mysqld=--innodb-use-native-aio=0 --mysqld=--loose-gdb --mysqld=--loose-debug-gdb --rr=Extended --rr_options='--wait' ",
     # Coverage for libaio or liburing.
     " --mysqld=--innodb_use_native_aio=1 ",
     # rr+InnoDB running on usual filesystem on HDD or SSD need
@@ -323,6 +324,26 @@ $combinations = [ $grammars,
     # Next line suffered in history much of MDEV-26450.
     # innodb_undo_log_truncate=ON is not default. So it should run less frequent.
     ' --mysqld=--innodb_undo_tablespaces=3 --mysqld=--innodb_undo_log_truncate=ON ',
+  ],
+  [
+# Report Bug    ' --mysqld=--innodb_rollback_on_timeout=ON ',
+    # The default is off.
+    ' --mysqld=--innodb_rollback_on_timeout=OFF ',
+    ' --mysqld=--innodb_rollback_on_timeout=OFF ',
+    ' --mysqld=--innodb_rollback_on_timeout=OFF ',
+    ' --mysqld=--innodb_rollback_on_timeout=OFF ',
+  ],
+  [
+    ' --vardir_type=slow ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
   ],
   [
     # 1. innodb_page_size >= 32K requires a innodb-buffer-pool-size >=24M

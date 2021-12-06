@@ -60,6 +60,8 @@ use POSIX ":sys_wait_h"; # for nonblocking read
 use File::Path qw(make_path);
 use File::Copy;
 use Auxiliary;
+use Basics;
+use Local;
 use Verdict;
 use Batch;
 use Combinator;
@@ -119,7 +121,7 @@ use ResourceControl;
 #
 
 # Name of the convenience symlink if symlinking supported by OS
-use constant BATCH_WORKDIR_SYMLINK    => 'last_batch_workdir';
+use constant BATCH_RESULT_SYMLINK    => 'last_result_dir';
 
 my $command_line= "$0 ".join(" ", @ARGV);
 my @ARGV_saved = @ARGV;
@@ -167,9 +169,11 @@ my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar
     $seed, $testname, $xml_output, $report_xml_tt, $report_xml_tt_type, $max_runtime,
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
     $parallel, $servers, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
-    $help, $help_simplifier, $help_combinator, $help_verdict, $help_rr, $help_archiving,
-    $help_rqg_home, $runner, $noarchiving,
+    $help, $help_simplifier, $help_combinator, $help_verdict, $help_rr, $help_archiving, $help_local,
+    $help_rqg_home, $help_vardir_type, $runner, $noarchiving,
     $rr, $rr_options, $sqltrace,
+    $vardir_type,
+    $rr_options_add, $fast_vardir, $slow_vardir,
     $stop_on_replay, $script_debug_value, $runid, $threads, $type, $algorithm, $resource_control);
 
 use constant DEFAULT_MAX_RQG_RUNTIME => 3600;
@@ -188,7 +192,7 @@ $discard_logs  = 0;
 # --no-log
 # Figure out what is does.
 # Printing the output of comninations.pl and also the output of the RQG runners to
-# sceen makes no sense. Too much too mixed content.
+# screen makes no sense. Too much of too mixed content.
 # ------------
 # --force how it works here is quite questionable in several aspects
 # 1. In case of not that good setups, grammars and/or certain trouble in server
@@ -257,8 +261,10 @@ if (not GetOptions(
            'help_simplifier'           => \$help_simplifier,
            'help_combinator'           => \$help_combinator,
            'help_verdict'              => \$help_verdict,
+           'help_local'                => \$help_local,
            'help_rr'                   => \$help_rr,
            'help_archiving'            => \$help_archiving,
+           'help_vardir_type'          => \$help_vardir_type,
            'help_rqg_home'             => \$help_rqg_home,
            ### type == Which type of campaign to run
            # pass_through: no
@@ -273,8 +279,9 @@ if (not GetOptions(
            'basedir1=s'                => \$basedirs[1], # Swallowed and handled by rqg_batch
            'basedir2=s'                => \$basedirs[2], # Swallowed and handled by rqg_batch
            'basedir3=s'                => \$basedirs[3], # Swallowed and handled by rqg_batch
-           'workdir=s'                 => \$workdir,     # Check+set here but pass as parameter to Combinator etc.
-           'vardir=s'                  => \$vardir,      # Swallowed and handled by rqg_batch
+#          'workdir=s'                 => \$workdir,     # Check+set here but pass as parameter to Combinator etc.
+           'vardir_type=s'             => \$vardir_type, # Swallowed and handled by rqg_batch
+#          'vardir=s'                  => \$vardir,      # Swallowed and handled by rqg_batch
            'build_thread=i'            => \$build_thread, # Swallowed and handled by rqg_batch
 #          'trials=i'                  => \$trials,      # Pass through (@ARGV) to Combinator ...
 #          'duration=i'                => \$duration,    # Pass through (@ARGV) to Combinator ...
@@ -311,17 +318,18 @@ if (not GetOptions(
            'rr_options=s'              => \$rr_options,             # Swallowed and handled by rqg_batch
            'servers=i'                 => \$servers,                # Swallowed and handled by rqg_batch
            'sqltrace:s'                => \$sqltrace,               # Swallowed and handled by rqg_batch
-#          'threads=i'                 => \$threads,                # Pass through (@ARGV).
+#          'threads=i'                 => \$threads,                # Pass through (@ARGV). Simplifier maybe needs that
            'discard_logs'              => \$discard_logs,           # Swallowed and handled by rqg_batch
            'discard-logs'              => \$discard_logs,
            'resource_control=s'        => \$resource_control,       # Swallowed and handled by rqg_batch
            'script_debug=s'            => \$script_debug_value,     # Swallowed and handled by rqg_batch
            'runid:i'                   => \$runid,                  # Swallowed and handled by rqg_batch
                                                    )) {
-    if (not defined $help            and
-        not defined $help_simplifier and not defined $help_combinator and
-        not defined $help_verdict    and not defined $help_rr         and
-        not defined $help_archiving  and not defined $help_rqg_home      ) {
+    if (not defined $help             and
+        not defined $help_simplifier  and not defined $help_combinator and
+        not defined $help_verdict     and not defined $help_rr         and
+        not defined $help_vardir_type                                     and
+        not defined $help_archiving   and not defined $help_rqg_home      ) {
         # Somehow wrong option.
         help();
         safe_exit(STATUS_ENVIRONMENT_FAILURE);
@@ -343,6 +351,9 @@ if (defined $help) {
     safe_exit(0);
 } elsif (defined $help_verdict) {
     Verdict::help();
+    safe_exit(0);
+} elsif (defined $help_vardir_type) {
+    Local::help_vardir_type();
     safe_exit(0);
 } elsif (defined $help_rr) {
     Runtime::help_rr();
@@ -394,6 +405,18 @@ $script_debug_value = Auxiliary::script_debug_init($script_debug_value);
 # $type='omo';
 Batch::check_and_set_batch_type($type);
 
+Local::check_and_set_rqg_home($rqg_home);
+
+# Read local.cfg and make the infrastructure down to <whatever>/<runid>.
+Local::check_and_set_local_config(undef, undef, undef, undef);
+# Never use $vardir = Local::get_vardir();
+
+$rr_options_add = Local::get_rr_options_add();
+if (not defined $rr_options) {
+    $rr_options = $rr_options_add;
+} else {
+    $rr_options .= " " . $rr_options_add;
+}
 my $status = Runtime::check_and_set_rr_valgrind ($rr, $rr_options, undef, undef, 1);
 if ($status != STATUS_OK) {
     say("The $0 arguments were ->" . join(" ", @ARGV_saved) . "<-");
@@ -401,7 +424,9 @@ if ($status != STATUS_OK) {
     safe_exit($status);
 }
 $rr =         Runtime::get_rr();
+# Any $rr_options_add needs to be added when the cmd for the RQG runner gets defined.
 $rr_options = Runtime::get_rr_options();
+# say("DEBUG: rr_options ->" . $rr_options . "<-");
 
 # FIXME:
 # Hard (apply no matter what duration is) or soft (adjust how?) border?
@@ -414,7 +439,7 @@ say("INFO: Maximum runtime of a single RQG run $max_rqg_runtime" . "s.");
 check_and_set_config_file();
 
 # Variable for stuff to be glued at the end of the rqg.pl call.
-my $cl_end = ' ';
+my $cl_end = '';
 
 # $basedir_info is required for result.txt and setup.txt.
 my $basedir_info = '';
@@ -424,27 +449,34 @@ my $basedir_info = '';
 # check_basedirs exits in case of failure.
 @basedirs = Auxiliary::check_basedirs(@basedirs);
 foreach my $i (1..3) {
-    $cl_end .= "--basedir" . "$i" . "=" . $basedirs[$i] . " "
+    $cl_end .= " --basedir" . "$i" . "=" . $basedirs[$i]
        if defined $basedirs[$i] and $basedirs[$i] ne '';
 }
 
-# say("cl_end ->$cl_end<-");
+# Convenience feature
+# -------------------
+# Make a symlink so that the last work/resultdir used by some tool performing multiple RQG runs like
+#    combinations.pl, bughunt.pl, simplify_grammar.pl
+# is easier found.
+# Creating the symlink might fail on some OS (see perlport) but should not abort our run.
+my $symlink = $Local::rqg_home . "/" . BATCH_RESULT_SYMLINK;
+unlink($symlink);
+my $symlink_exists = eval { symlink($Local::results_dir, $symlink) ; 1 };
 
 # $workdir, $vardir are the "general" work/var directories of rqg_batch.pl run.
-# The corresponding directories of the RQG runs get later calculated on the fly and than glued
-# to the RQG call.
-($workdir, $vardir, my $bin_arch_dir) =
-    Batch::make_multi_runner_infrastructure ($workdir, $vardir, $runid, BATCH_WORKDIR_SYMLINK);
-if (not defined $workdir) {
-    my $status = STATUS_ENVIRONMENT_FAILURE;
-    say("ERROR: Making the multi_runner_infrastructure failed. Abort");
-    safe_exit($status);
-}
+$workdir = Local::get_results_dir();
+# say("DEBUG: $workdir "); # with runid
+
+my $bin_arch_dir = Local::get_binarch_dir();
+
+# Generate the infrastructure (several files) for bookkeeping of all the RQG runs somehow finished
+# ------------------------------------------------------------------------------------------------
+Batch::make_infrastructure($workdir);
 
 if (defined $sqltrace) {
     $sqltrace = SQLtrace::check_sqltracing($sqltrace);
     if (not defined $sqltrace) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
+        $status = STATUS_ENVIRONMENT_FAILURE;
         safe_exit($status);
     };
 }
@@ -457,18 +489,19 @@ say($info);
 # Replace INFO (typical for logs) with '$iso_ts '(better for summaries)'.
 my $iso_ts = isoTimestamp();
 $info =~ s/INFO: /$iso_ts /g;
-if (STATUS_OK != Auxiliary::make_file($workdir . "/" . Auxiliary::SOURCE_INFO_FILE, $info)) {
+if (STATUS_OK != Basics::make_file($workdir . "/" . Auxiliary::SOURCE_INFO_FILE, $info)) {
     safe_exit(STATUS_ENVIRONMENT_FAILURE);
 }
-
 
 if (not defined $resource_control) {
     say("DEBUG: resource_control is not defined") if Auxiliary::script_debug("T2");
 }
 my ($load_status, $workers_mid, $workers_min) =
-    ResourceControl::init($resource_control, $workdir, $vardir);
+    # FIXME, maybe:
+    # This is not roughly 100% safe because rqg_slow_dir gets not perfect attention.
+    ResourceControl::init($resource_control, $workdir, Local::get_rqg_fast_dir());
 if($load_status ne ResourceControl::LOAD_INCREASE) {
-    my $status = STATUS_ENVIRONMENT_FAILURE;
+    $status = STATUS_ENVIRONMENT_FAILURE;
     say("ERROR: ResourceControl reported the load status '$load_status' but around begin the " .
         "status '" . ResourceControl::LOAD_INCREASE . "' must be valid.");
     safe_exit($status);
@@ -487,13 +520,13 @@ Batch::set_workers_range($parallel, $workers_mid, $workers_min);
 # to the RQG call.
 $build_thread = Auxiliary::check_and_set_build_thread($build_thread);
 if (not defined $build_thread) {
-    my $status = STATUS_ENVIRONMENT_FAILURE;
+    $status = STATUS_ENVIRONMENT_FAILURE;
     say("ERROR: check_and_set_build_thread failed. " . Auxiliary::exit_status_text($status));
     safe_exit($status);
 }
 
 if (defined $gendata) {
-    $cl_end .= "--gendata=$gendata ";
+    $cl_end .= " --gendata=$gendata";
     if ($gendata ne '' and not -f $gendata) {
         say("ERROR: gendata is set to '" . $gendata .
             "' but does not exist or is not a plain file.");
@@ -501,13 +534,13 @@ if (defined $gendata) {
     }
 }
 
-$cl_end .= "--testname=$testname " if defined $testname and $testname ne '';
-$cl_end .= " --xml-output=$xml_output "
+$cl_end .= " --testname=$testname" if defined $testname and $testname ne '';
+$cl_end .= " --xml-output=$xml_output"
     if defined $xml_output and $xml_output ne '';
 $cl_end .= " --report-xml-tt" if defined $report_xml_tt;
-$cl_end .= " --report-xml-tt-type=$report_xml_tt_type "
+$cl_end .= " --report-xml-tt-type=$report_xml_tt_type"
     if defined $report_xml_tt_type and $report_xml_tt_type ne '';
-$cl_end .= " --report-xml-tt-dest=$report_xml_tt_dest "
+$cl_end .= " --report-xml-tt-dest=$report_xml_tt_dest"
     if defined $report_xml_tt_dest and $report_xml_tt_dest ne '';
 $cl_end .= " --script_debug=" . $script_debug_value
     if $script_debug_value ne '';
@@ -529,7 +562,7 @@ if (defined $runner) {
     # $runner = 'mimi';
     my $runner_file = $rqg_home . "/" . $runner;
     if (not -e $runner_file) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
+        $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: The RQG runner '$runner_file' does not exist. " .
             Auxiliary::exit_status_text($status));
         safe_exit($status);
@@ -558,7 +591,7 @@ if ($noarchiving) {
     say("INFO: Archiving of data of interesting RQG runs is disabled.");
     if (defined $rr) {
         say("ERROR: 'rr' tracing without archiving is not supported.");
-        my $status = STATUS_ENVIRONMENT_FAILURE;
+        $status = STATUS_ENVIRONMENT_FAILURE;
         safe_exit($status);
     }
 } else {
@@ -566,7 +599,8 @@ if ($noarchiving) {
     if ( STATUS_OK == Auxiliary::find_external_command('xz') ) {
     } else {
         say("ERROR: The compressor 'xv' was not found.");
-        return STATUS_ENVIRONMENT_FAILURE;
+        $status = STATUS_ENVIRONMENT_FAILURE;
+        safe_exit($status);
     }
 
     ######### Archive/Preserve the binaries by hardlinking
@@ -650,12 +684,12 @@ if ($noarchiving) {
 
         if (not link($s_bin_arch, $l_bin_arch)) {
             say("ERROR: Hardlinking '$s_bin_arch' to '$l_bin_arch' failed: $!");
-            my $status = STATUS_ENVIRONMENT_FAILURE;
+            $status = STATUS_ENVIRONMENT_FAILURE;
             safe_exit($status);
         }
         if (not link($s_bin_arch_prt, $l_bin_arch_prt)) {
             say("ERROR: Hardlinking '$s_bin_arch_prt' to '$l_bin_arch_prt' failed: $!");
-            my $status = STATUS_ENVIRONMENT_FAILURE;
+            $status = STATUS_ENVIRONMENT_FAILURE;
             safe_exit($status);
         }
         say("INFO: Hardlinks for basedirs[$i] related files in '$workdir' created.");
@@ -665,7 +699,7 @@ if ($noarchiving) {
 }
 
 # Check (at least) if all the assigned basedirs contain a mysqld.
-my $status = STATUS_OK;
+$status = STATUS_OK;
 foreach my $i (1..3) {
     next if not defined $basedirs[$i];
     next if $basedirs[$i] eq '';
@@ -677,7 +711,7 @@ foreach my $i (1..3) {
 }
 if ($status != STATUS_OK) {
     say("ERROR: A server binary is missing. $0 will exit with exit status " .
-         status2text($status) . "($status)");
+        status2text($status) . "($status)");
     safe_exit($status);
 }
 
@@ -692,7 +726,7 @@ say("cl_end ->$cl_end<-") if Auxiliary::script_debug("T4");
 
 my $config_file_copy = $workdir . "/" . $Batch::batch_type . '.cfg';
 if (not File::Copy::copy($config_file, $config_file_copy)) {
-    my $status = STATUS_ENVIRONMENT_FAILURE;
+    $status = STATUS_ENVIRONMENT_FAILURE;
     say("ERROR: Copying the config file '$config_file' to '$config_file_copy' failed : $!. " .
         Auxiliary::exit_status_text($status));
     safe_exit($status);
@@ -711,6 +745,7 @@ if (not -f $full_verdict_setup) {
     say("ERROR: The verdict config file '" . $full_verdict_setup . "' does not exist.");
     safe_exit(STATUS_INTERNAL_ERROR);
 }
+
 if      ($Batch::batch_type eq Batch::BATCH_TYPE_COMBINATOR) {
     Combinator::init($config_file, $workdir);
 } elsif ($Batch::batch_type eq Batch::BATCH_TYPE_RQG_SIMPLIFIER) {
@@ -720,10 +755,8 @@ if      ($Batch::batch_type eq Batch::BATCH_TYPE_COMBINATOR) {
     safe_exit(4);
 }
 
-####
 say("DEBUG: Command line options to be appended to the call of the RQG runner: ->" .
     $cl_end . "<-") if Auxiliary::script_debug("T1");
-
 
 use constant DEFAULT_MAX_RUNTIME => 432000;
 if (not defined $max_runtime) {
@@ -733,8 +766,6 @@ if (not defined $max_runtime) {
         "s ($max_days days).");
 }
 my $batch_end_time = $batch_start_time + $max_runtime;
-
-# system("find $workdir $vardir");
 
 my $logToStd = !osWindows() && !$noLog;
 
@@ -854,100 +885,18 @@ while($Batch::give_up <= 1) {
 
             say("COMMAND ->$command<-") if Auxiliary::script_debug("T5");
 
-            # Add options which need to be RQG runner specific in order to prevent collisions with
-            # other active RQG runners started by rqg_batch.pl too.
-            my $rqg_workdir = $workdir . "/" . "$free_worker";
-            File::Path::rmtree($rqg_workdir);
-            make_path($rqg_workdir);
-            Auxiliary::make_rqg_infrastructure($rqg_workdir);
-            # system("find $rqg_workdir");
-            say("DEBUG: [$free_worker] setting RQG workdir to '$rqg_workdir'.")
-                if Auxiliary::script_debug("T6");
-            $command .= " --workdir=$rqg_workdir";
-
-            my $rqg_vardir = $vardir . "/" . "$free_worker";
-            File::Path::rmtree($rqg_vardir);
-            make_path($rqg_vardir);
-            say("DEBUG: [$free_worker] setting RQG vardir  to '$rqg_vardir'.")
-                if Auxiliary::script_debug("T6");
-            $command .= " --vardir=$rqg_vardir";
-            my $rqg_build_thread = $build_thread + ($free_worker - 1);
-            say("DEBUG: [$free_worker] setting RQG build thread to $rqg_build_thread.")
-                if Auxiliary::script_debug("T6");
-            $command .= " --mtr-build-thread=$rqg_build_thread";
-
-            $command .= " " . $cl_end;
-
-            my $rqg_log = $rqg_workdir . "/rqg.log";
-            # $rqg_job is used for
-            # 1. debugging the simplifier/combinator mechanics (--> OrderID, Memo1, ...)
-            #    Q: Do the simplification phases work correct?
-            # 2. being able to get some rather complete overview about how RQG test setups
-            #    achieving whatever verdict looked like
-            #    Q1: What is the most promising setup (grammar, ...) for replaying TBR/MDEV-nnnnn?
-            #    Q2: Which setups (grammar, ...) tend to frequent false alarms etc.
-            my $rqg_job = $rqg_workdir . "/rqg.job";
-
-            # defined $value ? $value : "NULL";
-            my $content =
-                "OrderID: " . $job[Batch::JOB_ORDER_ID]                                             . "\n" .
-                "Memo1:   " . (defined $job[Batch::JOB_MEMO1] ? $job[Batch::JOB_MEMO1] : '<undef>') . "\n" .
-                "Memo2:   " . (defined $job[Batch::JOB_MEMO2] ? $job[Batch::JOB_MEMO2] : '<undef>') . "\n" .
-                "Memo3:   " . (defined $job[Batch::JOB_MEMO3] ? $job[Batch::JOB_MEMO3] : '<undef>') . "\n" .
-                "Cl_Snip: " . $Batch::worker_array[$free_worker][Batch::WORKER_COMMAND] ;
-            Batch::append_string_to_file($rqg_job, $content);
-            $content = "# " . isoTimestamp() . " INFO: Logfile for RQG Worker [$free_worker]\n";
-            Batch::append_string_to_file($rqg_log, $content);
-
-            #  if ($logToStd) {
-            #     $command .= " 2>&1 | tee " . $rqg_log;
-            #  } else {
-                  $command .= " >> " . $rqg_log . ' 2>&1' ;
-            #  }
-            #  ---------------------------------------------
-            #  With the code above
-            #     backtraces are not detailed.
-            #  With
-            #     $command .= " --logfile=$rqg_log 2>&1" ;
-            #  we get a flood of RQG run messages over the screen.
-            #  But backtraces are detailed.
-
-
-            $command = "perl -w " . ($Carp::Verbose?"-MCarp=verbose ":"") . " $rqg_home" .
-                       "/" . $runner . ' ' . $command;
-
-            if (defined $rr) {
-                my $rr_trace_dir = $rqg_vardir . "/rr_trace";
-                my ($rr_snip_begin, $rr_snip_end);
-                if ($rr eq Runtime::RR_TYPE_RQG) {
-                    if (not mkdir $rr_trace_dir) {
-                        my $status = STATUS_ENVIRONMENT_FAILURE;
-                        say("ERROR: Creating the 'rr' trace directory '$rr_trace_dir' failed : $!. " .
-                            "Will return status DBSTATUS_FAILURE" . "($status)");
-                        return $status;
-                    }
-                    $ENV{_RR_TRACE_DIR} = $rr_trace_dir;
-                    $rr_snip_begin .= "rr record --mark-stdio ";
-                    if (defined $rr_options) {
-                        $rr_snip_begin .= " " . $rr_options . " ";
-                    }
-                }
-                if ($rr ne Runtime::RR_TYPE_RQG and $runner eq 'rqg.pl') {
-                    $rr_snip_end = " --rr=$rr ";
-                    if (defined $rr_options) {
-                        $rr_snip_end .= "--rr_options='$rr_options' ";
-                    }
-                }
-                $command = $rr_snip_begin . $command if defined $rr_snip_begin;
-                $command = $command . $rr_snip_end   if defined $rr_snip_end;
-            } else {
-                # Unclear of 100% needed.
-                $ENV{_RR_TRACE_DIR} = undef;
+            # Add options which need to be RQG worker specific in order to prevent collisions with
+            # other active RQG workers started by rqg_batch.pl too.
+            # ------------------------------------------------------------------------------------
+            # Remove tree $rqg_workdir if it already exists.
+            # Create tree $rqg_workdir.
+            my $rqg_workdir = Local::get_results_dir . "/" . "$free_worker";
+            # say("DEBUG: rqg_workdir ==>" . $rqg_workdir . "<==");
+            if (STATUS_OK != Auxiliary::make_rqg_infrastructure($rqg_workdir)) {
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                Batch::emergency_exit($status, "FATAL ERROR: Making the infrastructure around " .
+                                      "'$rqg_workdir' failed.");
             }
-
-            # "Decorate" for use with bash + add nice -19 etc.
-            $command = Auxiliary::prepare_command_for_system($command);
-            say("DEBUG: command ==>" . $command . "<==") if Auxiliary::script_debug("T5");
 
             my $pid = fork();
             if (not defined $pid) {
@@ -965,18 +914,6 @@ while($Batch::give_up <= 1) {
                 # of rqg_batch.pl which might be often unwanted.
                 my $who_am_i = "RQG Worker [$free_worker]:";
                 say("$who_am_i Taking over.");
-
-                # In case the RQG runner gets started and its $rqg_vardir is unknown than the
-                # $rqg_vardir gets computed, created + chdir into it is made.
-                # == The first working phase is not that perfect because happening in whatever
-                #    current working directory most probably != $rqg_vardir.
-                # But here $rqg_vardir is already known + created.
-                # And so we change into that $rqg_vardir.
-                if (not chdir($rqg_vardir)) {
-                    say("INTERNAL ERROR: $who_am_i : chdir to '$rqg_vardir' failed with : $!\n" .
-                        "         Will return STATUS_INTERNAL_ERROR.");
-                    return STATUS_INTERNAL_ERROR;
-                }
 
                 # We use "system" and not "exec" later. So set certain memory structures inherited
                 # from the parent to undef.
@@ -1013,35 +950,73 @@ while($Batch::give_up <= 1) {
                 # taken over and perform an emergency_exit.
                 # safe_exit(0);
 
-                # We need a directory where the RQG run could store temporary files and do that by
-                # setting the environment variable TMP to some directory which is specific for the
-                # RQG run before (REQUIRED) calling GenTest or DBServer::DBServer the first time.
-                # So we go with TMP=$rqg_vardir
-                # - This is already set. --> No extra command line parameter required.
-                # - It gets destroyed (if already existing) and than created at begin of the test.
-                #   --> No chance to accidently process files of some finished test missing cleanup.
-                # - In case $rqg_vardir is unique to the RQG run
-                #      Example:
-                #      Smart tools causing <n> concurrent RQG runs could go with generating a
-                #      timestamp first.
-                #      vardir of tool run = /dev/shm/vardir/<timestamp>
-                #         in case that directory already exists sleep 1 second and try again.
-                #      vardir of first RQG runner = /dev/shm/vardir/<timestamp>/1
-                #      vardir of n'th  RQG runner = /dev/shm/vardir/<timestamp>/<n>
-                #   than clashes with concurrent RQG runs are nearly impossible.
-                # - In case of a RQG failing we archive the vardir of the RQG runner and the maybe
-                #   valuable temporary files (dumps?) are already included.
-                # - In case we destroy the RQG run vardir at test end than all the temporary files
-                #   are gone.
-                #   --> free space in some maybe small filesystem like a tmpfs
-                #   --> no pollution of '/tmp' with garbage laying there around for months
-                # - No error prone addition of process pids to file names.
-                #   Pids will repeat sooner or later. And maybe a piece of code forgets to add the pid.
-                #
-
-                $ENV{'TMP'} = $rqg_vardir;
-                # mleich: I have doubts if this should be set here.
+                # For the case that $RQG_HOME occurs within the command.
                 $ENV{'RQG_HOME'} = $rqg_home;
+
+                my $rqg_build_thread = $build_thread + ($free_worker - 1);
+                say("DEBUG: [$free_worker] setting RQG build thread to $rqg_build_thread.")
+                    if Auxiliary::script_debug("T6");
+                $command .= " --mtr-build-thread=$rqg_build_thread";
+                $command .= " --batch";
+                $command .= $cl_end;
+                my $rqg_log = $rqg_workdir . "/rqg.log";
+                my ($whatever, $rqg_major_runid) = Local::get_runid();
+                # Experimental:
+                # $rqg_log = "/tmp/otto";
+                $command .= " --major_runid=$rqg_major_runid --minor_runid=" . $free_worker .
+                            " >> " . $rqg_log . ' 2>&1' ;
+                $command = "perl -w " . ($Carp::Verbose?"-MCarp=verbose ":"") . " $rqg_home" .
+                           "/" . $runner . ' ' . $command;
+                # "Decorate" for use with bash + add nice -19 etc.
+                $command = Auxiliary::prepare_command_for_system($command);
+                say("DEBUG: command ==>" . $command . "<==") if Auxiliary::script_debug("T5");
+
+                # $rqg_job is used for
+                # 1. debugging the simplifier/combinator mechanics (--> OrderID, Memo1, ...)
+                #    Q: Do the simplification phases work correct?
+                # 2. being able to get some rather complete overview about how RQG test setups
+                #    achieving whatever verdict looked like
+                #    Q1: What is the most promising setup (grammar, ...) for replaying some
+                #        search pattern TBR/MDEV-nnnnn?
+                #    Q2: Which setups (grammar, ...) tend to frequent false alarms etc.
+                my $rqg_job = $rqg_workdir . "/rqg.job";
+                # say("DEBUG: $who_am_i rqg_job ==>" . $rqg_job . "<==");
+                my $content =
+                    "OrderID: " . $job[Batch::JOB_ORDER_ID]                                             . "\n" .
+                    "Memo1:   " . (defined $job[Batch::JOB_MEMO1] ? $job[Batch::JOB_MEMO1] : '<undef>') . "\n" .
+                    "Memo2:   " . (defined $job[Batch::JOB_MEMO2] ? $job[Batch::JOB_MEMO2] : '<undef>') . "\n" .
+                    "Memo3:   " . (defined $job[Batch::JOB_MEMO3] ? $job[Batch::JOB_MEMO3] : '<undef>') . "\n" .
+                    "Cl_Snip: " . $command ;
+                if (STATUS_OK != Batch::append_string_to_file($rqg_job, $content)) {
+                    say("ERROR when writing to $rqg_job");
+                    $status = STATUS_ENVIRONMENT_FAILURE;
+                    safe_exit($status);
+                }
+                my $message = "# " . isoTimestamp() . " INFO: Logfile for RQG Worker [$free_worker]\n";
+                Batch::append_string_to_file($rqg_log, $message);
+                # say("DEBUG: $who_am_i rqg_log ==>" . $rqg_log . "<==");
+
+                # Calculate the vardir
+                my $rqg_vardir_type = $command;
+                if ($rqg_vardir_type =~ m{--vardir_type=}o) {
+                    $rqg_vardir_type =~ s{.*--vardir_type=(\w*) .*}{$1}s;
+                } else {
+                    $rqg_vardir_type = Local::DBDIR_TYPE_FAST;
+                }
+                # say("DEBUG: $who_am_i ->$command<-");
+                # say("DEBUG: $who_am_i vardir_type discovered ->$rqg_vardir_type<-");
+
+                my $rqg_vardir = Local::get_vardir_per_type($rqg_vardir_type);
+                if (not defined $rqg_vardir or $rqg_vardir eq '') {
+                    say("ERROR: $who_am_i vardir computed is undef or ''.");
+                    my $status = STATUS_INTERNAL_ERROR;
+                    safe_exit($status);
+                } else {
+                    $rqg_vardir .= "/" . $free_worker;
+                }
+
+                # Unclear of 100% needed.
+                $ENV{_RR_TRACE_DIR} = undef;
 
                 if ($dryrun) {
                     say("LIST: ==>$command<==");
@@ -1074,14 +1049,15 @@ while($Batch::give_up <= 1) {
                     Auxiliary::set_rqg_phase($rqg_workdir, Auxiliary::RQG_PHASE_COMPLETE);
                     safe_exit(STATUS_OK);
                 } else {
-                    # say("DEBUG =>" . $command . "<=");
+                    # Child == RQG Worker
                     #
                     # The RQG Worker does
-                    # 1. Perform the RQG test
-                    # 2. Verdict computation
-                    # 3. Archiving
-                    # via "system" compared to the alternative that we start the RQG runner
-                    # via "exec" and that the RQG runner (like rqg.pl) computes the verdict and archives.
+                    # 1. Further preparations
+                    # 2. Perform the RQG test via "system"
+                    # 3. Verdict computation via "system"
+                    # 4. Archiving
+                    # compared to the alternative that we start the RQG runner via "exec" and that
+                    # the RQG runner (like rqg.pl) computes the verdict and archives.
                     # Reason:
                     #    The RQG runner does no more need to check his own protocol
                     #    == Knowing the storage place in advance is not needed
@@ -1089,6 +1065,10 @@ while($Batch::give_up <= 1) {
                     #
                     # If ever bundling the stuff for checking exits status etc. in a routine than we need
                     #     $command, $?, $!, $who_am_i, script_debug_value W2
+
+                    # say("DEBUG: $who_am_i =>" . $command . "<=");
+                    #
+
                     my $rc = system($command);
                     if      ($? == -1) {
                         say("WARNING: $who_am_i ->" . $command . "<- failed to execute: $!");
@@ -1106,6 +1086,8 @@ while($Batch::give_up <= 1) {
                         say("DEBUG: $who_am_i ->" .   $command . "<- exited with value " .
                             ($? >> 8)) if Auxiliary::script_debug("W2");
                     }
+
+                    # say("DEBUG: $who_am_i After performing the RQG run nad before calculation of verdict.");
 
                     # Initiate calculation of verdict
                     # -------------------------------
@@ -1165,10 +1147,10 @@ while($Batch::give_up <= 1) {
                         # our current working directory is in it.
                         chdir($rqg_workdir);
                         if(not File::Path::rmtree($rqg_vardir)) {
-                            say("ERROR: Removal of the tree '$rqg_vardir' failed. : $!.");
+                            say("ERROR: $who_am_i Removal of the tree '$rqg_vardir' failed. : $!.");
                             safe_exit(STATUS_ENVIRONMENT_FAILURE);
                         }
-                        say("DEBUG: The RQG vardir '$rqg_vardir' was removed.")
+                        say("DEBUG: $who_am_i The RQG vardir '$rqg_vardir' was removed.")
                             if Auxiliary::script_debug("W2");
                     }
                     if (STATUS_OK != Auxiliary::set_rqg_phase($rqg_workdir,
@@ -1395,7 +1377,7 @@ $fat_message . "\n"                                                             
 "            are in the workdir of the rqg_batch.pl run\n"                                         .
 "                 $workdir\n"                                                                      .
 "HINT:       As long as this was the last run of rqg_batch.pl the symlink\n"                       .
-"                 " . BATCH_WORKDIR_SYMLINK . "\n"                                                 .
+"                 " . BATCH_RESULT_SYMLINK . "\n"                                                  .
 "            will point to this workdir.\n"                                                        .
 "RESULT:     The highest (process) exit status of some RQG Worker was : $total_status\n"           .
 "                        0 == No trouble from the OS/Perl/RQG Worker logics points of view.\n"     .
@@ -1414,7 +1396,9 @@ Batch::write_result($message . "\n");
 # - most probably deleted by rqg_batch.pl when being forced to stop some RQG Worker
 # the $vardir will survive and in case of mistakes even directories belonging to RQG workers.
 # Hence we clean up here again.
-File::Path::rmtree($vardir);
+
+File::Path::rmtree(Local::get_rqg_fast_dir);
+File::Path::rmtree(Local::get_rqg_slow_dir);
 safe_exit(STATUS_OK);
 
 
@@ -1429,10 +1413,10 @@ sub help() {
    "      What you get in case you do not assign some corresponding --<parameter>=<value>.\n"      .
    "RQG Worker\n"                                                                                  .
    "      A child process which\n"                                                                 .
-   "      1. Runs an extreme small 'prepare play ground'\n"                                        .
-   "      2. Starts via Perl 'system' a RQG run (--> rqg.pl or other RQG runner)\n"                .
-   "      3. Obtains via Perl 'system' a verdict about that RQG run (--> verdict.pl)\n"            .
-   "      4. Archives data of that RQG run depending on the verdict got and the setup\n"           .
+   "      1. Runs an extreme small 'prepare play ground'.\n"                                       .
+   "      2. Starts via Perl 'system' a RQG run (--> rqg.pl or other RQG runner).\n"               .
+   "      3. Obtains via Perl 'system' a verdict about that RQG run (--> verdict.pl).\n"           .
+   "      4. Archives data of that RQG run depending on the verdict got and the setup.\n"          .
    "Regular finished RQG run\n"                                                                    .
    "      A RQG run which ended regular with success or failure (crash, perl error ...).\n"        .
    "      rqg_batch.pl might stop (KILL) RQG runs because of technical reasons.\n"                 .
@@ -1460,6 +1444,11 @@ sub help() {
    "      Information about how and when archives of the binaries used and results are made\n"     .
    "--help_sqltrace\n"                                                                             .
    "      Information about how SQL tracing by RQG\n"                                              .
+   "--help_vardir_type\n"                                                                          .
+   "      Information about the RQG option vardir_type\n"                                          .
+   "--help_local\n"                                                                                .
+   "      Information about the mandatory file local.pm which gets used for computing the\n"       .
+   "      storage places for archives, vardirs, workdirs and other stuff.\n"                       .
    "\n"                                                                                            .
    "--type=<Which type of work ("                                                                  .
    Auxiliary::list_values_supported(Batch::BATCH_TYPE_ALLOWED_VALUE_LIST) . "') to do>\n"          .
@@ -1549,12 +1538,12 @@ sub help() {
    "--report-xml-tt-type=...\n"                                                                    .
    "--report-xml-tt-dest=...\n"                                                                    .
    "-------------------------------------------------------------------------------------------\n" .
-   "rqg_batch will create a symlink '" . BATCH_WORKDIR_SYMLINK . "' pointing to the workdir of "   .
+   "rqg_batch will create a symlink '" . BATCH_RESULT_SYMLINK . "' pointing to the workdir of "    .
    "his run\n which is <value assigned to workdir>/<runid>.\n"                                     .
    "-------------------------------------------------------------------------------------------\n" .
    "How to cause some rapid stop of the ongoing rqg_batch.pl run without using some dangerous "    .
    "killall SIGKILL <whatever>?\n"                                                                 .
-   "    touch " . BATCH_WORKDIR_SYMLINK . "/exit\n"                                                .
+   "    touch " . BATCH_RESULT_SYMLINK . "/exit\n"                                                 .
    "rqg_batch.pl will stop all active RQG runners, cleanup and give a summary.\n\n"                .
    "What to do on Linux in the rare case (RQG core or runner broken) that this somehow fails?\n"   .
    "    killall -9 perl mysqld mariadbd rr ; rm -rf /dev/shm/vardir/*\n"                           .
@@ -1565,9 +1554,10 @@ sub help() {
    "    --trials=1       --> Exit after the first regular finished RQG run.\n"                     .
    "-------------------------------------------------------------------------------------------\n" .
    "Impact of RQG_HOME if found in environment and the current working directory:\n"               .
-   "Around its start rqg_batch.pl searches for RQG components in <CWD>/lib and ENV(\$RQG_HOME)/lib\n" .
+   "Around its start rqg_batch.pl searches for RQG components in <CWD>/lib and "                   .
+   "ENV(\$RQG_HOME)/lib\n" .
    "- rqg_batch.pl computes than a RQG_HOME based on its call and sets than some corresponding "   .
-   "environment variable or aborts.\n"                                                           .
+   "environment variable or aborts.\n"                                                             .
    "  All required RQG components (runner/reporter/validator/...) will be taken from this \n"      .
    "  RQG_HOME 'Universe' in order to ensure consistency between these components.\n"              .
    "- All other ingredients with relationship to some filesystem like\n"                           .

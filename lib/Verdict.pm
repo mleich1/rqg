@@ -17,6 +17,7 @@
 package Verdict;
 
 use strict;
+use Basics;
 use Auxiliary;
 use GenTest::Constants;
 use GenTest;
@@ -100,7 +101,7 @@ sub make_verdict_infrastructure {
     my ($workdir) = @_;
     # It is expected that the caller has already checked if $workdir is correct.
     my $my_file = $workdir . '/rqg_verdict.init';
-    my $result  = Auxiliary::make_file ($my_file, undef);
+    my $result  = Basics::make_file ($my_file, undef);
     return $result;
 }
 #
@@ -704,13 +705,13 @@ sub set_final_rqg_verdict {
     my $source_file = $workdir . '/rqg_verdict.' . $initial_verdict;
     my $target_file = $workdir . '/rqg_verdict.' . $verdict;
 
-    # Auxiliary::rename_file is safe regarding existence of these files.
-    $result = Auxiliary::rename_file ($source_file, $target_file);
+    # Basics::rename_file is safe regarding existence of these files.
+    $result = Basics::rename_file ($source_file, $target_file);
     if ($result) {
         say("ERROR: set_rqg_verdict from '$initial_verdict' to '$verdict' failed.");
         return STATUS_FAILURE;
     } else {
-        $result = Auxiliary::append_string_to_file($target_file, $extra_text . "\n");
+        $result = Basics::append_string_to_file($target_file, $extra_text . "\n");
         if ($result) {
             say("ERROR: set_rqg_verdict: Appending '$extra_text' to '$target_file' failed.");
             return STATUS_FAILURE;
