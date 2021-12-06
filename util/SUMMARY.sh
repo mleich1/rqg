@@ -14,9 +14,9 @@ if [ "$WRK_DIR" = "" ]
 then
    echo "No RQG workdir was assigned."
    echo "The call was ->$CALL_LINE<-"
-   echo "Therefore picking the directory the symlink 'last_batch_workdir' points to."
+   WRK_DIR="last_result_dir"
+   echo "Therefore picking the directory the symlink '$WRK_DIR' points to."
 #  echo -e "$USAGE"
-   WRK_DIR="last_batch_workdir"
    WRK_DIR=`realpath "$WRK_DIR"`
 fi
 if [ ! -d "$WRK_DIR" ]
