@@ -1903,17 +1903,19 @@ exit;
 
 sub stopServers {
     # $status is relevant for replication only.
-    # status value    | reaction
+    # status value    | reaction if MariaDB replication involved
     # ----------------+-------------------------------------------------------------------
     # DBSTATUS_OK     | DBServer::MySQL::ReplMySQLd::stopServer will call waitForSlaveSync
     # != DBSTATUS_OK  | no call of waitForSlaveSync
+    #
+    # srv->stopServer returns either DBSTATUS_OK or DBSTATUS_FAILURE.
     my $status = shift;
 
     say("DEBUG: rqg.pl: Entering stopServers with assigned status $status");
 
     if ($skip_shutdown) {
         say("Server shutdown is skipped upon request");
-        return;
+        return STATUS_OK;
     }
     # For experimenting
     # system("killall -11 mysqld mariadbd");
@@ -1947,6 +1949,7 @@ sub stopServers {
     if ($ret != STATUS_OK) {
         say("DEBUG: stopServers(rqg.pl) failed with : ret : $ret");
     }
+    return $ret;
 }
 
 sub killServers {
