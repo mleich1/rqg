@@ -55,7 +55,6 @@ sub monitor {
 
     # In case of two servers, we will be called twice.
     # Only kill the first server and ignore the second call.
-
     $first_reporter = $reporter if not defined $first_reporter;
     return STATUS_OK if $reporter ne $first_reporter;
 
@@ -65,10 +64,17 @@ sub monitor {
         say("INFO: $who_am_i First monitoring");
         $first_monitoring = 0;
     }
-    # FIXME maybe
-    # Making some connect attempt and only in case of success going on looks attractive.
+    my $server = $reporter->properties->servers->[0];
+    # For debugging:
+    # system("killall -9 mysqld; sleep 1");
+    if (not $reporter->properties->servers->[0]->running()) {
+        say("ERROR: $who_am_i The server is no more running.");
+        exit STATUS_SERVER_CRASHED;
+    }
+    # Making some connect attempt and only in case of success going on might look attractive.
     # But that attempt might maybe last longer than 19s. And than all worker threads would have
     # disconnected and the crash is maybe too harmless.
+    # In addition the reporter "Deadlock" will also try to connect.
     if (time() > $reporter->testEnd() - 19) {
     my $kill_msg = "$who_am_i Sending SIGKILL to server with pid $pid in order to force a crash.";
         say("INFO: $kill_msg");
@@ -82,8 +88,11 @@ sub monitor {
         # 5. killServer and its caller Reporter 'CrashRecovery1' have not finished yet.
         # 6. GenTest causes that the periodic reporting process == CrashRecovery1 gets stopped
         #    and somehow the status does not get raised to STATUS_SERVER_KILLED.
-        # 7. The Endreporter Backtrace comes and raises the status to STATUS_SERVER_CRASHED
+        # 7. The Endreporter Backtrace comes and raises the status to some misleading
+        #    STATUS_SERVER_CRASHED
         kill(9, $pid);
+        # "exit" in order to prevent that worker threads or successing reporters have any chance
+        # to change the status.
         exit STATUS_SERVER_KILLED;
     } else {
         return STATUS_OK;
@@ -98,7 +107,9 @@ sub report {
     $first_reporter = $reporter if not defined $first_reporter;
     return STATUS_OK if $reporter ne $first_reporter;
 
+    # Wait till the kill is finished + rr traces are written + the auxpid has disappeared.
     my $server = $reporter->properties->servers->[0];
+    $server->cleanup_dead_server;
 
     my $datadir = $reporter->serverVariable('datadir');
     $datadir =~ s{[\\/]$}{}sgio;
@@ -111,8 +122,6 @@ sub report {
     # Deprecated: MariaDB 5.5
     my $engine = $reporter->serverVariable('storage_engine');
 
-    # Wait till kill finished
-    $server->cleanup_dead_server;
 
     say("INFO: $who_am_i Copying datadir... (interrupting the copy operation may cause " .
         "investigation problems later)");
@@ -236,6 +245,18 @@ sub report {
     #
     # Phase 2 - server is now running, so we execute various statements in order to verify table consistency
     #
+
+    # Avoid the
+    # 'TBR-604' , 'Table does not support optimize, doing recreate \+ analyze instead.{1,500}Lock wait timeout exceeded; try restarting transaction'
+    # Reason 1 (fixed by SET SESSION *wait_timeout = 300 here):
+    #    The walkqueries were already executed and passed.
+    #    It looks like the optimize causes the rollback of transactions on some table.
+    #    And that is not finished before the * Lock wait timeout kicks in.
+    # Reason 2 (not fixed by SET SESSION ... here):
+    #    XA is involved
+    $dbh->do("SET SESSION innodb_lock_wait_timeout = 300");
+    $dbh->do("SET SESSION lock_wait_timeout = 300");
+
 
     # FIXME
     # Add more checks like dumping
