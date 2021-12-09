@@ -109,8 +109,8 @@ use constant MYSQLD_WINDOWS_PROCESS_STILLALIVE   => 259;
 #
 # Maximum timespan between time of kill TERM for server process and the time the server process
 # should have disappeared.
-use constant DEFAULT_SHUTDOWN_TIMEOUT            => 90;
-use constant DEFAULT_TERM_TIMEOUT                => 60;
+use constant DEFAULT_SHUTDOWN_TIMEOUT            => 120;
+use constant DEFAULT_TERM_TIMEOUT                => 75;
 # Maximum timespan between time of fork of auxiliary process + acceptable start time of some
 # tool (rr etc. if needed at all) and the pid getting printed into the server error log.
 use constant DEFAULT_PID_SEEN_TIMEOUT            => 60;
@@ -150,29 +150,6 @@ sub new {
                 'rr'                    => MYSQLD_RR,
                 'rr_options'            => MYSQLD_RR_OPTIONS
     },@_);
-
-if(0) {
-    # Inform in case of error + return undef so that the caller can clean up.
-    if (osWindows() and $self->[MYSQLD_VALGRIND]) {
-        Carp::cluck("ERROR: No valgrind support on windows. Will return undef.");
-        return undef;
-    }
-    if (not osLinux() and $self->[MYSQLD_RR]) {
-        Carp::cluck("ERROR: No rr support on OS != Linux. Will return undef.");
-        return undef;
-    }
-    if ($self->[MYSQLD_RR] and $self->[MYSQLD_VALGRIND]) {
-        Carp::cluck("ERROR: No support for using rr and valgrind together. Will return undef.");
-        return undef;
-    }
-
-    if (exists $ENV{'RUNNING_UNDER_RR'} or defined $self->[MYSQLD_RR]) {
-        Runtime::set_runtime_factor_rr;
-    }
-    if ($self->[MYSQLD_VALGRIND]) {
-        Runtime::set_runtime_factor_valgrind;
-    }
-}
 
     if (not defined $self->[MYSQLD_VARDIR]) {
         $self->[MYSQLD_VARDIR] = "mysql-test/var";
@@ -1183,7 +1160,7 @@ sub killServer {
 
     my $who_am_i = "DBServer::MySQL::MySQLd::killServer:";
 
-    my $kill_timeout = DEFAULT_SERVER_KILL_TIMEOUT * Runtime::get_runtime_factor();
+    my $kill_timeout = DEFAULT_SERVER_KILL_TIMEOUT;
 
     if (osWindows()) {
         if (defined $self->[MYSQLD_WINDOWS_PROCESS]) {
@@ -1247,7 +1224,7 @@ sub term {
         return DBSTATUS_OK;
     }
 
-    my $term_timeout = DEFAULT_TERM_TIMEOUT * Runtime::get_runtime_factor();
+    my $term_timeout = DEFAULT_TERM_TIMEOUT;
 
     if (osWindows()) {
         ### Not for windows
@@ -1279,7 +1256,7 @@ sub crashServer {
 
     my $who_am_i = "DBServer::MySQL::MySQLd::crashServer:";
 
-    my $abrt_timeout = DEFAULT_SERVER_ABRT_TIMEOUT * Runtime::get_runtime_factor();
+    my $abrt_timeout = DEFAULT_SERVER_ABRT_TIMEOUT;
 
     if (osWindows()) {
         ## How do i do this?????
@@ -1318,6 +1295,7 @@ sub crashServer {
                 return DBSTATUS_OK;
             }
         } else {
+            $self->cleanup_dead_server;
             if (not defined $tolerant) {
                 Carp::cluck("WARN: $who_am_i Crashing the server process impossible because " .
                            "no server pid found.");
@@ -1578,7 +1556,6 @@ sub binary {
 sub stopServer {
     my ($self, $shutdown_timeout) = @_;
     $shutdown_timeout = DEFAULT_SHUTDOWN_TIMEOUT unless defined $shutdown_timeout;
-    $shutdown_timeout = $shutdown_timeout * Runtime::get_runtime_factor();
     my $errorlog      = $self->errorlog;
     my $check_shutdown = 0;
     my $res;
@@ -1787,24 +1764,24 @@ sub addErrorLogMarker {
 
 sub waitForServerToStop {
 # We return either DBSTATUS_OK(0) or DBSTATUS_FAILURE(1);
-   my $self      = shift;
-   my $timeout   = shift;
-   # FIXME: Build a default or similar
-   # 180s Looks like a lot but slow binaries and heavy loaded testing boxes are not rare.
-   $timeout      = (defined $timeout ? $timeout*2 : 180);
-   my $wait_end  = Time::HiRes::time() + $timeout;
-   my $wait_unit = 0.3;
-   while ($self->running && Time::HiRes::time() < $wait_end) {
-      Time::HiRes::sleep($wait_unit);
-   }
-   if ($self->running) {
-      say("ERROR: The server process has not disappeared after " . $timeout . "s waiting. " .
-          "Will return DBSTATUS_FAILURE later.");
-      Auxiliary::print_ps_tree($$);
-      return DBSTATUS_FAILURE;
-   } else {
-      return DBSTATUS_OK;
-   }
+# 2021-12 Only routines located here (lib/DBServer/MySQL/MySQLd.pm) call waitForServerToStop.
+    my $self      = shift;
+    my $timeout   = shift;
+    $timeout = 180 if not defined $timeout;
+    $timeout = $timeout * Runtime::get_runtime_factor();
+    my $wait_end  = Time::HiRes::time() + $timeout;
+    my $wait_unit = 0.3;
+    while ($self->running && Time::HiRes::time() < $wait_end) {
+        Time::HiRes::sleep($wait_unit);
+    }
+    if ($self->running) {
+        say("ERROR: The server process has not disappeared after " . $timeout . "s waiting. " .
+            "Will return DBSTATUS_FAILURE later.");
+        Auxiliary::print_ps_tree($$);
+        return DBSTATUS_FAILURE;
+    } else {
+        return DBSTATUS_OK;
+    }
 }
 
 # Currently unused
@@ -1812,7 +1789,7 @@ sub waitForServerToStart {
 # We return either DBSTATUS_OK(0) or DBSTATUS_FAILURE(1);
    my $self      = shift;
    my $timeout   = 180;
-   my $wait_end  = Time::HiRes::time() + $timeout;
+   my $wait_end  = Time::HiRes::time() + $timeout * Runtime::get_runtime_factor();
    my $wait_unit = 0.5;
    while (!$self->running && Time::HiRes::time() < $wait_end) {
       Time::HiRes::sleep($wait_unit);
@@ -2320,107 +2297,6 @@ sub waitForAuxpidGone {
     }
 }
 
-
-sub xwaitForAuxpidGone {
-# Purpose:
-# - Ensure that there is sufficient time for finishing writing core files and "rr" traces.
-# - Ensure that we get informed by error messages about not disappearing processes etc.
-#   rqg_batch.pl might finally fix the situation by killing the processgroup.
-#   Even than we had some wasting of resources over some significant timespan.
-#
-# Scenarios:
-# A1) Current process is main process (rqg.pl) and parent of auxpid
-# A2) Current process is main process (rqg.pl) but not parent of auxpid
-#     because a reporter started auxpid.
-#     iIt should be possible to figure out the auxpid and server pid.
-# B1) Current process is non main process (reporter) and parent of auxpid
-#     like CrashRecovery --> does know auxpid
-# B2) Current process is non main process (reporter) and not parent of auxpid
-#     like Deadlock --> does know auxpid per heritage because of fork
-# Eliminating A2) and B1) would have serious advantages because all auxpid and server pids would be
-# known by the main process. But this would make periodic reporters like Mariabackup impossible.
-# Alternative approach:
-# - reporters are allowed to stop servers started by the main process
-# - reporters are allowed to start servers but than they should also take care of stopping them
-# - the main process should not take care of servers started by reporters
-    my $self =          shift;
-    my $who_am_i =      "DBServer::MySQL::MySQLd::waitForAuxpidGone:";
-    my $wait_timeout =  DEFAULT_AUXPID_GONE_TIMEOUT;
-    $wait_timeout =     $wait_timeout * Runtime::get_runtime_factor();
-    my $wait_time =     0.5;
-    my $start_time =    time();
-    my $wait_end =      $start_time + $wait_timeout;
-    # For debugging:
-    # Auxiliary::print_ps_tree($self->forkpid);
-    # Auxiliary::print_ps_tree($$);
-    if (not defined $self->forkpid) {
-        my $status = DBSTATUS_FAILURE;
-        say("INTERNAL ERROR: $who_am_i The auxiliary process is undef/unknown. " .
-            "Will return status DBSTATUS_FAILURE($status).");
-        return $status;
-    }
-    while (1) {
-        Time::HiRes::sleep($wait_time);
-        my $pid = $self->forkpid;
-        if (exists $aux_pids{$pid} and $$ == $aux_pids{$pid}) {
-            # The current process is the parent of the auxiliary process.
-            # I fear that the sigalarm in startServer is not sufficient for ensuring that
-            # auxiliary processes get reaped. So lets do this here again.
-            # Auxiliary::print_ps_tree($pid);
-            # Returns of Auxiliary::reapChild
-            # -------------------------------
-            # $reaped -- 0 (not reaped) or 1 (reaped)
-            # $status -- exit status of the process if reaped,
-            #            otherwise STATUS_OK or STATUS_INTERNAL_ERROR
-            #     0, STATUS_INTERNAL_ERROR -- most probably already reaped
-            #                              == Defect in RQG logics
-            my ($reaped, $status) = Auxiliary::reapChild($pid,
-                                                         "waitForAuxpidGone");
-            if (1 == $reaped) {
-                delete $aux_pids{$pid};
-                if (DBSTATUS_OK == $status) {
-                    say("DEBUG: $who_am_i Auxpid " . $pid . " exited with exit status STATUS_OK.")
-                } else {
-                    say("WARN: $who_am_i Auxpid $pid exited with exit status $status.")
-                }
-            }
-            if (0 == $reaped and DBSTATUS_OK != $status) {
-                say("ERROR: $who_am_i Attempt to reap Auxpid $pid failed with status $status.");
-            }
-        } else {
-            # The current process is not the parent of $pid. Hence delete the entry.
-            delete $aux_pids{$pid};
-            # Maybe the auxiliary process has already finished and was reaped.
-            if (not kill(0, $pid)) {
-                my $status = DBSTATUS_OK;
-                # say("DEBUG: The auxiliary process is no more running." .
-                #     " Will return status DBSTATUS_OK" . "($status).");
-                return $status;
-            } else {
-                # 1. It is not our child == reaping is done by other process.
-                # 2. We need to loop around till the process is gone == the
-                #    other process has reaped or we exceed the timeout.
-                # This all means we have nothing to do in this branch.
-                #
-            }
-        }
-        if (time() >= $wait_end) {
-            # For debugging:
-            # system("ps -elf | grep " . $pid);
-            my $status = DBSTATUS_FAILURE;
-            say("WARN: $who_am_i The auxiliary process has not disappeared within $wait_timeout" .
-                "s waiting. Will return status DBSTATUS_FAILURE($status).");
-        #   kill KILL => $pid;
-        #   # FIXME MAYBE:   Provisoric solution
-        #   sleep 30;
-            return $status if not exists $aux_pids{$pid};
-            my $reaped;
-            ($reaped, $status) = Auxiliary::reapChild($pid,
-                                                      "waitForAuxpidGone");
-            return $status;
-        }
-    }
-}
 
 # Experimental (mleich) and not yet finished.
 sub make_backtrace {

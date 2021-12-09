@@ -343,5 +343,19 @@ sub copy_file {
     }
 }
 
+sub get_process_family {
+# Typical use case
+# ----------------
+# "tar" within the archiving routine laments that some file changed during archiving.
+# So figure out which sibling or child processes exist even though they maybe should not.
+    if (osWindows()) {
+        return 'How to get_process_family on WIN?';
+    } else {
+        my $prgp = getpgrp;
+        return "uid   pid   ppid   pgid   sid   args\n" .
+               `ps -T -u \`id -u\` -o uid,pid,ppid,pgid,sid,args | grep $prgp | sort | cut -c1-130`;
+    }
+}
+
 1;
 
