@@ -402,8 +402,12 @@ column_name_int:
    { $column_name_int= 'col_int' } ;
 
 column_name_list_for_key:
-   random_column_properties $col_idx                                     |
-   random_column_properties $col_idx , random_column_properties $col_idx ;
+   random_column_properties $col_idx direction                                              |
+   random_column_properties $col_idx direction, random_column_properties $col_idx direction ;
+
+direction:
+   ASC  |
+   DESC ;
 
 uidx_name:
    idx_name_prefix { $name = "`$idx_name_prefix" . "uidx1`";  return undef } name_convert |

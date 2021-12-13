@@ -549,7 +549,7 @@ sub stop_worker {
     my ($worker_num, $stop_reason) = @_;
     my $pid = $worker_array[$worker_num][WORKER_PID];
     if (defined $pid and -1 != $pid) {
-        # Per last update of bookkeeping the RQG Woorker was alive.
+        # Per last update of bookkeeping the RQG Worker was alive.
         # We ask to kill the processgroup of the RQG Worker.
         kill '-9', $pid;
         if ($give_up < 3) {
