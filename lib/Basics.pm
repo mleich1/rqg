@@ -351,9 +351,16 @@ sub get_process_family {
     if (osWindows()) {
         return 'How to get_process_family on WIN?';
     } else {
-        my $prgp = getpgrp;
-        return "uid   pid   ppid   pgid   sid   args\n" .
-               `ps -T -u \`id -u\` -o uid,pid,ppid,pgid,sid,args | grep $prgp | sort | cut -c1-130`;
+        my $prgp =   getpgrp;
+        my @wo   =   `ps -T -u \`id -u\` -o uid,pid,ppid,pgid,sid,args | grep $prgp | cut -c1-256`;
+        my $return = "uid   pid   ppid   pgid   sid   args\n";
+        foreach my $line (sort @wo) {
+            if (not $line =~ m{ ps -T -u } and not $line =~ m{ grep } and
+                not $line =~ m{ cut -c1-} ) {
+                $return .= $line;
+            }
+        }
+        return $return;
     }
 }
 
