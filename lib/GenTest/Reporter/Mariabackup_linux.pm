@@ -135,7 +135,7 @@ sub monitor {
     #
 
     # Ensure some minimum distance between two runs of the Reporter Mariabackup should be 15s.
-    return STATUS_OK if $last_call + 15 > time();
+    return STATUS_OK if $last_call + 15 < time();
     $last_call = time();
 
     if ($reporter->testEnd() <= time() + 5) {
@@ -202,7 +202,7 @@ sub monitor {
         }
     }
 
-    if ($script_debug and not osWindows()) {
+    if ($script_debug) {
         system("find $clone_vardir -follow") if $script_debug;
     }
 
@@ -278,6 +278,17 @@ sub monitor {
     # Mariabackup could hang.
     my $exit_msg      = '';
     my $alarm_timeout = 0;
+
+# FIXME:
+# Observation 2021-12
+# mariabackup --backup is running.
+# The reporter gets alarmed because a timeout was exceeded and aborts.
+# The RQG runner aborts.
+# The RQG worker generates a verdict and tries to make some archive.
+# tar protests because reporter_prt changed during archiving.
+# Reason:
+# Output redirection leads to mariabackup writing into reporter_prt.
+# And the some mariabackup process is alive though it should not.
 
     sigaction SIGALRM, new POSIX::SigAction sub {
         direct_to_std();
