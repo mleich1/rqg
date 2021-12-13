@@ -635,9 +635,10 @@ sub monitor {
             # 1178 is ER_CHECK_NOT_IMPLEMENTED
             # Experimental: Don't ignore error 1178
             # return STATUS_DATABASE_CORRUPTION if $clone_dbh->err() > 0 && $clone_dbh->err() != 1178;
-            if (defined $clone_dbh->err() and $clone_dbh->err() > 0) {
+            my $err = $clone_dbh->err;
+            if (defined $err and $err > 0) {
                 direct_to_std();
-                say("ERROR: $who_am_i : '$sql' failed with : " . $clone_dbh->err());
+                say("ERROR: $who_am_i : '$sql' failed with : " . $err);
                 $clone_dbh->disconnect();
                 sayFile($clone_err);
                 sayFile($reporter_prt);
@@ -653,7 +654,7 @@ sub monitor {
                 #   killServer?
                 # - has an influence how the final death happens and the error log content
                 # Provisional solution:
-                if ($clone_dbh->err() == 2013 or $clone_dbh->err() == 2006) {
+                if ($err == 2013 or $err == 2006) {
                     sleep 30;
                 }
                 say("ERROR: $who_am_i : Will kill the server running on cloned data");
