@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2019 MariaDB Corporation
+# Copyright (c) 2018, 2021 MariaDB Corporation
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -350,8 +350,12 @@ column_name_int:
    { $column_name_int= 'col_int' } ;
 
 column_name_list_for_key:
-   random_column_properties $col_idx                                     |
-   random_column_properties $col_idx , random_column_properties $col_idx ;
+   random_column_properties $col_idx direction                                              |
+   random_column_properties $col_idx direction, random_column_properties $col_idx direction ;
+
+direction:
+   ASC  |
+   DESC ;
 
 uidx_name:
    idx_name_prefix { $name = "`$idx_name_prefix" . "uidx1`";  return undef } name_convert |
@@ -660,6 +664,7 @@ gcol_prop:
 ######
 # For playing around with
 #   SET DEBUG_DBUG='+d,ib_build_indexes_too_many_concurrent_trxs, ib_rename_indexes_too_many_concurrent_trxs, ib_drop_index_too_many_concurrent_trxs';
+#   SET DEBUG_DBUG='+d,create_index_fail';
 # and similar add a redefine like
 #   conf/mariadb/ts_dbug_innodb.yy
 #
