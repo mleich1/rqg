@@ -47,8 +47,8 @@ Please excuse
     I use that branch including some not yet pushed changes for InnoDB QA.
 
 
-Preparations for using RQG and my batch tool
---------------------------------------------
+Preparations for using RQG, my batch tool and build scripts
+-----------------------------------------------------------
 - Stuff needed for plain RQG and the mysqltest simplifier
   sudo apt-get install libdbi-perl
   sudo apt-get install libdbd-mariadb-perl
@@ -63,21 +63,27 @@ Preparations for using RQG and my batch tool
 
   Prevent swapping because the resource control in rqg_batch.pl fears swapping goes towards
   on SSD and wants to avoid a wear out of that device by excessive writing.
-  As root:
-  - Solution which will disappear after the next reboot
-    echo 0 > /proc/sys/vm/swappiness
-    or
-    swapoff -a
 
-  - Solution which will survive the next reboot
+  Recommended:
+  As root:
+  - solution which survives the next reboot
+    # Edit the fstab, set mountimg the swap to comment so that it does not get lost during restart.
+    sudo vi /etc/fstab
+    # and maybe remove the swap device or file.
+  - solution which does not survive the next reboot
+    sudo swapoff -a
+
+  Serious less robust than above:
+  As root:
+  - solution which survives the next reboot
     Edit /etc/sysctl.conf and add
     ###################################################################
     # For rqg_batch.pl
     # Make using the swap rare.
     #
     vm.swappiness = 0
-
-    or remove the swap device which is my preferred solution.
+  - solution which will disappear after the next reboot
+    echo 0 > /proc/sys/vm/swappiness
 
   - Edit /etc/sysctl.conf and add for example
         fs.aio-max-nr=99999999
@@ -87,14 +93,51 @@ Preparations for using RQG and my batch tool
         * soft nofile 51200
     in case the actual numbers for no of open files, aio, processes etc. are too low.
 
+- Stuff needed for rr tracing
+  https://rr-project.org/
+  Arund 60% of the page are instructions how to install the latest version of rr
+  on Fedora and Ubuntu.
+
+- Stuff needed for build MariaDB and RQG testing
+
+  Your .profile should set variables like
+
+  # Used by RQG Release build scripts and RQG testing
+  export GENERAL_SOURCE_DIR="/Server"
+  export GENERAL_STORE_DIR="/data"
+  export GENERAL_BIN_DIR="/Server_bin"
+
+  ulimit -c unlimited
+  ulimit -S -n 61440
+
+  sudo cp <RQG install dir>/util/bld_*.sh /usr/local/bin
+
+How to build
+------------
+Assuming that you have set the environment variables to values like above
+   cd /Server
+   git clone https://github.com/MariaDB/server.git preview-10.8-MDEV-14425-concurrency-friendly-log-format
+   cd preview-10.8-MDEV-14425-concurrency-friendly-log-format
+   git checkout origin/preview-10.8-MDEV-14425-concurrency-friendly-log-format
+   bld_asan.sh preview-10.8-MDEV-14425-concurrency-friendly-log-format
+   If something goes
+   - wrong than /dev/shm/build_dir/build.prt shows the output of the build process.
+     More comfortable for finding the problem would be
+     cd /dev/shm/build_dir
+     make
+   - well than MariaDB compiled with debug+asan will be installed in
+        /Server_bin/preview-10.8-MDEV-14425-concurrency-friendly-log-format_asan
+     and the files
+        /data/binarchs/timestamp>.prt       # Protocol of build
+        /data/binarchs/<timestamp>.tar.xz   # Archive of install directory
 
 How to make a single RQG run
 ----------------------------
 Please make a copy of the script RQG.sh and adjust it to your needs.
-The log of the RQG run will be storage/SINGLE_RQG/rqg.log
-The remains of the RQG run will be in /dev/shm/vardir/SINGLE_RQG .
+The log of the RQG run will be $GENERAL_STORE_DIR/results/SINGLE_RQG/rqg.log
+The remains of the RQG run will be in /dev/shm/rqg/SINGLE_RQG .
 Warning:
-The next run with RQG.sh will drop and recreate storage/SINGLE_RQG and /dev/shm/vardir/SINGLE_RQG .
+The next run with RQG.sh will drop and recreate $GENERAL_STORE_DIR/SINGLE_RQG and /dev/shm/rqg/SINGLE_RQG .
 
 
 How to run a batch of RQG runs with massive parallelization
@@ -104,13 +147,13 @@ Please make a copy of
 - the batch configuration file conf/mariadb/InnoDB_standard.cc and adjust it to your needs
 
 The workdir of the last rqg_bat.pl run is
-    last_batch_workdir == symlink pointing to storage/<highest timestamp>
+    last_result_dir == symlink pointing to $GENERAL_STORE_DIR/results/<highest timestamp>
 
 Content of that workdir
     result.txt   Tabellaric overview about the RQG runs performed + the final verdict
     setup.txt    Tabellaric overview ... with full setup of the single RQG runs
     <number>.log rqg log of run <number>
-    <number>.tgz compressed archive with the remains (data files, core,...) of run <number>
+    <number>.tar.xz compressed archive with the remains (data files, core,...) of run <number>
     some additional files
 
 The verdict is made based on verdict_general.cfg.
@@ -119,9 +162,9 @@ Feel free to edit your version of it but never push that to the official reposit
 
 How to get a verdict about the the result of some RQG run
 ---------------------------------------------------------
-perl verdict.pl --log_file=last_batch_workdir/000001.log
+perl verdict.pl --log_file=last_result_dir/000001.log
 which is equivalent to
-perl verdict.pl --batch_config=verdict_general.cfg --log_file=last_batch_workdir/000001.log
+perl verdict.pl --batch_config=verdict_general.cfg --log_file=last_result_dir/000001.log
 
 
 Collection of hints (under construction)
@@ -435,7 +478,7 @@ DONE (incomplete and arbitrary sorted list):
     wanted pattern
     [ 'MDEV-20775' , 'InnoDB: Failing assertion: \!page_zip \|\| page_zip_validate\(page_zip, page, index\)' ],
     In case you hit a server crash + the RQG log contains the text pattern than the file
-    last_batch_workdir/result.txt will contain an entry like
+    last_result_dir/result.txt will contain an entry like
     2020-01-17T18:13:14 | Number | Worker | Verdict          | RQG log    | OrderId | RunTime | Derivate used      | Parent of derivate | Extra_info
     ...
     2020-01-17T18:25:00 |    284 |     67 | replay           | 000283.log |     178 |      72 | c00193.yy          | p00000.yy          | STATUS_SERVER_CRASHED--MDEV-20775
