@@ -72,8 +72,7 @@
 # _digit --> Range 0 till 9
 
 fail_001:
-   { $fail = 'fail_001' ; return undef }; SELECT * FROM $fail ;
-
+   { $fail = 'my_fail_001' ; return undef }; SELECT * FROM $fail ;
 
 # thread1 manages CREATE/DROP of the tables.
 # Doing that by one thread only avoids clashes compared to trying it by every thread.
@@ -101,6 +100,9 @@ buffer_pool_size:
    134217728 |
    268435456 ;
 
+fail_002:
+   { $fail = 'my_fail_002' ; return undef }; SELECT * FROM $fail ;
+
 thread1_connect:
    SET AUTOCOMMIT = 0; SET @fill_amount = (@@innodb_page_size / 2 ) + 1 ; set_big_timeouts ;
 
@@ -119,6 +121,9 @@ set_big_timeouts:
 
 maintain_session_entry:
    REPLACE INTO rqg . rqg_sessions SET rqg_id = _thread_id , processlist_id = CONNECTION_ID(), pid = { my $x = $$ } , connect_time = UNIX_TIMESTAMP();  COMMIT ;
+
+fail_003:
+   { $fail = 'my_fail_003' ; return undef }; SELECT * FROM $fail ;
 
 kill_query_or_session_or_release:
 # We are here interested on the impact of
@@ -187,11 +192,12 @@ correct_rqg_sessions_table:
    UPDATE rqg . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 create_table:
-   # c_t_begin t0 c_t_mid ENGINE = MyISAM $m2 ; c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic $m2 ; c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed $m2 ; c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact $m2 ; c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant $m2 ; c_t_begin t5 c_t_mid ENGINE = Aria $m2 ;
+   # c_t_begin t0 c_t_mid ENGINE = MyISAM $m2 ;
    c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic    $m2 ;
    c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed $m2 ;
    c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact    $m2 ;
    c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant  $m2 ;
+   # c_t_begin t5 c_t_mid ENGINE = Aria $m2 ;
 
 c_t_begin:
    $m1 CREATE TABLE IF NOT EXISTS ;
@@ -199,13 +205,14 @@ c_t_mid:
    ( non_generated_cols generated_cols ) ;
 
 table_names:
-#  t0 |
-   t1 |
-   t2 |
-   t3 |
-#  t4 |
-#  t5 ;
-   t4 ;
+   # Make it possible to use the same table_name multiple times in one query.
+   # This is currently not exploited.
+   # { $table_name = "t0" } |
+   { $table_name = "t1" } |
+   { $table_name = "t2" } |
+   { $table_name = "t3" } |
+   { $table_name = "t4" } ;
+   # { $table_name = "t5" } ;
 
 non_generated_cols:
    col1 INT, col2 INT, col_int_properties $col_name $col_type , col_string_properties $col_name $col_type, col_varchar_properties $col_name $col_type, col_text_properties $col_name $col_type ;
@@ -252,9 +259,9 @@ enforce_duplicate1:
    delete ; insert_part /* my_int */ some_record , some_record ;
 
 enforce_duplicate2:
-   # FIXME: Check/decide what to use
-   # UPDATE table_names SET column_name_int = my_int ORDER BY col1 DESC LIMIT 2 ;
-   # if that avoids statements which are unsafe for replication.
+# FIXME: Check/decide what to use
+# UPDATE table_names SET column_name_int = my_int ORDER BY col1 DESC LIMIT 2 ;
+# if that avoids statements which are unsafe for replication.
    UPDATE table_names SET column_name_int = my_int LIMIT 2 ;
 
 insert_part:
@@ -280,9 +287,6 @@ commit_rollback:
    COMMIT   |
    ROLLBACK ;
 
-alter_table_part:
-   ALTER ignore TABLE table_names ;
-
 # FIXME:
 # https://mariadb.com/kb/en/library/wait-and-nowait/
 ddl:
@@ -304,10 +308,10 @@ ddl:
    replace_column                                                                        |
    # It is some rather arbitrary decision to place KILL session etc. here
    # but KILL ... etc. is like most DDL some rather heavy impact DDL.
-   alter_table_part enable_disable KEYS                                           |
+   alter_table_part enable_disable KEYS                                                  |
    rename_column                                      ddl_algorithm_lock_option          |
    null_notnull_column                                ddl_algorithm_lock_option          |
-   alter_table_part MODIFY column_name_int int_bigint   ddl_algorithm_lock_option |
+   alter_table_part MODIFY column_name_int int_bigint ddl_algorithm_lock_option          |
    move_column                                        ddl_algorithm_lock_option          |
    chaos_column                                       ddl_algorithm_lock_option          |
    block_stage                                                                           |
@@ -320,23 +324,23 @@ ignore:
           |
    IGNORE ;
 
-alt_tab_part:
-   ALTER ignore TABLE ;
+alter_table_part:
+   ALTER ignore TABLE table_names ;
 
 chaos_column:
-   # Basic idea
-   # - have a length in bytes = 3 which is not the usual 2, 4 or more
-   # - let the column stray like it exists/does not exist/gets moved to other position
+# Basic idea
+# - have a length in bytes = 3 which is not the usual 2, 4 or more
+# - let the column stray like it exists/does not exist/gets moved to other position
    alter_table_part ADD COLUMN IF NOT EXISTS col_date DATE DEFAULT CUR_DATE() |
    alter_table_part DROP COLUMN IF EXISTS col_date                            |
    alter_table_part MODIFY COLUMN IF EXISTS col_date DATE column_position     ;
 
 move_column:
-   # Unfortunately I cannot prevent that the column type gets maybe changed.
+# Unfortunately I cannot prevent that the column type gets maybe changed.
    random_column_properties alter_table_part MODIFY COLUMN $col_name $col_type column_position ;
 
 null_notnull_column:
-   # Unfortunately I cannot prevent that the column type gets maybe changed.
+# Unfortunately I cannot prevent that the column type gets maybe changed.
    random_column_properties alter_table_part MODIFY COLUMN $col_name $col_type null_not_null ;
 null_not_null:
    NULL     |
@@ -441,6 +445,9 @@ random_column_name:
    col_string_g |
    col_text     |
    col_text_g   ;
+
+fail_008:
+   { $fail = 'my_fail_008' ; return undef }; SELECT * FROM $fail ;
 
 #===========================================================
 # Concept of "replace_column"
@@ -591,6 +598,9 @@ small_sleep:
    { sleep 1.5 ; return undef } |
    { sleep 2.5 ; return undef } ;
 
+fail_009:
+   { $fail = 'my_fail_009' ; return undef }; SELECT * FROM $fail ;
+
 #######################
 # 1. Have the alternatives
 #    a) <nothing>
@@ -693,6 +703,9 @@ col_to_idx:
 col9_to_idx:
    { $col_idx= $col_name . "(9)" ; return undef } ;
 
+fail_010:
+   { $fail = 'my_fail_010' ; return undef }; SELECT * FROM $fail ;
+
 
 
 col_int_properties:
@@ -725,4 +738,8 @@ set_dbug:
 
 set_dbug_null:
    ;
+
+fail_011:
+   { $fail = 'my_fail_011' ; return undef }; SELECT * FROM $fail ;
+
 

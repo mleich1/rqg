@@ -71,6 +71,8 @@
 #
 # _digit --> Range 0 till 9
 
+fail_001:
+   { $fail = 'my_fail_001' ; return undef }; SELECT * FROM $fail ;
 
 start_delay:
    # Avoid that worker threads cause a server crash before reporters are started.
@@ -88,6 +90,9 @@ set_small_timeouts:
 
 maintain_session_entry:
    REPLACE INTO rqg . rqg_sessions SET rqg_id = _thread_id , processlist_id = CONNECTION_ID(), pid = { my $x = $$ } , connect_time = UNIX_TIMESTAMP();  COMMIT ;
+
+fail_003:
+   { $fail = 'my_fail_003' ; return undef }; SELECT * FROM $fail ;
 
 kill_query_or_session_or_release:
 # We are here interested on the impact of
@@ -156,7 +161,12 @@ correct_rqg_sessions_table:
    UPDATE rqg . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 create_table:
-   c_t_begin t0 c_t_mid ENGINE = MyISAM ; c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic ; c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed ; c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact ; c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant ; c_t_begin t5 c_t_mid ENGINE = Aria ;
+   c_t_begin t0 c_t_mid ENGINE = MyISAM ;
+   c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic ;
+   c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed ;
+   c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact ;
+   c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant ;
+   c_t_begin t5 c_t_mid ENGINE = Aria ;
 
 c_t_begin:
    CREATE TABLE IF NOT EXISTS ;
@@ -164,12 +174,14 @@ c_t_mid:
    ( non_generated_cols generated_cols ) ;
 
 table_names:
-   t0 |
-   t1 |
-   t2 |
-   t3 |
-   t4 |
-   t5 ;
+   # Make it possible to use the same table_name multiple times in one query.
+   # This is currently not exploited.
+   { $table_name = "t0" } |
+   { $table_name = "t1" } |
+   { $table_name = "t2" } |
+   { $table_name = "t3" } |
+   { $table_name = "t4" } |
+   { $table_name = "t5" } ;
 
 non_generated_cols:
    col1 INT, col2 INT, col_int_properties $col_name $col_type , col_string_properties $col_name $col_type, col_varchar_properties $col_name $col_type, col_text_properties $col_name $col_type ;
@@ -244,17 +256,17 @@ commit_rollback:
 # FIXME:
 # https://mariadb.com/kb/en/library/wait-and-nowait/
 ddl:
-   ALTER TABLE table_names add_accelerator                     ddl_algorithm_lock_option |
-   ALTER TABLE table_names add_accelerator                     ddl_algorithm_lock_option |
-   ALTER TABLE table_names add_accelerator                     ddl_algorithm_lock_option |
-   ALTER TABLE table_names add_accelerator                     ddl_algorithm_lock_option |
-   ALTER TABLE table_names drop_accelerator                    ddl_algorithm_lock_option |
-   ALTER TABLE table_names drop_accelerator                    ddl_algorithm_lock_option |
-   ALTER TABLE table_names drop_accelerator                    ddl_algorithm_lock_option |
-   ALTER TABLE table_names drop_accelerator                    ddl_algorithm_lock_option |
-   ALTER TABLE table_names add_accelerator  , add_accelerator  ddl_algorithm_lock_option |
-   ALTER TABLE table_names drop_accelerator , drop_accelerator ddl_algorithm_lock_option |
-   ALTER TABLE table_names drop_accelerator , add_accelerator  ddl_algorithm_lock_option |
+   alter_table_part add_accelerator                     ddl_algorithm_lock_option |
+   alter_table_part add_accelerator                     ddl_algorithm_lock_option |
+   alter_table_part add_accelerator                     ddl_algorithm_lock_option |
+   alter_table_part add_accelerator                     ddl_algorithm_lock_option |
+   alter_table_part drop_accelerator                    ddl_algorithm_lock_option |
+   alter_table_part drop_accelerator                    ddl_algorithm_lock_option |
+   alter_table_part drop_accelerator                    ddl_algorithm_lock_option |
+   alter_table_part drop_accelerator                    ddl_algorithm_lock_option |
+   alter_table_part add_accelerator  , add_accelerator  ddl_algorithm_lock_option |
+   alter_table_part drop_accelerator , drop_accelerator ddl_algorithm_lock_option |
+   alter_table_part drop_accelerator , add_accelerator  ddl_algorithm_lock_option |
    # ddl_algorithm_lock_option is not supported by some statements
    check_table                                                                           |
    TRUNCATE TABLE table_names                                                            |
@@ -262,30 +274,40 @@ ddl:
    replace_column                                                                        |
    # It is some rather arbitrary decision to place KILL session etc. here
    # but KILL ... etc. is like most DDL some rather heavy impact DDL.
-   ALTER TABLE table_names enable_disable KEYS                                           |
+   alter_table_part enable_disable KEYS                                           |
    rename_column                                      ddl_algorithm_lock_option          |
    null_notnull_column                                ddl_algorithm_lock_option          |
-   ALTER TABLE table_names MODIFY column_name_int int_bigint   ddl_algorithm_lock_option |
+   alter_table_part MODIFY column_name_int int_bigint   ddl_algorithm_lock_option |
    move_column                                        ddl_algorithm_lock_option          |
    chaos_column                                       ddl_algorithm_lock_option          |
    block_stage                                                                           |
    kill_query_or_session_or_release                                                      ;
 
+ignore:
+          |
+          |
+          |
+          |
+   IGNORE ;
+
+alter_table_part:
+   ALTER ignore TABLE table_names ;
+
 chaos_column:
    # Basic idea
    # - have a length in bytes = 3 which is not the usual 2, 4 or more
    # - let the column stray like it exists/does not exist/gets moved to other position
-   ALTER TABLE table_names ADD COLUMN IF NOT EXISTS col_date DATE DEFAULT CUR_DATE() |
-   ALTER TABLE table_names DROP COLUMN IF EXISTS col_date                            |
-   ALTER TABLE table_names MODIFY COLUMN IF EXISTS col_date DATE column_position     ;
+   alter_table_part ADD COLUMN IF NOT EXISTS col_date DATE DEFAULT CUR_DATE() |
+   alter_table_part DROP COLUMN IF EXISTS col_date                            |
+   alter_table_part MODIFY COLUMN IF EXISTS col_date DATE column_position     ;
 
 move_column:
    # Unfortunately I cannot prevent that the column type gets maybe changed.
-   random_column_properties ALTER TABLE table_names MODIFY COLUMN $col_name $col_type column_position ;
+   random_column_properties alter_table_part MODIFY COLUMN $col_name $col_type column_position ;
 
 null_notnull_column:
    # Unfortunately I cannot prevent that the column type gets maybe changed.
-   random_column_properties ALTER TABLE table_names MODIFY COLUMN $col_name $col_type null_not_null ;
+   random_column_properties alter_table_part MODIFY COLUMN $col_name $col_type null_not_null ;
 null_not_null:
    NULL     |
    NOT NULL ;
@@ -390,6 +412,9 @@ random_column_name:
    col_text     |
    col_text_g   ;
 
+fail_008:
+   { $fail = 'my_fail_008' ; return undef }; SELECT * FROM $fail ;
+
 #===========================================================
 # Concept of "replace_column"
 # ---------------------------
@@ -402,14 +427,14 @@ replace_column:
    random_column_g_properties replace_column_add ;                         replace_column_drop ; replace_column_rename ;
 
 replace_column_add:
-   ALTER TABLE table_names ADD COLUMN if_not_exists_mostly {$forget= $col_name."_copy"} $col_type column_position ddl_algorithm_lock_option ;
+   alter_table_part ADD COLUMN if_not_exists_mostly {$forget= $col_name."_copy"} $col_type column_position ddl_algorithm_lock_option ;
 replace_column_update:
    UPDATE table_names SET $forget = $col_name ;
 replace_column_drop:
-   ALTER TABLE table_names DROP COLUMN if_exists_mostly $col_name ddl_algorithm_lock_option ;
+   alter_table_part DROP COLUMN if_exists_mostly $col_name ddl_algorithm_lock_option ;
 replace_column_rename:
    # Unfortunately I cannot prevent that the column type gets maybe changed.
-   ALTER TABLE table_names CHANGE COLUMN if_exists_mostly $forget {$name = $col_name; return undef} name_convert $col_type ddl_algorithm_lock_option ;
+   alter_table_part CHANGE COLUMN if_exists_mostly $forget {$name = $col_name; return undef} name_convert $col_type ddl_algorithm_lock_option ;
 #===========================================================
 # Names should be compared case insensitive.
 # Given the fact that the current test should hunt bugs in
@@ -422,7 +447,7 @@ rename_column:
    rename_column_begin {$name = $col_name; return undef} name_convert $col_name $col_type |
    rename_column_begin {$name = $col_name; return undef} $col_name name_convert $col_type ;
 rename_column_begin:
-   random_column_properties ALTER TABLE table_names CHANGE COLUMN if_exists_mostly ;
+   random_column_properties alter_table_part CHANGE COLUMN if_exists_mostly ;
 name_convert:
    $name                                                                                                   |
    $name                                                                                                   |
@@ -448,7 +473,7 @@ get_cdigit:
 #    regarding the 255-byte maximum length only applies to other ROW_FORMAT.
 # FIXME: Complete the implementation.
 resize_varchar:
-   col_varchar_properties ALTER TABLE table_names MODIFY COLUMN $col_name $col_type |
+   col_varchar_properties alter_table_part MODIFY COLUMN $col_name $col_type |
                                                                            ;
 
 # MDEV-5336 Implement LOCK FOR BACKUP
@@ -538,6 +563,9 @@ small_sleep:
    { sleep 0.5 ; return undef } |
    { sleep 1.5 ; return undef } |
    { sleep 2.5 ; return undef } ;
+
+fail_009:
+   { $fail = 'my_fail_009' ; return undef }; SELECT * FROM $fail ;
 
 #######################
 # 1. Have the alternatives
@@ -641,6 +669,9 @@ col_to_idx:
 col9_to_idx:
    { $col_idx= $col_name . "(9)" ; return undef } ;
 
+fail_010:
+   { $fail = 'my_fail_010' ; return undef }; SELECT * FROM $fail ;
+
 
 
 col_int_properties:
@@ -673,4 +704,8 @@ set_dbug:
 
 set_dbug_null:
    ;
+
+fail_011:
+   { $fail = 'my_fail_011' ; return undef }; SELECT * FROM $fail ;
+
 

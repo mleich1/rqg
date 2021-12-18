@@ -344,7 +344,7 @@ ignore:
           |
    IGNORE ;
 
-alt_tab_part:
+alter_table_part:
    ALTER ignore TABLE ;
 
 chaos_column:
