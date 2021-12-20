@@ -1,4 +1,4 @@
-# Copyright (C) 2016, 2020 MariaDB Corporation Ab
+# Copyright (C) 2016, 2021 MariaDB Corporation Ab
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -77,8 +77,8 @@ sub report {
         say("INFO: $who_am_i The test will perform server crash-recovery");
     }
     $who_am_i .= " with mode '$upgrade_mode':";
-    say("DEBUG: basedir before upgrade ->" . $reporter->properties->servers->[0]->basedir() . "<-");
-    say("DEBUG: basedir after upgrade ->" . $reporter->properties->servers->[1]->basedir() . "<-");
+    say("INFO: $who_am_i basedir before upgrade ->" . $reporter->properties->servers->[0]->basedir() . "<-");
+    say("INFO: $who_am_i basedir after upgrade  ->" . $reporter->properties->servers->[1]->basedir() . "<-");
 
     say("INFO: $who_am_i -------------------- Begin");
     say("-- Old server info: --");
@@ -88,10 +88,11 @@ sub report {
     say("-- New server info: --");
     say($reporter->properties->servers->[1]->version());
     $reporter->properties->servers->[1]->printServerOptions();
-    say("----------------------");
+    say("INFO: $who_am_i -------------------- End");
 
     my $server = $reporter->properties->servers->[0];
     my $dbh = DBI->connect($server->dsn);
+    # FIXME: Connect above can fail
 
     my $major_version_old= $server->majorVersion;
     $version_numeric_old= $server->versionNumeric();
@@ -100,18 +101,21 @@ sub report {
     my %table_autoinc = ();
 
     dump_database($reporter,$server,$dbh,'old');
+    # FIXME: dump_database returns a status
     $table_autoinc{'old'} = collect_autoincrements($dbh,'old');
 
     if ($upgrade_mode eq 'normal') {
         say("INFO: $who_am_i Shutting down (send SIGTERM) the old server...");
-        kill(15, $pid);
-        my $end_time = time() + 60;
-        while (time() < $end_time) {
-            last if not kill(0, $pid);
-            sleep 1;
+        if (STATUS_OK != $server->term()) {
+            # If SIGTERM has not the expected effect within the $term_timeout timespan
+            # than crashServer(SIGABRT) gets called.
+            # And if SIGABRT as not the expected effect within the $abrt_timeout timespan
+            # than killServer(SIGKILL) gets called.
+            return report_and_return(STATUS_CRITICAL_FAILURE);
         }
     } else {
         say("INFO: $who_am_i Killing (send SIGKILL) the old server...");
+        # FIXME: If possible replace by calling a routine from MySQLd.pm
         kill(9, $pid);
         my $end_time = time() + 60;
         while (time() < $end_time) {
@@ -121,12 +125,12 @@ sub report {
     }
     # (mleich): FIXME      Why is there a branch with STATUS_SKIP?
     if (kill(0, $pid)) {
-        sayError("INFO: $who_am_i Could not shut down/kill the old server with pid $pid; sending SIGABRT to get a stack trace");
+        say("ERROR: $who_am_i Could not shut down/kill the old server with pid $pid; sending SIGABRT to get a stack trace");
         kill('ABRT', $pid);
         if ($upgrade_mode eq 'recovery') {
             return report_and_return(STATUS_SERVER_DEADLOCKED);
         } else { # $upgrade_mode eq 'crash', we'll ignore hang on old server shutdown
-            say("MLML $who_am_i We will set STATUS_SKIP!");
+            say("INFO: $who_am_i We will set STATUS_SKIP!");
             return report_and_return(STATUS_SKIP);
         }
     } else {
@@ -158,7 +162,7 @@ sub report {
     my $upgrade_status = $server->startServer();
 
     if ($upgrade_status != STATUS_OK) {
-        sayError("INFO: $who_am_i New server failed to start");
+        say("ERROR: $who_am_i New server failed to start");
     }
 
     # FIXME:
@@ -231,7 +235,8 @@ sub report {
 
     if ($upgrade_status != STATUS_OK) {
         $upgrade_status = STATUS_UPGRADE_FAILURE if $upgrade_status == STATUS_POSSIBLE_FAILURE;
-        sayError("$who_am_i Upgrade has apparently failed");
+        say("ERROR: $who_am_i Upgrade has apparently failed");
+        sayFile($errorlog);
         return report_and_return($upgrade_status);
     }
 
@@ -242,7 +247,7 @@ sub report {
 
     $dbh = DBI->connect($server->dsn);
     if (not defined $dbh) {
-        sayError("$who_am_i Could not connect to the new server after upgrade");
+        say("ERROR: $who_am_i Could not connect to the new server after upgrade");
         return report_and_return(STATUS_UPGRADE_FAILURE);
     }
 
@@ -268,7 +273,7 @@ sub report {
                     while (<UPGRADE_LOG>) {
                         if (/^\s*Error/) {
                             $res= STATUS_UPGRADE_FAILURE;
-                            sayError("$who_am_i Found errors in mysql_upgrade output");
+                            say("ERROR: $who_am_i Found errors in mysql_upgrade output");
                             sayFile("$datadir/mysql_upgrade.log");
                             last OUTER_READ;
                         }
@@ -276,12 +281,12 @@ sub report {
                 }
                 close (UPGRADE_LOG);
             } else {
-                sayError("$who_am_i Could not find mysql_upgrade.log");
+                say("ERROR: $who_am_i Could not find mysql_upgrade.log");
                 $res= STATUS_UPGRADE_FAILURE;
             }
         }
         if ($res != STATUS_OK) {
-            sayError("mysql_upgrade has failed");
+            say("ERROR: $who_am_i mysql_upgrade has failed");
             sayFile($errorlog);
             return report_and_return(STATUS_UPGRADE_FAILURE);
         }
@@ -350,22 +355,42 @@ sub dump_database {
 	my $databases_string = join(' ', @all_databases );
 
     my $dump_file = "$vardir/server_schema_$suffix.dump";
+    my $dump_err  = "$vardir/server_schema_$suffix.err";
     my $mysqldump= $server->dumper;
 
-    my $cmd= "\"$mysqldump\" --hex-blob --no-tablespaces --compact --order-by-primary --skip-extended-insert --host=127.0.0.1 --port=$port --user=root --password='' --no-data --databases $databases_string";
+    my $cmd_snip = "\"$mysqldump\" --force --hex-blob --no-tablespaces --compact " .
+                   "--order-by-primary --skip-extended-insert --host=127.0.0.1 --port=$port " .
+                   "--user=root --password='' ";
+    my $cmd;
+    # $cmd= "\"$mysqldump\" --force --hex-blob --no-tablespaces --compact --order-by-primary --skip-extended-insert --host=127.0.0.1 --port=$port --user=root --password='' --no-data --databases $databases_string";
+    $cmd= $cmd_snip . "--no-data --databases $databases_string";
     say("Dumping $suffix server structures to the dump file $dump_file using the command:");
     say($cmd);
-    my $dump_result = system("$cmd > $dump_file");
+    my $dump_result = system("$cmd > $dump_file 2>$dump_err");
 
-    return STATUS_ENVIRONMENT_FAILURE if $dump_result;
+    # temporary: Do not just return STATUS_ENVIRONMENT_FAILURE if $dump_result;
+    if ($dump_result) {
+        say("WARN: mysqldump failed");
+        sayFile($dump_err);
+    }
+
 
     $dump_file = "$vardir/server_data_$suffix.dump";
-    $cmd= "\"$mysqldump\" --hex-blob --no-tablespaces --compact --order-by-primary --skip-extended-insert --host=127.0.0.1 --port=$port --user=root --password='' --no-create-info --databases $databases_string";
+    $dump_err  = "$vardir/server_data_$suffix.err";
+    # $cmd= "\"$mysqldump\" --force --hex-blob --no-tablespaces --compact --order-by-primary --skip-extended-insert --host=127.0.0.1 --port=$port --user=root --password='' --no-create-info --databases $databases_string";
+    $cmd= $cmd_snip . "--no-create-info --databases $databases_string";
     say("Dumping $suffix server data to the dump file $dump_file using the command:");
     say($cmd);
-    $dump_result = system("$cmd > $dump_file");
+    $dump_result = system("$cmd > $dump_file 2>$dump_err");
 
-    return ($dump_result ? STATUS_ENVIRONMENT_FAILURE : STATUS_OK);
+    # temporary: Do not just return STATUS_ENVIRONMENT_FAILURE if $dump_result;
+    if ($dump_result) {
+        say("WARN: mysqldump failed");
+        sayFile($dump_err);
+    }
+
+    # temporary    return ($dump_result ? STATUS_ENVIRONMENT_FAILURE : STATUS_OK);
+    return STATUS_OK;
 }
 
 # Table AUTO_INCREMENT can be re-calculated upon restart,
@@ -389,21 +414,37 @@ sub collect_autoincrements {
 sub compare_all {
     my $table_autoinc= shift;
 
-	say("Comparing SQL schema dumps between old and new servers...");
     my $status = STATUS_OK;
-	my $diff_result = system("diff -u $vardir/server_schema_old.dump $vardir/server_schema_new.dump");
-	$diff_result = $diff_result >> 8;
 
+	say("Comparing SQL schema dump errors between old and new servers...");
+	my $diff_result = system("diff -u $vardir/server_schema_old.err $vardir/server_schema_new.err");
+	$diff_result = $diff_result >> 8;
 	if ($diff_result != 0) {
-		sayError("Server schema has changed");
+		say("ERROR: Schema dump errors differ");
 		$status= STATUS_SCHEMA_MISMATCH;
 	}
 
+	say("Comparing SQL schema dumps between old and new servers...");
+	$diff_result = system("diff -u $vardir/server_schema_old.dump $vardir/server_schema_new.dump");
+	$diff_result = $diff_result >> 8;
+	if ($diff_result != 0) {
+		say("ERROR: Server schema has changed");
+		$status= STATUS_SCHEMA_MISMATCH;
+	}
+
+	say("Comparing Data dump errors between old and new servers...");
+	$diff_result = system("diff -u $vardir/server_data_old.err $vardir/server_data_new.err");
+	$diff_result = $diff_result >> 8;
+	if ($diff_result != 0) {
+		say("ERROR: Data dump errors differ");
+		$status= STATUS_CONTENT_MISMATCH;
+	}
+
+	say("Comparing Data dumps between old and new servers...");
 	$diff_result = system("diff -u $vardir/server_data_old.dump $vardir/server_data_new.dump");
 	$diff_result = $diff_result >> 8;
-
 	if ($diff_result != 0) {
-		sayError("Server data has changed");
+		say("ERROR: Server data has changed");
 		$status= STATUS_CONTENT_MISMATCH;
 	}
 
@@ -416,15 +457,15 @@ sub compare_all {
         say("No auto-inc data for old and new servers, skipping the check");
     }
     elsif ($old_autoinc and ref $old_autoinc eq 'ARRAY' and (not $new_autoinc or ref $new_autoinc ne 'ARRAY')) {
-        sayError("Auto-increment data for the new server is not available");
+        say("ERROR: Auto-increment data for the new server is not available");
         $status = STATUS_CONTENT_MISMATCH;
     }
     elsif ($new_autoinc and ref $new_autoinc eq 'ARRAY' and (not $old_autoinc or ref $old_autoinc ne 'ARRAY')) {
-        sayError("Auto-increment data for the old server is not available");
+        say("ERROR: Auto-increment data for the old server is not available");
         $status = STATUS_CONTENT_MISMATCH;
     }
     elsif (scalar @$old_autoinc != scalar @$new_autoinc) {
-        sayError("Different number of tables in auto-incement data. Old server: ".scalar(@$old_autoinc)." ; new server: ".scalar(@$new_autoinc));
+        say("ERROR: Different number of tables in auto-increment data. Old server: ".scalar(@$old_autoinc)." ; new server: ".scalar(@$new_autoinc));
         $status= STATUS_CONTENT_MISMATCH;
     }
     else {
@@ -437,7 +478,7 @@ sub compare_all {
             if ($to->[0] ne $tn->[0] or $to->[2] ne $tn->[2] or $to->[3] != $tn->[3] or ($tn->[1] != $to->[1] and $tn->[1] != $tn->[3]+1))
             {
                 detected_bug(13094);
-                sayError("Auto-increment data differs. Old server: @$to ; new server: @$tn");
+                say("ERROR: Auto-increment data differs. Old server: @$to ; new server: @$tn");
                 $status= STATUS_CUSTOM_OUTCOME if $status < STATUS_CUSTOM_OUTCOME;
             }
         }
@@ -499,6 +540,20 @@ sub normalize_dumps {
             }
             # `col_blob` text => `col_blob` text DEFAULT NULL,
             s/(\s)(blob|text|mediumblob|mediumtext|longblob|longtext|tinyblob|tinytext)(,)?$/${1}${2}${1}DEFAULT${1}NULL${3}/;
+            print DUMP2 $_;
+        }
+        close(DUMP1);
+        close(DUMP2);
+    }
+
+    if ($new_ver ge '100702') {
+        move("$vardir/server_schema_old.dump","$vardir/server_schema_old.dump.tmp");
+        open(DUMP1,"$vardir/server_schema_old.dump.tmp");
+        open(DUMP2,">$vardir/server_schema_old.dump");
+        while (<DUMP1>) {
+            # old: `col_varchar_255_utf8_key` varchar(255) CHARACTER SET utf8 DEFAULT NULL,
+            # new: `col_varchar_255_utf8_key` varchar(255) CHARACTER SET utf8mb3 DEFAULT NULL,
+            s/CHARACTER SET utf8 /CHARACTER SET utf8mb3 /;
             print DUMP2 $_;
         }
         close(DUMP1);
