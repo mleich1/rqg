@@ -30,6 +30,7 @@ use base 'Exporter';
 use strict;
 use Auxiliary;
 use GenTest;
+use Local;
 use GenTest::Constants;
 
 use constant RUNTIME_FACTOR_RR                   => 2;
@@ -143,8 +144,12 @@ sub check_and_set_rr_valgrind {
         }
         say("INFO: 'rr' invocation type '$rr'.");
         $rr_rules = 1;
+        my $rr_options_add = Local::get_rr_options_add();
         if (defined $rr_options) {
             say("INFO: rr_options ->" . $rr_options . "<-");
+            $rr_options .= " " . $rr_options_add . " " if defined $rr_options_add;
+        } else {
+            $rr_options  = " " . $rr_options_add . " " if defined $rr_options_add;
         }
     } else {
         if (defined $rr_options) {

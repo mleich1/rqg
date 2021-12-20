@@ -325,17 +325,13 @@ $workdir = Local::get_results_dir();
 $vardirs[0] = Local::get_vardir;
 # say("DEBUG: vardirs[0] ->" . $vardirs[0] . "<-");
 
-$rr_options = $rr_options . " " . Local::get_rr_options_add() if defined $rr_options;
-# say("DEBUG: rr_options after processing additions ->" . $rr_options . "<-");
-my $rqg_rr_add = Local::get_rqg_rr_add();
-# say("DEBUG: rqg_rr_add after processing vardir_type ->" . $rqg_rr_add . "<-");
-
 my $status = Runtime::check_and_set_rr_valgrind ($rr, $rr_options, $valgrind, $valgrind_options, 0);
 if ($status != STATUS_OK) {
     say("The $0 arguments were ->" . join(" ", @ARGV_saved) . "<-");
     say("$0 will exit with exit status " . status2text($status) . "($status)");
     safe_exit($status);
 }
+$rr_options = Runtime::get_rr_options();
 
 my $rr_rules = Runtime::get_rr_rules;
 
@@ -763,8 +759,6 @@ if (not defined $engine[0]) {
 
 push @{$mysqld_options[0]}, "--sql-mode=no_engine_substitution"
     if join(' ', @ARGV_saved) !~ m{(sql-mode|sql_mode)}io;
-push @{$mysqld_options[0]}, $rqg_rr_add
-    if $rqg_rr_add ne '';
 
 foreach my $i (1..3) {
     @{$mysqld_options[$i]} = ( defined $mysqld_options[$i]
@@ -2148,7 +2142,7 @@ $0 - Run a complete random query generation (RQG) test.
                      Some directory assigned: We use the assigned directory and expect that certain files already exist.
     --help         : This help message
     --help_sqltrace : help about SQL tracing by RQG
-    --help_vardir_type   : help about the parameter vardir
+    --help_vardir_type   : help about the parameter vardir_type
 
 EOF
     ;

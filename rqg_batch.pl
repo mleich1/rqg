@@ -172,8 +172,7 @@ my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar
     $help, $help_simplifier, $help_combinator, $help_verdict, $help_rr, $help_archiving, $help_local,
     $help_rqg_home, $help_vardir_type, $runner, $noarchiving,
     $rr, $rr_options, $sqltrace,
-    $vardir_type,
-    $rr_options_add, $fast_vardir, $slow_vardir,
+    $vardir_type, $fast_vardir, $slow_vardir,
     $stop_on_replay, $script_debug_value, $runid, $threads, $type, $algorithm, $resource_control);
 
 use constant DEFAULT_MAX_RQG_RUNTIME => 3600;
@@ -411,12 +410,9 @@ Local::check_and_set_rqg_home($rqg_home);
 Local::check_and_set_local_config(undef, undef, undef, undef);
 # Never use $vardir = Local::get_vardir();
 
-$rr_options_add = Local::get_rr_options_add();
-if (not defined $rr_options) {
-    $rr_options = $rr_options_add;
-} else {
-    $rr_options .= " " . $rr_options_add;
-}
+# In case rr is invoked and local.cfg contains some defined value rr_options_add than
+# rqg.pl will pick the rr_options_add value and take care that its used.
+# == No need to do this here.
 my $status = Runtime::check_and_set_rr_valgrind ($rr, $rr_options, undef, undef, 1);
 if ($status != STATUS_OK) {
     say("The $0 arguments were ->" . join(" ", @ARGV_saved) . "<-");
@@ -425,6 +421,7 @@ if ($status != STATUS_OK) {
 }
 $rr =         Runtime::get_rr();
 # Any $rr_options_add needs to be added when the cmd for the RQG runner gets defined.
+# get_rr_options returns a union of rr_options and rr_options_add.
 $rr_options = Runtime::get_rr_options();
 # say("DEBUG: rr_options ->" . $rr_options . "<-");
 
@@ -958,6 +955,14 @@ while($Batch::give_up <= 1) {
                     if Auxiliary::script_debug("T6");
                 $command .= " --mtr-build-thread=$rqg_build_thread";
                 $command .= " --batch";
+
+                if (defined $rr) {
+                    $cl_end .= " --rr=" . $rr;
+                    if (defined $rr_options) {
+                        $cl_end .= " --rr_options='" . $rr_options ."'";
+                    }
+                }
+
                 $command .= $cl_end;
                 my $rqg_log = $rqg_workdir . "/rqg.log";
                 my ($whatever, $rqg_major_runid) = Local::get_runid();
@@ -1086,8 +1091,9 @@ while($Batch::give_up <= 1) {
                         say("DEBUG: $who_am_i ->" .   $command . "<- exited with value " .
                             ($? >> 8)) if Auxiliary::script_debug("W2");
                     }
+                    Batch::append_string_to_file($rqg_log, Basics::get_process_family());
 
-                    # say("DEBUG: $who_am_i After performing the RQG run nad before calculation of verdict.");
+                    # say("DEBUG: $who_am_i After performing the RQG run and before calculation of verdict.");
 
                     # Initiate calculation of verdict
                     # -------------------------------
@@ -1130,14 +1136,18 @@ while($Batch::give_up <= 1) {
                             safe_exit(STATUS_ENVIRONMENT_FAILURE);
                         }
                         if (not $noarchiving) {
-                            if (STATUS_OK !=  Auxiliary::archive_results($rqg_workdir,
-                                                                         $rqg_vardir)) {
-                                say("ERROR: $who_am_i Archiving the remainings of the RQG " .
-                                    "test failed.");
+                            if (STATUS_OK != Auxiliary::archive_results($rqg_workdir,
+                                                                        $rqg_vardir)) {
+                                my $msg_snip = "ERROR: Archiving the remainings of the RQG " .
+                                               "test failed.";
+                                # We already have the current process family within the rqg.log.
+                                # And they are quite probably the reason for archiver trouble.
+                                Batch::append_string_to_file($rqg_log, $msg_snip . "\n");
+                                say($msg_snip);
                                 safe_exit(STATUS_ENVIRONMENT_FAILURE);
                             } else {
                               # say("DEBUG: $who_am_i Archive '" . $rqg_workdir .
-                              #     "/archive.tgz' created.") if Auxiliary::script_debug("W2");
+                              #     "/archive.tar.xz' created.") if Auxiliary::script_debug("W2");
                             }
                         }
                         # 2020-10-21
