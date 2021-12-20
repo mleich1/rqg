@@ -176,40 +176,20 @@ sub nativeReport {
     #   In case the ASAN options allow core writing and we wait long enough than a
     #   'Aborted (core dumped)' follows later.
 
-    # FIXME:
-    # - The next section gives a significant acceleration if the current total status is
-    #   STATUS_CRITICAL_FAILURE/STATUS_SERVER_CRASHED or STATUS_ENVIRONMENT_FAILURE and
-    #   its a false alarm because of too short connect_timeout.
-    # - It could also cause some false final status in case one reporter like Deadlock tried to
-    #   kill the server process and that had not the expected impact till now. (seen 2020-12)
-    #   kill SIGABRT; exit STATUS_SERVER_DEADLOCKED
-    #   The main process in GenTest reaps that status and leaves the loop OUTER.
-    #   Stopping/Reaping of worker processes + the periodic reporting process is already gone.
-    #   Backtrace detects that the server is connectable and reduces the status to
-    #   STATUS_CRITICAL_FAILURE etc.
-    # But it had to be disabled because having an ugly impact in case of
-    # - the testing box is under heavy load
-    # - the periodic reporter initiated a server crash (CrashRecovery or similar) and exited
-    # - we have already left loop OUTER in GenTest
-    # and than the reporter Backtrace is able to connect because the crash is not finished
-    # and changes the status or similar.
+    # WARNING based on experiences with historic code:
+    # ------------------------------------------------
+    # Checking if a DB server is connectable might look attractive but
+    # - if getting no connection it has to be determined if
+    #   - the server is dead or
+    #   - the testing box is overloaded and/or the connect timeout too short
+    #   kill (0, $pid) is for that extreme reliable and serious easier to code and faster
+    # - if getting a connection its not clear if
+    #   - that server will stay up or
+    #   - is in a longer lasting phase where connects are doable but a final death is
+    #     already decided.
     my $server_running = kill (0, $pid);
-#   if ($server_running) {
-#       # Maybe its complete false (regarding STATUS_SERVER_CRASHED) alarm
-#       # So we simply try to connect;
-#       my $dbh = DBI->connect($reporter->dsn(), undef, undef, { mysql_multi_statements => 0,
-#                                                                RaiseError => 0 } );
-#       if (defined $dbh) {
-#           $dbh->disconnect;
-#           my $status = STATUS_CRITICAL_FAILURE;
-#           say("INFO: $who_am_i The server is connectable. Will return " .
-#               "STATUS_CRITICAL_FAILURE, undef");
-#           return STATUS_CRITICAL_FAILURE, undef;
-#       }
-#   }
-
     my $end_line_found    = 0;
-    my $wait_timeout      = 180;
+    my $wait_timeout      = 180 * Runtime::get_runtime_factor();
     my $start_time        = Time::HiRes::time();
     my $max_end_time      = $start_time + $wait_timeout;
     while ($server_running and not $end_line_found and (Time::HiRes::time() < $max_end_time)) {
@@ -328,7 +308,8 @@ sub nativeReport {
         return STATUS_SERVER_CRASHED, undef;
     }
 
-    $wait_timeout   = 360;
+    # FIXME MAYBE: Is that timeout reasonable?
+    $wait_timeout   = 360 * Runtime::get_runtime_factor();
     $start_time     = Time::HiRes::time();
     $max_end_time   = $start_time + $wait_timeout;
     my $core;
