@@ -554,6 +554,9 @@ sub normalize_dumps {
             # old: `col_varchar_255_utf8_key` varchar(255) CHARACTER SET utf8 DEFAULT NULL,
             # new: `col_varchar_255_utf8_key` varchar(255) CHARACTER SET utf8mb3 DEFAULT NULL,
             s/CHARACTER SET utf8 /CHARACTER SET utf8mb3 /;
+            # old: COLLATE utf8_bin
+            # new: COLLATE utf8mb3_bin
+            s/ COLLATE utf8_bin/ COLLATE utf8mb3_bin/;
             print DUMP2 $_;
         }
         close(DUMP1);
