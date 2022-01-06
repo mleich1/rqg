@@ -109,8 +109,8 @@ use constant MYSQLD_WINDOWS_PROCESS_STILLALIVE   => 259;
 #
 # Maximum timespan between time of kill TERM for server process and the time the server process
 # should have disappeared.
-use constant DEFAULT_SHUTDOWN_TIMEOUT            => 120;
-use constant DEFAULT_TERM_TIMEOUT                => 75;
+use constant DEFAULT_SHUTDOWN_TIMEOUT            => 150;
+use constant DEFAULT_TERM_TIMEOUT                => 120;
 # Maximum timespan between time of fork of auxiliary process + acceptable start time of some
 # tool (rr etc. if needed at all) and the pid getting printed into the server error log.
 use constant DEFAULT_PID_SEEN_TIMEOUT            => 60;
