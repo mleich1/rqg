@@ -1,5 +1,5 @@
 # Copyright (C) 2013 Monty Program Ab
-# Copyright (C) 2019, 2021  MariaDB Corporation Ab.
+# Copyright (C) 2019, 2022  MariaDB Corporation Ab.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -254,8 +254,9 @@ sub report {
     #    And that is not finished before the * Lock wait timeout kicks in.
     # Reason 2 (not fixed by SET SESSION ... here):
     #    XA is involved
-    $dbh->do("SET SESSION innodb_lock_wait_timeout = 300");
-    $dbh->do("SET SESSION lock_wait_timeout = 300");
+    my $timeout = 240 * Runtime::get_runtime_factor();
+    $dbh->do("SET SESSION innodb_lock_wait_timeout = $timeout");
+    $dbh->do("SET SESSION lock_wait_timeout = $timeout");
 
 
     # FIXME
