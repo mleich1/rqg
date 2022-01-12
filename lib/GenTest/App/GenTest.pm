@@ -850,7 +850,7 @@ sub reportingProcess {
     }
 
     $self->stopChild($status);
-}
+} # End of sub reportingProcess
 
 sub workerProcess {
     my ($self, $worker_id) = @_;
@@ -943,7 +943,7 @@ sub workerProcess {
       say("$message_part successfully.");
       $self->stopChild(STATUS_OK);
    }
-}
+} # End of sub workerProcess
 
 sub doGenData {
     my $self = shift;

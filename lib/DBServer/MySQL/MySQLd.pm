@@ -1,5 +1,5 @@
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2013, 2021, MariaDB Corporation Ab
+# Copyright (c) 2013, 2022, MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -104,13 +104,14 @@ use constant MYSQLD_WINDOWS_PROCESS_STILLALIVE   => 259;
 # -----------------------------------
 # All timout values etc. are in seconds.
 # in lib/Runtime.pm
-# use constant RUNTIME_FACTOR_RR                   => 1.5;
+# use constant RUNTIME_FACTOR_RR                   => 2;
 # use constant RUNTIME_FACTOR_VALGRIND             => 2;
 #
+use constant DEFAULT_SHUTDOWN_TIMEOUT            => 120;
 # Maximum timespan between time of kill TERM for server process and the time the server process
-# should have disappeared.
-use constant DEFAULT_SHUTDOWN_TIMEOUT            => 150;
-use constant DEFAULT_TERM_TIMEOUT                => 120;
+# should have disappeared. Per docu TERM causes the same way of shutdown like mysqladmin shutdown.
+# How much gets done depends on the variable innodb_fast_shutdown (default is 1).
+use constant DEFAULT_TERM_TIMEOUT                => 100;
 # Maximum timespan between time of fork of auxiliary process + acceptable start time of some
 # tool (rr etc. if needed at all) and the pid getting printed into the server error log.
 use constant DEFAULT_PID_SEEN_TIMEOUT            => 60;
@@ -308,6 +309,14 @@ sub datadir {
 
 sub setDatadir {
     $_[0]->[MYSQLD_DATADIR] = $_[1];
+}
+
+sub set_rr {
+    $_[0]->[MYSQLD_RR] = $_[1];
+}
+
+sub set_rr_options {
+    $_[0]->[MYSQLD_RR_OPTIONS] = $_[1];
 }
 
 sub vardir {
@@ -1030,7 +1039,7 @@ sub startServer {
                     sayFile($errorlog);
                     return $status;
                 } else {
-                    say("DEBUG: $who_am_i Up till now no '[ERROR] mysqld got signal ' observed.");
+                    # say("DEBUG: $who_am_i Up till now no '[ERROR] mysqld got signal ' observed.");
                 }
 
                 # We search for a line like
@@ -1160,7 +1169,7 @@ sub killServer {
 
     my $who_am_i = "DBServer::MySQL::MySQLd::killServer:";
 
-    my $kill_timeout = DEFAULT_SERVER_KILL_TIMEOUT;
+    my $kill_timeout = DEFAULT_SERVER_KILL_TIMEOUT * Runtime::get_runtime_factor();
 
     if (osWindows()) {
         if (defined $self->[MYSQLD_WINDOWS_PROCESS]) {
@@ -1224,7 +1233,7 @@ sub term {
         return DBSTATUS_OK;
     }
 
-    my $term_timeout = DEFAULT_TERM_TIMEOUT;
+    my $term_timeout = DEFAULT_TERM_TIMEOUT * Runtime::get_runtime_factor();
 
     if (osWindows()) {
         ### Not for windows
@@ -1256,7 +1265,7 @@ sub crashServer {
 
     my $who_am_i = "DBServer::MySQL::MySQLd::crashServer:";
 
-    my $abrt_timeout = DEFAULT_SERVER_ABRT_TIMEOUT;
+    my $abrt_timeout = DEFAULT_SERVER_ABRT_TIMEOUT * Runtime::get_runtime_factor();
 
     if (osWindows()) {
         ## How do i do this?????
@@ -1556,6 +1565,7 @@ sub binary {
 sub stopServer {
     my ($self, $shutdown_timeout) = @_;
     $shutdown_timeout = DEFAULT_SHUTDOWN_TIMEOUT unless defined $shutdown_timeout;
+    $shutdown_timeout = $shutdown_timeout * Runtime::get_runtime_factor();
     my $errorlog      = $self->errorlog;
     my $check_shutdown = 0;
     my $res;
@@ -1908,6 +1918,23 @@ sub serverVariablesDump {
             say ("SVAR: $variable : " . $vars{$variable});
         }
     }
+    my $dbh = $self->dbh;
+    # FIXME: This is a too weak reaction.
+    return undef if not defined $dbh;
+    my $stmt = "SELECT PLUGIN_NAME, PLUGIN_LIBRARY FROM INFORMATION_SCHEMA.PLUGINS\n" .
+               "WHERE PLUGIN_LIBRARY IS NOT NULL ORDER BY PLUGIN_NAME";
+    my $sth = $dbh->prepare($stmt);
+    $sth->execute();
+    my %result = ();
+    while (my $array_ref = $sth->fetchrow_arrayref()) {
+       $result{$array_ref->[0]} = $array_ref->[1];
+    }
+    $sth->finish();
+    my $result_print;
+    foreach my $plugin_name (keys %result) {
+        say ("SPLUG: $plugin_name : " . $result{$plugin_name});
+    }
+    $dbh->disconnect();
 }
 
 sub running {

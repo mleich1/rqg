@@ -77,12 +77,14 @@ sub make_dir {
     if (1 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: " . Basics::who_am_i .
-                    " Exact one parameter(dir) needs to get assigned. " .
+                    " Exact one parameter(\$dir) needs to get assigned. " .
                     Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
-    if (not defined $dir) {
-        Carp::cluck("INTERNAL ERROR: \$dir is undef.");
+    if (not defined $dir or $dir eq '') {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: " . Basics::who_am_i . " \$dir is undef or ''. " .
+                    Auxiliary::exit_status_text($status));
         return STATUS_FAILURE;
     }
     if (not mkdir $dir) {
@@ -106,7 +108,7 @@ sub conditional_make_dir {
     }
     $text = ' ' if not defined $text;
     if (not defined $dir or $dir eq '') {
-        Carp::cluck("INTERNAL ERROR: \$dir is undef.");
+        Carp::cluck("INTERNAL ERROR: \$dir is undef or ''.");
         return STATUS_FAILURE;
     }
     if (not -d $dir) {
@@ -147,6 +149,29 @@ sub conditional_remove__make_dir {
     }
 }
 
+sub remove_dir {
+# Remove means the complete tree.
+    my ($dir) = @_;
+    if (1 != scalar @_) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: " . Basics::who_am_i .
+                    " Exact one parameter(\$dir) needs to get assigned. " .
+                    Auxiliary::exit_status_text($status));
+        safe_exit($status);
+    }
+    if (not defined $dir or $dir eq '') {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: \$dir is undef or ''. " .
+                    Auxiliary::exit_status_text($status));
+        safe_exit($status);
+    }
+    if (not File::Path::rmtree($dir)) {
+        say("ERROR: Removal of the already existing tree ->" . $dir . "<- failed. : $!.");
+        return STATUS_FAILURE;
+    }
+    say("DEBUG: " . Basics::who_am_i . " Already existing tree ->" . $dir . "<- was removed.");
+    return STATUS_OK;
+}
 
 sub unify_path {
     my ($path) = @_;
