@@ -552,25 +552,23 @@ sub normalize_dumps {
         open(DUMP1,"$vardir/server_schema_old.dump.tmp");
         open(DUMP2,">$vardir/server_schema_old.dump");
         while (<DUMP1>) {
-            # FIXME: Check all that here because it works somehow different than expected.
             # DEFAULT CHARACTER SET utf8 COLLATE utf8_bin
-            s/DEFAULT CHARACTER SET utf8 COLLATE utf8_bin/DEFAULT CHARACTER SET utf8mb3 COLLATE utf8mb3_bin/;
+            s/DEFAULT CHARACTER SET utf8 COLLATE utf8_bin/DEFAULT CHARACTER SET utf8mb3 COLLATE utf8mb3_bin/g;
             # old: `col_varchar_255_utf8_key` varchar(255) CHARACTER SET utf8 DEFAULT NULL,
             # new: `col_varchar_255_utf8_key` varchar(255) CHARACTER SET utf8mb3 DEFAULT NULL,
-            s/CHARACTER SET utf8 /CHARACTER SET utf8mb3 /;
-            s/CHARACTER SET utf8,/CHARACTER SET utf8mb3,/;
+            s/CHARACTER SET utf8 /CHARACTER SET utf8mb3 /g;
+            s/CHARACTER SET utf8,/CHARACTER SET utf8mb3,/g;
             # old: COLLATE utf8_bin
             # new: COLLATE utf8mb3_bin
-            s/ COLLATE utf8_bin/ COLLATE utf8mb3_bin/;
+            s/ COLLATE utf8_bin/ COLLATE utf8mb3_bin/g;
             # old: DEFAULT CHARSET=utf8 `ENCRYPTED`=YES;
             # new: DEFAULT CHARSET=utf8mb3 `ENCRYPTED`=YES;
-            s/ CHARSET=utf8 / CHARSET=utf8mb3 /;
-            s/ CHARSET=utf8;/ CHARSET=utf8mb3;/;
+            s/ CHARSET=utf8 / CHARSET=utf8mb3 /g;
+            s/ CHARSET=utf8;/ CHARSET=utf8mb3;/g;
             # old: CREATE DATABASE /*!32312 IF NOT EXISTS*/ `testdb_N` /*!40100 DEFAULT CHARACTER SET utf8 */;
             # new: CREATE DATABASE /*!32312 IF NOT EXISTS*/ `testdb_N` /*!40100 DEFAULT CHARACTER SET utf8mb3 */;
-            s/ CHARACTER SET utf8 / CHARACTER SET utf8mb3 /;
-            s/DEFAULT CHARACTER SET utf8/DEFAULT CHARACTER SET utf8mb3/;
-            s/DEFAULT CHARACTER SET utf8 /DEFAULT CHARACTER SET utf8mb3 /;
+            s/ CHARACTER SET utf8 / CHARACTER SET utf8mb3 /g;
+            s/DEFAULT CHARACTER SET utf8 /DEFAULT CHARACTER SET utf8mb3 /g;
             print DUMP2 $_;
         }
         close(DUMP1);
