@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2021 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -103,7 +103,7 @@ my $first_reporter;
 my $client_basedir;
 
 my $script_debug = 1;
-my $last_call    = time() - 15;
+my $last_call    = time() - 16;
 $|=1;
 
 # tmpdir() has a '/' at end.
@@ -135,7 +135,7 @@ sub monitor {
     #
 
     # Ensure some minimum distance between two runs of the Reporter Mariabackup should be 15s.
-    return STATUS_OK if $last_call + 15 < time();
+    return STATUS_OK if $last_call + 15 > time();
     $last_call = time();
 
     if ($reporter->testEnd() <= time() + 5) {
