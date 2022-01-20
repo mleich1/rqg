@@ -376,6 +376,8 @@ sub monitor {
         say("INFO: $who_am_i corrupted file detected. " .
             "Will exit with STATUS_BACKUP_FAILURE.");
         sayFile($reporter_prt);
+        # MLML
+        sleep 100;
         exit STATUS_BACKUP_FAILURE;
     } else {
         # Nothing to do
@@ -416,20 +418,22 @@ sub monitor {
         my $status = STATUS_BACKUP_FAILURE;
         say("ERROR: $who_am_i : First prepare returned $res. The command output is around end of " .
             "'$reporter_prt'. Will exit with status " . status2text($status) . "($status)");
+        # MLML
+        sleep 100;
         sayFile($reporter_prt);
         exit $status;
     }
     system("ls -ld " . $clone_datadir . "/ib_logfile*");
     my $ib_logfile0 = $clone_datadir . "/ib_logfile0";
-    my @filestats = stat($ib_logfile0);
-    my $filesize  = $filestats[7];
-    if (0 != $filesize) {
-        direct_to_std();
-        my $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $who_am_i : Size of '$ib_logfile0' is $filesize bytes but not 0 like expected. " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-    }
+#   my @filestats = stat($ib_logfile0);
+#   my $filesize  = $filestats[7];
+#   if (0 != $filesize) {
+#       direct_to_std();
+#       my $status = STATUS_BACKUP_FAILURE;
+#       say("ERROR: $who_am_i : Size of '$ib_logfile0' is $filesize bytes but not 0 like expected. " .
+#           "Will exit with status " . status2text($status) . "($status)");
+#       exit $status;
+#   }
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
@@ -469,10 +473,10 @@ sub monitor {
 #       exit $status;
 #   }
 
-    # Per Marko:
-    # Legal operation in case somebody wants to just have a clone of the source DB.
-    # See also https://mariadb.com/kb/en/library/mariadb-backup-overview/.
-    unlink($ib_logfile0);
+#   # Per Marko:
+#   # Legal operation in case somebody wants to just have a clone of the source DB.
+#   # See also https://mariadb.com/kb/en/library/mariadb-backup-overview/.
+#   unlink($ib_logfile0);
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
