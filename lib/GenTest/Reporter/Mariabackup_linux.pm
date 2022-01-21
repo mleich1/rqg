@@ -272,7 +272,22 @@ sub monitor {
     # For experimenting:
     # $backup_binary = "not_exists ";
     # my $backup_backup_cmd = "$backup_binary --port=$source_port --hickup " .
-    my $backup_backup_cmd = $rr_addition . " $backup_binary --port=$source_port --backup " .
+    # Mariabackup --backup with mmap and rr cannot work.
+    # If needing some rr trace than the following patch will help
+# diff --git a/storage/innobase/log/log0log.cc b/storage/innobase/log/log0log.cc
+# index 69ee386293f..c6ad406f313 100644
+# --- a/storage/innobase/log/log0log.cc
+# +++ b/storage/innobase/log/log0log.cc
+# @@ -219,7 +219,7 @@ void log_t::attach(log_file_t file, os_offset_t size)
+#        my_mmap(0, size_t(size),
+#                srv_read_only_mode ? PROT_READ : PROT_READ | PROT_WRITE,
+#                MAP_SHARED_VALIDATE | MAP_SYNC, log.m_file, 0);
+# -#ifdef __linux__
+# +#ifdef MLEICH1
+#      if (ptr == MAP_FAILED)
+#      {
+#        struct stat st;
+    my $backup_backup_cmd = " $backup_binary --port=$source_port --backup " .
                             "--datadir=$datadir --target-dir=$clone_datadir";
 
     # Mariabackup could hang.
