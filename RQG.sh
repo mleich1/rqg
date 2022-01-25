@@ -9,7 +9,7 @@ export LANG=C
 USAGE="USAGE: $0 <Basedir>"
 CALL_LINE="$0 $*"
 
-# killall -9 perl ; killall -9 mysqld ;  killall -9 rr ; rm -rf /dev/shm/var* /dev/shm/rqg
+# killall -9 perl ; killall -9 mysqld ;  killall -9 rr ; rm -rf /dev/shm/var_* /dev/shm/rqg
 
 RQG_HOME=`pwd`
 RUNID=SINGLE_RQG
@@ -78,7 +78,7 @@ then
 fi
 
 perl -w ./rqg.pl                                                                              \
---minor_runid=$RUNID                                                                          \
+--minor_runid=SINGLE_RUN                                                                      \
 --seed=random                                                                                 \
 --queries=1000000                                                                             \
 --reporter=ErrorLog,Backtrace,Deadlock1,None                                                  \
@@ -91,7 +91,7 @@ perl -w ./rqg.pl                                                                
 --basedir1="$BASEDIR1"/                                                                       \
 $BASEDIR2_SETTING                                                                             \
 --mysqld=--innodb_lock_schedule_algorithm=fcfs                                                \
---mysqld=--innodb_use_native_aio=1                                                            \
+--mysqld=--innodb_use_native_aio=0                                                            \
 --mysqld=--loose-idle_write_transaction_timeout=0                                             \
 --mysqld=--loose-idle_transaction_timeout=0                                                   \
 --mysqld=--loose-idle_readonly_transaction_timeout=0                                          \
@@ -118,12 +118,8 @@ $BASEDIR2_SETTING                                                               
 --vardir_type=fast                                                                            \
 --rr=Extended                                                                                 \
 --rr_options='--chaos --wait'                                                                 \
---vardir="$VARDIR"                                                                            \
---workdir="$WORKDIR"                                                                          \
 --mask-level=0                                                                                \
 --mask=0                                                                                      \
- > $WORKDIR/rqg.log 2>&1 &
+2>&1 | tee TBR-1270.prt
 
-sleep 3;
-tail -f $WORKDIR/rqg.log
 
