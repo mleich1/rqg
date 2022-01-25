@@ -289,6 +289,9 @@ sub monitor {
 #        struct stat st;
     my $backup_backup_cmd = " $backup_binary --port=$source_port --backup " .
                             "--datadir=$datadir --target-dir=$clone_datadir";
+    if (Local::DBDIR_TYPE_SLOW eq Local::get_vardir_type ) {
+        $backup_backup_cmd = $rr_addition . $backup_backup_cmd;
+    }
 
     # Mariabackup could hang.
     my $exit_msg      = '';
