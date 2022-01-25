@@ -193,6 +193,14 @@ sub monitor {
     my $clone_rrdir   = $clone_vardir . '/rr';
     ## Create clone database server directory structure
     foreach my $dir ( $clone_vardir, $clone_datadir, $clone_tmpdir, $clone_rrdir) {
+        if(-d $dir) {
+            if(not File::Path::rmtree($dir)) {
+                say("ERROR: Removal of the already existing tree ->" . $dir . "<- failed. : $!.");
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                run_end($status);
+            }
+            say("DEBUG: The already existing tree ->" . $dir . "<- was removed.");
+        }
         if (not mkdir($dir)) {
             direct_to_std();
             my $status = STATUS_ENVIRONMENT_FAILURE;
