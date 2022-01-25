@@ -112,6 +112,9 @@ Preparations for using RQG, my batch tool and build scripts
 
   sudo cp <RQG install dir>/util/bld_*.sh /usr/local/bin
 
+  cp <RQG install dir>/local_template.cfg <RQG install dir>/local.cfg
+  Please edit <RQG install dir>/local.cfg so that it fits to your needs.
+
 How to build
 ------------
 Assuming that you have set the environment variables to values like above
@@ -761,61 +764,8 @@ Hints
    # 2021-08-31T15:59:15 BATCH: Stop the run because of 'rqg_limit'.
 
 
-How to use "rr" (https://github.com/mozilla/rr) in combination with RQG
-WARNING: THE DESCRIPTION IS SLIGHTLY OUTDATED
------------------------------------------------------------------------
-0. The current invocation of "rr" into RQG switches the generation of core files off.
-   All info required is in the "rr" traces + the core files occupy too much storage space.
-1. The OS needs to be a Linux.
-   Downloading and installing the binaries like described in https://rr-project.org/ is recommended.
-
-   Certain distributions might offer rr in packages like
-       Ubuntu:     sudo apt-get install rr
-   but depending on the version of your distribution etc. you will probably get a less actual "rr".
-2. Depending on actual setup/state of the testing box
-       Not required on Ubuntu 20
-   sudo "echo 1 > /proc/sys/kernel/perf_event_paranoid" # --> temporary setting
-   or
-   Append to /etc/sysctl.conf                           # --> permanent setting
-        kernel.perf_event_paranoid = 1
-
-   # Required on some server with Ubuntu 17.04 but not on my notebook with Ubuntu 17.10.
-   sudo apt-get install cpufrequtils
-   sudo cpufreq-set -g performance                      # --> temporary setting
-3. In case you know of a way that the server writes more messages into the server error log
-   than take care that its enabled. The goal is to get many entries with rr event number.
-   Unfortunately "--log-output=file" does not cause the nice to have positive impact.
-4. rqg_batch.pl call
-   - my notebook with Ubuntu 17.10 and rr version > 4
-     perl ./rqg_batch.pl ... --rr  <no assignment of rr_options> ....
-   - some server with Ubuntu 17.04 and rr version 4
-     The plain rr cannot figure out which type the CPU is.
-     - cat /proc/cpuinfo shows ...
-       vendor_id       : GenuineIntel
-       cpu family      : 6
-       model           : 85
-     - Page in web mentions that its a 'Intel Skylake'.
-     - strings -a /usr/bin/rr | grep -i Sky     shows a match
-     perl ./rqg_batch.pl ... --rr --rr_options="--microarch='Intel Skylake'"
-     worked well
-   Note:
-   - I have no experiences how good all this works on AMD or ARM CPU's.
-   - In case "rr" meets trouble than the server error log might contain an error message like
-     - # 2020-01-13T19:11:48 [45598] | [rr 46342 9202]2020-01-13 19:11:47 0 [Note] mysqld: O_TMPFILE is not supported on /dev/shm/vardir/1578939104/2/1/tmp (disabling future attempts)
-       # 2020-01-13T19:11:48 [45598] | [FATAL /build/rr-2h5IId/rr-4.4.0/src/record_syscall.cc:4180:rec_process_syscall_arch() errno: SUCCESS]
-       # 2020-01-13T19:11:48 [45598] |  (task 46342 (rec:46342) at time 9224)
-       # 2020-01-13T19:11:48 [45598] |  -> Assertion `t->regs().syscall_result_signed() == -syscall_state.expect_errno' failed to hold. Expected ENOSYS for 'io_setup' but got result 0 (errno SUCCESS); execution of syscall unsupported by rr
-       # 2020-01-13T19:11:48 [45598] | [FATAL /build/rr-2h5IId/rr-4.4.0/src/log.cc:283:emergency_debug() errno: SUCCESS] (session doesn't look interactive, aborting emergency debugging)
-       # 2020-01-13T19:11:48 [45598] | Aborted (core dumped)
-       loose_innodb_use_native_aio=0                 helped.
-     - # [FATAL /build/rr-2h5IId/rr-4.4.0/src/PerfCounters.cc:138:get_cpu_microarch() errno: ENOTTY] CPU 0x50650 unknown.
-       --rr_options="--microarch='Intel Skylake'"    helped.
-
-   Good luck
 
 
 
-
-
-Matthias 2021-09
+Matthias 2022-01
 
