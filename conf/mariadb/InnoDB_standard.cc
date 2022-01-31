@@ -1,4 +1,4 @@
-# Copyright (C) 2019, 2021 MariaDB corporation Ab. All rights reserved.
+# Copyright (C) 2019, 2022 MariaDB corporation Ab. All rights reserved.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -29,10 +29,24 @@
 #    MariaDB. When testing MDEVs fixing or enhancing features usually a sub set of tests were used.
 # 2. I disabled certain tests, added some new one and shifted the focus towards InnoDB.
 #
-#
 # The suite might contain certain adjustments in order to avoid critical areas with known but
 # not yet fixed bugs.
 #
+
+# Section Verdict setup ---------------------------------------------------------------------- start
+#
+# $statuses_replay =
+# [
+#   [ 'STATUS_ANY_ERROR',
+# ];
+#
+# $patterns_replay =
+# [
+#   ## [ 'Import_1', '#3  <signal handler called>.{1,300}#4  .{1,20}in ha_innobase::discard_or_import_tablespace' ],
+# ];
+#
+#
+# Section Verdict setup ------------------------------------------------------------------------ end
 
 our $test_compression_encryption =
   '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz --max_gd_duration=1800 ';
@@ -277,7 +291,8 @@ $combinations = [ $grammars,
   ],
   [
     ' --mysqld=--loose-innodb_evict_tables_on_commit_debug=off ',
-#   ' --mysqld=--loose-innodb_evict_tables_on_commit_debug=on  ',
+    # This suffered and maybe suffers from https://jira.mariadb.org/browse/MDEV-20810
+    ' --mysqld=--loose-innodb_evict_tables_on_commit_debug=on  ',
   ],
   [
     # Warning (mleich 2020-06):
