@@ -112,7 +112,10 @@ thread_connect:
 recreate_cool_down:
    $m1 DROP SCHEMA cool_down $m2 ; $m1 CREATE SCHEMA cool_down $m2 ;
 move_to_cool_down:
-   $m1 RENAME TABLE t1 TO cool_down . t1 $m2 ; $m1 RENAME TABLE t2 TO cool_down . t2 $m2 ; $m1 RENAME TABLE t3 TO cool_down . t3 $m2 ; $m1 RENAME TABLE t4 TO cool_down . t4 $m2 ;
+   $m1 RENAME TABLE t1 TO cool_down . t1 $m2 ;
+   $m1 RENAME TABLE t2 TO cool_down . t2 $m2 ;
+   $m1 RENAME TABLE t3 TO cool_down . t3 $m2 ;
+   $m1 RENAME TABLE t4 TO cool_down . t4 $m2 ;
 
 set_small_timeouts:
    SET SESSION lock_wait_timeout = 2 ; SET SESSION innodb_lock_wait_timeout = 1 ;
@@ -230,9 +233,12 @@ innodb_settings:
    ENGINE = InnoDB ROW_FORMAT = Redundant  ;
 
 query:
-   set_dbug ; ddl ; set_dbug_null |
-   set_dbug ; dml ; set_dbug_null |
-   set_dbug ; dml ; set_dbug_null ;
+   set_dbug ; check_table ; set_dbug_null |
+   set_dbug ; ddl ;         set_dbug_null |
+   set_dbug ; dml ;         set_dbug_null |
+   set_dbug ; dml ;         set_dbug_null |
+   set_dbug ; dml ;         set_dbug_null |
+   set_dbug ; dml ;         set_dbug_null ;
 
 dml:
    # Ensure that the table does not grow endless.                                                                   |
@@ -241,6 +247,7 @@ dml:
    enforce_duplicate1 ;                                                                             commit_rollback |
    # Make likely: Get duplicate key based on two row UPDATE only.                                                   |
    enforce_duplicate2 ;                                                                             commit_rollback |
+   UPDATE table_names SET column_name_int = my_int ;                                                commit_rollback |
    # Make likely: Get duplicate key based on the row INSERT and the already committed data.                         |
    insert_part ( my_int , $my_int,     $my_int,     string_fill, fill_begin $my_int     fill_end ); commit_rollback |
    insert_part ( my_int , $my_int - 1, $my_int,     string_fill, fill_begin $my_int     fill_end ); commit_rollback |
@@ -285,6 +292,7 @@ my_int:
 
 commit_rollback:
    COMMIT   |
+   COMMIT   |
    ROLLBACK ;
 
 # FIXME:
@@ -302,7 +310,6 @@ ddl:
    alter_table_part drop_accelerator , drop_accelerator ddl_algorithm_lock_option |
    alter_table_part drop_accelerator , add_accelerator  ddl_algorithm_lock_option |
    # ddl_algorithm_lock_option is not supported by some statements
-   check_table                                                                           |
    TRUNCATE TABLE table_names                                                            |
    # ddl_algorithm_lock_option is within the replace_column sequence
    replace_column                                                                        |
