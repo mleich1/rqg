@@ -2,7 +2,7 @@
 
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab
-# Copyright (C) 2016, 2021 MariaDB Corporation Ab
+# Copyright (C) 2016, 2022 MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -2192,6 +2192,9 @@ sub run_end {
     # but not the current process.
     kill '-9', $$;
     Auxiliary::reapChildren;
+    Auxiliary::tweak_permissions($vardirs[0]);
+    # tweak_permissions reports errors and returns a status.
+    # The latter is rather unimportant.
     safe_exit($status);
 }
 

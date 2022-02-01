@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, 2021 MariaDB Corporation Ab.
+#  Copyright (c) 2018, 2022 MariaDB Corporation Ab.
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -1605,28 +1605,14 @@ sub archive_results {
     my $cmd;
     my $rc;
     my $status;
-    $cmd  = "cd $workdir 2>rqg_arch.err";
-    # 1. chmod on /data/vardir/1630409747/<M>/1/rr/mysqld-0/mmap_hardlink_3_mariadbd affects
-    #    <basedir>/bin/mariadbd and by that any maybe existing
-    #    /data/vardir/1630409747/<N>/1/rr/mysqld-0/mmap_hardlink_3_mariadbd
-    #    which might be just during archiving.
-    # 2. xargs ... --no-run-if-empty for the case of processing a file matching "mmap_hardlink"
-    #    filtering that out, having than some empty value fed into chmod end getting an error.
-    # 3. There was in history a
-    #    find .... -print0 and xargs --null for handling filenames containing spaces etc.
-    #    This had to be removed because of chmod complaining about missing files etc.
-    $cmd .= "; find rqg* $vardir         -print | grep -v 'mmap_hardlink' | " .
-            "xargs --no-run-if-empty chmod g+rw  2>>$archive_err";
-    # Even though using umask 002 the directories data/mysql and data/test lack often the 'x'.
-    $cmd .= "; find rqg* $vardir -type d -print | grep -v 'mmap_hardlink' | xargs chmod g+x 2>>$archive_err";
-    say("DEBUG: cmd : ->$cmd<-") if script_debug("A5");
-    system($cmd);
+    $cmd  = "cd $workdir";
     $rc = $? >> 8;
     if ($rc != 0) {
-        say("ERROR: Preparation for archiving '$cmd' failed with exit status $rc");
-        sayFile($archive_err);
+        say("ERROR: ->" . $cmd . "<- failed with exit status $rc");
         return STATUS_FAILURE;
     }
+    Auxiliary::tweak_permissions(".");
+    Auxiliary::tweak_permissions($vardir);
     # WARNING:
     # Never run a    system("sync -f $workdir $vardir");    here
     # because that easy last > 2000s on a box with many concurrent RQG runs which all
@@ -1665,7 +1651,7 @@ sub archive_results {
     if ($rc != 0) {
         say("ERROR: The command for archiving '$cmd' failed with exit status $rc");
         sayFile($archive_err);
-        return STATUS_FAILURE;
+        $status = STATUS_FAILURE;
     } else {
         $status = STATUS_OK;
     }
@@ -1674,7 +1660,7 @@ sub archive_results {
     sayFile($archive_err) if script_debug("A5");
     unlink $archive_err;
     system("sync -d $archive");
-    return STATUS_OK;
+    return $status;
 }
 
 sub help_rqg_home {
@@ -2830,7 +2816,7 @@ sub get_fs_type {
     my ($whatever_file) = @_;
     my $fs_type;
     if (not -e $whatever_file) {
-        say("INTERNAL ERROR: Whatever file 'whatever_file' does not exist.");
+        say("INTERNAL ERROR: Whatever file '$whatever_file' does not exist.");
         my $status = STATUS_INTERNAL_ERROR;
         safe_exit($status);
     }
@@ -2842,6 +2828,47 @@ sub get_fs_type {
         chomp $fs_type;
         return $fs_type;
     }
+}
+
+sub tweak_permissions {
+# Purpose:
+# Make whatever files readable and directories accessible for the group.
+# Background: MariaDB executables ignore my   umask 002
+# Hint:
+# rr generates sometimes whatever mmap_hardlink*
+#    /data/vardir/1630409747/<M>/1/rr/mysqld-0/mmap_hardlink_3_mariadbd
+#    points than to some <basedir>/bin/mariadbd
+# In case of running chmod on these hardlinks the following non nice effects could happen
+# - Some other RQG worker running archiving in parallel could lament that files changed
+#   during archiving.
+# - When running   rr replay  rr can lament that binaries are modified or similar.
+# Hence files with 'mmap_hardlink' in their name get excluded from chmod.
+    my ($whatever_file) = @_;
+    if (not -e $whatever_file) {
+        say("INTERNAL ERROR: Whatever file '$whatever_file' does not exist.");
+        return STATUS_INTERNAL_ERROR;
+    }
+    my $status = STATUS_OK;
+    if (not osWindows()) {
+        my $prt = "chmod.prt";
+        unlink $prt;
+        my $cmd = "find " . $whatever_file . " -print | grep -v 'mmap_hardlink' | " .
+                  "xargs --no-run-if-empty chmod g+rw > $prt 2>&1";
+        $cmd .= "; find " . $whatever_file . " -type d -print | grep -v 'mmap_hardlink' | " .
+               "xargs --no-run-if-empty chmod g+x > $prt 2>&1";
+        my $rc = system($cmd);
+        $rc = $? >> 8;
+        if ($rc != 0) {
+            say("ERROR: ->" . $cmd . "<- failed with exit status $rc");
+            sayFile($prt);
+            $status =  STATUS_FAILURE;
+        }
+        unlink $prt;
+    } else {
+        # No idea
+        $status = STATUS_OK;
+    }
+    return $status;
 }
 
 1;
