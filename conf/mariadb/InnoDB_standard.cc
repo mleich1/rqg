@@ -37,12 +37,12 @@
 #
 # $statuses_replay =
 # [
-#   [ 'STATUS_ANY_ERROR',
+#   # [ 'STATUS_ANY_ERROR',
 # ];
 #
 # $patterns_replay =
 # [
-#   ## [ 'Import_1', '#3  <signal handler called>.{1,300}#4  .{1,20}in ha_innobase::discard_or_import_tablespace' ],
+#   # [ 'Import_1', '#3  <signal handler called>.{1,300}#4  .{1,20}in ha_innobase::discard_or_import_tablespace' ],
 # ];
 #
 #
