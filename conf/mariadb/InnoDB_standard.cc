@@ -37,7 +37,7 @@
 #
 # $statuses_replay =
 # [
-#   # [ 'STATUS_ANY_ERROR',
+#   # [ 'STATUS_ANY_ERROR' ],
 # ];
 #
 # $patterns_replay =

@@ -209,6 +209,10 @@ dml:
    # Make likely: Get duplicate key based on two row UPDATE only.                                                   |
    enforce_duplicate2 ;                                                                             commit_rollback |
    UPDATE table_names SET column_name_int = my_int ;                                                commit_rollback |
+   UPDATE table_names SET column_name_int = my_int ;                                                commit_rollback |
+   UPDATE table_names SET column_name_int = my_int ;                                                commit_rollback |
+   UPDATE table_names SET col_string_properties $col_name = /* my_int */ string_fill ;              commit_rollback |
+   UPDATE table_names SET col_text_properties   $col_name = fill_begin my_int fill_end ;            commit_rollback |
    # Make likely: Get duplicate key based on the row INSERT and the already committed data.                         |
    insert_part ( my_int , $my_int,     $my_int,     string_fill, fill_begin $my_int     fill_end ); commit_rollback |
    insert_part ( my_int , $my_int - 1, $my_int,     string_fill, fill_begin $my_int     fill_end ); commit_rollback |
@@ -357,15 +361,16 @@ random_column_name:
 # 1. No replacing of content in the variables $col_name , $col_type , $col_idx
 #    ==> No impact on text of remaining statement sequence.
 # 2. The column name just gets printed(returned).
-   col1         |
-   col2         |
-   col_int      |
-   col_int_g    |
-   col_varchar  |
-   col_string   |
-   col_string_g |
-   col_text     |
-   col_text_g   ;
+   col1          |
+   col2          |
+   col_int       |
+   col_int_g     |
+   col_string    |
+   col_string_g  |
+   col_varchar   |
+   col_varchar_g |
+   col_text      |
+   col_text_g    ;
 
 fail_008:
    { $fail = 'my_fail_008' ; return undef }; SELECT * FROM $fail ;
@@ -544,16 +549,18 @@ if_exists_mostly:
    IF     EXISTS ;
 
 random_column_properties:
-   col1_properties         |
-   col2_properties         |
-   col_int_properties      |
-   col_string_properties   |
-   col_text_properties     ;
+   col1_properties           |
+   col2_properties           |
+   col_int_properties        |
+   col_string_properties     |
+   col_varchar_properties    |
+   col_text_properties       ;
 
 random_column_g_properties:
-   col_int_g_properties    |
-   col_string_g_properties |
-   col_text_g_properties   ;
+   col_int_g_properties      |
+   col_string_g_properties   |
+   col_varchar__g_properties |
+   col_text_g_properties     ;
 
 ###### col<number_or_type>_properties
 # Get the properties for some random picked column.
