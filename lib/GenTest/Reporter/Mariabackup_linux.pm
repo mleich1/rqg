@@ -297,9 +297,9 @@ sub monitor {
 #        struct stat st;
     my $backup_backup_cmd = " $backup_binary --port=$source_port --backup " .
                             "--datadir=$datadir --target-dir=$clone_datadir";
-    if (Local::DBDIR_TYPE_SLOW eq Local::get_vardir_type ) {
+#   if (Local::DBDIR_TYPE_SLOW eq Local::get_vardir_type ) {
         $backup_backup_cmd = $rr_addition . $backup_backup_cmd;
-    }
+#   }
 
     # Mariabackup could hang.
     my $exit_msg      = '';
@@ -314,7 +314,7 @@ sub monitor {
 # tar protests because reporter_prt changed during archiving.
 # Reason:
 # Output redirection leads to mariabackup writing into reporter_prt.
-# And the some mariabackup process is alive though it should not.
+# And there is some mariabackup process is alive though it should not.
 
     sigaction SIGALRM, new POSIX::SigAction sub {
         direct_to_std();
