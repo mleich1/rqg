@@ -417,8 +417,8 @@ column_name_list_for_key:
    random_column_properties $col_idx direction, random_column_properties $col_idx direction ;
 
 direction:
-   ASC  |
-   DESC ;
+   /*!100800 ASC  */ |
+   /*!100800 DESC */ ;
 
 uidx_name:
    idx_name_prefix { $name = "`$idx_name_prefix" . "uidx1`";  return undef } name_convert |
