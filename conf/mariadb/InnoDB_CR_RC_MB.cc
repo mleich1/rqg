@@ -27,6 +27,21 @@
 # This suite is a derivate of InnoDB_standard.cc.
 #
 
+# Section Verdict setup ---------------------------------------------------------------------- start
+#
+# $statuses_replay =
+# [
+#   # [ 'STATUS_ANY_ERROR' ],
+# ];
+#
+# $patterns_replay =
+# [
+#   # [ 'Import_1', '#3  <signal handler called>.{1,300}#4  .{1,20}in ha_innobase::discard_or_import_tablespace' ],
+# ];
+#
+#
+# Section Verdict setup ------------------------------------------------------------------------ end
+
 our $test_compression_encryption =
   '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz --max_gd_duration=1800 ';
 
@@ -79,6 +94,9 @@ our $grammars =
   # Certain new SQL features might be not covered.
   # Rather small tables with short lifetime.
   '--gendata=conf/mariadb/concurrency.zz --gendata_sql=conf/mariadb/concurrency.sql --grammar=conf/mariadb/concurrency.yy',
+
+  # rare DDL-DML, heavy DDL-DML
+  '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
 
   # Main DDL-DDL, DDL-DML stress work horse   with generated virtual columns, fulltext indexes, KILL QUERY/SESSION, BACKUP STAGE
   '--grammar=conf/mariadb/table_stress_innodb.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
@@ -209,7 +227,8 @@ $combinations = [ $grammars,
   ],
   [
     ' --mysqld=--loose-innodb_evict_tables_on_commit_debug=off ',
-#   ' --mysqld=--loose-innodb_evict_tables_on_commit_debug=on  ',
+    # This suffered and maybe suffers from https://jira.mariadb.org/browse/MDEV-20810
+    ' --mysqld=--loose-innodb_evict_tables_on_commit_debug=on  ',
   ],
   [
     # Warning (mleich 2020-06):
