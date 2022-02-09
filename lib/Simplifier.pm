@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2021 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -177,6 +177,10 @@ my @simp_chain_default = ( # PHASE_SIMP_BEGIN,
                            PHASE_THREAD_REDUCE,
                            PHASE_GRAMMAR_CLONE,
                            PHASE_FINAL_REPLAY,
+                           # PHASE_SIMP_END,
+                         );
+my @simp_chain_replay =  ( # PHASE_SIMP_BEGIN,
+                           PHASE_FIRST_REPLAY,
                            # PHASE_SIMP_END,
                          );
 
@@ -555,18 +559,19 @@ $| = 1;
 my $config_file;
 my $workdir;
 
+my $stop_on_replay;
 sub init {
-    ($config_file, $workdir) = @_;
+    ($config_file, $workdir, $stop_on_replay) = @_;
     # Based on the facts that
     # - Combinator/Simplifier init gets called before any Worker is running
     # - this init will be never called again
     # we can run safe_exit($status) and do not need to initiate an emergency_exit.
     #
     my $who_am_i = "Simplifier::init:";
-    if (2 != scalar @_) {
+    if (3 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: $who_am_i Four parameters " .
-                    "(config_file, workdir) are required.");
+        Carp::cluck("INTERNAL ERROR: $who_am_i Three parameters " .
+                    "(config_file, workdir, stop_on_replay) are required.");
         safe_exit($status);
     }
 
@@ -615,6 +620,10 @@ sub init {
         say("INTERNAL ERROR: The file '$source_info_file' with information about RQG and Server " .
             "directories and and Git information does not exist or is not a plain file.");
         Batch::emergency_exit($status);
+    }
+
+    if (not defined $stop_on_replay) {
+        $stop_on_replay = 0;
     }
 
     my $config_file_copy = $workdir . "/" . CONFIG_COPY_NAME;
@@ -727,7 +736,6 @@ sub init {
     # config_file_copy
     #   'seed=s'                    => \$seed,                  # Handled here
 
-
     $options->{'config'} = $config_file_copy;
     my $config = GenTest::Properties->new(
         options     => $options,
@@ -795,6 +803,15 @@ sub init {
     }
 
     say("INFO: simp_chain : '" . join("' ==> '",@simp_chain) . "'");
+    if ($stop_on_replay) {
+        # Replace the actual @simp_chain because
+        # 1. stop_on_replay set on commandline has higher priority than config_file content.
+        # 2. Exact PHASE_FIRST_REPLAY is needed but maybe not in @simp_chain.
+        @simp_chain = @simp_chain_replay;
+        say("INFO: stop_on_replay is set. Hence setting simp_chain : '" .
+            join("' ==> '",@simp_chain) . "'");
+    }
+
     foreach my $phase_c (@simp_chain) {
         my $result = Auxiliary::check_value_supported ('simplify_chain',
                                                        PHASE_SIMP_ALLOWED_VALUE_LIST, $phase_c);
@@ -1962,11 +1979,18 @@ sub register_result {
         if (PHASE_FIRST_REPLAY   eq $phase or
             PHASE_THREAD1_REPLAY eq $phase or
             PHASE_FINAL_REPLAY   eq $phase   ) {
-            # The fate of the phase is decided.
-            $phase_switch = 1;
-            Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW . ' 6');
-            # In the current phase we have used all time the same grammar and that is the
-            # current $child_grammar.
+            if($stop_on_replay) {
+                # Do not switch from PHASE_FIRST_REPLAY to whatever if $stop_on_replay is > 0.
+                $return = Batch::REGISTER_GO_ON;
+            } else {
+                # The fate of the phase is decided.
+                $phase_switch = 1;
+                Batch::stop_workers(Batch::STOP_REASON_WORK_FLOW . ' 6');
+                # In the current phase we have used all time the same grammar and that is the
+                # current $child_grammar.
+                Batch::add_to_try_never($order_id);
+                $return = Batch::REGISTER_SOME_STOPPED;
+            }
             my $source = $workdir . "/" . $child_grammar;
             Batch::copy_file($source, $target);
             if      (PHASE_FIRST_REPLAY eq $phase) {
@@ -1985,8 +2009,6 @@ sub register_result {
             } elsif (PHASE_FINAL_REPLAY eq $phase) {
                 $final_replay_success   = 1;
             }
-            Batch::add_to_try_never($order_id);
-            $return = Batch::REGISTER_SOME_STOPPED;
         } elsif (PHASE_THREAD_REDUCE eq $phase) {
             # $grammar_used is the number of threads used in that RQG run.
             $campaign_duds_since_replay = 0;

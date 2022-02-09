@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Copyright (c) 2018, 2021 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -568,6 +568,7 @@ if (defined $runner) {
 
 Batch::check_and_set_dryrun($dryrun);
 Batch::check_and_set_stop_on_replay($stop_on_replay);
+## say("DEBUG: stop_on_replay ->" . $stop_on_replay . "<-");
 Batch::check_and_set_discard_logs($discard_logs);
 
 
@@ -746,7 +747,9 @@ if (not -f $full_verdict_setup) {
 if      ($Batch::batch_type eq Batch::BATCH_TYPE_COMBINATOR) {
     Combinator::init($config_file, $workdir);
 } elsif ($Batch::batch_type eq Batch::BATCH_TYPE_RQG_SIMPLIFIER) {
-    Simplifier::init($config_file, $workdir);
+    # If wanting some configurable amount of bug replays than the Simplifier needs to
+    # know the value assigned to stop_on_replay.
+    Simplifier::init($config_file, $workdir, $stop_on_replay);
 } else {
     say("INTERNAL ERROR: The batch type '$Batch::batch_type' is unknown. Abort");
     safe_exit(4);
