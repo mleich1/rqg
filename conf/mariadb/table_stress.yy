@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2021 MariaDB Corporation
+# Copyright (c) 2018, 2022 MariaDB Corporation
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -74,19 +74,48 @@
 fail_001:
    { $fail = 'my_fail_001' ; return undef }; SELECT * FROM $fail ;
 
-start_delay:
-   # Avoid that worker threads cause a server crash before reporters are started.
-   # This leads often to STATUS_ENVIRONMENT_ERROR though a crash happened.
-   { sleep 5; return undef };
+# thread1 manages CREATE/DROP of the tables.
+# Doing that by one thread only avoids clashes compared to trying it by every thread.
+# In addition thread1 goes with big timeouts. This makes the success of CREATES and DROPS more
+# likely and gives also some variation for the statements taken from the rule "query".
+thread1_init:
+   create_table { $c_refresh = time(); $b_refresh = time() + 30; $m1 = ''; $m2 = '' ; $m3 = ''; $m4 = '' ; return undef }; SET GLOBAL innodb_disable_resize_buffer_pool_debug = OFF;
 
-query_init:
-   start_delay ; create_table ; thread_connect ;
+thread1:
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   query                                                                                                                                                                                      |
+   { if ($c_refresh + 60 < time()) { $c_refresh = time(); $m1 = ''; $m2 = '' } else { $m1 = '/*'; $m2 = '*/' } ; return undef } recreate_cool_down ; move_to_cool_down ; create_table         ;
+
+fail_002:
+   { $fail = 'my_fail_002' ; return undef }; SELECT * FROM $fail ;
+
+thread1_connect:
+   SET AUTOCOMMIT = 0; SET @fill_amount = (@@innodb_page_size / 2 ) + 1 ; set_big_timeouts ;
 
 thread_connect:
    maintain_session_entry ; SET AUTOCOMMIT = 0; SET @fill_amount = (@@innodb_page_size / 2 ) + 1 ; set_small_timeouts ;
 
+recreate_cool_down:
+   $m1 DROP SCHEMA cool_down $m2 ; $m1 CREATE SCHEMA cool_down $m2 ;
+move_to_cool_down:
+   $m1 RENAME TABLE t0 TO cool_down . t1 $m2 ;
+   $m1 RENAME TABLE t1 TO cool_down . t1 $m2 ;
+   $m1 RENAME TABLE t2 TO cool_down . t2 $m2 ;
+   $m1 RENAME TABLE t3 TO cool_down . t3 $m2 ;
+   $m1 RENAME TABLE t4 TO cool_down . t4 $m2 ;
+   $m1 RENAME TABLE t5 TO cool_down . t4 $m2 ;
+
 set_small_timeouts:
    SET SESSION lock_wait_timeout = 2 ; SET SESSION innodb_lock_wait_timeout = 1 ;
+set_big_timeouts:
+   SET SESSION lock_wait_timeout = 60 ; SET SESSION innodb_lock_wait_timeout = 30 ;
 
 maintain_session_entry:
    REPLACE INTO rqg . rqg_sessions SET rqg_id = _thread_id , processlist_id = CONNECTION_ID(), pid = { my $x = $$ } , connect_time = UNIX_TIMESTAMP();  COMMIT ;
@@ -161,15 +190,15 @@ correct_rqg_sessions_table:
    UPDATE rqg . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 create_table:
-   c_t_begin t0 c_t_mid ENGINE = MyISAM ;
-   c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic ;
-   c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed ;
-   c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact ;
-   c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant ;
-   c_t_begin t5 c_t_mid ENGINE = Aria ;
+   c_t_begin t0 c_t_mid ENGINE = MyISAM $m2 ;
+   c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic    $m2 ;
+   c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed $m2 ;
+   c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact    $m2 ;
+   c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant  $m2 ;
+   c_t_begin t5 c_t_mid ENGINE = Aria $m2 ;
 
 c_t_begin:
-   CREATE TABLE IF NOT EXISTS ;
+   $m1 CREATE TABLE IF NOT EXISTS ;
 c_t_mid:
    ( non_generated_cols generated_cols ) ;
 
@@ -199,9 +228,12 @@ innodb_settings:
    ENGINE = InnoDB ROW_FORMAT = Redundant  ;
 
 query:
-   set_dbug ; ddl ; set_dbug_null |
-   set_dbug ; dml ; set_dbug_null |
-   set_dbug ; dml ; set_dbug_null ;
+   set_dbug ; check_table ; set_dbug_null |
+   set_dbug ; ddl ;         set_dbug_null |
+   set_dbug ; dml ;         set_dbug_null |
+   set_dbug ; dml ;         set_dbug_null |
+   set_dbug ; dml ;         set_dbug_null |
+   set_dbug ; dml ;         set_dbug_null ;
 
 dml:
    # Ensure that the table does not grow endless.                                                                   |
@@ -210,6 +242,7 @@ dml:
    enforce_duplicate1 ;                                                                             commit_rollback |
    # Make likely: Get duplicate key based on two row UPDATE only.                                                   |
    enforce_duplicate2 ;                                                                             commit_rollback |
+   UPDATE table_names SET column_name_int = my_int ;                                                commit_rollback |
    # Make likely: Get duplicate key based on the row INSERT and the already committed data.                         |
    insert_part ( my_int , $my_int,     $my_int,     string_fill, fill_begin $my_int     fill_end ); commit_rollback |
    insert_part ( my_int , $my_int - 1, $my_int,     string_fill, fill_begin $my_int     fill_end ); commit_rollback |
@@ -228,7 +261,10 @@ enforce_duplicate1:
    delete ; insert_part /* my_int */ some_record , some_record ;
 
 enforce_duplicate2:
-   UPDATE table_names SET column_name_int = my_int ORDER BY col1 DESC LIMIT 2 ;
+# FIXME: Check/decide what to use
+# UPDATE table_names SET column_name_int = my_int ORDER BY col1 DESC LIMIT 2 ;
+# if that avoids statements which are unsafe for replication.
+   UPDATE table_names SET column_name_int = my_int LIMIT 2 ;
 
 insert_part:
    INSERT INTO table_names (col1,col2,col_int_properties $col_name, col_string_properties $col_name, col_text_properties $col_name) VALUES ;
@@ -251,6 +287,7 @@ my_int:
 
 commit_rollback:
    COMMIT   |
+   COMMIT   |
    ROLLBACK ;
 
 # FIXME:
@@ -268,16 +305,15 @@ ddl:
    alter_table_part drop_accelerator , drop_accelerator ddl_algorithm_lock_option |
    alter_table_part drop_accelerator , add_accelerator  ddl_algorithm_lock_option |
    # ddl_algorithm_lock_option is not supported by some statements
-   check_table                                                                           |
    TRUNCATE TABLE table_names                                                            |
    # ddl_algorithm_lock_option is within the replace_column sequence
    replace_column                                                                        |
    # It is some rather arbitrary decision to place KILL session etc. here
    # but KILL ... etc. is like most DDL some rather heavy impact DDL.
-   alter_table_part enable_disable KEYS                                           |
+   alter_table_part enable_disable KEYS                                                  |
    rename_column                                      ddl_algorithm_lock_option          |
    null_notnull_column                                ddl_algorithm_lock_option          |
-   alter_table_part MODIFY column_name_int int_bigint   ddl_algorithm_lock_option |
+   alter_table_part MODIFY column_name_int int_bigint ddl_algorithm_lock_option          |
    move_column                                        ddl_algorithm_lock_option          |
    chaos_column                                       ddl_algorithm_lock_option          |
    block_stage                                                                           |
@@ -294,19 +330,19 @@ alter_table_part:
    ALTER ignore TABLE table_names ;
 
 chaos_column:
-   # Basic idea
-   # - have a length in bytes = 3 which is not the usual 2, 4 or more
-   # - let the column stray like it exists/does not exist/gets moved to other position
+# Basic idea
+# - have a length in bytes = 3 which is not the usual 2, 4 or more
+# - let the column stray like it exists/does not exist/gets moved to other position
    alter_table_part ADD COLUMN IF NOT EXISTS col_date DATE DEFAULT CUR_DATE() |
    alter_table_part DROP COLUMN IF EXISTS col_date                            |
    alter_table_part MODIFY COLUMN IF EXISTS col_date DATE column_position     ;
 
 move_column:
-   # Unfortunately I cannot prevent that the column type gets maybe changed.
+# Unfortunately I cannot prevent that the column type gets maybe changed.
    random_column_properties alter_table_part MODIFY COLUMN $col_name $col_type column_position ;
 
 null_notnull_column:
-   # Unfortunately I cannot prevent that the column type gets maybe changed.
+# Unfortunately I cannot prevent that the column type gets maybe changed.
    random_column_properties alter_table_part MODIFY COLUMN $col_name $col_type null_not_null ;
 null_not_null:
    NULL     |
@@ -376,7 +412,7 @@ column_name_list_for_key:
    random_column_properties $col_idx direction, random_column_properties $col_idx direction ;
 
 direction:
-   /*!100800 ASC */  |
+   /*!100800 ASC  */ |
    /*!100800 DESC */ ;
 
 uidx_name:
