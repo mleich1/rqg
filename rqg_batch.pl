@@ -1460,8 +1460,9 @@ sub help() {
    "--help_vardir_type\n"                                                                          .
    "      Information about the RQG option vardir_type\n"                                          .
    "--help_local\n"                                                                                .
-   "      Information about the mandatory file local.pm which gets used for computing the\n"       .
+   "      Information about the mandatory file local.cfg which gets used for computing the\n"      .
    "      storage places for archives, vardirs, workdirs and other stuff.\n"                       .
+   "      Purpose: Adjustments to the properties of the testing box.\n"                            .
    "\n"                                                                                            .
    "--type=<Which type of work ("                                                                  .
    Auxiliary::list_values_supported(Batch::BATCH_TYPE_ALLOWED_VALUE_LIST) . "') to do>\n"          .
@@ -1492,8 +1493,13 @@ sub help() {
    "--stop_on_replay=<n>\n"                                                                        .
    "      As soon as <n> RQG runs achieved the verdict '" . Verdict::RQG_VERDICT_REPLAY            .
    " , stop all active RQG Worker, cleanup, give a summary and exit.\n"                            .
-   "      '--stop_on_replay '   in command line leads to use n = 1\n\n"                            .
+   "      '--stop_on_replay '   in command line leads to use n = 1\n"                              .
    "      '--stop_on_replay...' not in command line n = " . Batch::MAX_BATCH_STARTS . "\n"         .
+   "      If type of work\n"                                                                       .
+   "      - " . Batch::BATCH_TYPE_COMBINATOR                                                       .
+   " :     Generate the stream of tests to be run via combinatorics.\n"                            .
+   "      - " . Batch::BATCH_TYPE_RQG_SIMPLIFIER                                                   .
+   " : Run all time the non simplified test.\n\n"                                                  .
    "--dryrun=<verdict_value>\n"                                                                    .
    "      Run the complete mechanics except that the RQG worker processes forked\n"                .
    "      - print the RQG call which they would run\n"                                             .
@@ -1559,7 +1565,7 @@ sub help() {
    "    touch " . BATCH_RESULT_SYMLINK . "/exit\n"                                                 .
    "rqg_batch.pl will stop all active RQG runners, cleanup and give a summary.\n\n"                .
    "What to do on Linux in the rare case (RQG core or runner broken) that this somehow fails?\n"   .
-   "    killall -9 perl mysqld mariadbd rr ; rm -rf /dev/shm/vardir/*\n"                           .
+   "    killall -9 perl mysqld mariadbd rr\n"                                                      .
    "-------------------------------------------------------------------------------------------\n" .
    "How to get the roughly 'smallest' rqg_batch.pl run possible for config file checking?\n"       .
    "Just assign\n"                                                                                 .
@@ -1568,7 +1574,7 @@ sub help() {
    "-------------------------------------------------------------------------------------------\n" .
    "Impact of RQG_HOME if found in environment and the current working directory:\n"               .
    "Around its start rqg_batch.pl searches for RQG components in <CWD>/lib and "                   .
-   "ENV(\$RQG_HOME)/lib\n" .
+   "ENV(\$RQG_HOME)/lib\n"                                                                         .
    "- rqg_batch.pl computes than a RQG_HOME based on its call and sets than some corresponding "   .
    "environment variable or aborts.\n"                                                             .
    "  All required RQG components (runner/reporter/validator/...) will be taken from this \n"      .
@@ -1587,7 +1593,7 @@ sub help() {
 
 }
 
-# Routines to be provided by the packages like Combinator.pl
+# Routines to be provided by the packages like Combinator.pm
 #
 # sub init
 #
