@@ -762,6 +762,9 @@ Hints
        Archiving         But neither an error message nor an archive found.
        exit              BATCH saw all time this process running.
    # 2021-08-31T15:59:15 BATCH: Stop the run because of 'rqg_limit'.
+6. Events like kill the server process initiated by reporters must happen within the assigned
+   duration. In case the automatic test simplification shortens the duration than
+   we could come into trouble.
 
 
 

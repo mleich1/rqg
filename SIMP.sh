@@ -1,11 +1,8 @@
 #!/bin/bash
 
-
 # Please see this shell script rather as template how to call rqg_batch.pl even though
 # it might be already in its current state sufficient for doing a lot around RQG.
 #
-# Example for what to generate:
-# perl rqg_batch.pl --config=short_weg1.cc --trials=50 --basedir1=/Server_bin/10.6_asan/ --duration=100 --rr 2>&1 | tee batch.prt
 
 export LANG=C
 
@@ -16,7 +13,7 @@ CALL_LINE="$0 $*"
 
 # Config file for rqg_batch.pl containing various settings for the RQG+server+InnoDB etc.
 # including settings for avoiding open bugs.
-# The template is: simplify_rqg_template.cfg
+# Template: simplify_rqg_template.cfg
 CONFIG=$1
 if [ "$CONFIG" = "" ]
 then
@@ -33,7 +30,15 @@ then
    exit
 fi
 
-CASE=`basename $CONFIG .cfg`
+CASE0=`basename $CONFIG`
+CASE=`basename $CASE0 .cfg`
+if [ $CASE = $CASE0 ]
+then
+   echo "You need to assign a Simplifier config file (extension .cfg)."
+   echo "The call was ->$CALL_LINE<-"
+   echo -e "$USAGE"
+   exit
+fi
 
 
 # Path to MariaDB binaries
@@ -70,29 +75,7 @@ else
    GRAMMAR_PART=""
 fi
 
-PROT="$CASE""-""$BASEDIR1_NAME"".prt"
-
-set -e
-# My standard work directory for rqg_batch.pl.
-# The workdirs for ongoing RQG runs are in its sub directories.
-# The BATCH_WORKDIR is also for permanent storing results and similar.
-BATCH_WORKDIR="storage"
-if [ ! -d "$BATCH_WORKDIR" ]
-then
-   mkdir $BATCH_WORKDIR
-fi
-
-# My standard var directory on tmpfs (recommended) for rqg_batch.pl.
-# The vardirs for ongoing RQG runs are in its sub directories.
-# rqg_batch.pl cleans BATCH_VARDIR except it gets killed or dies because of internal error.
-BATCH_VARDIR="/dev/shm/vardir"
-if [ ! -d "$BATCH_VARDIR" ]
-then
-   mkdir $BATCH_VARDIR
-fi
-
-set +e
-
+PROT="simp--""$CASE""-""$BASEDIR1_NAME"".prt"
 
 # Go with heavy load in case the rqg_batch.pl ResourceControl allows it.
 # The rqg_batch.pl ResourceControl should be capable to avoid trouble with resources.
@@ -100,7 +83,7 @@ set +e
 # More general load on the testing raises the likelihood to find or replay a
 # concurrency bug.
 NPROC=`nproc`
-GUEST_ON_BOX=`who | grep -v $USER| wc -l`
+GUEST_ON_BOX=`who | egrep -v "$USER|root" | wc -l`
 echo "Number of guests logged into the box: $GUEST_ON_BOX"
 # GUEST_ON_BOX=0
 if [ $GUEST_ON_BOX -gt 0 ]
@@ -111,7 +94,7 @@ then
 else
    PARALLEL=$(($NPROC * 3))
 fi
-# If $PARALLEL > ~250 than we get trouble on Ubuntu 18 Server.
+# If $PARALLEL > ~270 than we get trouble with some resources.
 if [ $PARALLEL -gt 270 ]
 then
    PARALLEL=270
@@ -120,7 +103,6 @@ fi
 TRIALS=128
 
 # MAX_RUNTIME is a limit for defining the size of a simplification campaign.
-# Please be aware that the runtime of util/issue_grep.sh is not included.
 # RQG batch run elapsed runtime =
 #    assigned max_runtime
 # +  time for stopping the active RQG Workers + cleanup (usually less than 5 seconds)
@@ -133,32 +115,12 @@ MAX_RUNTIME=72000
 # - current rqg_batch run ---- ongoing MTR run
 # clash on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files) or
 # suffer from tmpfs full etc.
-killall -9 perl ; killall -9 mysqld mariadbd
-rm -rf /dev/shm/var*
-
-############################################################
-if [ "$PWD" = "$BATCH_VARDIR" ]
-then
-   echo "ERROR: Current working directory equals BATCH_VARDIR '$BATCH_VARDIR'."
-   echo "The call was ->$CALL_LINE<-"
-   exit
-fi
-if [ "$BASEDIR1" = "$BATCH_VARDIR" ]
-then
-   echo "ERROR: BASEDIR1 equals BATCH_VARDIR '$BATCH_VARDIR'."
-   echo "The call was ->$CALL_LINE<-"
-   exit
-fi
-if [ "$BATCH_WORKDIR" = "$BATCH_VARDIR" ]
-then
-   echo "ERROR: BASEDIR1 equals BATCH_VARDIR '$BATCH_VARDIR'."
-   echo "The call was ->$CALL_LINE<-"
-   exit
-fi
-#############################################################
-
-# In case the cleanup above is disabled than at least this.
-rm -rf $BATCH_VARDIR/1*
+# Testing tool | Programs            | Standard locations
+# -------------+---------------------+---------------------------
+# rqg_batch.pl | perl, mysqld,   rr  | /dev/shm/rqg/* /data/rqg/*
+# MTR          | perl, mariadbd, rr  | /dev/shm/var*
+killall -9 perl mysqld mariadbd rr
+rm -rf /dev/shm/rqg/* /dev/shm/var* /data/rqg/*
 
 # There should be usually sufficient space in VARDIR for just a few fat core files caused by ASAN.
 # Already the RQG runner will take care that everything important inside his VARDIR will be
@@ -193,6 +155,7 @@ set -o pipefail
 #    of interest gets archived.
 #    In case you do not want that archiving than you can disable it.
 #    But thats is rather suitable for runs of the test simplifier only.
+#    rr tracing enabled requires that archiving is not disabled.
 # --noarchiving                                                        \
 #
 # 3. Do not abort if hitting Perl errors or STATUS_ENVIRONMENT_FAILURE. IMHO some rather
@@ -220,8 +183,8 @@ set -o pipefail
 #    Use cases:
 #    a) When using the Combinator see which combinations would get generated.
 #    b) When using the Simplifier see how it would be tried to shrink the grammar.
-#    c) --dryrun=ignore_blacklist see how TRIALS would be the limiter.
-# --dryrun=ignore_blacklist                                            \
+#    c) --dryrun=ignore_unwanted  see a) or b) and how TRIALS would be the limiter.
+# --dryrun=ignore_unwanted                                             \
 # --dryrun=replay                                                      \
 #
 # 7. rqg_batch stops immediate all RQG runner if reaching the assigned number of replays
@@ -264,12 +227,10 @@ set -o pipefail
 #    This is the optimal setting for InnoDB QA.
 # --rr=Extended                                                        \
 #
-#    Make a 'rr' trace of the complete RQG run like even of the perl code of the RQG runner.
-#    This leads to a huge space consumption (example: 2.6 GB for traces + datadir) during the
-#    RQG test runtime but
-#    - gives a better overview of the interdependence of component activities
-#    - traces also the activities of MariaDB replication or Galera
-# --rr=RQG                                                             \
+#    Recommended settings (Info taken from rr help)
+#    '--chaos' randomize scheduling decisions to try to reproduce bugs
+#    '--wait'  Wait for all child processes to exit, not just the initial process.
+# --rr_options='--chaos --wait'                                        \
 #
 #    "rr" checks which CPU is used in your box.
 #    In case your version of "rr" is too old or your CPU is too new than the check might fail
@@ -278,16 +239,7 @@ set -o pipefail
 #    Box having "Intel Skylake" CPU's, "rr" version 4 contains the string "Intel Skylake" but
 #    claims to have met some unknown CPU.
 #    Please becareful with the single and double quotes.
-# --rr_options='--chaos --microarch=\"Intel Kabylake\"'                \
-#
-#    The "rr" option "--chaos" which seems to be recommended anywhere.
-# --rr_options='--chaos'                                               \
-#
-#    The combination "--chaos --wait" is currently studied
-# --rr_options='--chaos --wait'                                        \
-#
-# Please be aware that some increasing number of Combinations config files already
-# enable the use of "rr".
+# --rr_options='--chaos --wait --microarch=\"Intel Skylake\"'          \
 #
 # 9. SQL tracing within RQG (Client side tracing)
 # --sql_trace=Simple                                                   \
@@ -311,15 +263,15 @@ nohup perl -w ./rqg_batch.pl                                           \
 --parallel=$PARALLEL                                                   \
 --basedir1=$BASEDIR1                                                   \
 $GRAMMAR_PART                                                          \
---config=$CONFIG                                                       \
-  --trials=$TRIALS                                                     \
-  --parallel=$PARALLEL                                                 \
-  --noarchiving                                                        \
-  --discard_logs                                                       \
 --type=RQG_Simplifier                                                  \
+--config=$CONFIG                                                       \
+--max_runtime=$MAX_RUNTIME                                             \
+--trials=$TRIALS                                                       \
+--noarchiving                                                          \
+--discard_logs                                                         \
 --no-mask                                                              \
 --script_debug=_nix_                                                   \
-2>&1 > $PROT &
+> $PROT 2>&1 &
 
 # Avoid that "tail -f ..." starts before the file exists.
 STATE=2

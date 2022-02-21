@@ -56,8 +56,8 @@ our $compression_setup =
   # - innodb page compression will be less till not covered by MariaDB versions >= 10.7
   # - upgrade tests starting with version < 10.7 and going up to version >= 10.7 will
   #   suffer from TBR-1313 effects.
-  '--mysqld=--plugin-load-add=provider_lzo.so --mysqld=--plugin-load-add=provider_bzip2.so --mysqld=--plugin-load-add=provider_lzma ' .
-  '--mysqld=--plugin-load-add=provider_snappy --mysqld=--plugin-load-add=provider_lz4 ';
+  '--mysqld=--plugin-load-add=provider_lzo.so --mysqld=--plugin-load-add=provider_bzip2.so --mysqld=--plugin-load-add=provider_lzma.so ' .
+  '--mysqld=--plugin-load-add=provider_snappy.so --mysqld=--plugin-load-add=provider_lz4.so ';
 
 our $duration = 300;
 our $grammars =
@@ -82,13 +82,15 @@ our $grammars =
   '--gendata --vcols --views --grammar=conf/mariadb/instant_add.yy',
 
   '--grammar=conf/runtime/metadata_stability.yy --gendata=conf/runtime/metadata_stability.zz',
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz',
   '--grammar=conf/mariadb/partitions_innodb.yy',
   '--grammar=conf/mariadb/partitions_innodb.yy --gendata-advanced --skip-gendata',
   '--grammar=conf/replication/replication.yy --gendata=conf/replication/replication-5.1.zz --max_gd_duration=1200', # rr on asan_Og exceeded 900 * 1.5
+  '--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz',
+
+  # DML-DML only
+  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz',
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 ',
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata-advanced --skip-gendata',
-  '--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz',
 
   # DDL-DDL, DDL-DML, DML-DML, syntax   stress test   for several storage engines
   # Certain new SQL features might be not covered.

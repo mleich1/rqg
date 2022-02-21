@@ -9,13 +9,11 @@ export LANG=C
   USAGE="USAGE: $0 <Config file for the RQG test Combinator> <Basedir1 == path to MariaDB binaries> [<Basedir2>] "
 EXAMPLE="EXAMPLE: $0 conf/mariadb/InnoDB_standard.cc /Server_bin/bb-10.2-marko_asan_Og "
 USAGE="\n$USAGE\n\n$EXAMPLE\n"
-
 CALL_LINE="$0 $*"
-
-set -e
 
 # Config file for rqg_batch.pl containing various settings for the RQG+server+InnoDB etc.
 # including settings for avoiding open bugs.
+# Example: conf/mariadb/InnoDB_standard.cc
 CONFIG=$1
 if [ "$CONFIG" = "" ]
 then
@@ -31,12 +29,17 @@ then
    echo -e "$USAGE"
    exit
 fi
+
 CASE0=`basename $CONFIG`
-CASE=`basename $CASE0 .cfg`
+CASE=`basename $CASE0 .cc`
 if [ $CASE = $CASE0 ]
 then
-   CASE=`basename $CASE0 .cc`
+   echo "You need to assign a Combinator config file (extension .cc)."
+   echo "The call was ->$CALL_LINE<-"
+   echo -e "$USAGE"
+   exit
 fi
+
 
 # Path to MariaDB binaries
 BASEDIR1="$2"
@@ -65,7 +68,7 @@ then
    exit
 fi
 
-PROT="$CASE""-""$BASEDIR1_NAME"".prt"
+PROT="batch-""$CASE""-""$BASEDIR1_NAME"".prt"
 
 # Go with heavy load in case the rqg_batch.pl ResourceControl allows it.
 # The rqg_batch.pl ResourceControl should be capable to avoid trouble with resources.
@@ -73,7 +76,7 @@ PROT="$CASE""-""$BASEDIR1_NAME"".prt"
 # More general load on the testing raises the likelihood to find or replay a
 # concurrency bug.
 NPROC=`nproc`
-GUEST_ON_BOX=`who | grep -v $USER| wc -l`
+GUEST_ON_BOX=`who | egrep -v "$USER|root" | wc -l`
 echo "Number of guests logged into the box: $GUEST_ON_BOX"
 # GUEST_ON_BOX=0
 if [ $GUEST_ON_BOX -gt 0 ]
@@ -84,7 +87,7 @@ then
 else
    PARALLEL=$(($NPROC * 3))
 fi
-# If $PARALLEL > ~250 than we get trouble on Ubuntu 18 Server.
+# If $PARALLEL > ~270 than we get trouble with some resources.
 if [ $PARALLEL -gt 270 ]
 then
    PARALLEL=270
@@ -99,15 +102,15 @@ set +e
 # - a function in lib/Batch.pm
 #   Abort of testing as soon as some quota of failing tests gets exceeded.
 #   Focus: Bad Combinator config or tests, defect in code of RQG or tools, exceptional bad DB server
+# - Stop of testing as soon as MAX_RUNTIME <= current runtime of testing campaign.
+#   Focus: Define the size of a testing campaign by a time related limit.
+#          This is important for running 'production' like QA.
+#          Per experience: total runtime < MAX_RUNTIME + 10s
 # - Stop of testing as soon as more than TRIALS RQG runs regular finished.
-#   Regular means: Not stopped rqg_batch.pl because of whatever internal reason.
-#   Focus: Simple limiter but also some last safety net in case rqg_batch.pl internals fail.
+#   Regular means: Not stopped by rqg_batch.pl because of whatever internal reason.
+#   Focus: Bad Combinator config or tests, defect in code of RQG or tools, exceptional bad DB server
+#          and experiments
 TRIALS=10000
-# MAX_RUNTIME is a better limiter than TRIALS for defining the size of a testing campaign
-# when running 'production' like QA.
-# RQG batch run elapsed runtime =
-#    assigned max_runtime
-# +  time for stopping the active RQG Workers + cleanup (usually less than 5 seconds)
 MAX_RUNTIME=18000
 
 
@@ -118,9 +121,19 @@ MAX_RUNTIME=18000
 # - current rqg_batch run ---- ongoing MTR run
 # clash on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files) or
 # suffer from tmpfs full etc.
-killall -9 perl ; killall -9 mysqld mariadbd
-rm -rf /dev/shm/var* /dev/shm/rqg/*
+# Testing tool | Programs            | Standard locations
+# -------------+---------------------+---------------------------
+# rqg_batch.pl | perl, mysqld,   rr  | /dev/shm/rqg/* /data/rqg/*
+# MTR          | perl, mariadbd, rr  | /dev/shm/var*
+killall -9 perl mysqld mariadbd rr
+rm -rf /dev/shm/rqg/* /dev/shm/var* /data/rqg/*
 
+# There should be usually sufficient space in VARDIR for just a few fat core files caused by ASAN.
+# Already the RQG runner will take care that everything important inside his VARDIR will be
+# saved in his WORKDIR and empty his VARDIR. rqg_batch.pl will empty the VARDIR of this RQG
+# runner again. So the space comsumption of a core is only temporary.
+# The rqg_batch.pl ResourceControl will also take care to avoid VARDIR full.
+# If its not an ASAN build than this environment variable is harmless anyway.
 export ASAN_OPTIONS=abort_on_error=1,disable_coredump=0
 echo "Have set "`env | grep ASAN`
 
@@ -142,6 +155,7 @@ set -o pipefail
 #    of interest gets archived.
 #    In case you do not want that archiving than you can disable it.
 #    But thats is rather suitable for runs of the test simplifier only.
+#    rr tracing enabled requires that archiving is not disabled.
 # --noarchiving                                                        \
 #
 # 3. Do not abort if hitting Perl errors or STATUS_ENVIRONMENT_FAILURE. IMHO some rather
@@ -174,8 +188,8 @@ set -o pipefail
 #    Use cases:
 #    a) When using the Combinator see which combinations would get generated.
 #    b) When using the Simplifier see how it would be tried to shrink the grammar.
-#    c) --dryrun=ignore_blacklist see how TRIALS would be the limiter.
-# --dryrun=ignore_blacklist                                            \
+#    c) --dryrun=ignore_unwanted  see a) or b) and how TRIALS would be the limiter.
+# --dryrun=ignore_unwanted                                             \
 # --dryrun=replay                                                      \
 #
 # 7. rqg_batch stops immediate all RQG runner if reaching the assigned number of replays
@@ -192,10 +206,10 @@ set -o pipefail
 #      are independent of the testing box
 #      Please be aware that some increasing number of such config files already do this.
 #    - rr options which are dependent of the testing box
-#         Example: --microarch="Intel Kabylake"
+#         Example: --microarch="Intel Skylake"
 #      in local.cfg
 #
-#    "rr" tracing of all servers started ( lib/DBServer/MySQL/MySQLd.pm    sub startServer)
+#    "rr" tracing of all servers started (lib/DBServer/MySQL/MySQLd.pm    sub startServer)
 #    This is the default.
 # --rr                                                                 \
 #    or better
@@ -205,6 +219,11 @@ set -o pipefail
 #    This is the optimal setting for InnoDB QA.
 # --rr=Extended                                                        \
 #
+#    Recommended settings (Info taken from rr help)
+#    '--chaos' randomize scheduling decisions to try to reproduce bugs
+#    '--wait'  Wait for all child processes to exit, not just the initial process.
+# --rr_options='--chaos --wait'                                        \
+#
 #    "rr" checks which CPU is used in your box.
 #    In case your version of "rr" is too old or your CPU is too new than the check might fail
 #    and cause that the call of 'rr' fails.
@@ -212,13 +231,7 @@ set -o pipefail
 #    Box having "Intel Skylake" CPU's, "rr" version 4 contains the string "Intel Skylake" but
 #    claims to have met some unknown CPU.
 #    Please becareful with the single and double quotes.
-# --rr_options='--chaos --microarch=\"Intel Kabylake\"'                \
-#
-#    The "rr" option "--chaos" which seems to be recommended anywhere.
-# --rr_options='--chaos'                                               \
-#
-#    The combination "--chaos --wait" is currently studied
-# --rr_options='--chaos --wait'                                        \
+# --rr_options='--chaos --wait --microarch=\"Intel Skylake\"'          \
 #
 # 9. SQL tracing within RQG (Client side tracing)
 # --sql_trace=Simple                                                   \
@@ -242,10 +255,11 @@ nohup perl -w ./rqg_batch.pl                                           \
 --parallel=$PARALLEL                                                   \
 --basedir1=$BASEDIR1                                                   \
 --basedir2=$BASEDIR2                                                   \
+--type=Combinator                                                      \
 --config=$CONFIG                                                       \
+--max_runtime=$MAX_RUNTIME                                             \
 --trials=$TRIALS                                                       \
 --discard_logs                                                         \
---max_runtime=$MAX_RUNTIME                                             \
 --no-mask                                                              \
 --script_debug=_nix_                                                   \
 > $PROT 2>&1 &
