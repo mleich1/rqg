@@ -113,7 +113,7 @@ else
 #  104 --> 79%
 #  PARALLEL=`awk "BEGIN {y=0.95; z=($NPROC ^ y) * 3; print int(z)}"`
 fi
-# If $PARALLEL > ~250 than we get trouble on Ubuntu 18 Server. Ubuntu 20 works better.
+# Problems with ressources (ports etc.) start short after 270
 if [ $PARALLEL -gt 270 ]
 then
    PARALLEL=270
@@ -302,7 +302,7 @@ set -o pipefail
 --max_runtime=$MAX_RUNTIME                                             \
   --discard_logs                                                       \
   --rr=Extended                                                        \
-  --rr_options="--chaos"                                               \
+  --rr_options="--chaos --wait"                                        \
 --no-mask                                                              \
 --script_debug=_nix_                                                   \
 > $PROT 2>&1 &

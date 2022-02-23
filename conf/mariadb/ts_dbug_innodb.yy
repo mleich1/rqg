@@ -30,7 +30,7 @@
 #
 # SET ... DEBUG_DBUG
 # ------------------
-# GLOBAL and SESSION is supported. The GLOBAL setting is only taken over as setting for the a session when connecting.
+# GLOBAL and SESSION is supported. The GLOBAL setting is only taken over as setting for a session when connecting.
 # SET DEBUG_DBUG = '' and also SET DEBUG_DBUG = NULL reset the SESSION setting to empty.
 #
 # SET SESSION DEBUG_DBG does not COMMIT at begin of own execution.
