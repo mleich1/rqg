@@ -161,7 +161,7 @@ alttcol_generated_always:
 ;
 
 alttcol_virt_type:
-  | /*!100201 STORED */ /*!!100201 PERSISTENT */ | VIRTUAL
+  | /*!100201 STORED */ /*!100201 PERSISTENT */ | VIRTUAL
 ;
 
 alttcol_default_int_or_auto_increment:
