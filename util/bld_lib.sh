@@ -358,3 +358,33 @@ function git_info()
     echo "#--------------------------------------------------------------"  | tee -a "$BLD_PROT"
 }
 
+function install_till_end()
+{
+    set -e
+    echo "#--------------------------------------------------------------"  | tee -a "$BLD_PROT"
+    check_1st "$OOS_DIR"
+
+    echo "# Install in '"$INSTALL_PREFIX"' at "`date --rfc-3339=seconds`    | tee -a "$BLD_PROT"
+    echo "#=============================================================="  | tee -a "$BLD_PROT"
+    # cd "$INSTALL_PREFIX"/mysqltest/ ; ./mtr 1st     will fail later in case we run
+    # "make install" when CWD is "$OOS_DIR"/mysql-test
+    cd "$OOS_DIR"
+    remove_some_tests
+    rm -rf "$INSTALL_PREFIX"
+    make install                                                     2>&1   | tee -a "$BLD_PROT"
+
+    # Without the following chmod successing builds by other group members will fail during the
+    # install because overwriting of some files in $INSTALL_PREFIX/include is not allowed.
+    # My guess: rm -rf did not delete evrything.
+    chmod -R g+w "$INSTALL_PREFIX"
+    check_1st "$INSTALL_PREFIX"
+
+    archiving
+
+    echo
+    echo "End of build+install process reached"
+    echo
+
+    rm -r "$OOS_DIR"
+    set +e
+}

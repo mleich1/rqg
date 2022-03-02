@@ -102,6 +102,9 @@ cd "$OOS_DIR"
 
 run_make
 
+install_till_end
+exit 0
+
 echo "#--------------------------------------------------------------"  | tee -a "$BLD_PROT"
 check_1st "$OOS_DIR"
 
@@ -114,6 +117,7 @@ cd "$OOS_DIR"
 remove_some_tests
 rm -rf "$INSTALL_PREFIX"
 make install                                                     2>&1   | tee -a "$BLD_PROT"
+chmod -R g+w "$INSTALL_PREFIX"
 
 check_1st "$INSTALL_PREFIX"
 
