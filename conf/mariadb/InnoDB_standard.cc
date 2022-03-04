@@ -62,8 +62,8 @@ our $compression_setup =
   # - innodb page compression will be less till not covered by MariaDB versions >= 10.7
   # - upgrade tests starting with version < 10.7 and going up to version >= 10.7 will
   #   suffer from TBR-1313 effects.
-  '--mysqld=--plugin-load-add=provider_lzo.so --mysqld=--plugin-load-add=provider_bzip2.so --mysqld=--plugin-load-add=provider_lzma ' .
-  '--mysqld=--plugin-load-add=provider_snappy --mysqld=--plugin-load-add=provider_lz4 ';
+  '--mysqld=--plugin-load-add=provider_lzo.so --mysqld=--plugin-load-add=provider_bzip2.so --mysqld=--plugin-load-add=provider_lzma.so ' .
+  '--mysqld=--plugin-load-add=provider_snappy.so --mysqld=--plugin-load-add=provider_lz4.so ';
 
 our $duration = 300;
 our $grammars =
@@ -119,7 +119,7 @@ our $grammars =
   # Rather small tables with short lifetime.
   '--gendata=conf/mariadb/concurrency.zz --gendata_sql=conf/mariadb/concurrency.sql --grammar=conf/mariadb/concurrency.yy',
 
-  # rare DDL-DML, heavy DDL-DML
+  # rare DDL-DML, heavy DML-DML
   '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
 
   # Main DDL-DDL, DDL-DML stress work horse   with generated virtual columns, fulltext indexes, KILL QUERY/SESSION, BACKUP STAGE
@@ -256,13 +256,13 @@ $combinations = [ $grammars,
     " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=300 ",
   ],
   [
-    # Since ~ 10.5 or 10.6 going with ROW_FORMAT = Compressed is no more recommended because
+    # Since ~ 10.5 or 10.6 going with ROW_FORMAT = Compressed was no more recommended because
     # ROW_FORMAT = <whatever !=Compressed> PAGE_COMPRESSED=1 is better.
     # In order to accelerate the move away from ROW_FORMAT = Compressed the variable
     # innodb_read_only_compressed with the default ON was introduced.
     # Impact on older tests + setups: ROW_FORMAT = Compressed is mostly no more checked.
-    # Hence we need to enable checking of that feature till its removed via
-    # innodb_read_only_compressed=OFF.
+    # Hence we need to enable checking of that feature by assigning innodb_read_only_compressed=OFF.
+    # Forecast: ROW_FORMAT = Compressed will stay supported.
     ' --mysqld=--loose-innodb_read_only_compressed=OFF ',
   ],
   [
