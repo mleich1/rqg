@@ -2382,6 +2382,8 @@ sub switch_phase {
                 say("DEBUG: Cloning attempt '$clone_phase' changed the grammar.")
                     if Auxiliary::script_debug("S2");
                 unshift @simp_chain, PHASE_GRAMMAR_CLONE;
+                unshift @simp_chain, PHASE_GRAMMAR_SIMP;
+                make_parent_from_string ($grammar_string);
             } else {
                 say("INFO: Cloning attempt '$clone_phase' did not change the grammar.")
                     if Auxiliary::script_debug("S2");
@@ -2390,6 +2392,8 @@ sub switch_phase {
                 if ($start_grammar_string ne $grammar_string) {
                     say("DEBUG: Cloning attempt '$clone_phase' changed the grammar.")
                         if Auxiliary::script_debug("S2");
+                    unshift @simp_chain, PHASE_GRAMMAR_SIMP;
+                    make_parent_from_string ($grammar_string);
                 } else {
                     say("INFO: Cloning attempt '$clone_phase' did not change the grammar.");
                     $clone_phase = undef;
@@ -2401,26 +2405,20 @@ sub switch_phase {
             if ($start_grammar_string ne $grammar_string) {
                 say("DEBUG: Cloning attempt '$clone_phase' changed the grammar.")
                     if Auxiliary::script_debug("S2");
+                unshift @simp_chain, PHASE_GRAMMAR_SIMP;
+                make_parent_from_string ($grammar_string);
             } else {
                 say("INFO: Cloning attempt '$clone_phase' did not change the grammar.");
                 $clone_phase = undef;
             }
         } else {
             # Only $clone_phase = 'ordered by rule weight'; should be left over.
+            # Is that true?
+            say("MLML: In PHASE_GRAMMAR_CLONE unexpected branch reached.");
             $clone_phase = undef;
         }
 
-        if (defined $clone_phase) {
-            make_parent_from_string ($grammar_string);
-            my $iso_ts = isoTimestamp();
-            say("INFO: Cloning $clone_phase changed the grammar. Starting grammar simplification.");
-            Batch::write_result("$iso_ts   Cloning of multiple used rules with multiple " .
-                                "components $clone_phase ==> new parent grammar '$parent_grammar'\n");
-            $phase = PHASE_GRAMMAR_SIMP;
-        } else {
-            $phase = shift @simp_chain;
-            # Carp::cluck("DEBUG phase : $phase, simp_success : $simp_success");
-        }
+        $phase = shift @simp_chain;
     }
 
 
