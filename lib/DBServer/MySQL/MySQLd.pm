@@ -597,6 +597,7 @@ sub createMysqlBase  {
             #    is unable to understand. Example: cat <bootstrap file> | ....
             $command_begin = "ulimit -c 0; " .  $command_begin .
                              " rr record " . $rr_options . " --mark-stdio ";
+            $command_end .= ' ' . Local::get_rqg_rr_add();
         }
     }
     # In theory the bootstrap can end up with a freeze.
@@ -891,7 +892,7 @@ sub startServer {
             # of rather low value. But the
             # [rr 19150 <event_number>] <timestamp> might help to find the right region of
             # events where debugging should start.
-            $command .= " --log_warnings=4";
+            $command .= " --log_warnings=4" . ' ' . Local::get_rqg_rr_add();
         } else {
             # In case rr is not invoked than we want core files.
             $command .= " --core-file";
