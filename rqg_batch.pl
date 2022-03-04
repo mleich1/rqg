@@ -1314,7 +1314,7 @@ while($Batch::give_up <= 1) {
     # This is completely handled in Batch::check_resources.
     # So in case we have here a sleep not set to comment than it serves only for preventing a too
     # busy rqg_batch.
-      sleep 0.1;
+      sleep 0.05;
 
 } # End of while($Batch::give_up <= 1) loop with search for a free RQG runner + job + starting it.
 
