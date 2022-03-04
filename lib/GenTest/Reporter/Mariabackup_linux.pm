@@ -548,8 +548,6 @@ sub monitor {
         if defined $fkm_file;
     push @mysqld_options, '--innodb_page_size="' . $innodb_page_size . '"'
         if defined $innodb_page_size;
-    push @mysqld_options, '--innodb_flush_method="' . $flush_method . '"'
-        if (defined $flush_method and '' ne $flush_method);
 
     $|=1;
 
