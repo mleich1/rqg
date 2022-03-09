@@ -120,25 +120,6 @@ cd "$OOS_DIR"
 
 run_make
 
-echo "#--------------------------------------------------------------"  | tee -a "$BLD_PROT"
-check_1st "$OOS_DIR"
+install_till_end
+exit 0
 
-
-echo "# Install in '"$INSTALL_PREFIX"' at "`date --rfc-3339=seconds`    | tee -a "$BLD_PROT"
-echo "#=============================================================="  | tee -a "$BLD_PROT"
-# cd "$INSTALL_PREFIX"/mysqltest/ ; ./mtr 1st     will fail later in case we run
-# "make install" when CWD is "$OOS_DIR"/mysql-test
-cd "$OOS_DIR"
-remove_some_tests
-rm -rf "$INSTALL_PREFIX"
-make install                                                     2>&1   | tee -a "$BLD_PROT"
-
-check_1st "$INSTALL_PREFIX"
-
-archiving
-
-echo
-echo "End of build+install process reached"
-echo
-
-rm -rf "$OOS_DIR"
