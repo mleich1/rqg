@@ -1,6 +1,6 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018,2021 MariaDB Corporation Ab.
+# Copyright (c) 2018,2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -1631,8 +1631,11 @@ sub execute {
              if ('Warning' eq $ct_Msg_type and $ct_Msg_text =~ /InnoDB: /i) {
                  say("ERROR: The query '$query' passed but has a result set line\n" .
                      "ERROR: ->$line<-.\n" .
-                     "ERROR: Will set status STATUS_DATABASE_CORRUPTION.");
-                 $result_status = STATUS_DATABASE_CORRUPTION;
+                     "ERROR: Will exit with status STATUS_DATABASE_CORRUPTION.");
+                 # Without knowing the server process we can only request a SHUTDOWN.
+                 # But during experiments that caused reporting finally a DEADLOCK.
+                 # $dbh->do("SHUTDOWN");
+                 exit STATUS_DATABASE_CORRUPTION;
              }
          }
       }

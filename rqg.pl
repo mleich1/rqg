@@ -1864,11 +1864,13 @@ say("RESULT: The core of the RQG run ended with status " . status2text($final_re
 
 
 if ($final_result >= STATUS_CRITICAL_FAILURE) {
-    # if (killServers() != STATUS_OK) {
-    if (stopServers($final_result) != STATUS_OK) {
+    # If the status is already that bad it does not matter much if a SHUTDOWN runs smooth.
+    # And if we are running with rr than some fast abort of the server which does not harm
+    # the rr trace is ideal.
+    if (killServers() != STATUS_OK) {
         say("ERROR: Killing the server(s) failed somehow.");
     } else {
-        say("INFO: Any remaining servers were killed.");
+        say("INFO: Any remaining servers were killed because of bad status.");
     }
 } else {
     if (stopServers($final_result) != STATUS_OK) {
