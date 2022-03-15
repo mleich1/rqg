@@ -25,7 +25,7 @@ then
 fi
 if [ ! -d "$BASEDIR1" ]
 then
-   echo "BASEDIR1 '$BASEDIR1' does not exist."
+   echo "BASEDIR1 '$BASEDIR1' does not exist or is not a directory."
    exit
 fi
 BASEDIR2="$2"
