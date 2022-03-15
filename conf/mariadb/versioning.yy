@@ -148,7 +148,8 @@ vers_comparison_operator:
 ;
 
 vers_delete_history:
-  DELETE HISTORY FROM vers_existing_table BEFORE SYSTEM_TIME vers_system_time
+  # Disabled because of https://jira.mariadb.org/browse/MDEV-25004
+  # DELETE HISTORY FROM vers_existing_table BEFORE SYSTEM_TIME vers_system_time
 ;
 
 vers_tx_history:
