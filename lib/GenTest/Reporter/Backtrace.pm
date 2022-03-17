@@ -187,6 +187,13 @@ sub nativeReport {
     #   - that server will stay up or
     #   - is in a longer lasting phase where connects are doable but a final death is
     #     already decided.
+    #
+    # Ideas regarding some general routine making backtraces.
+    # -------------------------------------------------------
+    # The end_line_patterns are MariaDB/MySQL specific.
+    # --> Store the patterns under lib/DBServer/MySQL/
+    # The focusing on end_line_patterns might be not sufficient for other DB server.
+    #
     my $server_running = kill (0, $pid);
     my $end_line_found    = 0;
     my $wait_timeout      = 180 * Runtime::get_runtime_factor();
