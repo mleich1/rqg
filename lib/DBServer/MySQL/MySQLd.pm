@@ -892,10 +892,10 @@ sub startServer {
             # of rather low value. But the
             # [rr 19150 <event_number>] <timestamp> might help to find the right region of
             # events where debugging should start.
-            $command .= " --log_warnings=4" . ' ' . Local::get_rqg_rr_add();
+            $command .= ' "--log_warnings=4" ' . Local::get_rqg_rr_add();
         } else {
             # In case rr is not invoked than we want core files.
-            $command .= " --core-file";
+            $command .= ' "--core-file"';
         }
 
         # This is too early. printInfo needs the pid which is currently unknown!
