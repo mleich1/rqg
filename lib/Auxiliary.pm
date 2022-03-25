@@ -1593,7 +1593,7 @@ sub archive_results {
         $compress_option = 'xz -0';
         $suffix          = 'tar.xz';
     } else {
-        say("ERROR: The compressor 'xv' was not found.");
+        say("ERROR: The compressor 'xz' was not found.");
         return STATUS_FAILURE;
     }
 
@@ -1626,7 +1626,7 @@ sub archive_results {
     # Whereas dereference looks "attractive"
     # - because it would materialize symlinks like sql/mysqld pointing on sql/mariadbd
     #   Fortunately mysqld/mariadbd does not need to get archived here.
-    # its is rather fatal in the region of archiving rr traces
+    # it is rather fatal in the region of archiving rr traces
     #   because last_trace pointing to some mysqld-<n> which we archive too
     #   would get materialized.
     # Failing cmd for experimenting
