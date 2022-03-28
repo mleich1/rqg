@@ -20,7 +20,7 @@
 package DBServer::DBServer;
 use base 'Exporter';
 
-@EXPORT = ('say', 'sayError', 'sayFile', 'tmpdir', 'safe_exit', 
+@EXPORT = ('say', 'sayError', 'sayFile', 'tmpdir', 'safe_exit',
            'osWindows', 'osLinux', 'osSolaris', 'osMac',
            'isoTimestamp', 'isoUTCTimestamp',
            'DBSTATUS_OK','DBSTATUS_FAILURE');
@@ -141,11 +141,14 @@ sub sayFile {
     my ($file) = @_;
 
     say("--------- Contents of $file -------------");
-    open FILE,$file;
-    while (<FILE>) {
-	say("| ".$_);
+    if (not open FILE,$file) {
+        Carp::cluck("INTERNAL ERROR: Open '$file' failed.");
+    } else {
+        while (<FILE>) {
+	        say("| ".$_);
+        }
+        close FILE;
     }
-    close FILE;
     say("----------------------------------");
 }
 
