@@ -130,6 +130,12 @@ sub init {
 sub monitor {
     my $reporter = shift;
 
+    # In case of several servers, we get called or might be called for any of them.
+    # We perform only
+    #   backup first server, make a clone based on that backup, check clone and destroy clone
+    $first_reporter = $reporter if not defined $first_reporter;
+    return STATUS_OK if $reporter ne $first_reporter;
+
     $reporter->init if not defined $prepare_timeout;
     # say("DEBUG: $who_am_i : Endtime: " . $reporter->testEnd()) if $script_debug;
     #
@@ -143,16 +149,6 @@ sub monitor {
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
         return $status;
     }
-
-    # In case of several servers, we get called or might be called for any of them.
-    # We perform only
-    #   backup first server, make a clone based on that backup, check clone and destroy clone
-    #
-
-    direct_to_file();
-
-    $first_reporter = $reporter if not defined $first_reporter;
-    return STATUS_OK if $reporter ne $first_reporter;
 
     my $mariabackup_timeout = $backup_timeout;
 
@@ -170,7 +166,6 @@ sub monitor {
         }
     }
     if (not defined $client_basedir) {
-        direct_to_std();
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : Can't determine client_basedir. basedir is '$basedir'. " .
             "Will exit with status " . status2text($status) . "($status)");
@@ -181,6 +176,8 @@ sub monitor {
         # - the failure is heavy and other reporters cannot give valuable additional info
         # exit instead of return is acceptable.
     }
+
+    direct_to_file();
 
     # Reuse data for the clone if possible or adjust it.
     my $clone_basedir = $basedir;
@@ -226,7 +223,9 @@ sub monitor {
     $datadir =~ s{[\\/]$}{}sgio;
     # 2020-02-27 The start of the server on the backuped data failed because this data
     # goes with a different InnoDB page size than the server default of 16K.
-    my $innodb_page_size = $reporter->serverVariable('innodb_page_size');
+    my $innodb_page_size        = $reporter->serverVariable('innodb_page_size');
+    # Useful because we should not go below the minimal innodb_buffer_pool_size.
+    my $innodb_buffer_pool_size = $reporter->serverVariable('innodb_buffer_pool_size');
 
     # We make a backup of $clone_datadir within $rqg_backup_dir because in case of failure we
     # need these files not modified by mariabackup --prepare.
@@ -236,6 +235,7 @@ sub monitor {
     # FIXME:
     # This port computation is unsafe. There might be some already running server there.
     my $clone_port    = $source_port + 4;
+    my $log_output    = $reporter->serverVariable('log_output');
     my $plugin_dir    = $reporter->serverVariable('plugin_dir');
     my $fkm_file      = $reporter->serverVariable('file_key_management_filename');
     my $plugins       = $reporter->serverPlugins();
@@ -253,13 +253,12 @@ sub monitor {
     }
     # $backup_binary = $backup_binary . " --host=127.0.0.1 --user=root --password='' ";
     # --log-innodb-page-corruption
-    #                   Continue backup if innodb corrupted pages are found. The
-    #                   pages are logged in innodb_corrupted_pages and backup is
-    #                   finished with error. --prepare will try to fix corrupted
-    #                   pages. If innodb_corrupted_pages exists after --prepare
-    #                   in base backup directory, backup still contains corrupted
-    #                   pages and can not be considered as consistent.
-    # --log-innodb-page-corruption just gives more detailed information.
+    #       Continue backup if innodb corrupted pages are found. The pages are logged in
+    #       innodb_corrupted_pages and backup is finished with error.
+    #       --prepare will try to fix corrupted pages. If innodb_corrupted_pages exists after
+    #       --prepare in base backup directory, backup still contains corrupted pages and
+    #       can not be considered as consistent.
+    #       --log-innodb-page-corruption just gives more detailed information.
     $backup_binary .= " --host=127.0.0.1 --user=root --password='' --log-innodb-page-corruption ";
 
     if (not osWindows()) {
@@ -280,6 +279,7 @@ sub monitor {
     # For experimenting:
     # $backup_binary = "not_exists ";
     # my $backup_backup_cmd = "$backup_binary --port=$source_port --hickup " .
+
     # Mariabackup --backup with mmap and rr cannot work.
     # If needing some rr trace than the following patch will help
 # diff --git a/storage/innobase/log/log0log.cc b/storage/innobase/log/log0log.cc
@@ -314,7 +314,7 @@ sub monitor {
 # tar protests because reporter_prt changed during archiving.
 # Reason:
 # Output redirection leads to mariabackup writing into reporter_prt.
-# And there is some mariabackup process is alive though it should not.
+# And there is some mariabackup process alive though it should not.
 
     sigaction SIGALRM, new POSIX::SigAction sub {
         direct_to_std();
@@ -381,15 +381,17 @@ sub monitor {
     }
 
     # Mariabackup --backup could report something like
-    # # 2021-03-24T17:48:38 [3315224] | [00] 2021-03-24 17:48:10 Copying ./test/oltp1.ibd to /dev/shm/vardir/1616598218/209/1_clone/data/test/oltp1.new
-    # 2021-03-24T17:48:38 [3315224] | [00] 2021-03-24 17:48:10 Database page corruption detected at page 1, retrying...
+    # ... | [00] 2021-03-24 17:48:10 Copying ./test/oltp1.ibd to /dev/shm/vardir/1616598218/209/1_clone/data/test/oltp1.new
+    # ... | [00] 2021-03-24 17:48:10 Database page corruption detected at page 1, retrying...
     # ....
     # Error: failed to read page after 10 retries. File ./test/oltp1.ibd seems to be corrupted.
     # ...
     # [00] 2021-03-24 17:48:23 completed OK!
     # and give exit code 0.
-    # In QA I cannot live with that.
-    my $found = Auxiliary::search_in_file($reporter_prt, 'Error: failed to read page after 10 retries. File .{1,200} seems to be corrupted.');
+    # In QA I cannot live with that alone.
+    my $found = Auxiliary::search_in_file($reporter_prt,
+                                          'Error: failed to read page after 10 retries. ' .
+                                          'File .{1,200} seems to be corrupted.');
     if (not defined $found) {
         # Technical problems!
         my $status = STATUS_ENVIRONMENT_FAILURE;
@@ -402,7 +404,7 @@ sub monitor {
         say("INFO: $who_am_i corrupted file detected. " .
             "Will exit with STATUS_BACKUP_FAILURE.");
         sayFile($reporter_prt);
-        # MLML
+        # Wait some time because I fear that rr ist just writing the trace.
         sleep 100;
         exit STATUS_BACKUP_FAILURE;
     } else {
@@ -444,22 +446,12 @@ sub monitor {
         my $status = STATUS_BACKUP_FAILURE;
         say("ERROR: $who_am_i : First prepare returned $res. The command output is around end of " .
             "'$reporter_prt'. Will exit with status " . status2text($status) . "($status)");
-        # MLML
+        # Wait some time because I fear that rr ist just writing the trace.
         sleep 100;
         sayFile($reporter_prt);
         exit $status;
     }
-    system("ls -ld " . $clone_datadir . "/ib_logfile*");
-    my $ib_logfile0 = $clone_datadir . "/ib_logfile0";
-#   my @filestats = stat($ib_logfile0);
-#   my $filesize  = $filestats[7];
-#   if (0 != $filesize) {
-#       direct_to_std();
-#       my $status = STATUS_BACKUP_FAILURE;
-#       say("ERROR: $who_am_i : Size of '$ib_logfile0' is $filesize bytes but not 0 like expected. " .
-#           "Will exit with status " . status2text($status) . "($status)");
-#       exit $status;
-#   }
+    # system("ls -ld " . $clone_datadir . "/ib_logfile*");
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
@@ -471,38 +463,7 @@ sub monitor {
         return $status;
     }
 
-    system("ls -ld " . $clone_datadir . "/ib_logfile*");
-#   $backup_prepare_cmd = $rr_addition . " $backup_binary --port=$clone_port --prepare " .
-#                         "--target-dir=$clone_datadir ";
-#   say("Executing second prepare: $backup_prepare_cmd");
-#   $exit_msg      = "Prepare operation 2 did not finish in " . $alarm_timeout . "s.";
-#   # Less time because its the second prepare.
-#   alarm ($backup_timeout);
-#   system($backup_prepare_cmd);
-#   $res = $?;
-#   alarm (0);
-#   if ($res != 0) {
-#       direct_to_std();
-#       my $status = STATUS_BACKUP_FAILURE;
-#       say("ERROR: $who_am_i : Second prepare returned $res. The command output is around end of " .
-#           "'$reporter_prt'. Will exit with status " . status2text($status) . "($status)");
-#       sayFile($reporter_prt);
-#       exit $status;
-#   }
-#   @filestats = stat($ib_logfile0);
-#   $filesize  = $filestats[7];
-#   if (0 != $filesize) {
-#       direct_to_std();
-#       my $status = STATUS_BACKUP_FAILURE;
-#       say("ERROR: $who_am_i : Size of '$ib_logfile0' is $filesize bytes but not 0 like expected. " .
-#           "Will exit with status " . status2text($status) . "($status)");
-#       exit $status;
-#   }
-
-#   # Per Marko:
-#   # Legal operation in case somebody wants to just have a clone of the source DB.
-#   # See also https://mariadb.com/kb/en/library/mariadb-backup-overview/.
-#   unlink($ib_logfile0);
+    # system("ls -ld " . $clone_datadir . "/ib_logfile*");
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
@@ -523,31 +484,45 @@ sub monitor {
     #         '--general_log_file="'.$clone_datadir.'/clone.log"',
     # This cannot work well when using DBServer::MySQL::MySQLd because that assumes that the
     # standard names are used.
+    # Diffs between source server and server started on backupped data except different paths.
+    # log_bin :                         OFF instead of ON         ok
+    # log_bin_trust_function_creators : OFF instead of ON         ok
+    # max_allowed_packet :              20971520 other 134217728  ok if we do not transfer
+    #                                                                blob content to client
+    # max_statement_time :              0.000000 other 30         ok + recommended/necessary
+    # sync_binlog :                     0 other 1                 ok because we will not use
+    #                                                                it for critical stuff
     my @mysqld_options = (
+        # Avoid collision if using a master-slave-mariabackup
         '--server-id=3',
         # DBServer::MySQL::MySQLd::startServer will add '--core-file' if it makes sense.
         # '--core-file',
         '--loose-console',
-        '--loose-lc-messages-dir="' . $lc_messages_dir . '"',
-        '--datadir="' . $clone_datadir . '"',
-        '--log-output=file',
-        '--general-log',
-        '--datadir="' . $clone_datadir . '"',
-        '--port='.$clone_port,
-        '--loose-plugin-dir="' . $plugin_dir . '"',
+        '--loose-lc-messages-dir=' . $lc_messages_dir,
+        '--datadir=' . $clone_datadir,
+    #   '--general-log',
+        '--datadir=' . $clone_datadir,
+        '--port=' . $clone_port,
+        '--loose-plugin-dir=' . $plugin_dir,
         '--max-allowed-packet=20M',
         '--innodb',
         '--loose_innodb_use_native_aio=0',
         '--sql_mode=NO_ENGINE_SUBSTITUTION',
+        '--max_statement_time=0',
+        '--connect_timeout=60',
     );
 
     foreach my $plugin (@$plugins) {
         push @mysqld_options, '--plugin-load=' . $plugin->[0] . '=' . $plugin->[1];
     };
-    push @mysqld_options, '--loose-file-key-management-filename="' . $fkm_file . '"'
+    push @mysqld_options, '--loose-file-key-management-filename=' . $fkm_file
         if defined $fkm_file;
-    push @mysqld_options, '--innodb_page_size="' . $innodb_page_size . '"'
+    push @mysqld_options, '--innodb_page_size=' . $innodb_page_size
         if defined $innodb_page_size;
+    push @mysqld_options, '--innodb_buffer_pool_size=' . $innodb_buffer_pool_size
+        if defined $innodb_buffer_pool_size;
+    push @mysqld_options, '--log_output=' . $log_output
+        if defined $log_output;
 
     $|=1;
 
@@ -596,6 +571,9 @@ sub monitor {
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
         return $status;
     }
+
+    # For experimenting
+    # $clone_server->killServer();
 
     my $clone_dsn = "dbi:mysql:user=root:host=127.0.0.1:port=$clone_port";
     my $clone_dbh = DBI->connect($clone_dsn, undef, undef, {
