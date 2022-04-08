@@ -1,4 +1,4 @@
-# Copyright (C) 2020, 2021 MariaDB Corporation Ab. All rights reserved.
+# Copyright (C) 2020, 2022 MariaDB Corporation Ab. All rights reserved.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -36,7 +36,13 @@ our $test_compression_encryption =
 our $encryption_setup =
   '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
 
-our $duration = 300;
+our $compression_setup =
+  # The availability of the plugins depends on 1. build mechanics 2. Content of OS
+  # The server startup will not fail if some plugin is missing except its very important
+  # like for some storage engine. Of course some error message will be emitted.
+  '--mysqld=--plugin-load-add=provider_lzo.so --mysqld=--plugin-load-add=provider_bzip2.so --mysqld=--plugin-load-add=provider_lzma --mysqld=--plugin-load-add=provider_snappy --mysqld=--plugin-load-add=provider_lz4 ';
+
+our $duration = 120;
 our $grammars =
 [
 
@@ -146,7 +152,6 @@ $combinations = [ $grammars,
     --mysqld=--innodb-lock-wait-timeout=50
     --no-mask
     --queries=10000000
-    --duration=120
     --seed=random
     --reporters=Backtrace --reporters=ErrorLog --reporters=Deadlock1 --reporters=Upgrade1
     --validators=None
@@ -159,6 +164,7 @@ $combinations = [ $grammars,
     ' .
     # Some grammars need encryption, file key management
     " $encryption_setup " .
+    " $compression_setup " .
     " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=300 ",
     ],
     [
@@ -243,7 +249,7 @@ $combinations = [ $grammars,
     # Lower values lead to some significant increase of system CPU time and context switches
     # per second. And that seems to cause a higher fraction of tests invoking rr where the
     # max_gd_timeout gets exceeded. Per current experience the impact on the fraction of bugs found
-    # or replayed is rather neagtive than positive.
+    # or replayed is rather more negative than positive.
     " --mysqld=--innodb-use-native-aio=0 --mysqld=--loose-gdb --mysqld=--loose-debug-gdb --rr=Extended --rr_options='--chaos --wait' ",
     " --mysqld=--innodb-use-native-aio=0 --mysqld=--loose-gdb --mysqld=--loose-debug-gdb --rr=Extended --rr_options='--wait' ",
     # Coverage for libaio or liburing.
@@ -297,10 +303,13 @@ $combinations = [ $grammars,
     ],
     [
     # Description: Number of physical files in the InnoDB redo log. Deprecated and ignored from MariaDB 10.5.2
-    # Scope: Global   Dynamic: No   Data Type: numeric
+    # Scope: Global
+    # Dynamic: No
+    # Data Type: numeric
     # Default Value: 1 (>= MariaDB 10.5), 2 (<= MariaDB 10.4)
     # Range: 1 to 100 (>= MariaDB 10.2.4), 2 to 100 (<= MariaDB 10.2.3)
-    # Deprecated: MariaDB 10.5.2   Removed: MariaDB 10.6.0
+    # Deprecated: MariaDB 10.5.2
+    # Removed: MariaDB 10.6.0
     ' --mysqld=--loose-innodb_log_files_in_group=2 ',
     '',
     ],
