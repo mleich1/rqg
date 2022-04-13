@@ -362,15 +362,34 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_undo_tablespaces=3 --mysqld=--innodb_undo_log_truncate=ON ',
   ],
   [
-# Report Bug    ' --mysqld=--innodb_rollback_on_timeout=ON ',
+    # innodb_change_buffering
+    # Scope: Global     Dynamic: Yes
+    # Data Type: enumeration (>= MariaDB 10.3.7), string (<= MariaDB 10.3.6)
+    # Default Value:
+    #   >= MariaDB 10.5.15, MariaDB 10.6.7, MariaDB 10.7.3, MariaDB 10.8.2: none
+    #   <= MariaDB 10.5.14, MariaDB 10.6.6, MariaDB 10.7.2, MariaDB 10.8.1: all
+    # Valid Values: inserts, none, deletes, purges, changes, all
+    # Deprecated: MariaDB 10.9.0
+    '',
+    '',
+    '',
+    ' --mysqld=--loose_innodb_change_buffering=inserts ',
+    ' --mysqld=--loose_innodb_change_buffering=none ',
+    ' --mysqld=--loose_innodb_change_buffering=deletes ',
+    ' --mysqld=--loose_innodb_change_buffering=purges ',
+    ' --mysqld=--loose_innodb_change_buffering=changes ',
+    ' --mysqld=--loose_innodb_change_buffering=all ',
+  ],
+  [
     # The default is off.
+    ' --mysqld=--innodb_rollback_on_timeout=ON ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
   ],
   [
-    # slow (SSD/HDD) at all in order to cover
+    # slow (usually SSD/HDD) at all in order to cover
     # - a device with slow IO
     # - most probably a filesystem type != tmpfs
     # fast (RAM) at all in order to cover
