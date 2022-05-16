@@ -194,6 +194,8 @@ sub nativeReport {
     # --> Store the patterns under lib/DBServer/MySQL/
     # The focusing on end_line_patterns might be not sufficient for other DB server.
     #
+
+
     my $server_running = kill (0, $pid);
     my $end_line_found    = 0;
     my $wait_timeout      = 180 * Runtime::get_runtime_factor();
@@ -207,6 +209,7 @@ sub nativeReport {
         if (not defined $content or '' eq $content) {
             say("FATAL ERROR: $who_am_i No server error log content got. " .
                 "Will return STATUS_ENVIRONMENT_FAILURE, undef.");
+            say("INFO: $who_am_i ----- nativeReport ----------- End");
             return STATUS_ENVIRONMENT_FAILURE, undef;
         }
         my $return = Auxiliary::content_matching($content, \@end_line_patterns, '', 0);
@@ -219,6 +222,7 @@ sub nativeReport {
         } else {
             say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. " .
                 "Will return STATUS_ENVIRONMENT_FAILURE, undef.");
+            say("INFO: $who_am_i ----- nativeReport ----------- End");
             return STATUS_ENVIRONMENT_FAILURE, undef;
         }
     }
@@ -228,10 +232,54 @@ sub nativeReport {
         $server_running = kill (0, $pid);
     }
     if (Time::HiRes::time() > $max_end_time) {
-        say("ERROR: $who_am_i The server process $pid has not disappeared.");
-        say("INFO: $who_am_i Most probably false alarm. Will return STATUS_OK, undef.");
-        say("INFO: Reporter 'Backtrace' ------------------------------ End");
-        return STATUS_OK, undef;
+        say("WARN: $who_am_i The server process $pid has not disappeared.");
+                my $content = Auxiliary::getFileSlice($error_log, 1000000);
+
+        if (not defined $content or '' eq $content) {
+            say("FATAL ERROR: $who_am_i No server error log content got. " .
+                "Will return STATUS_ENVIRONMENT_FAILURE, undef.");
+            say("INFO: $who_am_i ----- nativeReport ----------- End");
+            return STATUS_ENVIRONMENT_FAILURE, undef;
+        }
+
+        my @patterns = (
+            # This seems to be some "artificial" SEGV or ABRT.
+            '\[ERROR\] mysqld got signal ',
+        );
+        my $pattern_found = 0;
+        my $return = Auxiliary::content_matching($content, \@patterns, '', 0);
+        if      ($return eq Auxiliary::MATCH_YES) {
+            $pattern_found = 1;
+            say("INFO: $who_am_i pattern in server error log found.");
+        } elsif ($return eq Auxiliary::MATCH_NO) {
+            # Do nothing
+        } else {
+            say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. " .
+                "Will return STATUS_ENVIRONMENT_FAILURE, undef.");
+            say("INFO: $who_am_i ----- nativeReport ----------- End");
+            return STATUS_ENVIRONMENT_FAILURE, undef;
+        }
+        if ($pattern_found) {
+            say("INFO: $who_am_i The server seems to be unable to finish his intended suicide. " .
+                "Trying SIGSEGV.");
+            my $server = $reporter->properties->servers->[0];
+            $server->killServer;
+            $max_end_time = Time::HiRes::time() + 60;    # FIXME: This value is arbitrary.
+            while ($server_running and (Time::HiRes::time() < $max_end_time)) {
+                sleep 1;
+                $server_running = kill (0, $pid);
+            }
+            if ($server_running) {
+                say("INFO: $who_am_i Killing the sever with core failed. " .
+                    "Will return STATUS_SERVER_CRASHED, undef.");
+                say("INFO: $who_am_i ----- nativeReport ----------- End");
+                return STATUS_SERVER_CRASHED, undef;
+            }
+        } else {
+            say("INFO: $who_am_i Most probably false alarm. Will return STATUS_OK, undef.");
+            say("INFO: $who_am_i ----- nativeReport ----------- End");
+            return STATUS_OK, undef;
+        }
     } else {
         say("ERROR: $who_am_i The server process $pid has disappeared.");
     }
@@ -268,10 +316,12 @@ sub nativeReport {
         if      (not defined $found) {
             say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. Will return " .
                 "STATUS_ENVIRONMENT_FAILURE, undef");
+            say("INFO: $who_am_i ----- nativeReport ----------- End");
             return STATUS_ENVIRONMENT_FAILURE, undef;
         } elsif (1 == $found) {
             say("WARN: $who_am_i Normal shutdown detected. This is unexpected. Will return " .
                 "STATUS_CRITICAL_FAILURE, undef");
+            say("INFO: $who_am_i ----- nativeReport ----------- End");
             return STATUS_CRITICAL_FAILURE, undef;
         } else {
             # Do nothing
@@ -283,6 +333,7 @@ sub nativeReport {
     if (not defined $rqg_homedir) {
         say("ERROR: $who_am_i The RQG runner has not set RQG_HOME in environment. Will return " .
             "STATUS_ENVIRONMENT_FAILURE, undef");
+        say("INFO: $who_am_i ----- nativeReport ----------- End");
         return STATUS_ENVIRONMENT_FAILURE, undef;
     }
     # Note:
@@ -293,6 +344,7 @@ sub nativeReport {
     if      (not defined $found) {
         say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. Will return " .
             "STATUS_ENVIRONMENT_FAILURE, undef");
+        say("INFO: $who_am_i ----- nativeReport ----------- End");
         return STATUS_ENVIRONMENT_FAILURE, undef;
     } elsif (1 == $found) {
         # Go on
@@ -312,6 +364,7 @@ sub nativeReport {
         }
         say("INFO: $who_am_i No core file to be expected. Will return " .
             "STATUS_SERVER_CRASHED, undef");
+        say("INFO: $who_am_i ----- nativeReport ----------- End");
         return STATUS_SERVER_CRASHED, undef;
     }
 
