@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, 2021 MariaDB Corporation Ab.
+#  Copyright (c) 2018, 2022 MariaDB Corporation Ab.
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -621,7 +621,8 @@ sub calculate_verdict {
             if ($p_match eq Auxiliary::MATCH_YES) {
                 # Do nothing
             } elsif ($p_match eq Auxiliary::MATCH_NO_LIST_EMPTY) {
-                # Do nothing
+                # Empty whitelist --> none of the results could be a "replay".
+                $maybe_match = 0;
             } else {
                 $maybe_match = 0;
             }
