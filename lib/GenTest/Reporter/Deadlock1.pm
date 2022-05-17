@@ -1,5 +1,5 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2018-2021 MariaDB Coporation Ab.
+# Copyright (c) 2018,2022 MariaDB Coporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -333,6 +333,7 @@ sub monitor_nonthreaded {
         $process_time    = "<undef>" if not defined $process_time;
         if (defined $process->[PROCESSLIST_PROCESS_INFO] and
             $process->[PROCESSLIST_PROCESS_INFO] ne ''   and
+            defined $process->[PROCESSLIST_PROCESS_TIME] and
             $process->[PROCESSLIST_PROCESS_TIME] > $query_lifetime_threshold) {
             $stalled_queries++;
             $processlist_report .= "$who_am_i " . $process_id . " -- " . $process_command . " -- " .
@@ -510,7 +511,15 @@ sub callbackDead {
 sub nativeDead {
     my $reporter = shift;
 
+    my $who_am_i = Basics::who_am_i();
+
     my $error_log = $reporter->serverInfo('errorlog');
+    if (not defined $error_log) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        Carp::cluck("ERROR: $who_am_i error log is not defined." .
+                    "Will exit with STATUS_ENVIRONMENT_FAILURE.");
+        exit $status;
+    }
     my $pid_file =  $reporter->serverVariable('pid_file');
     my $pid =       $reporter->serverInfo('pid');
 
