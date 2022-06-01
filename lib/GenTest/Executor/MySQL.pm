@@ -1840,11 +1840,31 @@ sub disconnect {
         #     my $status = $executor->restore_innodb_buffer_pool_size ;
         #     # FIXME: What to do with $status?
         # }
+        # 2022-05-30 Observed once:
+        # The corresponding history:
+        # ERROR: GenTest::Executor::MySQL::get_dbh: Thread6 connect to dsn ... failed:
+        #        Host 'localhost' is not allowed to connect to this MariaDB server. Will return undef
+        # ERROR: GenTest::Executor::MySQL::get_connection: Thread6:
+        #        Will return status STATUS_SERVER_CRASHED(101).
+        # ERROR: GenTest::Executor::MySQL::init: Getting a proper connection for Thread6
+        #        failed with 101. Will return status STATUS_SERVER_CRASHED(101).
+        # GenTest failed to create a Mixer for Thread6. Status will be set to ENVIRONMENT_FAILURE
+        # GenTest: child 241752 is being stopped with status STATUS_ENVIRONMENT_FAILURE
+        # Process with pid 241752 for Thread6 ended with status STATUS_ENVIRONMENT_FAILURE
+        # Killing (TERM) remaining worker process with pid 241743...
+        # ...
+        # Use of uninitialized value in concatenation (.) or string
+        # Assumption:
+        # The thread emitting the "Use of uninitialized value" is already connected but has
+        # not yet determined its connectionId.
+        my $connectionId = $executor->connectionId();
+        $connectionId = "unknown" if not defined $connectionId;
         say('DEBUG: /* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
-                         $executor->connectionId() . ' before disconnect. */ ');
+                         $connectionId . ' before disconnect. */ ');
         $executor->dbh()->disconnect();
     }
     $executor->setDbh(undef);
+    $executor->setConnectionId(undef);
 }
 
 sub DESTROY {
