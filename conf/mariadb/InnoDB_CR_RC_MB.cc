@@ -97,7 +97,7 @@ our $grammars =
   # Rather small tables with short lifetime.
   '--gendata=conf/mariadb/concurrency.zz --gendata_sql=conf/mariadb/concurrency.sql --grammar=conf/mariadb/concurrency.yy',
 
-  # rare DDL-DML, heavy DDL-DML
+  # rare DDL-DML, heavy DML-DML
   '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
 
   # Main DDL-DDL, DDL-DML stress work horse   with generated virtual columns, fulltext indexes, KILL QUERY/SESSION, BACKUP STAGE
@@ -176,13 +176,23 @@ $combinations = [ $grammars,
     " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=300 ",
   ],
   [
-    # Since ~ 10.5 or 10.6 going with ROW_FORMAT = Compressed is no more recommended because
+    # innodb_file_per_table
+    # ...
+    # Page compression is only available with file-per-table tablespaces.
+    # Note that this value is also used when a table is re-created with an ALTER TABLE which requires a table copy.
+    # Scope: Global, Dynamic: Yes, Data Type: boolean, Default Value: ON
+    '',
+    ' --mysqld=--innodb_file_per_table=0 ',
+    ' --mysqld=--innodb_file_per_table=1 ',
+  ],
+  [
+    # Since ~ 10.5 or 10.6 going with ROW_FORMAT = Compressed was no more recommended because
     # ROW_FORMAT = <whatever !=Compressed> PAGE_COMPRESSED=1 is better.
     # In order to accelerate the move away from ROW_FORMAT = Compressed the variable
     # innodb_read_only_compressed with the default ON was introduced.
     # Impact on older tests + setups: ROW_FORMAT = Compressed is mostly no more checked.
-    # Hence we need to enable checking of that feature till its removed via
-    # innodb_read_only_compressed=OFF.
+    # Hence we need to enable checking of that feature by assigning innodb_read_only_compressed=OFF.
+    # Forecast: ROW_FORMAT = Compressed will stay supported.
     ' --mysqld=--loose-innodb_read_only_compressed=OFF ',
   ],
   [
@@ -277,8 +287,8 @@ $combinations = [ $grammars,
     # per second. And that seems to cause a higher fraction of tests invoking rr where the
     # max_gd_timeout gets exceeded. Per current experience the impact on the fraction of bugs found
     # or replayed is rather more negative than positive. But there is one case where this helped.
-    " --mysqld=--innodb-use-native-aio=0 --mysqld=--loose-gdb --mysqld=--loose-debug-gdb --rr=Extended --rr_options='--chaos --wait' ",
     " --mysqld=--innodb-use-native-aio=0 --mysqld=--loose-gdb --mysqld=--loose-debug-gdb --rr=Extended --rr_options='--wait' ",
+    " --mysqld=--innodb-use-native-aio=0 --mysqld=--loose-gdb --mysqld=--loose-debug-gdb --rr=Extended --rr_options='--chaos --wait' ",
     # Coverage for libaio or liburing.
     " --mysqld=--innodb_use_native_aio=1 ",
     # rr+InnoDB running on usual filesystem on HDD or SSD need
@@ -297,15 +307,34 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_undo_tablespaces=3 --mysqld=--innodb_undo_log_truncate=ON ',
   ],
   [
-# Report Bug    ' --mysqld=--innodb_rollback_on_timeout=ON ',
+    # innodb_change_buffering
+    # Scope: Global     Dynamic: Yes
+    # Data Type: enumeration (>= MariaDB 10.3.7), string (<= MariaDB 10.3.6)
+    # Default Value:
+    #   >= MariaDB 10.5.15, MariaDB 10.6.7, MariaDB 10.7.3, MariaDB 10.8.2: none
+    #   <= MariaDB 10.5.14, MariaDB 10.6.6, MariaDB 10.7.2, MariaDB 10.8.1: all
+    # Valid Values: inserts, none, deletes, purges, changes, all
+    # Deprecated: MariaDB 10.9.0
+    '',
+    '',
+    '',
+    ' --mysqld=--loose_innodb_change_buffering=inserts ',
+    ' --mysqld=--loose_innodb_change_buffering=none ',
+    ' --mysqld=--loose_innodb_change_buffering=deletes ',
+    ' --mysqld=--loose_innodb_change_buffering=purges ',
+    ' --mysqld=--loose_innodb_change_buffering=changes ',
+    ' --mysqld=--loose_innodb_change_buffering=all ',
+  ],
+  [
     # The default is off.
+    ' --mysqld=--innodb_rollback_on_timeout=ON ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
   ],
   [
-    # slow (SSD/HDD) at all in order to cover
+    # slow (usually SSD/HDD) at all in order to cover
     # - a device with slow IO
     # - most probably a filesystem type != tmpfs
     # fast (RAM) at all in order to cover
