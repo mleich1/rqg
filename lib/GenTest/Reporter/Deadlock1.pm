@@ -516,7 +516,7 @@ sub nativeDead {
     my $error_log = $reporter->serverInfo('errorlog');
     if (not defined $error_log) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        Carp::cluck("ERROR: $who_am_i error log is not defined." .
+        Carp::cluck("ERROR: $who_am_i error log is not defined. " .
                     "Will exit with STATUS_ENVIRONMENT_FAILURE.");
         exit $status;
     }
@@ -533,7 +533,7 @@ sub nativeDead {
         if (not defined $found) {
             # Technical problems!
             my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("FATAL ERROR: $who_am_i \$found is undef. " .
+            say("FATAL ERROR: $who_am_i \$found is not defined. " .
                 "Will exit with STATUS_ENVIRONMENT_FAILURE.");
             exit $status;
         } elsif ($found) {

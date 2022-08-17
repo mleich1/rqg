@@ -276,6 +276,7 @@ $combinations = [ $grammars,
     ' --mysqld=--loose-innodb_read_only_compressed=OFF ',
   ],
   [
+    # No more supported since 10.6
     ' --mysqld=--loose-innodb-sync-debug ',
     '',
   ],
