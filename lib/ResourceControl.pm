@@ -1,4 +1,4 @@
-#  Copyright (c) 2018 - 2021 MariaDB Corporation Ab.
+#  Copyright (c) 2018 - 2022 MariaDB Corporation Ab.
 #  Use is subject to license terms.
 #
 #  This program is free software; you can redistribute it and/or modify
@@ -363,7 +363,7 @@ sub init {
     my $workdir_used  = 0;
 
     # Estimations regarding the safe and average number of workers.
-    # ------------------------------------------------------------------------------
+    # -------------------------------------------------------------
     my $val;
     my $workers_min;
     my $workers_mid;
@@ -418,12 +418,12 @@ sub init {
           "$iso_ts parallel (est. min)     : $workers_min\n"                                       .
           "$iso_ts parallel (est. mid)     : $workers_mid\n"                                       .
           "$iso_ts return (to rqg_batch)   : $load_status, $workers_mid, $workers_min\n"           .
-          "---------------------------------------------------------------------------\n"          .
+          "------------------------------------------------------------------------------------\n" .
           "$iso_ts Unit for memory and storage space is MB\n"                                      .
           "$iso_ts     *_consumed means amount lost since start of our rqg_batch run\n"            .
           "$iso_ts The distance between non cpu measurements depends on the needs of RQG Batch.\n" .
-          "$iso_ts The minimal distance between cpu measurements: 5s\n"                            .
-          "---------------------------------------------------------------------------\n"          .
+          "$iso_ts Minimal distance between cpu measurements: 5s\n"                                .
+          "------------------------------------------------------------------------------------\n" .
           "$iso_ts worker , vardir_consumed - vardir_free , "                                      .
                    "workdir_consumed - workdir_free , "                                            .
                    "mem_consumed - mem_est_free , "                                                .
