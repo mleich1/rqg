@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (C) 2021 MariaDB Corporation Ab.
+# Copyright (C) 2021, 2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -57,11 +57,11 @@ function set_comp_prog()
     set -e
     if [ $RC -eq 0 ]
     then
-        COMP_PROG="xz -v -T $PARALLEL"
-        SUFFIX="tar.xz"
+        COMP_PROG="xz --verbose --stdout --threads $PARALLEL"
+        TAR_SUFFIX="tar.xz"
         # The build gets usually started when no parallel testing happens. And so we have often
         # several up till many CPU cores.
-        # Hence rise the compression with the number of cores assigned or calculated.i
+        # Hence rise the compression with the number of cores assigned or calculated.
         # But try to stay below 60s.
         if   [ $PARALLEL -lt 2 ]
         then
@@ -114,6 +114,14 @@ function check_environment()
     git config --global submodule.storage/federated.update none
     git config --global submodule.storage/federatedx.update none
     git config --global submodule.storage/archive.update none
+    # Cloning submodules with --depth=1 accelerates git clone
+    git config -f .gitmodules submodule.wsrep-lib.shallow true
+    git config -f .gitmodules submodule.libmariadb.shallow true
+    git config -f .gitmodules submodule.extra/wolfssl/wolfssl.shallow true
+    git config -f .gitmodules submodule.storage/rocksdb/rocksdb.shallow true
+    git config -f .gitmodules submodule.storage/maria/libmarias3.shallow true
+    git config -f .gitmodules submodule.storage/columnstore/columnstore.shallow true
+
     MESSAGE_END="does not exist or is not a directory."
     if [ "$GENERAL_SOURCE_DIR" = "" ]
     then
@@ -210,12 +218,16 @@ function check_environment()
         set +e
     fi
 
-    INSTALL_PREFIX="$GENERAL_BIN_DIR""/""$RELEASE""$BUILD_TYPE"
+    BLD_NAME="$RELEASE""$BUILD_TYPE"
+    INSTALL_PREFIX="$GENERAL_BIN_DIR""/""$BLD_NAME"
 
     BLD_PROT="$OOS_DIR""/build.prt"
+    SHORT_PROT="$OOS_DIR""/short.prt"
     set -e
     rm -f "$BLD_PROT"
     touch "$BLD_PROT"
+    rm -f "$SHORT_PROT"
+    touch "$SHORT_PROT"
     set +e
 }
 
@@ -305,9 +317,10 @@ function archiving()
     echo "INSTALL_PREFIX=$INSTALL_PREFIX"                                   | tee -a "$BLD_PROT"
     echo "Generating compressed archive with binaries (for use in RQG)"     | tee -a "$BLD_PROT"
 
-    TARGET="$RQG_ARCH_DIR""/bin_arch.""$SUFFIX"
-    TARGET_PRT="$RQG_ARCH_DIR""/bin_arch.prt"
-    rm -f "$TARGET" "$TARGET_PRT"
+    TARGET_ARCH="$RQG_ARCH_DIR""/arch.""$TAR_SUFFIX"
+    TARGET_BUILD="$RQG_ARCH_DIR""/build_prt.xz"
+    TARGET_SHORT="$RQG_ARCH_DIR""/short.prt"
+    rm -f "$TARGET_ARCH" "$TARGET_BUILD" "$TARGET_SHORT"
 
     echo "    Will use ->$COMP_PROG<- for compression"                      | tee -a "$BLD_PROT"
     # Archives of trees with binaries serve
@@ -315,22 +328,32 @@ function archiving()
     #   for running a rr replay.
     # - not for running MTR tests on some historic tree
     # Hence we can save space by removing all MTR tests.
-    tar --use-compress-program="$COMP_PROG" --exclude="mysql-test"          \
-                                            -cf "$TARGET" .          2>&1   | tee -a "$BLD_PROT"
-    MD5SUM=`md5sum "$TARGET" | cut -f1 -d' '`
+    tar --exclude="mysql-test" -cf - . | $COMP_PROG > "$TARGET_ARCH" 2>&1   | tee -a "$BLD_PROT"
+
+    MD5SUM=`md5sum "$TARGET_ARCH" | cut -f1 -d' '`
     echo "MD5SUM of archive: $MD5SUM"                                       | tee -a "$BLD_PROT"
+    ls -ld "$TARGET_ARCH"                                                   | tee -a "$BLD_PROT"
+    echo "MD5SUM of archive: $MD5SUM"                                       >> "$SHORT_PROT"
+    ls -ld "$TARGET_ARCH"                                                   >> "$SHORT_PROT"
+
     DATE=`date -u +%s`
     echo "The archive of the release before renaming"                       | tee -a "$BLD_PROT"
-    ls -ld "$TARGET"                                                 2>&1   | tee -a "$BLD_PROT"
-    echo "BASENAME of the archive and protocol: $DATE"                      | tee -a "$BLD_PROT"
-    cp "$BLD_PROT"   "$INSTALL_PREFIX""/"
-    cp "$BLD_PROT"   "$TARGET_PRT"
+    ls -ld "$TARGET_ARCH"                                            2>&1   | tee -a "$BLD_PROT"
 
-    mv "$TARGET"     "$RQG_ARCH_DIR""/""$DATE"".""$SUFFIX"
-    mv "$TARGET_PRT" "$RQG_ARCH_DIR""/""$DATE"".prt"
-    PROT="$RQG_ARCH_DIR""/""$DATE"".prt"
-    ls -ld "$RQG_ARCH_DIR""/""$DATE"".""$SUFFIX"                            | tee -a "$PROT"
-    ls -d  "$RQG_ARCH_DIR""/""$DATE"".prt"                                  | tee -a "$PROT"
+    BLD_NAME_D="$BLD_NAME""_""$DATE"
+    echo "BASENAME of the archive and protocols: $BLD_NAME_D"               >> "$SHORT_PROT"
+
+    cp "$BLD_PROT"   "$INSTALL_PREFIX""/"
+    cat "$BLD_PROT" | $COMP_PROG > "$TARGET_BUILD"
+    cp "$SHORT_PROT" "$INSTALL_PREFIX""/"
+    cp "$SHORT_PROT" "$TARGET_SHORT"
+
+    FINAL_ARCH="$RQG_ARCH_DIR""/""$BLD_NAME_D"".""$TAR_SUFFIX"
+    FINAL_BUILD="$RQG_ARCH_DIR""/""$BLD_NAME_D"".prt.xz"
+    FINAL_SHORT="$RQG_ARCH_DIR""/""$BLD_NAME_D"".short"
+    mv "$TARGET_ARCH"  "$FINAL_ARCH"
+    mv "$TARGET_BUILD" "$FINAL_BUILD"
+    mv "$TARGET_SHORT" "$FINAL_SHORT"
     set -e
 }
 
@@ -350,12 +373,13 @@ function git_info()
 {
     cd "$SOURCE_DIR"
     GIT_SHOW=`git show --pretty='format:%D %H %cI' -s 2>&1`
-    echo "GIT_SHOW: $GIT_SHOW"                                              | tee -a "$BLD_PROT"
-    echo                                                                    | tee -a "$BLD_PROT"
-    git status --untracked-files=no                                  2>&1   | tee -a "$BLD_PROT"
-    echo                                                                    | tee -a "$BLD_PROT"
-    git diff                                                         2>&1   | tee -a "$BLD_PROT"
-    echo "#--------------------------------------------------------------"  | tee -a "$BLD_PROT"
+    echo "GIT_SHOW: $GIT_SHOW"                                              | tee -a "$SHORT_PROT"
+    echo                                                                    | tee -a "$SHORT_PROT"
+    git status --untracked-files=no                                  2>&1   | tee -a "$SHORT_PROT"
+    echo                                                                    | tee -a "$SHORT_PROT"
+    git diff                                                         2>&1   | tee -a "$SHORT_PROT"
+    echo "#--------------------------------------------------------------"  | tee -a "$SHORT_PROT"
+    cat "$SHORT_PROT" >> "$BLD_PROT"
 }
 
 function install_till_end()
