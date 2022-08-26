@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2021 MariaDB Corporation
+# Copyright (c) 2018, 2022 MariaDB Corporation
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -87,9 +87,9 @@ thread1_init:
    create_table ;
 
 thread_connect:
-   maintain_session_entry ; SET AUTOCOMMIT = 0; SET @fill_amount = (@@innodb_page_size / 2 ) + 1 ; set_timeouts ;
+   maintain_session_entry ; SET AUTOCOMMIT = 0; SET @fill_amount = (@@innodb_page_size / 2 ) + 1 ; set_small_timeouts ;
 
-set_timeouts:
+set_small_timeouts:
    SET SESSION lock_wait_timeout = 2 ; SET SESSION innodb_lock_wait_timeout = 1 ;
 
 maintain_session_entry:
@@ -168,7 +168,7 @@ correct_rqg_sessions_table:
    UPDATE rqg . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 create_table:
-   c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic    ;
+   c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic ;
    c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed ;
    c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact    ;
    c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant  ;
@@ -279,21 +279,22 @@ ddl:
    alter_table_part add_accelerator  , add_accelerator  ddl_algorithm_lock_option |
    alter_table_part drop_accelerator , drop_accelerator ddl_algorithm_lock_option |
    alter_table_part drop_accelerator , add_accelerator  ddl_algorithm_lock_option |
-   # ddl_algorithm_lock_option is not supported by some statements
-   check_table                                                                           |
-#  TRUNCATE TABLE table_names                                                            |
-   # ddl_algorithm_lock_option is within the replace_column sequence
-   replace_column                                                                        |
-   # It is some rather arbitrary decision to place KILL session etc. here
-   # but KILL ... etc. is like most DDL some rather heavy impact DDL.
-#  alter_table_part enable_disable KEYS                                                  |
-   rename_column                                      ddl_algorithm_lock_option          |
-   null_notnull_column                                ddl_algorithm_lock_option          |
-   alter_table_part MODIFY column_name_int int_bigint ddl_algorithm_lock_option          |
-   move_column                                        ddl_algorithm_lock_option          |
-   chaos_column                                       ddl_algorithm_lock_option          |
-#  block_stage                                                                           |
-   kill_query_or_session_or_release                                                      ;
+   rename_column                                        ddl_algorithm_lock_option |
+   null_notnull_column                                  ddl_algorithm_lock_option |
+   alter_table_part MODIFY modify_column                ddl_algorithm_lock_option |
+   alter_table_part MODIFY modify_column                ddl_algorithm_lock_option |
+   move_column                                          ddl_algorithm_lock_option |
+   chaos_column                                         ddl_algorithm_lock_option |
+   # ddl_algorithm_lock_option is within the replace_column sequence.
+   replace_column                                                                 |
+   # Some DDLs do not support ddl_algorithm_lock_option.
+   check_table                                                                    |
+#  TRUNCATE TABLE table_names                                                     |
+#  alter_table_part enable_disable KEYS                                           |
+   # It is some rather arbitrary decision to place kill* and block_stage here.
+   # But both have like most DDL some heavy impact.
+#  block_stage                                                                    |
+   kill_query_or_session_or_release                                               ;
 
 ignore:
           |
@@ -309,16 +310,16 @@ chaos_column:
 # Basic idea
 # - have a length in bytes = 3 which is not the usual 2, 4 or more
 # - let the column stray like it exists/does not exist/gets moved to other position
-   alter_table_part ADD COLUMN IF NOT EXISTS col_date DATE DEFAULT CUR_DATE() |
-   alter_table_part DROP COLUMN IF EXISTS col_date                            |
-   alter_table_part MODIFY COLUMN IF EXISTS col_date DATE column_position     ;
+   alter_table_part ADD    COLUMN IF NOT EXISTS col_date DATE DEFAULT CUR_DATE() |
+   alter_table_part DROP   COLUMN IF EXISTS col_date                             |
+   alter_table_part MODIFY COLUMN IF EXISTS col_date DATE column_position        ;
 
 move_column:
-   # Unfortunately I cannot prevent that the column type gets maybe changed.
+# Unfortunately I cannot prevent that the column type gets maybe changed.
    random_column_properties alter_table_part MODIFY COLUMN $col_name $col_type column_position ;
 
 null_notnull_column:
-   # Unfortunately I cannot prevent that the column type gets maybe changed.
+# Unfortunately I cannot prevent that the column type gets maybe changed.
    random_column_properties alter_table_part MODIFY COLUMN $col_name $col_type null_not_null ;
 null_not_null:
    NULL     |
@@ -710,7 +711,7 @@ gcol_prop:
 # For playing around with
 #   SET DEBUG_DBUG='+d,ib_build_indexes_too_many_concurrent_trxs, ib_rename_indexes_too_many_concurrent_trxs, ib_drop_index_too_many_concurrent_trxs';
 #   SET DEBUG_DBUG='+d,create_index_fail';
-# and similar add a redefine like
+# and similar add a redefine file like
 #   conf/mariadb/ts_dbug_innodb.yy
 #
 set_dbug:
@@ -722,4 +723,40 @@ set_dbug_null:
 fail_011:
    { $fail = 'my_fail_011' ; return undef }; SELECT * FROM $fail ;
 
+modify_column:
+   column_name_int                  int_bigint                    |
+   column_name_int                  int_bigint                    |
+   column_name_int                  int_bigint                    |
+   col_string_properties  $col_name $col_type alt_charset_collate |
+   col_text_properties    $col_name $col_type alt_charset_collate |
+   col_varchar_properties $col_name $col_type alt_charset_collate ;
+
+alt_charset_collate:
+   # Allowed combinations
+   CHARACTER SET latin1                COLLATE alt_collation_latin1  ddl_algorithm_lock_option |
+   CHARACTER SET utf8                  COLLATE alt_collation_utf8    ddl_algorithm_lock_option |
+   CHARACTER SET utf8mb3               COLLATE alt_collation_utf8mb3 ddl_algorithm_lock_option |
+   CHARACTER SET utf8mb4               COLLATE alt_collation_utf8mb4 ddl_algorithm_lock_option |
+   # Frequent disallowed combinations
+   CHARACTER SET alt_character_set_all COLLATE alt_collation_all     ddl_algorithm_lock_option ;
+
+alt_collation_latin1:
+   latin1_bin  | latin1_general_cs | latin1_general_ci ;
+alt_collation_utf8:
+   utf8_bin    | utf8_nopad_bin    | utf8_general_ci ;
+alt_collation_utf8mb3:
+   utf8mb3_bin | utf8mb3_nopad_bin | utf8mb3_general_nopad_ci | utf8mb3_general_ci ;
+alt_collation_utf8mb4:
+   utf8mb4_bin | utf8mb4_nopad_bin | utf8mb4_general_nopad_ci | utf8mb4_general_ci ;
+alt_collation_all:
+   alt_collation_latin1  |
+   alt_collation_utf8    |
+   alt_collation_utf8mb3 ;
+   alt_collation_utf8mb4 ;
+
+alt_character_set_all:
+   latin1  |
+   utf8    |
+   utf8mb3 ;
+   utf8mb4 ;
 
