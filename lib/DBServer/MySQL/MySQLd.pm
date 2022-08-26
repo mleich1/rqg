@@ -18,22 +18,6 @@
 
 package DBServer::MySQL::MySQLd;
 
-# FIXME:
-# The ability to generate a backtrace (based on core file or rr trace) should be implemented here.
-# And than every piece in RQG wanting a backtrace should call the routine from here.
-# IMHO it is rather questionable if the current Reporter Backtrace is needed at all.
-# The reasons:
-# The server could die intentional or non intentional during
-# - during bootstrap
-# - during server start
-# - during gendata -- GenTest initiates backtracing based on the reporter Backtrace
-# - during gentest -- GenTest initiates backtracing based on the reporter Backtrace
-# - during some reporter Reporter initiates a shutdown or TERM server
-# - during stopping the servers smooth after GenTest fails
-# - via SIGABRT/SIGSEGV/SIGKILL sent by some reporter
-# Hint: Backtraces of mariabackup are also needed.
-#
-
 @ISA = qw(DBServer::DBServer);
 
 use DBI;
@@ -152,10 +136,6 @@ sub new {
                 'rr_options'            => MYSQLD_RR_OPTIONS
     },@_);
 
-    if (not defined $self->[MYSQLD_VARDIR]) {
-        $self->[MYSQLD_VARDIR] = "mysql-test/var";
-    }
-
     if (osWindows()) {
         ## Use unix-style path's since that's what Perl expects...
         $self->[MYSQLD_BASEDIR] =~ s/\\/\//g;
@@ -174,9 +154,9 @@ sub new {
 #   }
 
     # Default tmpdir for server.
-    $self->[MYSQLD_TMPDIR] = $self->vardir."/tmp";
+    $self->[MYSQLD_TMPDIR] = $self->vardir . "/tmp";
 
-    $self->[MYSQLD_DATADIR] = $self->[MYSQLD_VARDIR]."/data";
+    $self->[MYSQLD_DATADIR] = $self->[MYSQLD_VARDIR] . "/data";
 
     # Use mysqld-debug server if --debug-server option used.
     if ($self->[MYSQLD_DEBUG_SERVER]) {
@@ -279,15 +259,14 @@ sub new {
                                "--tmpdir=".$self->tmpdir];
 
     if ($self->[MYSQLD_START_DIRTY]) {
-        say("Using existing data for MySQL " .$self->version ." at ".$self->datadir);
+        say("Using existing data for MySQL " . $self->version . " at " . $self->datadir);
     } else {
-        say("Creating MySQL " . $self->version . " database at ".$self->datadir);
+        say("Creating MySQL " . $self->version . " database at " . $self->datadir);
         if ($self->createMysqlBase != DBSTATUS_OK) {
             say("ERROR: Bootstrap failed. Will return undef.");
             return undef;
         }
     }
-
     return $self;
 }
 
@@ -437,6 +416,8 @@ sub printServerOptions {
 sub createMysqlBase  {
     my ($self) = @_;
 
+    my $who_am_i = Basics::who_am_i;
+
     #### Clean old db if any
     if (-d $self->vardir) {
         if(not File::Path::rmtree($self->vardir)) {
@@ -464,7 +445,7 @@ sub createMysqlBase  {
         # FIXME: Replace the 'die'
         if (not open(CONFIG, ">$self->[MYSQLD_CONFIG_FILE]")) {
             my $status = DBSTATUS_FAILURE;
-            say("ERROR: createMysqlBase: Could not open ->" . $self->[MYSQLD_CONFIG_FILE] .
+            say("ERROR: $who_am_i Could not open ->" . $self->[MYSQLD_CONFIG_FILE] .
                 "for writing: $!. Will return status DBSTATUS_FAILURE" . "($status)");
             return $status;
         }
@@ -481,8 +462,8 @@ sub createMysqlBase  {
     my $boot = $self->vardir . "/" . MYSQLD_BOOTSQL_FILE;
     if (not open BOOT, ">$boot") {
         my $status = DBSTATUS_FAILURE;
-        say("ERROR: createMysqlBase: Could not open ->" . $boot .
-            "for writing: $!. Will return status DBSTATUS_FAILURE" . "($status)");
+        say("ERROR: $who_am_i Could not open ->" . $boot .
+            " for writing: $!. Will return status DBSTATUS_FAILURE" . "($status)");
         return $status;
     }
     print BOOT "CREATE DATABASE test;\n";
@@ -490,7 +471,7 @@ sub createMysqlBase  {
     #### Boot database
     my $boot_options = [$defaults];
     push @$boot_options, @{$self->[MYSQLD_STDOPTS]};
-    push @$boot_options, "--datadir=".$self->datadir; # Could not add to STDOPTS, because datadir could have changed
+    push @$boot_options, "--datadir=" . $self->datadir; # Could not add to STDOPTS, because datadir could have changed
 
 
     if ($self->_olderThan(5,6,3)) {
@@ -501,11 +482,10 @@ sub createMysqlBase  {
     # 2019-05 mleich
     # Bootstrap with --mysqld=--loose-innodb_force_recovery=5 fails.
     my @cleaned_boot_options;
+    # The '.*' is for covering variables like '--loose-innodb_force_recovery'.
     foreach my $boot_option (@$boot_options) {
-        # Isnt't the          .* non sense?
-        if ($boot_option =~ m{.*innodb_force_recovery} or
-            $boot_option =~ m{.*innodb-force-recovery} or
-            $boot_option =~ m{innodb.evict.tables.on.commit.debug})   {
+        if ($boot_option =~ m{.*innodb.force.recovery} or
+            $boot_option =~ m{.*innodb.evict.tables.on.commit.debug})   {
             say("DEBUG: -->" . $boot_option . "<-- will be removed from the bootstrap options.");
             next;
         } else {
@@ -526,13 +506,16 @@ sub createMysqlBase  {
     my $command_begin = '';
     my $command_end   = '';
     my $booterr       = $self->vardir . "/" . MYSQLD_BOOTERR_FILE;
-    push @$boot_options, "--log_error=$booterr";
+
+    # Running
+    #    push @$boot_options, "--log_error=$booterr"
+    # like in history would prevent that rr adds his event numbers etc. to that error log.
 
     if (not $self->_isMySQL or $self->_olderThan(5,7,5)) {
-       # Add the whole init db logic to the bootstrap script
-       print BOOT "CREATE DATABASE mysql;\n";
-       print BOOT "USE mysql;\n";
-       foreach my $b (@{$self->[MYSQLD_BOOT_SQL]}) {
+        # Add the whole init db logic to the bootstrap script
+        print BOOT "CREATE DATABASE mysql;\n";
+        print BOOT "USE mysql;\n";
+        foreach my $b (@{$self->[MYSQLD_BOOT_SQL]}) {
             open B,$b;
             while (<B>) { print BOOT $_;}
             close B;
@@ -547,6 +530,10 @@ sub createMysqlBase  {
     } else {
         push @$boot_options, "--initialize-insecure", "--init-file=$boot";
     }
+
+    # For debugging: Cause that the bootstrap fails.
+    # push @$boot_options, "--unknown_option";
+
     $command = $self->generateCommand($boot_options);
 
     # FIXME: Maybe add the user in a clean way like CREATE USER ... GRANT .... if possible.
@@ -597,9 +584,10 @@ sub createMysqlBase  {
             #    is unable to understand. Example: cat <bootstrap file> | ....
             $command_begin = "ulimit -c 0; " .  $command_begin .
                              " rr record " . $rr_options . " --mark-stdio ";
-            $command_end .= ' ' . Local::get_rqg_rr_add();
+            $command .= ' "--log_warnings=4" ' . Local::get_rqg_rr_add();
         }
     }
+
     # In theory the bootstrap can end up with a freeze.
     # FIXME/DECIDE: How to handle that.
     # a) (exists) rqg_batch.pl observes that the maximum runtime for a RQG test gets exceeded
@@ -608,19 +596,30 @@ sub createMysqlBase  {
     # b) sigaction SIGALRM ... like lib/GenTest/Reporter/Deadlock*.pm
     # c) fork and go with timeouts like in startServer etc.
     my $bootlog =   $self->vardir . "/" . MYSQLD_BOOTLOG_FILE;
-    $command_end .= " > \"$bootlog\" 2>&1";
+    $command_end .= " > \"$bootlog\" 2>$booterr";
     $command =      $command_begin . $command . $command_end;
-    # The next line is maybe required for the pattern matching.
+    # The next line is could be useful/required for the pattern matching.
     say("Bootstrap command: ->" . $command . "<-");
     system($command);
     my $rc = $? >> 8;
-    if ($rc != DBSTATUS_OK) {
+    if ($rc != 0) {
+        my $status = DBSTATUS_FAILURE;
         say("ERROR: Bootstrap failed");
+        # Experimental:
+        # 1. In case bootstrap fails calling the routine make_backtrace might generate some
+        #    nice backtrace automatic. Up till today 2022-06-23 its unclear if that works well.
+        # 2. The current code of make_backtrace is focused on server crashes outside of bootstrap.
+        #    And because of that it insist in inspecting the stderr output in some 'mysql.err'.
+        #    Hence I copy 'boot.err' to 'mysql.err' first.
+        File::Copy::copy($booterr, $self->errorlog);
+        $self->make_backtrace();
         sayFile($booterr);
         sayFile($bootlog);
-        say("ERROR: Will return the status got for Bootstrap : $rc");
+        say("ERROR: Will return DBSTATUS_FAILURE" . "($status)");
+        return $status;
+    } else {
+        return DBSTATUS_OK;
     }
-    return $rc
 } # End sub createMysqlBase
 
 sub _reportError {
@@ -632,6 +631,7 @@ sub _reportError {
 # They will not call a killServer later.
 ####################################################################################################
 sub startServer {
+# FIXME: We need to return all kinds of statuses
     my ($self) = @_;
 
     my $who_am_i = "DBServer::MySQL::MySQLd::startServer:";
@@ -649,12 +649,19 @@ sub startServer {
                         # ["--core-file",
                         [
                          # Not added to STDOPTS, because datadir could have changed.
-                         "--datadir="  . $self->datadir,
+                         "--datadir="   . $self->datadir,
                          "--max-allowed-packet=128Mb", # Allow loading bigger blobs
-                         "--port="     . $self->port,
-                         "--socket="   . $self->socketfile,
-                         "--pid-file=" . $self->pidfile],
+                         "--port="      . $self->port,
+                         "--socket="    . $self->socketfile,
+                         "--pid-file="  . $self->pidfile],
                          $self->_logOptions);
+    # Do not set
+    #    "--log_error=" . $self->errorlog,
+    # because that will prevent that "rr --mark-stdio" writes its
+    # [rr 2835125 794114]mysqld: ....
+    #             | Eventnumber
+    #     | Pid
+    # into the server error log.
     if (defined $self->[MYSQLD_SERVER_OPTIONS]) {
         # Original code with the following bad effect seen
         #     A call is given to the shell and many but not all option settings are enclosed
@@ -673,8 +680,6 @@ sub startServer {
             "Will return status DBSTATUS_FAILURE" . "($status)");
         return $status;
     }
-    # Experimental:
-    # Do the same for the error log.
     my $errorlog = $self->errorlog;
     unlink($errorlog);
     if(0) { # Maybe needed in future.
@@ -948,7 +953,8 @@ sub startServer {
             # say("DEBUG: Start the waiting for the server error log line with the pid.");
 
             # For experimenting
-            # $self->stop_server_for_debug(3, -9, 'mysqld', 0);
+            # $self->stop_server_for_debug(3, -11, 'mysqld', 10);
+
             my $start_time = time();
             my $wait_end =   $start_time + $tool_startup + $pid_seen_timeout;
             while (1) {
@@ -967,20 +973,20 @@ sub startServer {
 
                 # Maybe $self->[MYSQLD_AUXPID] has already finished and was reaped.
                 if (not kill(0, $self->[MYSQLD_AUXPID])) {
-                    my $status = DBSTATUS_FAILURE;
+                    my $status = STATUS_SERVER_CRASHED;
                     say("ERROR: $who_am_i The auxiliary process is no more running." .
-                        " Will return status DBSTATUS_FAILURE" . "($status)");
+                        Auxiliary::build_wrs($status));
                     # The status reported by cleanup_dead_server does not matter.
                     $self->cleanup_dead_server;
+                    $self->make_backtrace();
                     sayFile($errorlog);
                     return $status;
                 }
 
                 if (time() >= $wait_end) {
-                    my $status = DBSTATUS_FAILURE;
+                    my $status = STATUS_CRITICAL_FAILURE;
                     say("ERROR: $who_am_i The Server has not printed its pid within the last " .
-                        ($pid_seen_timeout + $tool_startup) . "s. Will return status " .
-                        "DBSTATUS_FAILURE($status)");
+                        ($pid_seen_timeout + $tool_startup) ."s. " . Auxiliary::build_wrs($status));
                     # The status reported by cleanup_dead_server does not matter.
                     # cleanup_dead_server takes care of $self->[MYSQLD_AUXPID].
                     $self->cleanup_dead_server;
@@ -988,6 +994,7 @@ sub startServer {
                     return $status;
                 }
             }
+            # $self->stop_server_for_debug(5, 'mysqld', -11, 5);
 
             # If reaching this line we have a valid pid in $pid and $self->[MYSQLD_SERVERPID].
 
@@ -1000,43 +1007,58 @@ sub startServer {
             while (1) {
                 Time::HiRes::sleep($wait_time);
                 if (not kill(0, $pid)) {
-                    my $status = DBSTATUS_FAILURE;
+                    my $status = STATUS_SERVER_CRASHED;
                     say("ERROR: $who_am_i The Server process disappeared after having started " .
-                        "with pid $pid. Will return status DBSTATUS_FAILURE" . "($status) later.");
+                        "with pid $pid. " . Auxiliary::build_wrs($status));
                     # The status reported by cleanup_dead_server does not matter.
                     # cleanup_dead_server takes care of $self->[MYSQLD_AUXPID].
                     $self->cleanup_dead_server;
+                    $self->make_backtrace();
                     sayFile($errorlog);
                     return $status;
                 }
 
                 my $found;
-                # Goal:
-                # Do not search for 'mysqld: ready for connections' if the outcome is already decided.
-                # FIXME: Seen 2021-12-02
-                # Start server on backupped data.
-                # Connect and run SQL
+                # Several threads are working in parallel on getting the server started.
+                # Observation 2021-12-02
+                # 1. Start server on backupped data.
+                # 2. Poll till the server is connectable and run immediate a bit SQL with success.
                 # But the sever error log contains:
                 # mysqld: ... Assertion .... failed.
                 # [ERROR] mysqld got signal 6 ;
                 # Attempting backtrace. You can use the following information to find out
                 # [Note] /data/Server_bin/bb-10.6-MDEV-27111_asan/bin/mysqld: ready for connections.
-                # QUESTION: Why the connect before 'ready for connections' was observed.
+                # And the connect was possible before 'ready for connections' was observed.
+                #
                 # We search for a line like
                 # [ERROR] mysqld got signal <some signal>
+                # There seem to be
+                # - artificial signals like
+                #   1. Write [ERROR] mysqld got signal <some signal>
+                #   2. Send <some signal> to the process
+                #   like the server sends SEGV to itself
+                # - maybe trap some signal from outside
+                #   1. Write [ERROR] mysqld got signal <some signal>
+                #   2. Do what is to be done for <some signal>
+                #
+                # Do not search for 'mysqld: ready for connections' in case the outcome is
+                # already decided by "[ERROR] mysqld got signal".
                 $found = Auxiliary::search_in_file($errorlog,
                                                    "\[ERROR\] mysqld got signal");
                 if (not defined $found) {
-                    # Technical problems!
-                    my $status = DBSTATUS_FAILURE;
+                    # Technical problems.
+                    my $status = STATUS_ENVIRONMENT_FAILURE;
                     say("FATAL ERROR: $who_am_i \$found is undef. Will KILL the server and " .
-                        "return status DBSTATUS_FAILURE($status) later.");
+                        Auxiliary::build_wrs($status));
                     sayFile($errorlog);
                     $self->killServer;
+                    # No call of make_backtrace because the problem is around the existence of the
+                    # server error log or similar.
                     return $status;
                 } elsif ($found) {
-                    my $status = DBSTATUS_FAILURE;
+                    my $status = STATUS_SERVER_CRASHED;
                     say("INFO: $who_am_i '[ERROR] mysqld got signal ' observed.");
+                    $self->make_backtrace();
                     sayFile($errorlog);
                     return $status;
                 } else {
@@ -1051,9 +1073,9 @@ sub startServer {
                 # $found = undef;
                 if (not defined $found) {
                     # Technical problems!
-                    my $status = DBSTATUS_FAILURE;
+                    my $status = STATUS_ENVIRONMENT_FAILURE;
                     say("FATAL ERROR: $who_am_i \$found is undef. Will KILL the server and " .
-                        "return status DBSTATUS_FAILURE($status) later.");
+                        Auxiliary::build_wrs($status));
                     sayFile($errorlog);
                     $self->killServer;
                     return $status;
@@ -1064,10 +1086,10 @@ sub startServer {
                     # say("DEBUG: $who_am_i Waiting for finish of server startup.");
                 }
                 if (time() >= $wait_end) {
-                    my $status = DBSTATUS_FAILURE;
+                    my $status = STATUS_CRITICAL_FAILURE;
                     say("ERROR: $who_am_i The Server has not finished its start within the ".
                         "last $startup_timeout" . "s. Will KILL the server and " .
-                        "return status DBSTATUS_FAILURE($status) later.");
+                        Auxiliary::build_wrs($status));
                     sayFile($errorlog);
                     $self->killServer();
                     return $status;
@@ -1090,22 +1112,23 @@ sub startServer {
                     # - starting after reporting that
                     # which failed after reporting that and than the server processs disappeared.
                     # Also the $self->pidfile might have existed and deleted.
-                    my $status = DBSTATUS_FAILURE;
+                    my $status = STATUS_SERVER_CRASHED;
                     say("ERROR: $who_am_i Server process $pid disappeared after having finished " .
-                        "the startup. Will return status DBSTATUS_FAILURE" .
-                        "($status) later.");
+                        "the startup. " . Auxiliary::build_wrs($status));
                     # The status returned by cleanup_dead_server does not matter.
                     $self->cleanup_dead_server;
+                    $self->make_backtrace();
                     sayFile($errorlog);
                     return $status;
                 } else {
                     say("ERROR: $who_am_i Server startup is finished, process $pid is running, " .
                         "but trouble with pid file.");
-                    my $status = DBSTATUS_FAILURE;
-                    say("ERROR: $who_am_i Will kill the server process with ABRT and return " .
-                        "DBSTATUS_FAILURE($status) later.");
+                    my $status = STATUS_CRITICAL_FAILURE;
+                    say("ERROR: $who_am_i Will kill the server process with ABRT and " .
+                        Auxiliary::build_wrs($status));
                     sayFile($errorlog);
                     $self->crashServer;
+                    $self->make_backtrace();
                     return $status;
                 }
             }
@@ -1113,9 +1136,9 @@ sub startServer {
                 say("ERROR: $who_am_i pid extracted from the error log ($pid) differs from the " .
                     "pid in the pidfile ($pid_from_file).");
                 # Auxiliary::print_ps_tree($$);
-                my $status = DBSTATUS_FAILURE;
-                say("ERROR: $who_am_i Will kill both processes with KILL and return " .
-                    "DBSTATUS_FAILURE($status) later.");
+                my $status = STATUS_INTERNAL_ERROR;
+                say("ERROR: $who_am_i Will kill both processes with KILL and " .
+                    Auxiliary::build_wrs($status));
                 sayFile($errorlog);
                 # There is already a kill routine. But I want to be "double" sure.
                 kill 'KILL' => $self->serverpid;
@@ -1143,13 +1166,14 @@ sub startServer {
         }
     }
     if (not defined $self->dbh) {
+        # $self->dbh is a function and tries to make a connect.
         my $status = DBSTATUS_FAILURE;
         say("ERROR: $who_am_i We did not get a connection to the just started server. " .
             "Will return DBSTATUS_FAILURE" . "($status)");
         return DBSTATUS_FAILURE;
     } else {
         # Scenario: start server, have load, shutdown, restart with modified system variables.
-        # So reset the hash with server variables because we want actual data.
+        # So reset the hash with server variables now because we want actual data later.
         %{$self->[MYSQLD_SERVER_VARIABLES]} = ();
         $self->serverVariablesDump();
         return DBSTATUS_OK;
@@ -1168,7 +1192,7 @@ sub startServer {
 sub killServer {
     my ($self, $silent) = @_;
 
-    my $who_am_i = "DBServer::MySQL::MySQLd::killServer:";
+    my $who_am_i = Basics::who_am_i();
 
     my $kill_timeout = DEFAULT_SERVER_KILL_TIMEOUT * Runtime::get_runtime_factor();
 
@@ -1249,6 +1273,7 @@ sub term {
                 say("WARNING: Unable to terminate the server process " . $self->serverpid .
                     ". Trying kill with core.");
                 $self->crashServer;
+                $self->make_backtrace;
                 $res= DBSTATUS_FAILURE;
              } else {
                 say("INFO: Terminated the server process " . $self->serverpid);
@@ -1262,9 +1287,12 @@ sub term {
 } # End sub term
 
 sub crashServer {
+# Note:
+# In case a backtrace is needed than the caller of "crashServer" has to call "make_backtrace"
+# afterwards.
     my ($self, $tolerant) = @_;
 
-    my $who_am_i = "DBServer::MySQL::MySQLd::crashServer:";
+    my $who_am_i = Basics::who_am_i();
 
     my $abrt_timeout = DEFAULT_SERVER_ABRT_TIMEOUT * Runtime::get_runtime_factor();
 
@@ -1547,7 +1575,8 @@ sub collectAutoincrements {
   my $self= shift;
     my $autoinc_tables= $self->dbh->selectall_arrayref(
       "SELECT CONCAT(ist.TABLE_SCHEMA,'.',ist.TABLE_NAME), ist.AUTO_INCREMENT, isc.COLUMN_NAME, '' ".
-      "FROM INFORMATION_SCHEMA.TABLES ist JOIN INFORMATION_SCHEMA.COLUMNS isc ON (ist.TABLE_SCHEMA = isc.TABLE_SCHEMA AND ist.TABLE_NAME = isc.TABLE_NAME) ".
+      "FROM INFORMATION_SCHEMA.TABLES ist JOIN INFORMATION_SCHEMA.COLUMNS isc " .
+      "ON (ist.TABLE_SCHEMA = isc.TABLE_SCHEMA AND ist.TABLE_NAME = isc.TABLE_NAME) ".
       "WHERE ist.TABLE_SCHEMA NOT IN ('rqg','mysql','information_schema','performance_schema','sys') ".
       "AND ist.AUTO_INCREMENT IS NOT NULL ".
       "AND isc.EXTRA LIKE '%auto_increment%' ".
@@ -1591,7 +1620,7 @@ sub stopServer {
     # system("ps -elf | grep mysqld");
 
     # For experimenting: Simulate a server crash during shutdown
-    # system("killall -9 mysqld mariadbd");
+    # system("killall -11 mysqld mariadbd; sleep 10");
 
     if ($shutdown_timeout and defined $self->[MYSQLD_DBH]) {
         say("Stopping server on port " . $self->port);
@@ -1661,6 +1690,7 @@ sub stopServer {
         $res= $self->killServer;
         # killServer itself runs a waitForServerToStop
     }
+
     if ($check_shutdown) {
         my @filestats = stat($file_to_read);
         my $file_size_after = $filestats[7];
@@ -1709,12 +1739,13 @@ sub stopServer {
             $match = $content_slice =~ m{$pattern}s;
             if ($match) {
                 say("The shutdown finished with server crash.");
+                $self->make_backtrace;
             }
             sayFile($file_to_read);
         }
     }
     return $res;
-}
+} # End of sub stopServer
 
 sub checkDatabaseIntegrity {
   my $self= shift;
@@ -1735,8 +1766,9 @@ sub checkDatabaseIntegrity {
         next if $tables{$table} eq 'VIEW';
 #        say("Verifying table: $database.$table:");
         my $check = $dbh->selectcol_arrayref("CHECK TABLE `$database`.`$table` EXTENDED", { Columns=>[3,4] });
-        if ($dbh->err() > 0 && $dbh->err() != 1178) {
-          sayError("Table $database.$table appears to be corrupted, error: ".$dbh->err());
+        my $err = $dbh->err();
+        if (defined $err and $err > 0 && $err != 1178) {
+          say("ERROR: Table $database.$table appears to be corrupted, error: $err");
           $status= DBSTATUS_FAILURE;
         }
         else {
@@ -1904,8 +1936,8 @@ sub serverVariables {
 }
 
 sub serverVariable {
-   my ($self, $var) = @_;
-   return $self->serverVariables()->{$var};
+    my ($self, $var) = @_;
+    return $self->serverVariables()->{$var};
 }
 
 sub serverVariablesDump {
@@ -1954,7 +1986,7 @@ sub running {
 #        Hence the current process knows only some no more valid server pid.
 #        And that might cause that lib/GenTest/App/GenTest.pm is later unable to stop a server.
 #
-    my $who_am_i = "lib::DBServer::MySQL::MySQLd::running:";
+    my $who_am_i = Basics::who_am_i();
     my ($self, $silent) = @_;
     if (osWindows()) {
         ## Need better solution for windows. This is actually the old
@@ -2145,9 +2177,9 @@ sub _messages {
     my ($self) = @_;
 
     if ($self->_olderThan(5,5,0)) {
-        return "--language=".$self->[MYSQLD_MESSAGES]."/english";
+        return "--language=" . $self->[MYSQLD_MESSAGES] . "/english";
     } else {
-        return "--lc-messages-dir=".$self->[MYSQLD_MESSAGES];
+        return "--lc-messages-dir=" . $self->[MYSQLD_MESSAGES];
     }
 }
 
@@ -2158,9 +2190,9 @@ sub _logOptions {
         return ["--log=".$self->logfile];
     } else {
         if ($self->[MYSQLD_GENERAL_LOG]) {
-            return ["--general-log", "--general-log-file=".$self->logfile];
+            return ["--general-log", "--general-log-file=" . $self->logfile];
         } else {
-            return ["--general-log-file=".$self->logfile];
+            return ["--general-log-file=" . $self->logfile];
         }
     }
 }
@@ -2245,7 +2277,7 @@ sub waitForAuxpidGone {
 #   Even than we had some wasting of resources over some significant timespan.
 #
     my $self =          shift;
-    my $who_am_i =      "DBServer::MySQL::MySQLd::waitForAuxpidGone:";
+    my $who_am_i =      Basics::who_am_i();
     my $wait_timeout =  DEFAULT_AUXPID_GONE_TIMEOUT;
     $wait_timeout =     $wait_timeout * Runtime::get_runtime_factor();
     my $wait_time =     0.5;
@@ -2260,6 +2292,7 @@ sub waitForAuxpidGone {
             "Will return status DBSTATUS_FAILURE($status).");
         return $status;
     }
+    # say("DEBUG: Start waiting for aux_pids gone.");
     while (1) {
         Time::HiRes::sleep($wait_time);
         my $pid = $self->forkpid;
@@ -2279,16 +2312,20 @@ sub waitForAuxpidGone {
             #                     == Try to reap again after some short sleep.
             my ($reaped, $status) = Auxiliary::reapChild($pid,
                                                          "waitForAuxpidGone");
+            my $msg_snip = "after " . (time() - $start_time) . "s waiting.";
             if (1 == $reaped) {
                 delete $aux_pids{$pid};
                 if (DBSTATUS_OK == $status) {
-                    say("DEBUG: $who_am_i Auxpid " . $pid . " exited with exit status STATUS_OK.")
+                    say("DEBUG: $who_am_i The child process auxpid $pid exited with exit status " .
+                        "STATUS_OK $msg_snip");
                 } else {
-                    say("WARN: $who_am_i Auxpid $pid exited with exit status $status.")
+                    say("WARN: $who_am_i The child process auxpid $pid exited with exit status " .
+                        "$status $msg_snip");
                 }
             }
             if (0 == $reaped and DBSTATUS_OK != $status) {
-                say("ERROR: $who_am_i Attempt to reap Auxpid $pid failed with status $status.");
+                say("ERROR: $who_am_i The attempt to reap the child process auxpid $pid failed " .
+                    "with status $status $msg_snip");
             }
         } else {
             # The current process is not the parent of $pid. Hence delete the entry.
@@ -2296,7 +2333,7 @@ sub waitForAuxpidGone {
             # Maybe the auxiliary process has already finished and was reaped.
             if (not kill(0, $pid)) {
                 my $status = DBSTATUS_OK;
-                # say("DEBUG: The auxiliary process is no more running." .
+                # say("DEBUG: $who_am_i The non child process auxpid $pid is no more running." .
                 #     " Will return status DBSTATUS_OK" . "($status).");
                 return $status;
             } else {
@@ -2304,7 +2341,6 @@ sub waitForAuxpidGone {
                 # 2. We need to loop around till the process is gone == the
                 #    other process has reaped or we exceed the timeout.
                 # This all means we have nothing to do in this branch.
-                #
             }
         }
         if (time() >= $wait_end) {
@@ -2326,45 +2362,252 @@ sub waitForAuxpidGone {
 }
 
 
-# Experimental (mleich) and not yet finished.
+# Experimental (mleich)
 sub make_backtrace {
-# In case of UNIX nothing else than auxpid should count.
-# As soon as auxpid is reaped, either by our current process or some other if that is the parent
-# than mysqld or rr should have been reaped by the auxiliary process and writing of rr trace or
-# core files should have been finished. But that does not hold in case of core files.
-# Debug build + core file writing enabled and no use of rr.
-# auxpid disappeared short after the server pid but there was no core file even after 360s waiting.
+# Important:
+# ----------
+# In case make_backtrace is called for some non crashing server than make_backtrace will
+# crash the server and generate a backtrace from that.
+# So in case this is unwanted than the caller needs to take care that its called in the
+# right situation via
+# a) check if the server process is gone
+# b) inspect the server error log for [ERROR] mysqld got signal
+# c) a connect attempt harvests 2013 or similar (Warning: This is less reliable.)
+# d) have a situation where a SQL failed and some further running of the server is unwanted
+#    Example: CHECK TABLE or similar reports corruption
 #
-# Q1: Is or was the server dying at all or is a timeout too short?
-# Q2: Is the server dying or already dead?
-# Q3: If the server is already dead has the writing of rr trace and/or core file finished?
+# $status == The status from the make_backtrace point of view.
+#            Starting point is STATUS_SERVER_CRASHED.
+# == The caller needs to transform that to what he thinks like
+#    STATUS_RECOVERY_FAILURE and similar.
 #
-# Observations:
-# 1. The server process and auxpid disappear at roughly the same point of time.
-# 2. If going
-#    - with rr (-> core generation disabled) the rr traces were roughly all time complete
-#    - without rr (-> core generation enabled) the core file
-#      - most often shows up and gets detected ~ 1s later
-#      - sometimes (IMHO too often) does not show up even if using a timeout of 480s.
-#        This seems to happen when having many concurrent RQG's (>~ 250) and a high fraction of
-#        server crashes leading to temporary excessive filesystem space (tmpfs) use, CPU time consumption
-#        (gdb is a serious consumer) and maybe use of filedescriptors, ports, ....
-#        But the server error log contains all time some assert followed by some fragmentaric
-#        backtrace like with non debug builds.
-#        pstree(parent process of auxpid, usually rqg.pl) did never show unexpected processes.
-#      - timediffs between pid disappear and core file show up of more than 10s were never observed
+# FIXME:
+# Every piece in RQG wanting a backtrace should call the routine from here.
+# IMHO it is rather questionable if the current Reporter Backtrace is needed at all.
+# The reasons:
+# The server could die intentional or non intentional
+# - during bootstrap
+# - during server start
+# - during gendata -- GenTest initiates backtracing based on the reporter Backtrace
+# - during gentest -- GenTest initiates backtracing based on the reporter Backtrace
+# - during some reporter Reporter initiates a shutdown or TERM server
+# - during stopping the servers smooth after GenTest fails
+# - via SIGABRT/SIGSEGV/SIGKILL sent by some reporter
+# Hint: Backtraces of mariabackup are also needed.
 #
+
     my $self = shift;
+
     # my $server_running = kill (0, serverpid());
-    my $who_am_i = "DBServer::MySQL::MySQLd::make_backtrace:";
-    # Use a derivate of waitForAuxpidGone, especiallly without the kill at end.
-    my $status   = $self->waitForAuxpidGone();
-    if (DBSTATUS_OK != $status) {
-        say("ERROR: $who_am_i Trouble with waitForAuxpidGone. Will return DBSTATUS_FAILURE($status).");
-        return DBSTATUS_FAILURE;
+    my $who_am_i    = Basics::who_am_i;
+    my $vardir      = $self->vardir();
+    my $error_log   = $self->errorlog();
+
+    # my $server_pid  = $self->serverpid();
+
+    my $status = STATUS_SERVER_CRASHED;
+    # What is with    if (osWindows())
+    if ($self->running) {
+        say("DEBUG: $who_am_i The server with process [" .
+            $self->serverpid . "] is not yet dead.");
+        # DEFAULT_TERM_TIMEOUT might be a bit oversized.
+        my $timeout = DEFAULT_TERM_TIMEOUT * Runtime::get_runtime_factor();
+        if ($self->waitForServerToStop($timeout) != DBSTATUS_OK) {
+            say("ALARM: $who_am_i ########## The server process " . $self->serverpid .
+                " is not dead. Trying kill with core. ##########");
+            $self->crashServer;
+            $status = STATUS_CRITICAL_FAILURE;
+        } else {
+            say("INFO: The server process " . $self->serverpid . " is no more running.");
+            $status = STATUS_SERVER_CRASHED;
+        }
+        # cleanup_dead_server waits till the aux/fork pis is gone.
+        # FIXME maybe: cleanup_dead_server could fail
+        $self->cleanup_dead_server;
     }
-    say("FIXME: $who_am_i Here is code missing.");
-    return DBSTATUS_OK;
-}
+
+    my $rqg_homedir = $ENV{RQG_HOME} . "/";
+    # For testing:
+    # $rqg_homedir = undef;
+    if (not defined $rqg_homedir) {
+        $status = STATUS_INTERNAL_ERROR;
+        say("ERROR: $who_am_i The RQG runner has not set RQG_HOME in environment." .
+            "Will exit with exit status STATUS_INTERNAL_ERROR.");
+        exit $status;
+    }
+    say("INFO: $who_am_i ------------------------------ Begin");
+
+    # Note:
+    # The message within the server error log "Writing a core file..." describes the intention
+    # but not if that really happened.
+    my $core_dumped_pattern = 'core dumped';
+    my $found = Auxiliary::search_in_file($error_log, $core_dumped_pattern);
+    if      (not defined $found) {
+        $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. " .
+            Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i ------------------------------ End");
+        return $status;
+    } elsif (1 == $found) {
+        # Go on
+    } else {
+        say("INFO: $who_am_i The pattern '$core_dumped_pattern' was not found in '$error_log'.");
+        my $rr = Runtime::get_rr();
+        if (defined $rr) {
+            # We try to generate a backtrace from the rr trace.
+            my $rr_trace_dir    = $vardir . '/rr';
+            my $backtrace       = $vardir . '/backtrace.txt';
+            my $backtrace_cfg   = $rqg_homedir . "backtrace-rr.gdb";
+            # Note:
+            # The rr option --mark-stdio would print STDERR etc. when running 'continue'.
+            # But this just shows the content of the server error log which we have anyway.
+            my $command = "_RR_TRACE_DIR=$rr_trace_dir rr replay >$backtrace 2>/dev/null " .
+                          "< $backtrace_cfg";
+            system('bash -c "set -o pipefail; '. $command .'"');
+            sayFile($backtrace);
+        }
+        $status = STATUS_SERVER_CRASHED;
+        say("INFO: $who_am_i No core file to be expected. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i ------------------------------ End");
+        return $status;
+    }
+
+    # FIXME MAYBE: Is that timeout reasonable?
+    my $wait_timeout   = 360 * Runtime::get_runtime_factor();
+    my $start_time     = Time::HiRes::time();
+    my $max_end_time   = $start_time + $wait_timeout;
+    my $datadir        = $self->datadir();
+    my $pid            = $self->pid();
+    my $core;
+    while (not defined $core and Time::HiRes::time() < $max_end_time) {
+        sleep 1;
+        $core = <$datadir/core*>;
+        if (defined $core) {
+            # say("DEBUG: The core file name computed is '$core'");
+        } else {
+            $core = </cores/core.$pid> if $^O eq 'darwin';
+            if (defined $core) {
+                # say("DEBUG: The core file name computed is '$core'");
+            } else {
+                $core = <$datadir/vgcore*> if defined Runtime::get_valgrind();
+                if (defined $core) {
+                    # say("DEBUG: The core file name computed is '$core'");
+                } else {
+                    # say("DEBUG: The core file name is not defined.");
+                }
+            }
+        }
+    }
+    if (not defined $core) {
+        $status = STATUS_SERVER_CRASHED;
+        say("INFO: $who_am_i Even after $wait_timeout" . "s waiting no core file with expected " .
+            "name found. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i ------------------------------ End");
+        return $status;
+    }
+    say("INFO: The core file name computed is '$core'.");
+    $core = File::Spec->rel2abs($core);
+    # AFAIR:
+    # Starting GDB for some not existing core file could waste serious runtime and
+    # especially CPU time too.
+    if (-f $core) {
+        my @filestats = stat($core);
+        my $filesize  = $filestats[7] / 1024;
+        say("INFO: Core file '$core' size in KB: $filesize");
+    } else {
+        $status = STATUS_SERVER_CRASHED;
+        say("ERROR: $who_am_i Core file not found. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i ------------------------------ End");
+        return $status;
+    }
+
+    my @commands;
+    my $binary = $self->binary();
+    # Experiment:
+    my $bindir = dirname($binary);
+
+    if (osWindows()) {
+        $bindir =~ s{/}{\\}sgio;
+        my $cdb_cmd = "!sym prompts off; !analyze -v; .ecxr; !for_each_frame dv /t;~*k;q";
+        push @commands,
+            'cdb -i "' . $bindir . '" -y "' . $bindir .
+            ';srv*C:\\cdb_symbols*http://msdl.microsoft.com/download/symbols" -z "' . $datadir .
+            '\mysqld.dmp" -lines -c "' . $cdb_cmd . '"';
+    } elsif (osSolaris()) {
+        ## We don't want to run gdb on solaris since it may core-dump
+        ## if the executable was generated with SunStudio.
+
+        ## 1) First try to do it with dbx. dbx should work for both
+        ## Sunstudio and GNU CC. This is a bit complicated since we
+        ## need to first ask dbx which threads we have, and then dump
+        ## the stack for each thread.
+
+        ## The code below is "inspired by MTR
+        `echo | dbx - $core 2>&1` =~ m/Corefile specified executable: "([^"]+)"/;
+        if ($1) {
+            ## We do apparently have a working dbx
+
+            # First, identify all threads
+            my @threads = `echo threads | dbx $binary $core 2>&1` =~ m/t@\d+/g;
+
+            ## Then we make a command for each thread (It would be
+            ## more efficient and get nicer output to have all
+            ## commands in one dbx-batch, TODO!)
+
+            my $traces = join("; ", map{"where " . $_} @threads);
+
+            push @commands, "echo \"$traces\" | dbx $binary $core";
+        } elsif ($core) {
+            ## We'll attempt pstack and c++filt which should allways
+            ## work and show all threads. c++filt from SunStudio
+            ## should even be able to demangle GNU CC-compiled
+            ## executables.
+            push @commands, "pstack $core | c++filt";
+        } else {
+            $status = STATUS_SERVER_CRASHED;
+            say ("ERROR: $who_am_i No core available. " . Auxiliary::build_wrs($status));
+            say("INFO: $who_am_i ------------------------------ End");
+            return $status;
+        }
+    } else {
+        ## Assume all other systems are gdb-"friendly" ;-)
+        # We should not expect that our RQG Runner has some current working directory
+        # containing the RQG to be used or some RQG at all.
+        my $command_part = "gdb --batch --se=$binary --core=$core --command=$rqg_homedir";
+        push @commands, "$command_part" . "backtrace.gdb";
+        push @commands, "$command_part" . "backtrace-all.gdb";
+    }
+
+    # 2021-02-15 Observation:
+    # Strong box, only one RQG worker is active, "rr" is not used
+    # 14:42:53 the last concurrent RQG worker finished.
+    # gdb with backtrace-all.gdb is running + consuming CPU
+    # Last entry into RQG log is
+    # 2021-02-15T14:15:13 [2227401] 74  in abort.c
+    #           I sent 15:05:51 a SIGKILL to the processes.
+    # result.txt reports a total runtime of 3353s.
+    # FIXME:
+    # Introduce timeouts for gdb operations.
+
+    foreach my $command (@commands) {
+        my $output = `$command`;
+        say("$output");
+        # Observation 2018-07-12
+        # During some grammar simplification run the grammar loses its balance (INSERTS remain,
+        # DELETE is gone). Caused by this and some other things we end up in rapid increasing
+        # space consumption --> no more space on tmpfs which than causes RQG runs to
+        # - fail in bootstrap
+        # - storage engine reports error 28 (disk full), the server asserts and gdb tells
+        #   BFD: Warning: /dev/shm/vardir/1531326733/23/54/1/data/core is truncated:
+        #   expected core file size >= 959647744, found: 55398400.
+        # A pattern for that problem is added to the "ignore" section of verdict_general.cfg.
+    }
+
+    $status = STATUS_SERVER_CRASHED;
+    say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
+    say("INFO: $who_am_i ------------------------------ End");
+    return $status;
+
+} # End sub make_backtrace
 
 1;
