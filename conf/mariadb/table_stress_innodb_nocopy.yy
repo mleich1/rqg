@@ -733,12 +733,12 @@ modify_column:
 
 alt_charset_collate:
    # Allowed combinations
-   CHARACTER SET latin1                COLLATE alt_collation_latin1  ddl_algorithm_lock_option |
-   CHARACTER SET utf8                  COLLATE alt_collation_utf8    ddl_algorithm_lock_option |
-   CHARACTER SET utf8mb3               COLLATE alt_collation_utf8mb3 ddl_algorithm_lock_option |
-   CHARACTER SET utf8mb4               COLLATE alt_collation_utf8mb4 ddl_algorithm_lock_option |
+   CHARACTER SET latin1                COLLATE alt_collation_latin1  |
+   CHARACTER SET utf8                  COLLATE alt_collation_utf8    |
+   CHARACTER SET utf8mb3               COLLATE alt_collation_utf8mb3 |
+   CHARACTER SET utf8mb4               COLLATE alt_collation_utf8mb4 |
    # Frequent disallowed combinations
-   CHARACTER SET alt_character_set_all COLLATE alt_collation_all     ddl_algorithm_lock_option ;
+   CHARACTER SET alt_character_set_all COLLATE alt_collation_all     ;
 
 alt_collation_latin1:
    latin1_bin  | latin1_general_cs | latin1_general_ci ;
