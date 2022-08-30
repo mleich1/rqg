@@ -345,7 +345,7 @@ ignore:
    IGNORE ;
 
 alter_table_part:
-   ALTER ignore TABLE ;
+   ALTER ignore TABLE table_names ;
 
 chaos_column:
    # Basic idea

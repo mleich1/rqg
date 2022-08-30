@@ -751,12 +751,12 @@ alt_collation_utf8mb4:
 alt_collation_all:
    alt_collation_latin1  |
    alt_collation_utf8    |
-   alt_collation_utf8mb3 ;
+   alt_collation_utf8mb3 |
    alt_collation_utf8mb4 ;
 
 alt_character_set_all:
    latin1  |
    utf8    |
-   utf8mb3 ;
+   utf8mb3 |
    utf8mb4 ;
 
