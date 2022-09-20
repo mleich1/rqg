@@ -1,4 +1,4 @@
-#  Copyright (c) 2018, 2021 MariaDB Corporation Ab.
+#  Copyright (c) 2018, 2022 MariaDB Corporation Ab.
 #  Use is subject to license terms.
 #
 #  This program is free software; you can redistribute it and/or modify
@@ -1165,6 +1165,11 @@ sub reap_workers {
                 my $rqg_job       = "$rqg_workdir" . "/rqg.job";
 
                 my ($verdict, $extra_info) = Verdict::get_rqg_verdict($rqg_workdir);
+                if (not defined $verdict) {
+                    Carp::cluck("verdict is undef.");
+                    emergency_exit(STATUS_INTERNAL_ERROR, "ERROR: This must not happen.");
+                }
+
                 $worker_array[$worker_num][WORKER_END] = time();
                 if (-1 == $worker_array[$worker_num][WORKER_START]) {
                     # The parent (rqg_batch.pl) has never detected that the child (rqg.pl) started
@@ -1269,7 +1274,7 @@ sub reap_workers {
                         if (not defined $rqg_arc) {
                             if (not $archive_warning_emitted) {
                                 say("WARN: Some archive does not exist. This might be " .
-                                    "intentional or a mistake. Further warnings of this kind "    .
+                                    "intentional or a mistake. Further warnings of this kind " .
                                     "will be suppressed.");
                                 $archive_warning_emitted = 1;
                             }
@@ -1311,10 +1316,10 @@ sub reap_workers {
                         "This should not happen.");
                 }
                 $verdict_collected++;
-                my $rqg_vardir = Local::get_rqg_fast_dir . $rqg_appendix;
-                drop_directory($rqg_vardir);
-                $rqg_vardir = Local::get_rqg_slow_dir . $rqg_appendix;
-                drop_directory($rqg_vardir);
+                foreach my $dir (Local::get_rqg_fast_dir . $rqg_appendix,
+                                 Local::get_rqg_slow_dir . $rqg_appendix) {
+                    drop_directory($dir);
+                }
                 drop_directory($rqg_workdir);
             } elsif (-1 == $kid) {
                 say("ALARM: RQG worker $worker_num was already reaped.");
@@ -2236,7 +2241,6 @@ sub process_finished_runs {
 sub help_archiving {
     print(
     "\nSorry, under construction and partially different or not yet implemented.\n\n"              .
-    "Sorry, under construction and partially different or not yet implemented.\n\n"              .
     "Default\n"                                                                                    .
     "      What you get in case you do not assign some corresponding --<parameter>=<value>.\n"     .
     "  will be taken according to their setting with absolute path or relative to the current "    .
@@ -2255,6 +2259,29 @@ sub free_memory {
     %try_all_hash =       ();
     %try_never_hash =     ();
     %try_exhausted_hash = ();
+}
+
+my $rqg_log_length;
+sub get_rqg_log_length {
+    my ($workdir) = @_;
+
+    my $who_am_i = Basics::who_am_i();
+
+    if (not defined $workdir) {
+        my $status = STATUS_INTERNAL_ERROR;
+        say("INTERNAL ERROR: $who_am_i workdir is undef. " .
+            Auxiliary::exit_status_text($status));
+        safe_exit($status);
+    }
+    if (not defined $rqg_log_length) {
+        # Example: /data/results/1651169831/000000/rqg.log
+        #          <------ $workdir ------> <WNO->
+        $rqg_log_length = length($workdir)
+                          + 2 # For the slashes
+                          + RQG_NO_LENGTH
+                          + length('/rqg.log');
+    }
+    return $rqg_log_length;
 }
 
 1;
