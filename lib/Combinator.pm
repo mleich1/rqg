@@ -1,4 +1,4 @@
-# Copyright (c) 2018, 2021 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -168,6 +168,7 @@ sub free_memory {
     @order_array = ();
 }
 
+my $rqg_log_length;
 
 my $config_file;
 my $workdir;
@@ -177,11 +178,12 @@ sub init {
     # - Combinator/Simplifier init gets called before any Worker is running
     # - this init will be never called again
     # we can run safe_exit($status) and do not need to initiate an emergency_exit.
-    #
-    my $who_am_i = "Combinator::init:";
+
+    my $who_am_i = Basics::who_am_i();
+
     if (2 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: $who_am_i Four parameters " .
+        Carp::cluck("INTERNAL ERROR: $who_am_i Two parameters " .
                     "(config_file, workdir) are required.");
         safe_exit($status);
     }
@@ -423,7 +425,8 @@ $source_info                                                                    
 "$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
 "$iso_ts Verdict setup\n"                                                                                                    .
 $verdict_setup                                                                                                               .
-"$iso_ts ================================================================================================================\n" ;
+"$iso_ts =======================================================================================" .
+"========================================================\n" ;
 Batch::write_result($header);
 Batch::write_setup($header);
 

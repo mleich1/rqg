@@ -789,6 +789,9 @@ sub run {
 
     $executor->currentSchema($schema_perms[0]);
 
+    # For experimenting
+    # system("killall -11 mysqld; sleep 10");
+
     # End marker for tools which extract the SQL's.
     say("INFO: Finishing GenTest::App::Gendata");
 

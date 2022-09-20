@@ -653,7 +653,7 @@ my %err2type = (
     ER_OUTOFMEMORY()                                    => STATUS_ENVIRONMENT_FAILURE,
     ER_OUTOFMEMORY2()                                   => STATUS_ENVIRONMENT_FAILURE,
     ER_OUT_OF_RESOURCES()                               => STATUS_ENVIRONMENT_FAILURE,
-#    ER_PARSE_ERROR()                                    => STATUS_SYNTAX_ERROR, # Don't mask syntax errors, fix them instead
+    ER_PARSE_ERROR()                                    => STATUS_SYNTAX_ERROR, # Don't mask syntax errors, fix them instead
 # Impact: We get STATUS_UNKNOWN_ERROR(2) instead.
     ER_PARTITION_CLAUSE_ON_NONPARTITIONED()             => STATUS_SEMANTIC_ERROR,
     ER_PARTITION_EXCHANGE_PART_TABLE()                  => STATUS_SEMANTIC_ERROR,

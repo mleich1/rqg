@@ -556,6 +556,8 @@ my %validator_hash;
 
 $| = 1;
 
+my $rqg_log_length;
+
 my $config_file;
 my $workdir;
 
@@ -567,7 +569,7 @@ sub init {
     # - this init will be never called again
     # we can run safe_exit($status) and do not need to initiate an emergency_exit.
     #
-    my $who_am_i = "Simplifier::init:";
+    my $who_am_i = Basics::who_am_i();
     if (3 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: $who_am_i Three parameters " .
@@ -633,20 +635,6 @@ sub init {
             Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
-
-#   if (not defined $verdict_setup or '' eq $verdict_setup) {
-#       my $status = STATUS_ENVIRONMENT_FAILURE;
-#       say("ERROR: $who_am_i \$verdict_setup is undef or '' " .
-#           Auxiliary::exit_status_text($status));
-#       safe_exit($status);
-#   }
-#   if (not defined $basedir_info or '' eq $basedir_info) {
-#       my $status = STATUS_ENVIRONMENT_FAILURE;
-#       say("ERROR: $who_am_i \$basedir_info is undef or '' " .
-#           Auxiliary::exit_status_text($status));
-#       safe_exit($status);
-#   }
-
 
 # ---------------------------------------------
 
@@ -1022,7 +1010,6 @@ sub init {
             safe_exit($status);
         }
     }
-########    $cl_snip_all .= " --threads=" . $threads;
 
     # This parameter could be part of the command line snip.
     $algorithm = $config->algorithm;
@@ -1045,7 +1032,6 @@ sub init {
     $cl_snip_all .= " --seed=random";
     delete $config->rqg_options->{'seed'};
 
-    ###
     my $mysql_options = '';
     foreach my $val ('', '1', '2', '3', '4', '5') {
         my $section = "mysqld" . $val;
@@ -1219,9 +1205,11 @@ $source_info                                                                    
 "$iso_ts ----------------------------------------------------------------------------------------------------------------\n" .
 "$iso_ts Verdict setup\n"                                                                                                    .
 $verdict_setup                                                                                                               .
-"$iso_ts ================================================================================================================\n" ;
+"$iso_ts ======================================================================================="                            .
+"========================================================\n" ;
     Batch::write_result($header);
     Batch::write_setup($header);
+    $rqg_log_length = Batch::get_rqg_log_length($workdir);
     my $header1 =  Auxiliary::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH) . " | " .
                    Auxiliary::rfill(Batch::RQG_INFO_TITLE     , Batch::RQG_INFO_LENGTH)      . " | " .
                    Batch::RQG_CALL_SNIP_TITLE                                                . " | " .
@@ -1264,7 +1252,7 @@ sub get_job {
 #    - no valid order got at all set $phase_switch = 1 and return undef
 #    - a valid order return a description of the job
 #
-    my $who_am_i = "Simplifier::get_job:";
+    my $who_am_i = Basics::who_am_i();
 
     my $order_id;
     my @job;
@@ -2414,7 +2402,7 @@ sub switch_phase {
         } else {
             # Only $clone_phase = 'ordered by rule weight'; should be left over.
             # Is that true?
-            say("MLML: In PHASE_GRAMMAR_CLONE unexpected branch reached.");
+            say("ALARM: In PHASE_GRAMMAR_CLONE unexpected branch reached.");
             $clone_phase = undef;
         }
 
