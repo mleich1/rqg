@@ -18,12 +18,13 @@
 
 # The latest changes to this validator belong to
 #   TODO-3508 Search for a way to test in RQG that the ANSI SQL Isolation Levels is followed
-# The goal is to make the validator so robust against difficult events
+# The goal is to make the validator so robust against difficult events like
 # - STATUS_SKIP
 # - whatever timeouts kick in, a deadlock gets detected and resolved
 # - kill of the query or the session
 # - the current ISOLATION LEVEL is neither REPEATABLE READ nor SERIALIZABLE
 # - SELECTs on information_schema or functions like NOW()
+# - we run currently with autocommit = 1
 # so that the validator can be used for a far way broader range of tests.
 # The validator is currently experimental.
 # Hence sorry for false alarms.
@@ -115,10 +116,14 @@ sub validate {
     my $orig_result = $results->[0];
     my $orig_query =  $orig_result->query();
     my $orig_err =    $orig_result->err();
+    my $orig_data =   $orig_result->data();
+    my $orig_status = $orig_result->status();
+    my $orig_info =   result_info($orig_result);
+    say("DEBUG: $who_am_i " . $orig_info) if $debug_here;
 
     # We could harvest STATUS_SKIP in case the executor gives up because the planned duration
-    # of the GenTest phase is exceeded. I am unsuer if the validator would be than called at all.
-    if (STATUS_SKIP == $orig_result->status()) {
+    # of the GenTest phase is exceeded. I am unsure if the validator would be than called at all.
+    if (STATUS_SKIP == $orig_status) {
         say("DEBUG: $who_am_i STATUS_SKIP got in first query. Will return STATUS_OK.")
             if $debug_here;
         return STATUS_OK;
@@ -147,6 +152,7 @@ sub validate {
     #
     # ==> Repeat only SELECTs which harvested success on the first execution
 
+
     if ($orig_query !~ m{^\s*select}io) {
         say("DEBUG: $who_am_i No repetition for ->$orig_query<- which is not a SELECT. " .
             "Will return STATUS_OK.") if $debug_here;
@@ -169,7 +175,7 @@ sub validate {
         return STATUS_OK;
     }
 
-    if (defined $orig_err) {
+    if (defined $orig_err and $orig_err > 0) {
         say("DEBUG: $who_am_i No repetition for ->$orig_query<- which harvested $orig_err. " .
             "Will return STATUS_OK.") if $debug_here;
         return STATUS_OK;
@@ -177,13 +183,39 @@ sub validate {
 
     if (not defined $orig_result->data()) {
         # Sample: SELECT .... INTO @user_variable
-        say("DEBUG: $who_am_i ->$orig_query<- harvested undef error and undef data. " .
+        say("DEBUG: $who_am_i ->$orig_query<- harvested no error and undef data. " .
             "Will return STATUS_OK.") if $debug_here;
         return STATUS_OK;
     }
 
+    my $aux_query = 'SELECT @@autocommit /* Validator */';
+    my $aux_result = $executor->execute($aux_query);
+    my $aux_err =    $aux_result->err();
+    my $aux_data =   $aux_result->data();
+    my $aux_status = $aux_result->status();
+    my $aux_info =   result_info($aux_result);
+    say("DEBUG: $who_am_i " . $aux_info) if $debug_here;
+
+    if (defined $aux_err) {
+        # Being victim of
+        # - KILL QUERY/SESSION .... or whatever.
+        # - server crash
+        # makes a difference.
+        # Return $aux_status?
+        say("DEBUG: $who_am_i ->" . $aux_query . "<- harvested $aux_err. " .
+            "Will return STATUS_OK.") if $debug_here;
+        return STATUS_OK;
+    }
+
+    my $autocommit = $aux_data->[0]->[0];
+    say("DEBUG: $who_am_i autocommit is ->" . $autocommit . "<-") if $debug_here;
+    if (1 eq $autocommit ) {
+        # We are in a new transaction.
+        return STATUS_OK;
+    }
+
     # Left over should be:
-    # Statement == SELECT and having success
+    # Statement == SELECT and having success and autocommit=0
 
     foreach my $delay (0, 0.01, 0.1) {
         Time::HiRes::sleep($delay);
@@ -202,7 +234,12 @@ sub validate {
             return STATUS_OK;
         }
 
-        my $new_err = $new_result->err();
+        my $new_err =    $new_result->err();
+        my $new_data =   $new_result->data();
+        my $new_status = $new_result->status();
+        my $new_info =   result_info($new_result);
+
+        say("DEBUG: $who_am_i " . $new_info) if $debug_here;
         if (defined $new_err) {
             if (1317 == $new_err or   # ER_QUERY_INTERRUPTED
                 1205 == $new_err or   # ER_LOCK_WAIT_TIMEOUT: Lock wait timeout exceeded
@@ -213,11 +250,11 @@ sub validate {
                 say("DEBUG: $who_am_i Repeated query ->" . $orig_query . "<- harvested $new_err. " .
                     "Will return STATUS_OK.") if $debug_here;
                 return STATUS_OK;
+            } else {
+                say("ERROR: $who_am_i Repeated query ->" . $orig_query .
+                    "<- harvested $new_err instead of undef.");
+                kill_server();
             }
-
-            say("ERROR: $who_am_i Repeated query ->" . $orig_query .
-                "<- harvested $new_err instead of undef.");
-            kill_server();
         }
 
         if (not defined $orig_result->data() and defined $new_result->data()) {
@@ -236,21 +273,32 @@ sub validate {
         my $compare_outcome = GenTest::Comparator::compare($orig_result, $new_result);
         if ($compare_outcome > STATUS_OK) {
             # SQL tracing ?
-            my $dbh = $executor->dbh();
-            my $aux_query = 'SELECT @@tx_isolation /* E_R ' . 'BLUB' . # $executor->role .
-                            ' QNO 0 CON_ID unknown */ ';
-            # say("DEBUG: $who_am_i Will run ->" . $aux_query . "<-");
-            my $row_arrayref = $dbh->selectrow_arrayref($aux_query);
-            my $error =        $dbh->err();
-            if (defined $error) {
-                # Being victim of KILL QUERY/SESSION .... or whatever.
-                say("DEBUG: $who_am_i ->" . $aux_query . "<- harvested $error. " .
+            # say("DEBUG: Experiment: SIGKILL FOR THE SERVER");
+            # system("killall -9 mysqld; sleep 1");
+
+            my $aux_query = 'SELECT @@tx_isolation /* Validator */';
+            my $aux_result = $executor->execute($aux_query);
+            my $aux_err =    $aux_result->err();
+            my $aux_data =   $aux_result->data();
+            my $aux_status = $aux_result->status();
+            my $aux_info =   result_info($aux_result);
+            say("DEBUG: $who_am_i " . $aux_info) if $debug_here;
+
+            if (defined $aux_err) {
+                # Being victim of
+                # - KILL QUERY/SESSION .... or whatever.
+                # - server crash
+                # makes a difference.
+                # Return $aux_status?
+                say("DEBUG: $who_am_i ->" . $aux_query . "<- harvested $aux_err. " .
                     "Will return STATUS_OK.") if $debug_here;
-                    return STATUS_OK;
+                return STATUS_OK;
             }
-            say("DEBUG: $who_am_i ISO LEVEL IS is ->" . $row_arrayref->[0] . "<-") if $debug_here;
-            if ('READ-COMMITTED' eq $row_arrayref->[0] or
-                'READ-UNCOMMITTED' eq $row_arrayref->[0]) {
+
+            my $txiso_level = $aux_data->[0]->[0];
+            say("DEBUG: $who_am_i ISO LEVEL IS is ->" . $txiso_level . "<-") if $debug_here;
+            if ('READ-COMMITTED' eq $txiso_level or
+                'READ-UNCOMMITTED' eq $txiso_level) {
                 # It cannot be 100% excluded that the result diff is caused by a bug of server
                 # and/or storage engine. But its very likely that the diff is caused by the
                 # ISO Level .
@@ -272,6 +320,36 @@ sub kill_server {
         "STATUS_DATABASE_CORRUPTION");
     system('kill -6 $SERVER_PID1');
     exit STATUS_DATABASE_CORRUPTION;
+}
+
+sub result_info {
+    my ($result) = @_;
+    my $query =  $result->query();
+    my $err =    $result->err();
+    my $data =   $result->data();
+    my $status = $result->status();
+
+    my $result_info;
+    if (defined $query) {
+        $result_info = "Query ->" . $query . "<- ";
+    } else {
+        $result_info = "Query -><undef><- ";
+    }
+    if (defined $err) {
+        $result_info .= ", err: " . $err;
+    } else {
+        $result_info .= ", err: <undef>";
+    }
+    if (defined $data) {
+        $result_info .= ", data: <def>";
+    } else {
+        $result_info .= ", data: <undef>";
+    }
+    if (defined $status) {
+        $result_info .= ", status: " . $status;
+    } else {
+        $result_info .= ", status: <undef>";
+    }
 }
 
 1;
