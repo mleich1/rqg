@@ -129,6 +129,18 @@ sub validate {
         return STATUS_OK;
     }
 
+    # SET TRANSACTION ISOLATION LEVEL changes the ISOLATION LEVEL for the next transaction A.
+    # In case we are than in A its impossible to determine the ISOLATION LEVEL which is than valid.
+    # @@tx_isolation shows all time the ISOLATION LEVEL for the session which will be valid after
+    # A ended.
+    # Solution: Abort the test but do not claim to have met an error.
+    if ($orig_query =~ m{SET\s*\n*\r*TRANSACTION\s*\n*\r*ISOLATION}io) {
+        say("INFO: $who_am_i The query ->$orig_query<- was met.\n" .
+            "INFO: $who_am_i It creates conditions the " .  "validator cannot handle.\n" .
+            "INFO: $who_am_i Will kill the server with SIGKILL and exit with STATUS_SERVER_KILLED");
+        system('kill -9 $SERVER_PID1');
+        exit STATUS_SERVER_KILLED;
+    }
     # No repeat for
     # - non DML statements because
     #   - a high fraction of them (DDL, COMMIT,...) end the old transaction and start a new one.
