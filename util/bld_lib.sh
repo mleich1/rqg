@@ -247,8 +247,13 @@ function clean_source_dir()
     rm -f CMakeCache.txt
     # The following files are critical, might got sometimes manipulated without resetting.
     git checkout cmake/maintainer.cmake
-    git checkout storage/innobase/innodb.cmake
     git checkout storage/innobase/CMakeLists.txt
+    # 2022-09
+    # The content of storage/innobase/innodb.cmake was moved into storage/innobase/CMakeLists.txt.
+    if [ -e storage/innobase/innodb.cmake ]
+    then
+        git checkout storage/innobase/innodb.cmake
+    fi
     set +e
 }
 
