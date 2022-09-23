@@ -77,17 +77,16 @@ our $grammars =
 
 
   # Crowd of tests used by Elena in history.
-  #    The mass of redefines per test cause
-  #    - sometimes an advantage :
+  #    The mass of redefines per test cause sometimes an
+  #    - advantage
   #      Find bugs which the lean tests don't catch.
-  #    - frequent disadvantages :
+  #    - disadvantages
   #      - Slower RQG test simplifier
   #      - Hit too many unwanted/known but not yet fixed bugs
-  #      compared to using more lean tests
+  #    compared to using more lean tests
   #    So better run that crowd but use rather lean or hand crafted tests for simplification
   #    or specific features if possible.
-  #
-  # Suffers in old releases massive from https://jira.mariadb.org/browse/MDEV-19449
+  # DDL-DDL, DDL-DML, DML-DML
   '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy',    # This looked once like a dud.
   # Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
   # '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --grammar=conf/percona_qa/BT-16274/BT-16274.yy ' .
@@ -122,7 +121,7 @@ our $grammars =
   # rare DDL-DML, heavy DML-DML
   '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
 
-  # Main DDL-DDL, DDL-DML stress work horse   with generated virtual columns, fulltext indexes, KILL QUERY/SESSION, BACKUP STAGE
+  # Main DDL-DDL, DDL-DML, DML-DML stress work horse   with generated virtual columns, fulltext indexes, KILL QUERY/SESSION, BACKUP STAGE
   '--grammar=conf/mariadb/table_stress_innodb.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
   '--grammar=conf/mariadb/table_stress_innodb.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=CrashRecovery1',
   '--grammar=conf/mariadb/table_stress_innodb.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=CrashRecovery1',
@@ -159,10 +158,28 @@ our $grammars =
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --reporters=CrashRecovery1 ',
 
   # Tests checking transactional properties
-  # FIXME: Add variations of the ISOLATION LEVEL is useful
+  # =======================================
+  # READ-UNCOMMITTED and READ-COMMITTED will be not assigned because they guarantee less than
+  # we can check in the moment.
   # Disabled because not compatible with max_statement_timeout and other timeouts etc.
   # ' --grammar=conf/transactions/transactions.yy --gendata=conf/transactions/transactions.zz --validators=DatabaseConsistency ',
   ' --grammar=conf/transactions/repeatable_read.yy --gendata=conf/transactions/transactions.zz --validators=RepeatableRead ',
+  ###
+  # DML only together with --validator=SelectStability ----------------
+  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --mysqld=--transaction-isolation=REPEATABLE-READ --validator=SelectStability ',
+  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --mysqld=--transaction-isolation=SERIALIZABLE    --validator=SelectStability ',
+  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --mysqld=--transaction-isolation=REPEATABLE-READ --validator=SelectStability ',
+  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --mysqld=--transaction-isolation=SERIALIZABLE    --validator=SelectStability ',
+  #     conf/engines/engine_stress.yy switches the ISOLATION LEVEL around
+  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --validator=SelectStability ',
+  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --validator=SelectStability ',
+  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --mysqld=--transaction-isolation=REPEATABLE-READ --validator=SelectStability ',
+  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --mysqld=--transaction-isolation=SERIALIZABLE    --validator=SelectStability ',
+  # DDL-DDL, DDL-DML, DML-DML and KILL QUERY/SESSION etc.
+  '--grammar=conf/mariadb/table_stress_innodb.yy         --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--transaction-isolation=REPEATABLE-READ  --validator=SelectStability ',
+  '--grammar=conf/mariadb/table_stress_innodb.yy         --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--transaction-isolation=SERIALIZABLE     --validator=SelectStability ',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--transaction-isolation=REPEATABLE-READ  --validator=SelectStability ',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--transaction-isolation=SERIALIZABLE     --validator=SelectStability ',
 
   # Most probably not relevant for InnoDB testing
   # '--grammar=conf/runtime/performance_schema.yy  --mysqld=--performance-schema --gendata-advanced --skip-gendata',
@@ -400,29 +417,6 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
   ],
   [
-    # slow (usually SSD/HDD) at all in order to cover
-    # - a device with slow IO
-    # - most probably a filesystem type != tmpfs
-    # fast (RAM) at all in order to cover
-    # - some higher CPU and RAM IO load by not spending to much time on slow devices
-    # - tmpfs
-    # 90% fast to 10% slow in order to
-    # - get extreme load for CPU and RAM IO because that seems to be better for bug detection/replay
-    #   A higher percentage for slow leads easy to a high percentage of CPU waiting for IO
-    #   instead of CPU system/user
-    # - avoid to wear out some SSD, the slow device might be a SSD, too fast
-    ' --vardir_type=slow ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-  ],
-  [
     # 1. innodb_page_size >= 32K requires a innodb-buffer-pool-size >=24M
     #    otherwise the start of the server will fail.
     # 2. An innodb-buffer-pool-size=5M should work well with innodb_page_size < 32K
@@ -443,6 +437,31 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_page_size=32K --mysqld=--innodb-buffer-pool-size=256M ',
     ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=24M  ',
     ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=256M ',
+  ],
+  [
+    # slow (usually SSD/HDD) at all in order to cover
+    # - maybe a device with slow IO
+    # - a filesystem type != tmpfs
+    # fast (RAM) at all in order to cover
+    # - some higher CPU and RAM IO load by not spending to much time on slow devices
+    # - tmpfs
+    #
+    # 90% fast to 10% slow (if HDD or SSD) or 50% fast to 50% slow (if ext4 in virtual memory)
+    # in order to
+    # - get extreme load for CPU and RAM IO because that seems to be better for bug detection/replay
+    #   A higher percentage for slow leads easy to a high percentage of CPU waiting for IO
+    #   instead of CPU system/user
+    # - avoid to wear out some SSD, the slow device might be a SSD, too fast
+    ' --vardir_type=slow ',
+    ' --vardir_type=slow ',
+    ' --vardir_type=slow ',
+    ' --vardir_type=slow ',
+    ' --vardir_type=slow ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
   ],
 ];
 
