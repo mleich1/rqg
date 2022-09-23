@@ -68,7 +68,7 @@ sub monitor {
     # For debugging:
     # system("killall -9 mysqld; sleep 1");
     if (not $reporter->properties->servers->[0]->running()) {
-        say("ERROR: $who_am_i The server is no more running.");
+        say("ERROR: $who_am_i The server is not running though it should.");
         exit STATUS_SERVER_CRASHED;
     }
     # Making some connect attempt and only in case of success going on might look attractive.
@@ -112,9 +112,14 @@ sub report {
     $server->cleanup_dead_server;
 
     my $datadir = $reporter->serverVariable('datadir');
+    # Cut trailing forward/backward slashes away.
     $datadir =~ s{[\\/]$}{}sgio;
-    my $datadir_copy = $datadir . '_copy';
-    my $pid = $reporter->serverInfo('pid');
+    my $fbackup_dir = $datadir;
+    $fbackup_dir =~ s{\/data$}{\/fbackup};
+    if ($datadir eq $fbackup_dir) {
+        say("ERROR: $who_am_i fbackup_dir equals datadir '$datadir'.");
+        exit STATUS_ENVIRONMENT_FAILURE;
+    }
 
     # Docu 2019-05
     # storage_engine
@@ -122,27 +127,32 @@ sub report {
     # Deprecated: MariaDB 5.5
     my $engine = $reporter->serverVariable('storage_engine');
 
-
     say("INFO: $who_am_i Copying datadir... (interrupting the copy operation may cause " .
         "investigation problems later)");
     say("INFO: $who_am_i Datadir used by the server all time is: $datadir");
-    say("INFO: $who_am_i Copy of that datadir after crash and before restart is: $datadir_copy");
+    say("INFO: $who_am_i Copy of that datadir after crash and before restart is in: $fbackup_dir");
     if (osWindows()) {
-        system("xcopy \"$datadir\" \"$datadir_copy\" /E /I /Q");
+        system("xcopy \"$datadir\" \"$fbackup_dir\" /E /I /Q");
     } else {
-        system("cp -r $datadir $datadir_copy");
+        system("cp -r --dereference $datadir $fbackup_dir");
     }
-    move($server->errorlog, $server->errorlog.'_copy');
+    # move($server->errorlog, $fbackup_dir . "/" . MYSQLD_ERRORLOG_FILE);
+    my $errorlog = $server->errorlog;
+    if (STATUS_OK != Basics::copy_file($errorlog, $fbackup_dir . "/" .
+                                       File::Basename::basename($errorlog))) {
+        exit STATUS_ENVIRONMENT_FAILURE;
+    }
+    unlink($errorlog);
     unlink("$datadir/core*");    # Remove cores from any previous crash
 
     say("INFO: $who_am_i Attempting database recovery using the server ...");
 
     # Using some buffer-pool-size which is smaller than before should work.
     # InnoDB page sizes >= 32K need in minimum a buffer-pool-size >=24M.
-    # So I would like to go with that.
-    # But this could end up with
-    # [Warning] InnoDB: Difficult to find free blocks in the buffer pool (21 search iterations)! 21 failed attempts to flush a page!
-    # Consider increasing innodb_buffer_pool_size. Pending flushes (fsync) log: 0; buffer pool: 0. 664 OS file reads, 461 OS file writes, 21 OS fsyncs.
+    # But going with that is impossible because we could end up with
+    # [Warning] InnoDB: Difficult to find free blocks in the buffer pool (21 search iterations)!
+    #                   21 failed attempts to flush a page!
+    #                   Consider increasing innodb_buffer_pool_size.
     # 2021-01-11T12:33:32 [938407] | 2021-01-11 12:30:46 0 [Note] InnoDB: To recover: 105 pages from log
     # 2021-01-11T12:33:32 [938407] | 2021-01-11 12:31:05 0 [Note] InnoDB: To recover: 104 pages from log
     # 2021-01-11T12:33:32 [938407] | Killed
@@ -161,7 +171,10 @@ sub report {
         say("ERROR: $who_am_i Status based on server start attempt is $recovery_status");
     }
 
-    # We look into the server error log even if the start attempt failed!
+    # Experiment:
+    # system("killall -9 mysqld");
+
+    # We look into the server error log even if the start attempt failed.
     open(RECOVERY, $server->errorlog);
     while (<RECOVERY>) {
         $_ =~ s{[\r\n]}{}siog;
@@ -189,10 +202,15 @@ sub report {
             ($_ =~ m{segmentation fault}sio)
         ) {
             say("ERROR: $who_am_i Recovery has apparently crashed.");
+            # FIXME: This should lead to an automatic the generation of a backtrace.
             $recovery_status = STATUS_RECOVERY_FAILURE;
         }
     }
     close(RECOVERY);
+
+    # Experiment:
+    # This is the no more valid (before KILL) pid.
+    # my $pid = $reporter->serverInfo('pid');
 
     if ($recovery_status > STATUS_OK) {
         say("ERROR: $who_am_i Status based on error log checking is $recovery_status");
@@ -234,6 +252,7 @@ sub report {
             say("INFO: $who_am_i Status changed to $recovery_status.");
         }
         sayFile($server->errorlog);
+        # FIXME: Do not kill if the server is already dead?
         # Doing the kill here might be not necessary. But I prefer to not rely on the cleanup
         # abilities of RQG runners and similar.
         say("INFO: $who_am_i Will kill the server because of previous failure.");
@@ -243,11 +262,13 @@ sub report {
     }
 
     #
-    # Phase 2 - server is now running, so we execute various statements in order to verify table consistency
+    # Phase 2 - The server is now running, so we execute various statements in order to
+    #           verify table consistency.
     #
 
     # Avoid the
-    # 'TBR-604' , 'Table does not support optimize, doing recreate \+ analyze instead.{1,500}Lock wait timeout exceeded; try restarting transaction'
+    # 'TBR-604' , 'Table does not support optimize, doing recreate \+ analyze instead.{1,500}' .
+    #             'Lock wait timeout exceeded; try restarting transaction'
     # Reason 1 (fixed by SET SESSION *wait_timeout = 300 here):
     #    The walkqueries were already executed and passed.
     #    It looks like the optimize causes the rollback of transactions on some table.
@@ -279,12 +300,12 @@ sub report {
         return $status;
     }
     my @databases = sort @$databases;
-    foreach my $database (@databases) {
+    foreach my $database (sort @databases) {
         next if $database =~ m{^(rqg|mysql|information_schema|pbxt|performance_schema)$}sio;
         $dbh->do("USE $database");
         my $tabl_ref = $dbh->selectcol_arrayref("SHOW FULL TABLES", { Columns=>[1,2] });
         my %tables   = @$tabl_ref;
-        foreach my $table (keys %tables) {
+        foreach my $table (sort keys %tables) {
             my $table_to_check = "`$database`.`$table`";
             say("Verifying table: $table_to_check");
 
@@ -305,7 +326,8 @@ sub report {
             $errstr    = $sth_keys->errstr() if defined $sth_keys->errstr();
             if (defined $err) {
                 if (1356 == $err) {
-                    say("INFO: $who_am_i $table_to_check is a damaged VIEW. Omitting the walk_queries");
+                    say("INFO: $who_am_i $table_to_check is a damaged VIEW. " .
+                        "Omitting the walk_queries");
                     next;
                 } else {
                     say("ERROR: $who_am_i $stmt harvested $err: $errstr. " .
@@ -325,7 +347,8 @@ sub report {
                 # What follows is correct in case the column has really the data type derived from
                 # a snip of its name.
                 # But its expected to fail like
-                #        ERROR: SELECT * FROM `test`.`AA` FORCE INDEX (`col_int_nokey`) WHERE `col_int_nokey` >= -9223372036854775808
+                #        ERROR: SELECT * FROM `test`.`AA` FORCE INDEX (`col_int_nokey`)
+                #               WHERE `col_int_nokey` >= -9223372036854775808
                 #        4078: Illegal parameter data types multipolygon and bigint for operation '>='.
                 # in case
                 # - renaming of columns or alter scrambles that == The grammar/redefines are problematic.
