@@ -74,7 +74,7 @@ sub validate {
 	return STATUS_WONT_HANDLE if defined $results->[0]->warnings();
 	return STATUS_WONT_HANDLE if $results->[0]->status() != STATUS_OK;
 
-	my $max_transformer_status; 
+	my $max_transformer_status = STATUS_OK;
 	foreach my $transformer (@transformers) {
 		my $transformer_status = $validator->transform($transformer, $executor, $results);
 		return $transformer_status if $transformer_status > STATUS_CRITICAL_FAILURE;
