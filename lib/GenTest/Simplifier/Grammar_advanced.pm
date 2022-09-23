@@ -1,4 +1,4 @@
-# Copyright (C) 2018, 2021 MariaDB Corporation Ab.
+# Copyright (C) 2018, 2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -72,10 +72,11 @@ use constant SIMP_EMPTY_QUERY     => '';
 # Hence we go with a wait which is less costly. A "SELECT SLEEP(1)" would make "SQL noise" without
 # value because the really working threads or reporters could detect some not responding or dead
 # DB server too. So we use Perl.
-  use constant SIMP_WAIT_QUERY      => '{ sleep 1 ; return undef }';
+# use constant SIMP_WAIT_QUERY      => '{ sleep 1 ; return undef }';
 # Experiment begin
-# Experiment disabled because tests ending after a few seconds with STATUS_OK made trouble.
+# The next line caused a lot trouble. AFAIR something with reporters.
 # use constant SIMP_WAIT_QUERY      => '{ exit 0 }';
+  use constant SIMP_WAIT_QUERY      => '{ sleep 30 ; exit 0 }';
 # Experiment end
 
 # Structure for keeping the actual grammar
@@ -1229,7 +1230,7 @@ sub calculate_weights {
 # - (simple): 'query' gets a 1, thread<n> a bit less and the *_connect and *_init less.
 # - (sophisticated): Maybe the values dependend on the number of threads finally used.
 # Having a value > 0 in some rule  means also that this rule is in use.
-# Decompose the top level rule into its component, determine per component the rules which occur
+# Decompose the top level rule into its components, determine per component the rules which occur
 # and charge than
 #    top level rule value / no of components in top level rule
 # into the rule. Mark the top level rule as processed. Sort the rules according to their weight,
