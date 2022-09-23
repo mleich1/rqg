@@ -112,13 +112,16 @@ sub check_and_set_local_config {
         say("INFO: runid was undef and has been set to $minor_runid");
     }
 
-    our $local_config = $rqg_home . "/local.cfg";
+    our $local_config =          $rqg_home . "/local.cfg";
+    our $local_config_template = $rqg_home . "/local_template.cfg";
 
     my $fast_fs_type;
     my $slow_fs_type;
     if (not -e $local_config) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: The local config file '$local_config' does not exist. " .
+        say("ERROR: The local config file '$local_config' does not exist.\n" .
+            "INFO:  Please copy '" . $local_config_template . "' to '" . $local_config . "'.\n" .
+            "INFO:  And than adjust the content of '" . $local_config . "' to your needs. " .
             Auxiliary::exit_status_text($status));
         safe_exit($status);
     } else {
