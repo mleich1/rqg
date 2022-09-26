@@ -304,16 +304,7 @@ use constant ORDER_EFFORTS_LEFT_OVER => 4;
 use constant RQG_DERIVATE_TITLE    => 'Derivate used     ';
 use constant RQG_PARENT_TITLE      => 'Parent of derivate';
 use constant RQG_SPECIALITY_LENGTH => 18;             # Maximum is Title
-my $title_line_part =                                                                " | " .
-        Auxiliary::rfill(Batch::RQG_NO_TITLE,        Batch::RQG_NO_LENGTH)         . " | " .
-        Auxiliary::rfill(Batch::RQG_WNO_TITLE,       Batch::RQG_WNO_LENGTH)        . " | " .
-        Auxiliary::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH)  . " | " .
-        Auxiliary::rfill(Batch::RQG_LOG_TITLE,       Batch::RQG_LOG_LENGTH)        . " | " .
-        Auxiliary::rfill(Batch::RQG_ORDERID_TITLE,   Batch::RQG_ORDERID_LENGTH)    . " | " .
-        Auxiliary::rfill(Batch::RQG_RUNTIME_TITLE,   Batch::RQG_RUNTIME_LENGTH)    . " | " .
-        Auxiliary::rfill(RQG_DERIVATE_TITLE,         RQG_SPECIALITY_LENGTH)        . " | " .
-        Auxiliary::rfill(RQG_PARENT_TITLE,           RQG_SPECIALITY_LENGTH)        . " | " .
-        Auxiliary::rfill(Batch::RQG_INFO_TITLE,      Batch::RQG_INFO_LENGTH)       . "\n";
+my $title_line_part;
 
 # Whatever trials
 # ---------------
@@ -1214,7 +1205,7 @@ $verdict_setup                                                                  
                    Auxiliary::rfill(Batch::RQG_INFO_TITLE     , Batch::RQG_INFO_LENGTH)      . " | " .
                    Batch::RQG_CALL_SNIP_TITLE                                                . " | " .
                    Auxiliary::lfill(Batch::RQG_NO_TITLE       , Batch::RQG_NO_LENGTH)        . " | " .
-                   Auxiliary::rfill(Batch::RQG_LOG_TITLE      , Batch::RQG_LOG_LENGTH)       . "\n" ;
+                   Auxiliary::rfill(Batch::RQG_LOG_TITLE      , $rqg_log_length)             . "\n" ;
     Batch::write_setup($header1);
 
     $cl_snip_all .= " " . $rqg_options_end . " " . $mysql_options ;
@@ -1224,6 +1215,17 @@ $verdict_setup                                                                  
 
     $phase        = shift @simp_chain;
     $phase_switch = 1;
+
+    $title_line_part =                                                               " | " .
+        Auxiliary::rfill(Batch::RQG_NO_TITLE,        Batch::RQG_NO_LENGTH)         . " | " .
+        Auxiliary::rfill(Batch::RQG_WNO_TITLE,       Batch::RQG_WNO_LENGTH)        . " | " .
+        Auxiliary::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH)  . " | " .
+        Auxiliary::rfill(Batch::RQG_LOG_TITLE,       $rqg_log_length)              . " | " .
+        Auxiliary::rfill(Batch::RQG_ORDERID_TITLE,   Batch::RQG_ORDERID_LENGTH)    . " | " .
+        Auxiliary::rfill(Batch::RQG_RUNTIME_TITLE,   Batch::RQG_RUNTIME_LENGTH)    . " | " .
+        Auxiliary::rfill(RQG_DERIVATE_TITLE,         RQG_SPECIALITY_LENGTH)        . " | " .
+        Auxiliary::rfill(RQG_PARENT_TITLE,           RQG_SPECIALITY_LENGTH)        . " | " .
+        Auxiliary::rfill(Batch::RQG_INFO_TITLE,      Batch::RQG_INFO_LENGTH)       . "\n";
 
     say("DEBUG: Leaving 'Simplifier::init") if Auxiliary::script_debug("S6");
 
@@ -1841,13 +1843,13 @@ sub register_result {
 #
 
     our $arrival_number;
-    my ($worker_num, $order_id, $verdict, $extra_info, $saved_log_rel, $total_runtime,
+    my ($worker_num, $order_id, $verdict, $extra_info, $saved_log, $total_runtime,
         $grammar_used, $grammar_parent, $adapted_duration, $worker_command) = @_;
 
     if (@_ != 10) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: register_result : 10 Parameters (worker_num, order_id, " .
-                    "verdict, extra_info, saved_log_rel, total_runtime, grammar_used, "      .
+                    "verdict, extra_info, saved_log, total_runtime, grammar_used, "      .
                     "grammar_parent, adapted_duration, ignore1) are required.");
         Batch::emergency_exit($status);
     }
@@ -1857,7 +1859,7 @@ sub register_result {
         Batch::emergency_exit($status);
     }
     Carp::cluck("DEBUG: Simplifier::register_result(worker_num, order_id, verdict, extra_info, " .
-                "saved_log_rel, total_runtime, grammar_used, grammar_parent, adapted_duration)")
+                "saved_log, total_runtime, grammar_used, grammar_parent, adapted_duration)")
         if Auxiliary::script_debug("S4");
 
     my $return = 'INIT';
@@ -1880,14 +1882,13 @@ sub register_result {
         # 2018-11-19T16:16:19 [19309] SUMMARY: RQG GenTest runtime in s : 31
         # 2018-11-19T16:16:19 [19309] SUMMARY: RQG total runtime in s : 34
         ##### 2018-11-19T16:16:19 [19309] SUMMARY: RQG verdict : replay
-        my $logfile = $workdir . "/" . $saved_log_rel;
-        $gentest_runtime = Batch::get_string_after_pattern($logfile,
+        $gentest_runtime = Batch::get_string_after_pattern($saved_log,
                                "INFO: GenTest: Effective duration in s : ");
         if (defined $gentest_runtime and $gentest_runtime =~ /^[0-9]+$/) {
             # Do nothing.
         } else {
             # No valid YY grammar processing runtime found. Use the bigger GenTest runtime instead.
-            $gentest_runtime = Batch::get_string_after_pattern($logfile,
+            $gentest_runtime = Batch::get_string_after_pattern($saved_log,
                                    "SUMMARY: RQG GenTest runtime in s : ");
             if (defined $gentest_runtime and $gentest_runtime =~ /^[0-9]+$/) {
                 # Do nothing.
@@ -1917,7 +1918,7 @@ sub register_result {
         Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
         Auxiliary::lfill($worker_num,     Batch::RQG_WNO_LENGTH)       . " | " .
         Auxiliary::rfill($verdict,        Verdict::RQG_VERDICT_LENGTH) . " | " .
-        Auxiliary::lfill($saved_log_rel,  Batch::RQG_LOG_LENGTH)       . " | " .
+        Auxiliary::lfill($saved_log,  $rqg_log_length)             . " | " .
         Auxiliary::lfill($order_id,       Batch::RQG_ORDERID_LENGTH)   . " | " .
         Auxiliary::lfill($total_runtime,  Batch::RQG_ORDERID_LENGTH)   . " | " .
         Auxiliary::rfill($grammar_used,   RQG_SPECIALITY_LENGTH)       . " | " .
@@ -1929,7 +1930,7 @@ sub register_result {
         Auxiliary::rfill($extra_info,     Batch::RQG_INFO_LENGTH)      . " | " .
         $worker_command                                                . " | " .
         Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
-        Auxiliary::lfill($saved_log_rel,  Batch::RQG_LOG_LENGTH)       . "\n";
+        Auxiliary::lfill($saved_log,  $rqg_log_length)             . "\n";
     Batch::write_setup($line);
     $arrival_number++;
 

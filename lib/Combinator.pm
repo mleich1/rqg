@@ -430,13 +430,14 @@ $verdict_setup                                                                  
 Batch::write_result($header);
 Batch::write_setup($header);
 
+$rqg_log_length = Batch::get_rqg_log_length($workdir);
 my $header1 = $iso_ts                                                              . " | " .
         Auxiliary::rfill(Batch::RQG_NO_TITLE,        Batch::RQG_NO_LENGTH)         . " | " .
         Auxiliary::rfill(Batch::RQG_WNO_TITLE,       Batch::RQG_WNO_LENGTH)        . " | " .
         Auxiliary::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH)  . " | " .
-        Auxiliary::rfill(Batch::RQG_LOG_TITLE,       Batch::RQG_LOG_LENGTH)        . " | " .
         Auxiliary::rfill(Batch::RQG_ORDERID_TITLE,   Batch::RQG_ORDERID_LENGTH)    . " | " .
         Auxiliary::rfill(Batch::RQG_RUNTIME_TITLE,   Batch::RQG_RUNTIME_LENGTH)    . " | " .
+        Auxiliary::rfill(Batch::RQG_LOG_TITLE,       $rqg_log_length)              . " | " .
         Auxiliary::rfill(Batch::RQG_INFO_TITLE,      Batch::RQG_INFO_LENGTH)       . "\n";
 
 Batch::write_result($header1);
@@ -444,9 +445,9 @@ Batch::write_result($header1);
 my $header2 =
         Auxiliary::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH) . " | " .
         Auxiliary::rfill(Batch::RQG_INFO_TITLE     , Batch::RQG_INFO_LENGTH)      . " | " .
-        Batch::RQG_CALL_SNIP_TITLE                                                . " | " .
         Auxiliary::lfill(Batch::RQG_NO_TITLE       , Batch::RQG_NO_LENGTH)        . " | " .
-        Auxiliary::rfill(Batch::RQG_LOG_TITLE      , Batch::RQG_LOG_LENGTH)       . "\n" ;
+        Auxiliary::rfill(Batch::RQG_LOG_TITLE      , $rqg_log_length)             . " | " .
+        Batch::RQG_CALL_SNIP_TITLE                                                . "\n";
 
 Batch::write_setup($header2);
 
@@ -806,18 +807,18 @@ sub register_result {
                  Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
                  Auxiliary::lfill($worker_number, Batch::RQG_WNO_LENGTH)        . " | " .
                  Auxiliary::rfill($verdict,Verdict::RQG_VERDICT_LENGTH)         . " | " .
-                 Auxiliary::lfill($saved_log_rel, Batch::RQG_LOG_LENGTH)        . " | " .
                  Auxiliary::lfill($order_id, Batch::RQG_ORDERID_LENGTH)         . " | " .
                  Auxiliary::lfill($total_runtime, Batch::RQG_ORDERID_LENGTH)    . " | " .
+                 Auxiliary::lfill($saved_log_rel, $rqg_log_length)              . " | " .
                                   $extra_info                                   . "\n";
     Batch::write_result($line);
 
     $line      =
                  Auxiliary::rfill($verdict,        Verdict::RQG_VERDICT_LENGTH) . " | " .
                  Auxiliary::rfill($extra_info,     Batch::RQG_INFO_LENGTH)      . " | " .
-                 $worker_command                                                . " | " .
                  Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
-                 Auxiliary::lfill($saved_log_rel,  Batch::RQG_LOG_LENGTH)       . "\n";
+                 Auxiliary::lfill($saved_log_rel,  $rqg_log_length)             . " | " .
+                 $worker_command                                                . "\n";
     Batch::write_setup($line);
 
     $arrival_number++;
