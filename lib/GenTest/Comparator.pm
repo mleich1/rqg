@@ -1,5 +1,6 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
+# Copyright (c) 2022, MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -29,7 +30,7 @@ use GenTest::Result;
 # then sort the rows and convert them into one gigantic string. Such string representation is no longer
 # dependent on sort order so can be compared safely.
 #
-# A O(N) algorithm that would avoid sorting is to use a hash representation of each data set. e.g. $hash{"A,B,C"} = 2 
+# A O(N) algorithm that would avoid sorting is to use a hash representation of each data set. e.g. $hash{"A,B,C"} = 2
 # if there were two rows containing "A,B,C". If two hashes contain the same keys with the same values, the two initial
 # data sets were identical
 #
@@ -59,8 +60,11 @@ sub compare {
 			my $data1 = $resultset1->data();
 			my $data2 = $resultset2->data();
 			return STATUS_LENGTH_MISMATCH if $#$data1 != $#$data2;
-			my $data1_sorted = join('<row>', sort map { join('<col>', map { defined $_ ? ($_ != 0 ? sprintf("%.4f", $_) : $_) : 'NULL' } @$_) } @$data1);
-			my $data2_sorted = join('<row>', sort map { join('<col>', map { defined $_ ? ($_ != 0 ? sprintf("%.4f", $_) : $_) : 'NULL' } @$_) } @$data2);
+            # Original throws perl error messages in case $_ is neither undef nor numeric.
+			# my $data1_sorted = join('<row>', sort map { join('<col>', map { defined $_ ? ($_ != 0 ? sprintf("%.4f", $_) : $_) : 'NULL' } @$_) } @$data1);
+			# my $data2_sorted = join('<row>', sort map { join('<col>', map { defined $_ ? ($_ != 0 ? sprintf("%.4f", $_) : $_) : 'NULL' } @$_) } @$data2);
+			my $data1_sorted = join('<row>', sort map { join('<col>', map { defined $_ ? $_ : 'NULL' } @$_) } @$data1);
+			my $data2_sorted = join('<row>', sort map { join('<col>', map { defined $_ ? $_ : 'NULL' } @$_) } @$data2);
 			return STATUS_CONTENT_MISMATCH if $data1_sorted ne $data2_sorted;
 		}
 	}
@@ -68,33 +72,37 @@ sub compare {
 }
 
 sub dumpDiff {
-	my @results = @_;
-	my @files;
-	my $diff;
+    my @results = @_;
+    my @files;
+    my $diff;
 
-	foreach my $i (0..1) {
+    foreach my $i (0..1) {
 		return undef if not defined $results[$i] or not defined $results[$i]->data();
-		my $data_sorted = join("\n", sort map { join("\t", map { defined $_ ? $_ : "NULL" } @$_) } @{$results[$i]->data()});
-		$data_sorted = $data_sorted."\n" if $data_sorted ne '';
-		$files[$i] = tmpdir()."/randgen".abs($$)."-".time()."-server".$i.".dump";
-		open (FILE, ">".$files[$i]);
+		my $data_sorted = join("\n", sort map { join("\t", map { defined $_ ? $_ : "NULL" } @$_)
+                                                  } @{$results[$i]->data()});
+		$data_sorted = $data_sorted . "\n" if $data_sorted ne '';
+		$files[$i] = tmpdir() . "/randgen" . abs($$) . "-" . time() . "-server" . $i . ".dump";
+		open (FILE, ">" . $files[$i]);
 		print FILE $data_sorted;
 		close FILE;
-	}
+    }
 	
-	my $diff_cmd = "diff -u $files[0] $files[1]";
+    my $diff_cmd = "diff -u $files[0] $files[1]";
 
-	open (DIFF, "$diff_cmd|");
-	while (<DIFF>) {
+    open (DIFF, "$diff_cmd|");
+    while (<DIFF>) {
 		$diff .= $_;
-	}
-	close DIFF;
+    }
+    close DIFF;
 
-	foreach my $file (@files) {
-		unlink($file);
-	}
-	
-	return $diff;
+    # (Tested) In case the files are equal than $diff is not defined.
+    if (not defined $diff) {
+        foreach my $file (@files) {
+            unlink($file);
+        }
+    }
+
+    return $diff;
 	
 }
 
