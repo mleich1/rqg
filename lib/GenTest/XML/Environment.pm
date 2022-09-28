@@ -274,7 +274,7 @@ sub getInfo()
         $memory =~ s/Megabytes//;
         $memory = trim($memory);
         $memory = $memory/1024;
-        ($memory, my $trash) = split(/\./,$memory);
+        ($memory, $trash) = split(/\./,$memory);
         $memory = "$memory"."GB";
 
         #locale
