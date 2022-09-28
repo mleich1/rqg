@@ -107,7 +107,7 @@ use GenTest::Validator;
 use Time::HiRes;
 
 my $who_am_i =   "Validator 'SelectStability':";
-my $debug_here = 1;
+my $debug_here = 0;
 
 sub validate {
     my ($validator, $executors, $results) = @_;
