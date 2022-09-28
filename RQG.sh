@@ -12,7 +12,7 @@ CALL_LINE="$0 $*"
 # killall -9 perl ; killall -9 mysqld ;  killall -9 rr ; rm -rf /dev/shm/var_* /dev/shm/rqg
 
 RQG_HOME=`pwd`
-RUNID=SINGLE_RQG
+RUNID=SINGLE_RUN
 
 # Path to MariaDB binaries
 BASEDIR1="$1"
@@ -120,6 +120,6 @@ $BASEDIR2_SETTING                                                               
 --rr_options='--chaos --wait'                                                                 \
 --mask-level=0                                                                                \
 --mask=0                                                                                      \
-2>&1 | tee TBR-1270.prt
+2>&1 | tee rqg.log
 
 
