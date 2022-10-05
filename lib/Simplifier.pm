@@ -1843,13 +1843,13 @@ sub register_result {
 #
 
     our $arrival_number;
-    my ($worker_num, $order_id, $verdict, $extra_info, $saved_log, $total_runtime,
+    my ($worker_num, $order_id, $verdict, $extra_info, $saved_log_rel, $total_runtime,
         $grammar_used, $grammar_parent, $adapted_duration, $worker_command) = @_;
 
     if (@_ != 10) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: register_result : 10 Parameters (worker_num, order_id, " .
-                    "verdict, extra_info, saved_log, total_runtime, grammar_used, "      .
+                    "verdict, extra_info, saved_log_rel, total_runtime, grammar_used, "      .
                     "grammar_parent, adapted_duration, ignore1) are required.");
         Batch::emergency_exit($status);
     }
@@ -1859,7 +1859,7 @@ sub register_result {
         Batch::emergency_exit($status);
     }
     Carp::cluck("DEBUG: Simplifier::register_result(worker_num, order_id, verdict, extra_info, " .
-                "saved_log, total_runtime, grammar_used, grammar_parent, adapted_duration)")
+                "saved_log_rel, total_runtime, grammar_used, grammar_parent, adapted_duration)")
         if Auxiliary::script_debug("S4");
 
     my $return = 'INIT';
@@ -1882,13 +1882,14 @@ sub register_result {
         # 2018-11-19T16:16:19 [19309] SUMMARY: RQG GenTest runtime in s : 31
         # 2018-11-19T16:16:19 [19309] SUMMARY: RQG total runtime in s : 34
         ##### 2018-11-19T16:16:19 [19309] SUMMARY: RQG verdict : replay
-        $gentest_runtime = Batch::get_string_after_pattern($saved_log,
+        my $logfile = $workdir . "/" . $saved_log_rel;
+        $gentest_runtime = Batch::get_string_after_pattern($logfile,
                                "INFO: GenTest: Effective duration in s : ");
         if (defined $gentest_runtime and $gentest_runtime =~ /^[0-9]+$/) {
             # Do nothing.
         } else {
             # No valid YY grammar processing runtime found. Use the bigger GenTest runtime instead.
-            $gentest_runtime = Batch::get_string_after_pattern($saved_log,
+            $gentest_runtime = Batch::get_string_after_pattern($logfile,
                                    "SUMMARY: RQG GenTest runtime in s : ");
             if (defined $gentest_runtime and $gentest_runtime =~ /^[0-9]+$/) {
                 # Do nothing.
@@ -1918,7 +1919,7 @@ sub register_result {
         Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
         Auxiliary::lfill($worker_num,     Batch::RQG_WNO_LENGTH)       . " | " .
         Auxiliary::rfill($verdict,        Verdict::RQG_VERDICT_LENGTH) . " | " .
-        Auxiliary::lfill($saved_log,  $rqg_log_length)             . " | " .
+        Auxiliary::lfill($saved_log_rel,  $rqg_log_length)             . " | " .
         Auxiliary::lfill($order_id,       Batch::RQG_ORDERID_LENGTH)   . " | " .
         Auxiliary::lfill($total_runtime,  Batch::RQG_ORDERID_LENGTH)   . " | " .
         Auxiliary::rfill($grammar_used,   RQG_SPECIALITY_LENGTH)       . " | " .
@@ -1930,7 +1931,7 @@ sub register_result {
         Auxiliary::rfill($extra_info,     Batch::RQG_INFO_LENGTH)      . " | " .
         $worker_command                                                . " | " .
         Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
-        Auxiliary::lfill($saved_log,  $rqg_log_length)             . "\n";
+        Auxiliary::lfill($saved_log_rel,  $rqg_log_length)             . "\n";
     Batch::write_setup($line);
     $arrival_number++;
 
