@@ -135,11 +135,10 @@ sub validate {
     # A ended.
     # Solution: Abort the test but do not claim to have met an error.
     if ($orig_query =~ m{SET\s*\n*\r*TRANSACTION\s*\n*\r*ISOLATION}io) {
-        say("INFO: $who_am_i The query ->$orig_query<- was met.\n" .
-            "INFO: $who_am_i It creates conditions the " .  "validator cannot handle.\n" .
-            "INFO: $who_am_i Will kill the server with SIGKILL and exit with STATUS_SERVER_KILLED");
-        system('kill -9 $SERVER_PID1');
-        exit STATUS_SERVER_KILLED;
+        say("ERROR: $who_am_i The query ->$orig_query<- was met.\n" .
+            "ERROR: $who_am_i It creates conditions the " .  "validator cannot handle.\n" .
+            "ERROR: $who_am_i Will exit with exit status STATUS_ENVIRONMENT_FAILURE.");
+        exit STATUS_ENVIRONMENT_FAILURE;
     }
     # No repeat for
     # - non DML statements because
@@ -163,7 +162,6 @@ sub validate {
     #     expensive and its very unlikely that this catches ever a bug.
     #
     # ==> Repeat only SELECTs which harvested success on the first execution
-
 
     if ($orig_query !~ m{^\s*select}io) {
         say("DEBUG: $who_am_i No repetition for ->$orig_query<- which is not a SELECT. " .
