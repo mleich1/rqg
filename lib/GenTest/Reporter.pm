@@ -1,5 +1,5 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2018,2021 MariaDB Corporation Ab.
+# Copyright (c) 2018,2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -232,23 +232,25 @@ sub new {
         "client/RelWithDebInfo", "client/Debug",
         "client", "../client", "bin", "../bin"
 	) {
-        if (-e $reporter->serverVariable('basedir').'/'.$client_path) {
-            $reporter->[REPORTER_SERVER_INFO]->{'client_bindir'} = $reporter->serverVariable('basedir').'/'.$client_path;
+        if (-e $reporter->serverVariable('basedir') . '/' . $client_path) {
+            $reporter->[REPORTER_SERVER_INFO]->{'client_bindir'} =
+                                    $reporter->serverVariable('basedir') . '/' . $client_path;
             last;
 	    }
     }
 
-    # look for error log relative to datadir
-    foreach my $errorlog_path (
-        "../log/master.err",  # MTRv1 regular layout
-        "../log/mysqld1.err", # MTRv2 regular layout
-        "../mysql.err"        # DBServer::MySQL layout
-	) {
-        my $possible_path = File::Spec->catfile($reporter->serverVariable('datadir'),$errorlog_path);
-        if (-e $possible_path) {
-            $reporter->[REPORTER_SERVER_INFO]->{'errorlog'} = $possible_path;
-            last;
-        }
+    my $errorlog = $reporter->serverVariable('log_error');
+    if ($errorlog eq '') {
+        # If not set explicite than the default is '' and ....
+        # Look for the server error log above the datadir.
+        $errorlog = File::Basename::dirname($reporter->serverVariable('datadir')) . "/mysql.err";
+    }
+    if (-e $errorlog) {
+        # Unclear if after some minor cleanup needed
+        $reporter->[REPORTER_SERVER_INFO]->{'errorlog'} = $errorlog;
+    } else {
+        say("ERROR: $who_am_i The server error log '$errorlog' does not exist. Will return undef.");
+        return undef;
     }
 
     my $prng = GenTest::Random->new( seed => 1 );
@@ -359,7 +361,8 @@ sub findMySQLD {
     # Handling general basedirs and MTRv1 style basedir,
     # but trying not to search the entire universe just for the sake of it
     my @basedirs = ($reporter->serverVariable('basedir'));
-    if (! -e File::Spec->catfile($reporter->serverVariable('basedir'),'mysql-test') and -e File::Spec->catfile($reporter->serverVariable('basedir'),'t')) {
+    if (! -e File::Spec->catfile($reporter->serverVariable('basedir'),'mysql-test') and
+          -e File::Spec->catfile($reporter->serverVariable('basedir'),'t')) {
         # Assuming it's the MTRv1 style basedir
         @basedirs=(File::Spec->catfile($reporter->serverVariable('basedir'),'..'));
     }
