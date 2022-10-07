@@ -59,10 +59,6 @@
 # - server freeze ?
 #
 
-# FIXME:
-# 1. Disable the max-statement-time for all activity here or all reporters
-# 2. Multiply all timeouts with 1.5 for rr or valgrind runs
-
 package GenTest::Reporter::Deadlock1;
 
 require Exporter;
@@ -267,17 +263,19 @@ sub monitor_nonthreaded {
             say("ERROR: $who_am_i The type of the error got is unknown. " .
                 "Will exit with STATUS_INTERNAL_ERROR");
             exit STATUS_INTERNAL_ERROR;
-        }
-        if (STATUS_OK != server_dead($reporter)) {
+        } elsif (STATUS_SERVER_CRASHED == $return) {
+            say("ERROR: $who_am_i The connect attempt failed with STATUS_SERVER_CRASHED. " .
+                "Will exit with STATUS_SERVER_CRASHED.");
             exit STATUS_SERVER_CRASHED;
         } else {
+            say("ERROR: $who_am_i The connect attempt failed with $return.");
             # The DB server process is running and there are no signs of a server death in
             # the seerver error log.
             # Hence we have either
             # - a server freeze (STATUS_SERVER_DEADLOCKED) or
             # - the timeouts are too short.
             say("ERROR: $who_am_i Assuming a server freeze or too short timeouts. " .
-            "Will exit with STATUS_SERVER_DEADLOCKED later.");
+                "Will exit with STATUS_SERVER_DEADLOCKED later.");
             $reporter->kill_with_core;
             exit STATUS_SERVER_DEADLOCKED;
         }
