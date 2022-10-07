@@ -1,4 +1,5 @@
 # Copyright (c) 2008, 2010 Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -101,7 +102,7 @@ sub xml {
     #
     $writer->startTag('software');
 
-    # Note that the order of the tags under software->program is significant. 
+    # Note that the order of the tags under software->program is significant.
     # Some commented tags are part of XML spec but not implemented here yet.
 
     # <os>
@@ -135,7 +136,7 @@ sub xml {
     #<xsd:element name="commandline_options" type="cassiopeia:Options" minOccurs="0" form="qualified"/>
     #<xsd:element name="commandline" minOccurs="0" type="xsd:string" form="qualified" /> # alternative to the above
     $writer->endTag('program');
-    
+
     $writer->endTag('software');
 
     $writer->endTag('host');
@@ -152,7 +153,7 @@ sub getInfo()
 {
 
     # First, OS-independent stuff:
-    
+
     # Grab info from bzr, assuming current dir is randgen dir.
     # If not a bzr branch, information is undef.
     my $bzrinfo_randgen = GenTest::BzrInfo->new(
@@ -163,12 +164,12 @@ sub getInfo()
     # Update: Temporarily using revid as version (instead of revision) due to
     #         a "bug" in the XML schema where revision can only be an integer.
     #
-    #         TODO: Use revid as "revision" and revno as "version" once XML 
-    #               schema is fixed to accept "revision" tag as string (similar 
+    #         TODO: Use revid as "revision" and revno as "version" once XML
+    #               schema is fixed to accept "revision" tag as string (similar
     #               to build->revision).
     #
-    #         If the RQG starts to include a different version number, 
-    #         independent of the underlying version control system, we may want 
+    #         If the RQG starts to include a different version number,
+    #         independent of the underlying version control system, we may want
     #         to use that as version and instead not report revno (revid is better to
     #         use as revision due to its ability to uniquely identify a revision
     #         over time).
@@ -176,12 +177,12 @@ sub getInfo()
     #$harnessVersion = 'revno'.$bzrinfo_randgen->bzrRevno();
     #$harnessRevision = $bzrinfo_randgen->bzrRevisionId();
     $harnessVersion = $bzrinfo_randgen->bzrRevisionId();
-    
-    
+
+
     # lets see what OS type we have
     if (osLinux())
     {
-        
+
         # Get the CPU info
         $cpu = trim(`cat /proc/cpuinfo | grep -i "model name" | head -n 1 | cut -b 14-`);
         my $numOfP = trim(`cat /proc/cpuinfo | grep processor |wc -l`);
@@ -235,7 +236,7 @@ sub getInfo()
     }
     elsif(osSolaris())
     {
-        
+
         # Get the CPU info
         my $tmpVar = `/usr/sbin/psrinfo -v | grep -i "operates" | head -1`;
         ($cpu, my $speed) = split(/processor operates at/,$tmpVar);
