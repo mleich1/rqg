@@ -661,7 +661,10 @@ sub report {
             $info_m = "D5";
             $info = "INFO: $info_m The free space in '$workdir' ($workdir_free MB) $end_part";
             $load_status = LOAD_DECREASE;
-        } elsif (0 != int($pswpout)) {
+        } elsif (100 < int($pswpout)) {
+            # FIXME maybe:
+            # 100 < int($pswpout) --> LOAD_KEEP
+            # 300 < int($pswpout) --> LOAD_DECREASE
             $info_m = "D6";
             $info = "INFO: $info_m Paging ($pswpout) has been observed. This $end_part";
             $load_status = LOAD_DECREASE;
