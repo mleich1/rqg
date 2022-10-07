@@ -1,4 +1,4 @@
-#  Copyright (c) 2021 MariaDB Corporation Ab.
+#  Copyright (c) 2021, 2022 MariaDB Corporation Ab.
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -68,42 +68,61 @@ our $vardir;
 sub check_and_set_local_config {
 
     ($major_runid, $minor_runid, $vardir_type, my $batch) = @_;
+    my $who_am_i = Basics::who_am_i;
+
     if (4 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: " . Basics::who_am_i .
+        Carp::cluck("INTERNAL ERROR: $who_am_i" .
                     " Exact four parameters(major_runid, minor_runid, vardir_type, batch) need " .
                     "to get assigned. " . Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
     # Variants
     # --------
-    # major_runid | minor_runid | batch     | allowed
+    # major_runid | minor_runid | batch   | allowed |
+    # ------------+-------------+---------+-------------------------------------------------------
+    #           * |           * |   undef | no      | rqg_batch.pl replaces the undef with 2
+    #                                               | rqg.pl replaces the undef with 0 or 1
+    #                                               | check_and_set_local_config aborts if undef
+    # ------------+-------------+---------+-------------------------------------------------------
+    #         def |         def |     0|1 | no      |
+    # ------------+-------------+---------+-------------------------------------------------------
+    #         def |         def |       2 | yes     | RQG run with assigned major_runid and
+    #                                               | minor_runid initiated by rqg_batch.pl.
+    # ------------+-------------+---------+-------------------------------------------------------
+    #         def |       undef |       * | no
+    # ------------+-------------+---------+-------------------------------------------------------
+    #       undef |         def |       0 | yes     | RQG run stand alone with assigned
+    #                                               | minor_runid.
+    # ------------+-------------+---------+-------------------------------------------------------
+    #       undef |         def |       1 | no
+    # ------------+-------------+---------+-------------------------------------------------------
+    #       undef |       undef |       0 | yes     | RQG run stand alone with to be calculated
+    #                                               | minor_runid.
+    # ------------+-------------+---------+-------------------------------------------------------
+    #       undef |       undef |       1 | no
     # ------------+-------------+-----------+-------------------------------------------------------
-    #         def |         def | undef|0   | no
-    # ------------+-------------+-----------+-------------------------------------------------------
-    #         def |         def |       1   | yes
-    #                                       | RQG run with assigned runid (->minor_runid) initiated
-    #                                       | by rqg_batch.pl
-    # ------------+-------------+-----------+-------------------------------------------------------
-    #         def |       undef | undef|0|1 | no
-    # ------------+-------------+-----------+-------------------------------------------------------
-    #       undef |         def | undef|0   | yes RQG run stand alone or RQG Batch run with assigned runid.
-    # ------------+-------------+-----------+-------------------------------------------------------
-    #       undef |         def |       1   | no
-    # ------------+-------------+-----------+-------------------------------------------------------
-    #       undef |       undef | undef|0   | yes RQG run stand alone or RQG Batch run without assigned runid.
-    # ------------+-------------+-----------+-------------------------------------------------------
-    #       undef |       undef |   1       | no
+    #       undef |       undef |       2 | yes     | rqg_batch.pl
     #
     # Roughly
     # - If major_runid defined than the corresponding subdirectory must already exist.
     # - If major_runid not defined than it has no impact at all.
     # - If minor_runid not defined and set to timestamp or already defined than the corresponding
     #   subdirectory must be (re)creatable.
+    #
+    # The value assigned to batch is influenced but not identical to the call parameter --batch.
 
+    if (not defined $batch) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: $who_am_i" .
+                    " The variable \$batch is undef. " . Auxiliary::exit_status_text($status));
+        safe_exit($status);
+    } else {
+        say("DEBUG: $who_am_i The variable \$batch is ->$batch<-");
+    }
     if (not defined $minor_runid) {
         # Number of seconds since the Epoch, 1970-01-01 00:00:00 +0000 (UTC) has many advantages
-        # compared to fixed or user defined value because the time is monotonically increasing.
+        # compared to some fixed or user defined value because the time is monotonically increasing.
         # The "sleep 1" is for the unlikely but in reality (unit tests etc.) met case that some run
         # of the same or another RQG tool like rqg_batch.pl started and failed less than a
         # second before. And so both runs calculated the same value and that made trouble.
@@ -273,6 +292,9 @@ sub check_and_set_local_config {
             "INFO: build_thread          : '$build_thread'\n"                                      .
             "---------------------------------------------------------")                           ;
     }
+    # For debugging
+    # system("ls -ld /dev/shm/rqg*/* /data/rqg/* /data/results/*");
+    # system("ls -ld /dev/shm/rqg*/SINGLE_RQG/* /data/rqg/SINGLE_RQG/* /data/results/SINGLE_RQG/*");
 } # End sub check_and_set_local_config
 
 sub get_rqg_home {
@@ -378,10 +400,11 @@ sub help_vardir_type {
        "   Advantages:\n"                                                                          .
        "   - Most probably coverage for some filesystem type which is more likely used"            .
        " for production than 'tmpfs'.\n"                                                           .
-       "   - Filesystems on SSD and especially HDD are usually huge.\n"                            .
+       "   - Filesystems on SSD and especially HDD are usually huge except you assign some RAM"    .
+       " based filesystem."                                                                        .
        "   Disadvantages:\n"                                                                       .
        "   - In average less throughput and/or all CPU cores not heavy loaded gives in average "   .
-       "less good results.\n"                                                                      .
+       "less good results except you assign some RAM based filesystem.\n"                          .
        "   - In case the final device is a SSD than some risk to wear it out soon.\n\n"            .
        "Recommendation for RQG Batch:\n"                                                           .
        "   Have within the batch config file a section assigning something like\n"                 .
