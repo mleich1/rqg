@@ -407,7 +407,7 @@ Batch::check_and_set_batch_type($type);
 Local::check_and_set_rqg_home($rqg_home);
 
 # Read local.cfg and make the infrastructure down to <whatever>/<runid>.
-Local::check_and_set_local_config(undef, undef, undef, undef);
+Local::check_and_set_local_config(undef, undef, undef, 2);
 # Never use $vardir = Local::get_vardir();
 
 # In case rr is invoked and local.cfg contains some defined value rr_options_add than
