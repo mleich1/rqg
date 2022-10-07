@@ -596,12 +596,21 @@ if ($noarchiving) {
     say("INFO: Archiving of data of interesting RQG runs is enabled.");
     if ( STATUS_OK == Auxiliary::find_external_command('xz') ) {
     } else {
-        say("ERROR: The compressor 'xv' was not found.");
+        say("ERROR: The compressor 'xz' was not found.");
         $status = STATUS_ENVIRONMENT_FAILURE;
         safe_exit($status);
     }
 
     ######### Archive/Preserve the binaries by hardlinking
+    # Goals:
+    # 1. Be able to
+    #    - analyze the results of failing tests
+    #    - repeat the run of some testbattery
+    #    even if
+    #    - the MariaDB installation used during testing was deleted
+    #    - the archive of the MariaDB was deleted from the directy for archives of installations
+    # 2. Minimize storage space consumption.
+    #
     # The general directory for archives of binaries/archive of installations is in
     # $bin_arch_dir. Auxiliary::make_multi_runner_infrastructure has already
     # calculated its value, created that directory if missing and returned that value.
@@ -885,11 +894,15 @@ while($Batch::give_up <= 1) {
 
             say("COMMAND ->$command<-") if Auxiliary::script_debug("T5");
 
-            # Add options which need to be RQG worker specific in order to prevent collisions with
-            # other active RQG workers started by rqg_batch.pl too.
-            # ------------------------------------------------------------------------------------
-            # Remove tree $rqg_workdir if it already exists.
-            # Create tree $rqg_workdir.
+            # Remove tree $rqg_workdir if it already exists. Create tree $rqg_workdir.
+            # ------------------------------------------------------------------------
+            # In theory this could be done by the RQG worker instead.
+            # But would be that really better?
+            # 1. A failing rmtree or create file/directory points either to
+            #    - some serious problem in the RQG batch mechanics
+            #    - "illegal" activity of some user in the storage area of RQG batch
+            #    Both should lead immediate to running emergency_exit.
+            # 2. ...
             my $rqg_workdir = Local::get_results_dir . "/" . "$free_worker";
             # say("DEBUG: rqg_workdir ==>" . $rqg_workdir . "<==");
             if (STATUS_OK != Auxiliary::make_rqg_infrastructure($rqg_workdir)) {
@@ -908,6 +921,7 @@ while($Batch::give_up <= 1) {
             $runs_started++;
             if ($pid == 0) {
                 ########## Child == RQG Worker ##############################
+                $| = 1;
                 # Warning
                 # -------
                 # Anything written via "say" gets directed to STDERR and "lands" in the output
@@ -938,19 +952,18 @@ while($Batch::give_up <= 1) {
 
                 # make_path($workdir); All already done by the parent
 
-                # For experimenting get some delayed death of server.
-                # system ("/work_m/RQG_mleich1/killer.sh &");
                 setpgrp(0,0);
 
-                # For experimenting : Call some not existing command.
-                # $command = "/";
-
                 # For experimenting:
-                # In case we exit here than the parent will detect that the RQG worker has not
-                # taken over and perform an emergency_exit.
-                # safe_exit(0);
+                # - get some delayed death of server.
+                #   system ("/work_m/RQG_mleich1/killer.sh &");
+                # - Call some not existing command.
+                #   $command = "/";
+                # - In case we exit here than the parent will detect that the RQG worker has not
+                #   taken over and perform an emergency_exit.
+                #   safe_exit(0);
 
-                # For the case that $RQG_HOME occurs within the command.
+                # For the case that $RQG_HOME occurs within the command like for encryption keys.
                 $ENV{'RQG_HOME'} = $rqg_home;
 
                 my $rqg_build_thread = $build_thread + ($free_worker - 1);
@@ -1028,8 +1041,8 @@ while($Batch::give_up <= 1) {
 
                 if ($dryrun) {
                     say("LIST: ==>$command<==");
-                    # The parent waits for the take over of the RQG worker (rqg.pl) which is visible
-                    # per setting the phase to Auxiliary::RQG_PHASE_START.
+                    # The parent waits for the take over by the RQG worker which is visible per
+                    # the worker calls rqg.pl and that sets the phase to Auxiliary::RQG_PHASE_START.
                     # So we fake that here.
                     Batch::append_string_to_file($rqg_log,
                                                  "LIST: ==>$command<==\n");
@@ -1063,14 +1076,13 @@ while($Batch::give_up <= 1) {
                     # 1. Further preparations
                     # 2. Perform the RQG test via "system"
                     # 3. Verdict computation via "system"
-                    # 4. Archiving
+                    # 4. Archiving if required and cleanup
                     # compared to the alternative that we start the RQG runner via "exec" and that
                     # the RQG runner (like rqg.pl) computes the verdict and archives.
                     # Reason:
                     #    The RQG runner does no more need to check his own protocol
                     #    == Knowing the storage place in advance is not needed
                     #    == Whatever stderr/stdout redirection is a smaller problem
-                    #
                     # If ever bundling the stuff for checking exits status etc. in a routine than we need
                     #     $command, $?, $!, $who_am_i, script_debug_value W2
 
@@ -1134,6 +1146,9 @@ while($Batch::give_up <= 1) {
                         $verdict ne Verdict::RQG_VERDICT_IGNORE_STATUS_OK and
                         $verdict ne Verdict::RQG_VERDICT_IGNORE_UNWANTED  and
                         $verdict ne Verdict::RQG_VERDICT_IGNORE_STOPPED) {
+                        # The set of conditions above leads to "The result is of interest".
+                        # say("DEBUG: The result in $rqg_workdir is of interest -----------------");
+                        # say("find $rqg_workdir -follow");
                         if (STATUS_OK != Auxiliary::set_rqg_phase($rqg_workdir,
                                                         Auxiliary::RQG_PHASE_ARCHIVING)) {
                             safe_exit(STATUS_ENVIRONMENT_FAILURE);
@@ -1188,7 +1203,7 @@ while($Batch::give_up <= 1) {
                 # work well. It is currently not known how good these routines work on WIN.
                 # Caused by the possible presence of WIN we cannot poll for a change of the
                 # processgroup of the RQG worker. We just focus on 2. instead.
-                # Observation: 2018-08 10s were not sufficient on some box.
+                # Observation: 2018-08 10s were not sufficient on some box under heavy load.
                 my $max_waittime  = 30;
                 my $waittime_unit = 0.1;
                 my $start_time    = Time::HiRes::time();
@@ -1324,7 +1339,7 @@ say("INFO: Phase of job generation and bring it into execution is over. " .
 # We start with a moderate sleep time in seconds because
 # - not too much load intended ==> value minimum >= 0.2
 # - not too long because checks for bad states (partially not yet implemented) of the testing
-#   environment need to happen frequent enough ==> maximum <= 1,0
+#   environment need to happen frequent enough ==> maximum <= 1.0
 # As soon as the checks require in sum some significant runtime >= 1s the sleep should be removed.
 my $poll_time = 1;
 # Poll till none of the RQG workers is active
@@ -1470,8 +1485,8 @@ sub help() {
    "--config=<config file with path absolute or path relative to top directory of RQG install>\n"  .
    "      Assigning this file is mandatory.\n"                                                     .
    "--max_runtime=<n>\n"                                                                           .
-   "      Stop ongoing RQG runs if the total runtime in seconds has exceeded this value, give "    .
-   "a summary and exit.\n"                                                                         .
+   "      Stop all ongoing RQG runs if the total runtime in seconds has exceeded this value, "     .
+   "give a summary and exit.\n"                                                                    .
    "      (Default) " . DEFAULT_MAX_RUNTIME . "\n"                                                 .
    "--parallel=<n>\n"                                                                              .
    "      Maximum number of parallel RQG Workers performing RQG runs.\n"                           .
