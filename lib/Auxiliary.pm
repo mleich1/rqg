@@ -30,6 +30,7 @@ package Auxiliary;
 
 # use Runtime;
 
+
 use strict;
 use Basics;
 use GenTest::Constants;
@@ -241,10 +242,11 @@ sub make_rqg_infrastructure {
 # STATUS_FAILURE -- No success
 #
     my ($workdir) = @_;
+    my $who_am_i = Basics::who_am_i();
     if (1 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: " . Basics::who_am_i .
-                    " Exact two parameters(workdir, batch) need to get assigned. " .
+        Carp::cluck("INTERNAL ERROR: $who_am_i " .
+                    "Exact two parameters(workdir, batch) need to get assigned. " .
                     Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
@@ -1553,7 +1555,7 @@ sub measure_space_consumption {
         Carp::cluck("ERROR: Parameter (directory or file) does not exist.");
         return -2;
     }
-    my $cmd = "du -sk $directory | cut -f1";
+    my $cmd = "du -sk --dereference $directory | cut -f1";
     my $return = `$cmd`;
     if ($? == -1) {
         say("WARNING: '$cmd' failed to execute: $!");
@@ -1573,14 +1575,36 @@ sub measure_space_consumption {
 
 ####################################################################################################
 
+sub describe_object {
+    my ($object) = @_;
+    system ("ls -ld $object");
+    my $line = "DEBUG: object '$object' is";
+    if ($object eq '.' or $object eq '..') {
+        $line .= " point object.";
+    } else {
+        if      (-l $object) {
+            $line .= " symlink";
+        } elsif (-d $object) {
+            $line .= " directory";
+        } elsif (-f $object) {
+            $line .= " plain file";
+        } else {
+            $line .= " no symlink/file/directory";
+        }
+        $line .= " " . get_fs_type($object);
+    }
+    say($line . ".");
+    return STATUS_OK;
+}
+
 sub archive_results {
 
-# FIXME:
-# There seems to be no GNU tar for WIN. :(
+    my $who_am_i = Basics::who_am_i();
+    # say("DEBUG: $who_am_i --------------- begin");
 
     my ($workdir, $vardir) = @_;
     if (not -d $workdir) {
-        say("ERROR: RQG workdir '$workdir' is missing or not a directory.");
+        say("ERROR: $who_am_i RQG workdir '$workdir' is missing or not a directory.");
         return STATUS_FAILURE;
     }
     if (not -d $vardir) {
@@ -1649,7 +1673,7 @@ sub archive_results {
     system($cmd);
     $rc = $? >> 8;
     if ($rc != 0) {
-        say("ERROR: The command for archiving '$cmd' failed with exit status $rc");
+        say("ERROR: $who_am_i The command for archiving '$cmd' failed with exit status $rc");
         sayFile($archive_err);
         $status = STATUS_FAILURE;
     } else {
@@ -1660,6 +1684,7 @@ sub archive_results {
     sayFile($archive_err) if script_debug("A5");
     unlink $archive_err;
     system("sync -d $archive");
+    # say("DEBUG: $who_am_i --------------- end");
     return $status;
 }
 
@@ -2426,6 +2451,19 @@ sub lfill0 {
         $string = '0' . $string;
     }
     # say("DEBUG: lfilled string ->$string<-");
+    return $string;
+};
+
+sub dash_line {
+# Use case:
+# Print something well formed like
+# 2022-05-17T18:52:59 [1670068] INFO: <whatever text with non static elements like a path>
+# 2022-05-17T18:52:59 [1670068] ----------------------------------------------------------
+    my ($length) = @_;
+    my $string = '';
+    while (length($string) < $length) {
+        $string = $string . '-';
+    }
     return $string;
 };
 
