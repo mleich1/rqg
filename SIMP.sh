@@ -117,10 +117,10 @@ MAX_RUNTIME=72000
 # suffer from tmpfs full etc.
 # Testing tool | Programs            | Standard locations
 # -------------+---------------------+---------------------------
-# rqg_batch.pl | perl, mysqld,   rr  | /dev/shm/rqg/* /data/rqg/*
+# rqg_batch.pl | perl, mysqld,   rr  | /dev/shm/rqg*/* /data/rqg/*
 # MTR          | perl, mariadbd, rr  | /dev/shm/var*
 killall -9 perl mysqld mariadbd rr
-rm -rf /dev/shm/rqg/* /dev/shm/var* /data/rqg/*
+rm -rf /dev/shm/rqg*/* /dev/shm/var* /data/rqg/*
 
 # There should be usually sufficient space in VARDIR for just a few fat core files caused by ASAN.
 # Already the RQG runner will take care that everything important inside his VARDIR will be
