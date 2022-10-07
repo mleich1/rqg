@@ -1,6 +1,6 @@
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2020,2021 MariaDB Corporation Ab.
+# Copyright (c) 2020,2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -162,7 +162,8 @@ sub new {
                                      user => $self->[REPLMYSQLD_USER]);
 
         if (not defined $self->master) {
-            croak("Could not create master");
+            Carp::cluck("Could not create master. Will return undef.");
+            return undef;
         }
 
         my @slave_options;
@@ -193,7 +194,8 @@ sub new {
 
         if (not defined $self->slave) {
             $self->master->stopServer;
-            Carp::cluck("ERROR: Could not create slave");
+            Carp::cluck("ERROR: Could not create slave. Will return undef");
+            return undef;
         }
     }
 
