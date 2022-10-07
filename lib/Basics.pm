@@ -1,4 +1,4 @@
-#  Copyright (c) 2021 MariaDB Corporation Ab.
+#  Copyright (c) 2021, 2022 MariaDB Corporation Ab.
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@ package Basics;
 # Rules of thumb
 # --------------
 # - Failures caused by wrong shape of calling sub like wrong number of parameters should
-#   lead to exit with STATUS_INTERNAL_ERROR
+#   lead to exit with STATUS_INTERNAL_ERROR.
 # - Other failures should rather lead to corresponding return values so that the caller
 #   has a chance to fix a problem or clean up before aborting.
 # - Carp::cluck in case of failure is very useful in case the sub is called in many RQG
