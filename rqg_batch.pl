@@ -190,7 +190,7 @@ $discard_logs  = 0;
 # ------------
 # --no-log
 # Figure out what is does.
-# Printing the output of comninations.pl and also the output of the RQG runners to
+# Printing the output of combinations.pl and also the output of the RQG runners to
 # screen makes no sense. Too much of too mixed content.
 # ------------
 # --force how it works here is quite questionable in several aspects
@@ -407,6 +407,7 @@ Batch::check_and_set_batch_type($type);
 Local::check_and_set_rqg_home($rqg_home);
 
 # Read local.cfg and make the infrastructure down to <whatever>/<runid>.
+# ($major_runid, $minor_runid, $dbdir_type, my $batch)
 Local::check_and_set_local_config(undef, undef, undef, 2);
 # Never use $vardir = Local::get_vardir();
 
@@ -643,47 +644,34 @@ if ($noarchiving) {
         next if not defined $basedirs[$i];
         next if $basedirs[$i] eq '';
 
-        my $build_prt   = $basedirs[$i] . '/build.prt';
-        if (not -e $build_prt) {
-            say("WARN: No protocol of the build '$build_prt' found. " .
+        my $short_prot   = $basedirs[$i] . '/short.prt';
+        if (not -e $short_prot) {
+            say("WARN: No protocol of the build '$short_prot' found. " .
                 "Preserving of basedir content impossible.");
             say("HINT: Use buildscripts like 'util/bld_*.sh'.");
             next;
         }
-        say("INFO: Protocol of build '$build_prt' detected.");
-        my $pattern = 'BASENAME of the archive and protocol: ';
-        my $base_name = Auxiliary::get_string_after_pattern($build_prt, $pattern);
+        say("INFO: Protocol of build '$short_prot' detected.");
+        my $pattern = 'BASENAME of the archive and protocols: ';
+        my $base_name = Auxiliary::get_string_after_pattern($short_prot, $pattern);
         if (not defined $base_name) {
-            say("WARN: '$build_prt' does not contain a line with '$pattern'. " .
+            say("WARN: '$short_prot' does not contain a line with '$pattern'. " .
                 "Preserving of basedir content impossible.");
             say("HINT: Use buildscripts like 'util/bld_*.sh'.");
             next;
         }
         say("DEBUG: $pattern  $base_name");
 
-        my $s_prefix       = $bin_arch_dir . "/" . $base_name;
-        my $s_bin_arch_gz  = $s_prefix . '.tar.gz';
-        my $s_bin_arch_xz  = $s_prefix . '.tar.xz';
-        my $s_bin_arch;
-        my $s_bin_arch_prt = $s_prefix . '.prt';
+        my $s_prefix         = $bin_arch_dir . "/" . $base_name;
+        my $s_bin_arch       = $s_prefix . '.tar.xz';
+        my $s_bin_arch_short = $s_prefix . '.short';
 
-        my $l_prefix       = $workdir  . '/basedir' . $i;
-        my $l_bin_arch_gz  = $l_prefix . '.tar.gz';
-        my $l_bin_arch_xz  = $l_prefix . '.tar.xz';
-        my $l_bin_arch;
-        my $l_bin_arch_prt = $l_prefix . '.prt';
+        my $l_prefix         = $workdir  . '/basedir' . $i;
+        my $l_bin_arch       = $l_prefix . '.tar.xz';
+        my $l_bin_arch_prt   = $l_prefix . '.short';
 
-        if (-e $s_bin_arch_gz) {
-            $s_bin_arch = $s_bin_arch_gz;
-            $l_bin_arch = $l_bin_arch_gz
-        }
-        if (-e $s_bin_arch_xz) {
-            $s_bin_arch = $s_bin_arch_xz;
-            $l_bin_arch = $l_bin_arch_xz
-        }
-        if (not defined $s_bin_arch) {
-            say("WARN: No archive '$s_bin_arch_gz' or '$s_bin_arch_xz' found. " .
-                "Preserving of basedir content impossible.");
+        if (not -e $s_bin_arch) {
+            say("WARN: No archive '$s_bin_arch' found. Preserving of basedir content impossible.");
             say("HINT: Use buildscripts like 'util/bld_*.sh' or build like you want and take " .
                 "care that one of these archives exists.");
             next;
@@ -694,8 +682,8 @@ if ($noarchiving) {
             $status = STATUS_ENVIRONMENT_FAILURE;
             safe_exit($status);
         }
-        if (not link($s_bin_arch_prt, $l_bin_arch_prt)) {
-            say("ERROR: Hardlinking '$s_bin_arch_prt' to '$l_bin_arch_prt' failed: $!");
+        if (not link($s_bin_arch_short, $l_bin_arch_prt)) {
+            say("ERROR: Hardlinking '$s_bin_arch_short' to '$l_bin_arch_prt' failed: $!");
             $status = STATUS_ENVIRONMENT_FAILURE;
             safe_exit($status);
         }
@@ -950,7 +938,7 @@ while($Batch::give_up <= 1) {
                     safe_exit(4);
                 }
 
-                # make_path($workdir); All already done by the parent
+                # The parent has already created infrastructure like the $workdir.
 
                 setpgrp(0,0);
 
@@ -1008,7 +996,7 @@ while($Batch::give_up <= 1) {
                     "Memo2:   " . (defined $job[Batch::JOB_MEMO2] ? $job[Batch::JOB_MEMO2] : '<undef>') . "\n" .
                     "Memo3:   " . (defined $job[Batch::JOB_MEMO3] ? $job[Batch::JOB_MEMO3] : '<undef>') . "\n" .
                     "Cl_Snip: " . $command ;
-                if (STATUS_OK != Batch::append_string_to_file($rqg_job, $content)) {
+                if (STATUS_OK != Batch::append_string_to_file($rqg_job, $content . "\n")) {
                     say("ERROR when writing to $rqg_job");
                     $status = STATUS_ENVIRONMENT_FAILURE;
                     safe_exit($status);
@@ -1343,7 +1331,9 @@ say("INFO: Phase of job generation and bring it into execution is over. " .
 # As soon as the checks require in sum some significant runtime >= 1s the sleep should be removed.
 my $poll_time = 1;
 # Poll till none of the RQG workers is active
-while (Batch::reap_workers()) {
+while (Batch::count_active_workers()) {
+    Batch::reap_workers();
+    Batch::process_finished_runs();
     Batch::check_rqg_runtime_exceeded($max_rqg_runtime);
     Batch::process_finished_runs();
     say("DEBUG: At begin of loop waiting till all RQG worker have finished.")
@@ -1356,12 +1346,13 @@ while (Batch::reap_workers()) {
     # No "last if $Batch::give_up > 1;" because we want the Batch::reap_workers() with the cleanup.
     $poll_time = 0.1 if $Batch::give_up > 1;
     my $delay_start = Batch::check_resources();
-    last if $Batch::give_up > 1;
+    last if $Batch::give_up > 2;
     # 2. The assigned max_runtime is exceeded.
     Batch::check_runtime_exceeded($batch_end_time);
     $poll_time = 0.1 if $Batch::give_up > 1;
     sleep $poll_time;
 }
+
 # WARNING:
 # The loop begin above will cause all time that Batch::reap_workers gets executed.
 # But in case this returns 0 than we will not run the loop body and so Batch::process_finished_runs
@@ -1471,7 +1462,7 @@ sub help() {
    "--help_archiving\n"                                                                            .
    "      Information about how and when archives of the binaries used and results are made\n"     .
    "--help_sqltrace\n"                                                                             .
-   "      Information about how SQL tracing by RQG\n"                                              .
+   "      Information about client side SQL tracing by RQG\n"                                      .
    "--help_vardir_type\n"                                                                          .
    "      Information about the RQG option vardir_type\n"                                          .
    "--help_local\n"                                                                                .
@@ -1598,13 +1589,6 @@ sub help() {
    "     grammars, config files, workdir, vardir, ...\n"                                           .
    "  will be taken according to their setting with absolute path or relative to the current "     .
    "working directory.\n");
-
-# What is set to comment was somewhere in combinations.pl.
-# But rqg.pl will handle the number of servers and the required basedirs too and most hopefully
-# better.
-#  foreach my $s (1..$servers) {
-#     $command .= " --basedir" . $s . "=" . $basedirs[$s-1] . " " if $basedirs[$s-1] ne '';
-#  }
 
 }
 
