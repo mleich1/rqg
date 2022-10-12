@@ -2,7 +2,7 @@
 
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2016, 2021 MariaDB Corporation Ab
+# Copyright (c) 2016, 2022 MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -542,6 +542,7 @@ sub doGenTest {
         say("Killing (KILL) remaining worker processes with pid $worker_pid...");
         kill(9, $worker_pid);
     }
+    say("INFO: total_status : $total_status before inspecting reporters.");
 
     if ($reporter_died == 0) {
         # Wait for periodic process to return the status of its last execution.
