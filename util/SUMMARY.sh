@@ -29,11 +29,22 @@ fi
 
 set -u
 
-NUM_LOGS=`ls -ld "$WRK_DIR"/*.log | wc -l`
+# Examples of RQG log name:
+#     - old layout    /data/results/1654696701/000001.log
+#     - new layout    /data/results/1654696701/000001/rqg.log
+#
+# Directory names consisting of less than six digits/no zero at begin
+# belong to ongoing RQG runs.
+# Example: /data/results/1654696701/1
+#
+set +e
+NUM_LOGS=`ls -d "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9]/rqg.log \
+"$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9].log 2> /dev/null | wc -l `
+set -e
 if [ $NUM_LOGS -eq 0 ]
 then
-   echo "The directory '$WRK_DIR' does not contain files ending with '.log'"
-   exit
+   echo "The directory '$WRK_DIR' does not contain logs of finished RQG runs."
+   exit 1
 fi
 
 TMP_RESULT="$WRK_DIR""/result.tmp"
@@ -71,43 +82,69 @@ echo '--------------------------------------------------------------------------
 echo "INFO: The remainings of RQG runs being not of interest are already deleted."      \
                                                                                  | tee -a "$NEW_RESULT"
 cat "$NEW_RESULT"                                                                      >> "$NEW_SETUP"
-# ~ 1s per rqg log
-for log_file in "$WRK_DIR"/*.log
-do
-    INFO=`perl verdict.pl --verdict_config=$RQG_DIR/Verdict_tmp.cfg --log="$log_file" 2>&1 \
-          | egrep ' Verdict: ' | sed -e 's/^.* Verdict: .*, Extra_info: //g'`
-    ARCH="$WRK_DIR""/"` basename $log_file '.log'`
-    # echo "->$ARCH<-"
-    if [ "$ARCH" != "" ]
-    then
-        if [ -e "$ARCH"".tar.gz" ]
-        then
-            ARCH="$ARCH"".tar.gz"
-        elif [ -e "$ARCH"".tar.xz" ]
-        then
-            ARCH="$ARCH"".tar.xz"
-        elif [ -e "$ARCH"".tgz" ]
-        then
-            ARCH="$ARCH"".tgz"
-        else
-            ARCH=''
-        fi
-    fi
-    if [ "$ARCH" != "" ]
-    then
-        SIZE=`du -k $ARCH 2>/dev/null | cut -f1`
-        ARCH="$ARCH $SIZE""KB"
-    fi
-    echo "$INFO        $log_file    $ARCH"                                             >> "$TMP_RESULT"
 
-    SLF=`basename $log_file`
-    # Example
-    #^ignore_blacklist | STATUS_OK | --gendata=conf... --no_mask | 1207 | 001206.log
-    SETUP=`grep $SLF "$WRK_DIR"/setup.txt | sed -e 's/^.* | S.* | \(--.*\)/| \1/g'`
-    echo "$INFO $SETUP"                                                                >> "$TMP_SETUP"
+function process_log()
+{
+    # echo "Function Processing ->""$LOG_FILE""<-"
+    INFO1=`perl verdict.pl --verdict_config=$RQG_DIR/Verdict_tmp.cfg --log="$LOG_FILE" 2>&1 \
+          | egrep ' Verdict: '`
+    INFO=`echo "$INFO1" | sed -e 's/^.* Verdict: .*, Extra_info: //g'`
+    VAL=`echo "$INFO1" | grep 'Verdict: ignore' | wc -l`
+
+    DIR_NAME=`dirname "$LOG_FILE"`
+
+#   ARCH   -- tar archive   In case of old layout maybe with rr trace.
+#   OBJECT -- Directory(new layout) or file(oldlayout) to be inspected with "du"
+#   SLF    -- Search pattern for finding the righ line in setup.txt
+
+    if   [ "$LOG_FILE" = "$DIR_NAME""/rqg.log" ]
+    then
+        ARCH="$DIR_NAME""/archive.tar.xz"
+        OBJECT="$DIR_NAME"
+        SLF="$DIR_NAME"
+    else
+        ARCH="$WRK_DIR""/"`basename -s log "$LOG_FILE"`"tar.xz"
+        OBJECT="$ARCH"
+        SLF=`basename "$LOG_FILE"`
+    fi
+    if [ $VAL -eq 0 ]
+    then
+        SIZE_ALL=`du -sk "$OBJECT" 2>/dev/null | cut -f1`
+        LINE_PART="$ARCH"" ""$SIZE_ALL"" KB"
+        if [ ! -e "$ARCH" ]
+        then
+            LINE_PART="<Archive deleted>"
+        fi
+        echo "$INFO""        ""$LOG_FILE""    ""$LINE_PART"                      >> "$TMP_RESULT"
+
+        # Example
+        #^ignore_blacklist | STATUS_OK | --gendata=conf... --no_mask | 1207 | 001206.log
+        SETUP=`grep "$SLF" "$WRK_DIR"/setup.txt | sed -e 's/^.* | S.* | \(--.*\)/| \1/g'`
+        echo "$INFO $LOG_FILE $SETUP"                                            >> "$TMP_SETUP"
+    fi
+    # sleep 1
+    # ACTIVE=`ps -elf | grep '/bin/bash ./SUMMARY.sh' | wc -l`
+    # echo "processor $RUNNING finished, currently active '/bin/bash ./SUMMARY.sh' : $ACTIVE"
+}
+
+RUNNING=0
+# ~ 1s elapsed time per rqg log
+for LOG_FILE in `ls -d "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9]/rqg.log \
+                       "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9].log 2>/dev/null`
+do
+    if [ $RUNNING -ge 10 ]
+    then
+        wait
+        RUNNING=0
+    fi
+    RUNNING=$(($RUNNING + 1))
+    # echo "RUNNING: ""$RUNNING"
+    # echo "Processing ->""$LOG_FILE""<-"
+    process_log "$LOG_FILE" &
 done
+wait
 sort "$TMP_RESULT"                                                               | tee -a "$NEW_RESULT"
 rm -f "$TMP_RESULT"
-sort "$TMP_SETUP"                                                                      >> "$NEW_SETUP"
+sort "$TMP_SETUP"                                                                >> "$NEW_SETUP"
 rm -f "$TMP_SETUP"
 
