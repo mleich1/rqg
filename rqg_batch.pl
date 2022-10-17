@@ -512,17 +512,6 @@ if (not defined $parallel) {
 }
 Batch::set_workers_range($parallel, $workers_mid, $workers_min);
 
-
-# $build_thread is valid for the rqg_batch.pl run.
-# The corresponding build_thread of the single RQG runs get calculated on the fly and than glued
-# to the RQG call.
-$build_thread = Auxiliary::check_and_set_build_thread($build_thread);
-if (not defined $build_thread) {
-    $status = STATUS_ENVIRONMENT_FAILURE;
-    say("ERROR: check_and_set_build_thread failed. " . Auxiliary::exit_status_text($status));
-    safe_exit($status);
-}
-
 if (defined $gendata) {
     $cl_end .= " --gendata=$gendata";
     if ($gendata ne '' and not -f $gendata) {
@@ -617,27 +606,32 @@ if ($noarchiving) {
     # calculated its value, created that directory if missing and returned that value.
     #
     # Description of concept by example:
-    # 1. Write whatever important information (git show, git diff, cmake ...) to some file build.prt
-    # 2. <source tree dirs>/10.5
-    #        origin/10.5 was once cloned to here
-    # 3. /dev/shm/build_dir
-    #        Make here some out of source build with debug based on <source tree dirs>/10.5 and
-    #        INSTALL_PREFIX=<whatever>/10.5_debug
-    #        make install
-    # 4. cd <whatever>/10.5_debug
-    #    tar <compressor options> -cf <RQG>/storage/binarchs/bin_arch.<TAR> .
-    #    Determine the md5sum of <RQG>/storage/binarchs/bin_arch.<TAR> and
-    #    write it into build.prt
-    # 5. cp build.prt to <RQG>/storage/binarchs/build.prt
-    #    cp build.prt to <whatever>/10.5_debug/build.prt
-    # 6. mv <RQG>/storage/binarchs/bin_arch.<TAR> <RQG>/storage/binarchs/<build_date>.<TAR>
-    #    mv <RQG>/storage/binarchs/build.prt      <RQG>/storage/binarchs/<build_date>.prt
-    # So the binaries used during the batch of RQG runs can be preserved by hard linking.
-    # Extract the build_date from of <whatever>/10.5_debug/build.prt.
-    # RQG batch workdir | filesystem | <RQG>/storage/binarchs
-    # basedir<n>.<TAR>  | inode <A>  | <build_date>.<TAR>
-    # basedir<n>.prt    | inode <B>  | <build_date>.prt
-    # <TAR> will be either tar.gz or tar.xz
+    # 1. cd <source tree dirs>
+    #    git clone https://github.com/MariaDB/server.git 10.8
+    #    cd 10.8
+    #    git checkout origin/10.8
+    #    Maybe apply patches.
+    #    bld_asan.sh 10.8
+    # 2. Get after the build
+    #    - <directory for installed binaries>/10.8_asan with some installed MariaDB
+    #      and the two additional files
+    #      short.prt -- important (git show, git diff, cmake ...) information only
+    #      build.prt -- very detailed information about the build
+    #    - within the directory for archived binaries some
+    #      - Compressed archive of the directory with the installation
+    #        10.8_asan_1653043446.tar.xz
+    #      - Compressed version of build.prt
+    #        10.8_asan_1653043446.prt.xz
+    #      - Copy of short.prt
+    #        10.8_asan_1653043446.short
+    # 3. rqg_batch.pl .... /Server_bin/10.8_asan
+    #    Look into /Server_bin/10.8_asan/short.prt for the prefix of the archve stuff.
+    #    In the current case its '10.8_asan_1653043446'.
+    #    Make hardlinks
+    #    RQG batch workdir | filesystem | <directory with archives of installed binaries>
+    #    basedir<n>.tar.xz | inode <A>  | 10.8_asan_1653043446.tar.xz
+    #    basedir<n>.short  | inode <B>  | 10.8_asan_1653043446.short
+    #
     #######################################################
 
     foreach my $i (1..3) {
@@ -954,10 +948,14 @@ while($Batch::give_up <= 1) {
                 # For the case that $RQG_HOME occurs within the command like for encryption keys.
                 $ENV{'RQG_HOME'} = $rqg_home;
 
-                my $rqg_build_thread = $build_thread + ($free_worker - 1);
-                say("DEBUG: [$free_worker] setting RQG build thread to $rqg_build_thread.")
-                    if Auxiliary::script_debug("T6");
-                $command .= " --mtr-build-thread=$rqg_build_thread";
+                # What follows is no more needed because
+                # rqg.pl --batch ... --minor_runid=$free_worker performs
+                # 1. "Tell" local.pm the minor_runid (==$free_worker)
+                # 2. local.pm computes based on that and content in local.cfg the build_thread
+                # 3. rqg.pl "asks" local.pm for the build_thread to be used
+                # my $rqg_build_thread = $build_thread + ($free_worker - 1);
+                # $command .= " --mtr-build-thread=$rqg_build_thread";
+
                 $command .= " --batch";
 
                 if (defined $rr) {

@@ -47,13 +47,12 @@ if (not -e $rqg_home . "/lib/GenTest.pm") {
     exit 2;
 }
 
-
 # How many characters of each argument to a function to print.
 $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
 $Carp::MaxArgNums= 8;
 
-use constant RQG_RUNNER_VERSION  => 'Version 4.0.5 (2022-04)';
+use constant RQG_RUNNER_VERSION  => 'Version 4.0.6 (2022-09)';
 use constant STATUS_CONFIG_ERROR => 199;
 
 use strict;
@@ -174,7 +173,7 @@ if (not GetOptions(
     'basedir3=s'                  => \$basedirs[3],
 #   'basedir=s@'                 => \@basedirs,
     'vardir_type:s'               => \$vardir_type,
-    'vardir=s'                    => \$vardirs[0],
+#   'vardir=s'                    => \$vardirs[0], # Computed by lib/Local.pm and used internal only
 #   'vardir1=s'                   => \$vardirs[1], # used internal only
 #   'vardir2=s'                   => \$vardirs[2], # used internal only
 #   'vardir3=s'                   => \$vardirs[3], # used internal only
@@ -182,7 +181,6 @@ if (not GetOptions(
     'debug-server1'               => \$debug_server[1],
     'debug-server2'               => \$debug_server[2],
     'debug-server3'               => \$debug_server[3],
-    #'vardir=s@'                  => \@vardirs,
     'rpl_mode=s'                  => \$rpl_mode,
     'rpl-mode=s'                  => \$rpl_mode,
     'engine=s'                    => \$engine[0],
@@ -244,7 +242,7 @@ if (not GetOptions(
     'wait-for-debugger'           => \$wait_debugger,
     'start-dirty'                 => \$start_dirty,
     'filter=s'                    => \$filter,
-    'mtr-build-thread=i'          => \$build_thread,
+#   'mtr-build-thread=i'          => \$build_thread, # Computed based on local.cfg and ...
     'sqltrace:s'                  => \$sqltrace,
     'logfile=s'                   => \$logfile,
     'logconf=s'                   => \$logconf,
@@ -282,7 +280,7 @@ if ( defined $help_sqltrace) {
     SQLtrace::help();
     exit STATUS_OK;
 }
-if ( defined $help_vardir_type) {
+if (defined $help_vardir_type) {
     Local::help_vardir_type();
     exit STATUS_OK;
 }
@@ -299,13 +297,14 @@ $duration =        $default_duration        if not defined $duration;
 $max_gd_duration = $default_max_gd_duration if not defined $max_gd_duration;
 
 $batch = 0 if not defined $batch;
-if ($batch != 0) {
+if (defined $batch and $batch != 0) {
     say("DEBUG: The RQG run seems to be under control of RQG Batch.");
     if (not defined $major_runid) {
         say("ERROR: \$batch : $batch but major_runid is undef");
         safe_exit(STATUS_INTERNAL_ERROR);
     }
 } else {
+    $batch = 0;
     say("DEBUG: This seems to be a stand alone RQG run.");
 }
 if (defined $major_runid) {
@@ -332,8 +331,12 @@ Local::check_and_set_local_config($major_runid, $minor_runid, $vardir_type, $bat
 
 $workdir = Local::get_results_dir();
 # say("DEBUG: workdir ->" . $workdir . "<-");
+# Example from RQG stand alone run:
+# DEBUG: workdir ->/data/results/SINGLE_RQG<-
 $vardirs[0] = Local::get_vardir;
 # say("DEBUG: vardirs[0] ->" . $vardirs[0] . "<-");
+# Example from RQG stand alone run:
+# DEBUG: vardirs[0] ->/dev/shm/rqg_ext4/SINGLE_RQG<-
 
 my $result;
 if (not $batch) {
@@ -356,9 +359,10 @@ if ($result) {
 # Jump into $vardirs[0]).
 # Main reason: Clients which fail should not dump core files direct into $RQG_HOME.
 if (not chdir($vardirs[0])) {
+    my $status = STATUS_ENVIRONMENT_FAILURE;
     say("INTERNAL ERROR: chdir to '$vardirs[0]' failed with : $!\n" .
         "         Will return STATUS_INTERNAL_ERROR.");
-    return STATUS_INTERNAL_ERROR;
+    safe_exit($status);
 }
 
 say("INFO: RQG workdir : '$workdir' and infrastructure is prepared.");
@@ -553,15 +557,10 @@ if (defined $filter) {
     }
 }
 
-#
+# Local::get_build_thread returns a build_thread calculated based on local.cfg
+# and minor_runid.
+$build_thread = Local::get_build_thread;
 # Calculate master and slave ports based on MTR_BUILD_THREAD (MTR Version 1 behaviour)
-#
-$build_thread = Auxiliary::check_and_set_build_thread($build_thread);
-if (not defined $build_thread) {
-    my $status = STATUS_ENVIRONMENT_FAILURE;
-    say("$0 will exit with exit status " . status2text($status) . "($status)");
-    run_end($status);
-}
 
 # Experiment (adjust to actual MTR, 2019-08) begin
 # Reasons:
@@ -611,6 +610,8 @@ if ($rpl_mode eq Auxiliary::RQG_RPL_NONE) {
     $number_of_servers = 2;
 } elsif ($rpl_mode eq Auxiliary::RQG_RPL_RQG3) {
     $number_of_servers = 3;
+} elsif ($rpl_mode eq Auxiliary::RQG_RPL_GALERA) {
+    $number_of_servers = length($galera);
 } else {
     # Who lands here?
     $number_of_servers = 0;
@@ -639,9 +640,8 @@ say("INFO: Number of servers involved = $number_of_servers. (0 means unknown)");
 #       Server 2 uses $basedirs[2] (not assigned in command line but there was a basedir assigned
 #                                   and that was pushed to $basedirs[2])
 #    Would that be reasonable?
-# 7. vardir<whatever> assigned at commandline
-#    For the case that we want to have all servers on the current box only, than wouldn't is make
-#    sense to: Get one "top" vardir assigned and than RQG creates subdirs which get than used
+# 7. vardir<whatever> computed by lib/Local.pm based on content of local.cfg etc.
+#    Get one "top" vardir computed and than RQG creates subdirs which get than used
 #    for the servers.
 #    To be solved problem: What if the test should start with "start-dirty".
 #
@@ -1723,8 +1723,9 @@ if (0) {
 # - the test goes with whatever kind of replication which could be synchronized
 # than compare the server dumps for any differences.
 
+# Galera?
 if (($final_result == STATUS_OK)                         and
-    ($number_of_servers > 1 or $number_of_servers == 0)  and # 0 is Galera
+    ($number_of_servers > 1)                             and
     (not defined $upgrade_test or $upgrade_test eq '')   and
     # FIXME: Couldn't some slightly modified $rplsrv->waitForSlaveSync solve that?
     ($rpl_mode ne Auxiliary::RQG_RPL_STATEMENT_NOSYNC)   and
@@ -1851,9 +1852,24 @@ say("RESULT: The core of the RQG run ended with status " . status2text($final_re
 
 
 if ($final_result >= STATUS_CRITICAL_FAILURE) {
-    # If the status is already that bad it does not matter much if a SHUTDOWN runs smooth.
-    # And if we are running with rr than some fast abort of the server which does not harm
-    # the rr trace is ideal.
+    # Optimization:
+    # The status is already very bad and so its very unlikely that some maybe failing shutdown
+    # attempt in addition is of interest at all. --> Neither SHUTDOWN nor SIGTERM
+    #
+    # A fast killing of all servers + cleanup would reduce the current resource
+    # consumption significant.
+    #
+    # In case the server is already no more running than a harsh kill routine should not consume
+    # significant time or damage already collected information.
+    #
+    # In case of a running server
+    # - with rr tracing
+    #   SIGKILL causes some incomplete trace. --> Use SIGABRT or SIGSEGV
+    # - without rr tracing
+    #   SIGKILL will most probably not destroy important reachable information because there is
+    #   a too big timespan between detection of bad state and some SIGABRT or SIGSEGV sent followed
+    #   by the generation of a core file
+    #
     if (killServers() != STATUS_OK) {
         say("ERROR: Killing the server(s) failed somehow.");
     } else {
@@ -2043,11 +2059,6 @@ $0 - Run a complete random query generation (RQG) test.
 
     --basedir   : Specifies the base directory of the stand-alone MariaDB installation (location of binaries)
     --mysqld    : Options passed to the MariaDB server
-    --vardir    : vardir of the RQG run. The vardirs of the servers will get created within it.
-                  Depending on certain requirements it is recommended to use
-                  - a RAM based filesystem like tmpfs (/dev/shm/vardir) -- high IO speed but small filesystem
-                  - a non RAM based filesystem -- not that fast IO but usual big filesystem
-                  The default \$workdir/vardir is frequent not that optimal.
     --debug-server: Use mysqld-debug server
 
     Options related to two MariaDB servers
@@ -2059,8 +2070,9 @@ $0 - Run a complete random query generation (RQG) test.
     --mysqld2   : Options passed to the second MariaDB server
     --debug-server1: Use mysqld-debug server for MariaDB server1
     --debug-server2: Use mysqld-debug server for MariaDB server2
-    The options vardir1 and vardir2 are no more supported.
-    RQG places the vardirs of the servers inside of the vardir of the RQG run (see --vardir).
+    The options --vardir* are no more supported.
+    RQG computes the location of the vardir of the RQG run based on --vardir_type and 'local.cfg'.
+    The vardirs of the servers will be subdirectories of that vardir of the RQG run.
 
     General options
 
