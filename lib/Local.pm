@@ -169,6 +169,13 @@ sub check_and_set_local_config {
             safe_exit($status);
         }
 
+        if (not defined $build_thread) {
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: The variable \$build_thread is undef. " . $message_correct .
+                Auxiliary::exit_status_text($status));
+            safe_exit($status);
+        }
+
         sub check_dir {
             my ($dir, $text) = @_;
             if (not -d $dir) {
@@ -242,15 +249,16 @@ sub check_and_set_local_config {
                 safe_exit($status);
             }
         } else {
+            $build_thread = $build_thread + $minor_runid - 1;
             check_dir($results_dir, "The directory '$results_dir' should already exist.");
         }
 
-        if (not defined $build_thread) {
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: The variable \$binarch_dir is undef. " . $message_correct .
-                Auxiliary::exit_status_text($status));
-            safe_exit($status);
-        }
+#       if (not defined $build_thread) {
+#           my $status = STATUS_ENVIRONMENT_FAILURE;
+#           say("ERROR: The variable \$binarch_dir is undef. " . $message_correct .
+#               Auxiliary::exit_status_text($status));
+#           safe_exit($status);
+#       }
 
         if (not defined $vardir_type) {
             $vardir_type = DBDIR_TYPE_FAST;
@@ -362,6 +370,10 @@ sub get_results_dir {
 
 sub get_rqg_rr_add {
     return $rqg_rr_add;
+}
+
+sub get_build_thread {
+    return $build_thread;
 }
 
 sub help_local {
