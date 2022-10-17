@@ -35,6 +35,7 @@ use strict;
 use Basics;
 use GenTest::Constants;
 use GenTest;
+use Local;
 use GenTest::Grammar;
 use File::Copy;
 use Cwd;
@@ -1350,7 +1351,7 @@ sub get_basedir_info {
     }
 
     # Start with the most likely that its an install or an out of source build.
-    my $build_prt = $directory . "/build.prt";
+    my $build_prt = $directory . "/short.prt";
     if (-f $build_prt) {
         # say("DEBUG: Protocol of build '$build_prt' detected. Extracting some data ...");
         my $val= Auxiliary::get_scrap_after_pattern($build_prt, 'GIT_SHOW: ');
@@ -1617,7 +1618,7 @@ sub archive_results {
         $compress_option = 'xz -0';
         $suffix          = 'tar.xz';
     } else {
-        say("ERROR: The compressor 'xz' was not found.");
+        say("ERROR: $who_am_i The compressor 'xz' was not found.");
         return STATUS_FAILURE;
     }
 
