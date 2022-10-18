@@ -1,6 +1,6 @@
 # Copyright (C) 2009, 2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018, 2021 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
