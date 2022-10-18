@@ -94,24 +94,32 @@ then
 fi
 set +e
 
-# The size of a testing campaign is controlled by four limiters.
-# --------------------------------------------------------------
+# The size of a testing campaign is controlled by up to five limiters.
+# --------------------------------------------------------------------
 # - the "exit" file   last_batch_workdir/exit
 #   This file does not exist after rqg_batch.pl was called.
 #   But as soon that file gets created by the user or similar rqg_batch.pl will stop all RQG runs.
 # - a function in lib/Batch.pm
 #   Abort of testing as soon as some quota of failing tests gets exceeded.
 #   Focus: Bad Combinator config or tests, defect in code of RQG or tools, exceptional bad DB server
-# - Stop of testing as soon as MAX_RUNTIME <= current runtime of testing campaign.
+# - Stop of testing as soon the elapsed runtime of testing campaign exceeds the value assigned to
+#   --max_runtime or the default of 432000 (in seconds) = 5 days
+#   We set "--max_runtime=$MAX_RUNTIME" in the current script.
 #   Focus: Define the size of a testing campaign by a time related limit.
 #          This is important for running 'production' like QA.
 #          Per experience: total runtime < MAX_RUNTIME + 10s
-# - Stop of testing as soon as more than TRIALS RQG runs regular finished.
+# - Stop of testing as soon as the number of RQG runs regular finished exceeds the value assigned
+#   to --trials or the default 99999.
+#   We set "--trials=$TRIALS" in the current script.
 #   Regular means: Not stopped by rqg_batch.pl because of whatever internal reason.
 #   Focus: Bad Combinator config or tests, defect in code of RQG or tools, exceptional bad DB server
 #          and experiments
+# - Stop of testing as soon as n RQG runs finished with the verdict 'replay'.
+#   It is not recommended to set --stop_on_replay at all in the current script because BATCH.sh is
+#   used for QA production. Use REPLAY_BATCH.sh instead.
+#
 TRIALS=10000
-MAX_RUNTIME=18000
+MAX_RUNTIME=27000
 
 
 # Only one temporary 'God' (rqg_batch.pl vs. concurrent MTR, single RQG or whatever) on testing box
@@ -123,10 +131,10 @@ MAX_RUNTIME=18000
 # suffer from tmpfs full etc.
 # Testing tool | Programs            | Standard locations
 # -------------+---------------------+---------------------------
-# rqg_batch.pl | perl, mysqld,   rr  | /dev/shm/rqg/* /data/rqg/*
+# rqg_batch.pl | perl, mysqld,   rr  | /dev/shm/rqg*/* /data/rqg/*
 # MTR          | perl, mariadbd, rr  | /dev/shm/var*
 killall -9 perl mysqld mariadbd rr
-rm -rf /dev/shm/rqg/* /dev/shm/var* /data/rqg/*
+rm -rf /dev/shm/rqg*/* /dev/shm/var* /data/rqg/*
 
 # There should be usually sufficient space in VARDIR for just a few fat core files caused by ASAN.
 # Already the RQG runner will take care that everything important inside his VARDIR will be
