@@ -1629,13 +1629,22 @@ sub execute {
              my ($ct_table, $ct_Op, $ct_Msg_type, $ct_Msg_text) = @{$data_elem};
              next if ('status' eq $ct_Msg_type or 'note' eq $ct_Msg_type);
              if ('Warning' eq $ct_Msg_type and $ct_Msg_text =~ /InnoDB: /i) {
-                 say("ERROR: The query '$query' passed but has a result set line\n" .
-                     "ERROR: ->$line<-.\n" .
-                     "ERROR: Will exit with status STATUS_DATABASE_CORRUPTION.");
-                 # Without knowing the server process we can only request a SHUTDOWN.
-                 # But during experiments that caused reporting finally a DEADLOCK.
-                 # $dbh->do("SHUTDOWN");
-                 exit STATUS_DATABASE_CORRUPTION;
+                 if ($ct_Msg_text =~ /InnoDB: Unpurged clustered index record/          or
+                     $ct_Msg_text =~ /nnoDB: Clustered index record with stale history/ or
+                     $ct_Msg_text =~ /InnoDB: Clustered index record not found for index/ )
+                 {
+                     # Per Marko:
+                     # Only if CHECK ... EXTENDED + harmless/to be expected.
+                     say("DEBUG: Harmless ->$line<- observed.");
+                 } else {
+                     say("ERROR: The query '$query' passed but has a result set line\n" .
+                         "ERROR: ->$line<-.\n" .
+                         "ERROR: Will exit with status STATUS_DATABASE_CORRUPTION.");
+                     # Without knowing the server process we can only request a SHUTDOWN.
+                     # But during experiments that caused reporting finally a DEADLOCK.
+                     # $dbh->do("SHUTDOWN");
+                     exit STATUS_DATABASE_CORRUPTION;
+                 }
              }
          }
       }

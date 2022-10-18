@@ -170,9 +170,8 @@ our $grammars =
   '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --mysqld=--transaction-isolation=SERIALIZABLE    --validator=SelectStability ',
   '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --mysqld=--transaction-isolation=REPEATABLE-READ --validator=SelectStability ',
   '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --mysqld=--transaction-isolation=SERIALIZABLE    --validator=SelectStability ',
-  #     conf/engines/engine_stress.yy switches the ISOLATION LEVEL around
-  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --validator=SelectStability ',
-  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --validator=SelectStability ',
+  #     conf/engines/engine_stress.yy switches the ISOLATION LEVEL around and that does not fit to the capabilities of SelectStability
+  # '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --validator=SelectStability ',
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --mysqld=--transaction-isolation=REPEATABLE-READ --validator=SelectStability ',
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --mysqld=--transaction-isolation=SERIALIZABLE    --validator=SelectStability ',
   # DDL-DDL, DDL-DML, DML-DML and KILL QUERY/SESSION etc.
