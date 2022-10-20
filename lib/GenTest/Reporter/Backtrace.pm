@@ -1,5 +1,5 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2018-2021 MariaDB Corporation Ab.
+# Copyright (c) 2018-2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -45,10 +45,10 @@ my @end_line_patterns = (
     'core dumped',
     '^Segmentation fault$',
     'mysqld: Shutdown complete$',
+    '^Killed$'
 #   Next line is NOT an end_line_pattern. Even after 360s waiting the server process might
 #   be alive and the core file not yet written.
 #   'mysqld got signal',
-    '^Killed$'
 );
 
 
@@ -334,7 +334,7 @@ sub nativeReport {
         say("ERROR: $who_am_i The RQG runner has not set RQG_HOME in environment. Will return " .
             "STATUS_ENVIRONMENT_FAILURE, undef");
         say("INFO: $who_am_i ----- nativeReport ----------- End");
-        return STATUS_ENVIRONMENT_FAILURE, undef;
+        return STATUS_INTERNAL_ERROR, undef;
     }
     # Note:
     # The message within the server error log "Writing a core file..." describes the intention
