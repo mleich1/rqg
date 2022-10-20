@@ -263,12 +263,10 @@ sub monitor_nonthreaded {
             say("ERROR: $who_am_i The type of the error got is unknown. " .
                 "Will exit with STATUS_INTERNAL_ERROR");
             exit STATUS_INTERNAL_ERROR;
-        } elsif (STATUS_SERVER_CRASHED == $return) {
-            say("ERROR: $who_am_i The connect attempt failed with STATUS_SERVER_CRASHED. " .
-                "Will exit with STATUS_SERVER_CRASHED.");
+        }
+        if (STATUS_OK != server_dead($reporter)) {
             exit STATUS_SERVER_CRASHED;
         } else {
-            say("ERROR: $who_am_i The connect attempt failed with $return.");
             # The DB server process is running and there are no signs of a server death in
             # the seerver error log.
             # Hence we have either
