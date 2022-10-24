@@ -1,5 +1,5 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
-# Copyright (C) 2016-2020 MariaDB Corporation Ab.
+# Copyright (C) 2016-2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -21,30 +21,31 @@ package GenTest::ReporterManager;
 @ISA = qw(GenTest);
 
 use strict;
+use Basics;
 use GenTest;
 use GenTest::Constants;
 use GenTest::Reporter;
 
-use constant MANAGER_REPORTERS		=> 0;
+use constant MANAGER_REPORTERS    => 0;
 1;
 
 sub new {
 # "new" itself does not seem to cause running a connect.
-	my $class = shift;
-	my $manager = $class->SUPER::new({
-		reporters => MANAGER_REPORTERS
-	}, @_);
+    my $class = shift;
+    my $manager = $class->SUPER::new({
+        reporters => MANAGER_REPORTERS
+    }, @_);
 
-	$manager->[MANAGER_REPORTERS] = [];
+    $manager->[MANAGER_REPORTERS] = [];
 
-	return $manager;
+    return $manager;
 }
 
 sub monitor {
-	my ($manager, $desired_type) = @_;
+    my ($manager, $desired_type) = @_;
 
     my $who_am_i = "GenTest::ReporterManager::monitor:";
-	my $max_result = STATUS_OK;
+    my $max_result = STATUS_OK;
 
     foreach my $reporter (@{$manager->reporters()}) {
         if ($reporter->type() & $desired_type) {
@@ -75,30 +76,35 @@ sub monitor {
 }
 
 sub report {
-	my ($manager, $desired_type) = @_;
+# This will get executed at the end of the phase GenTest after all RQG threads
+# have already finished.
+    my ($manager, $desired_type) = @_;
 
-	my $max_result = STATUS_OK;
-	my @incidents;
+    my $who_am_i =   Basics::who_am_i();
 
-	foreach my $reporter (@{$manager->reporters()}) {
-		if ($reporter->type() & $desired_type) {
-			my @reporter_results = $reporter->report();
-			my $reporter_result = shift @reporter_results;
-			push @incidents, @reporter_results if $#reporter_results > -1;
+    my $max_result = STATUS_OK;
+    my @incidents;
+
+    foreach my $reporter (@{$manager->reporters()}) {
+        if ($reporter->type() & $desired_type) {
+            my @reporter_results = $reporter->report();
+            my $reporter_result = shift @reporter_results;
+            push @incidents, @reporter_results if $#reporter_results > -1;
+            say("DEBUG: $who_am_i Reporter '" . $reporter->name() . "' reported $reporter_result.");
             if ($reporter_result >= STATUS_CRITICAL_FAILURE) {
-               say("ERROR: ReporterManager : Reporter '" . $reporter->name() .
+               say("ERROR: $who_am_i Reporter '" . $reporter->name() .
                    "' reported $reporter_result ");
             }
-			$max_result = $reporter_result if $reporter_result > $max_result;
-		}
-	}
-	return $max_result, @incidents;
+            $max_result = $reporter_result if $reporter_result > $max_result;
+        }
+    }
+    return $max_result, @incidents;
 }
 
 sub addReporter {
     my ($manager, $reporter, $params) = @_;
 
-    my $who_am_i = "ReporterManager::addReporter:";
+    my $who_am_i = Basics::who_am_i();
     if (ref($reporter) eq '') {
         my $reporter_name = $reporter;
         my $module = "GenTest::Reporter::" . $reporter;
@@ -123,7 +129,7 @@ sub addReporter {
 }
 
 sub reporters {
-	return $_[0]->[MANAGER_REPORTERS];
+    return $_[0]->[MANAGER_REPORTERS];
 }
 
 1;
