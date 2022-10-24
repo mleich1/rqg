@@ -165,10 +165,10 @@ $SIG{TERM} = sub { Batch::emergency_exit(STATUS_OK, "INFO: SIGTERM or SIGINT rec
                                          "all RQG worker and exit without cleanup.") };
 $SIG{CHLD} = "IGNORE" if osWindows();
 
-my ($config_file, $basedir, $vardir, $trials, $build_thread, $duration, $grammar, $gendata,
+my ($config_file, $basedir, $vardir, $trials, $duration, $grammar, $gendata,
     $seed, $testname, $xml_output, $report_xml_tt, $report_xml_tt_type, $max_runtime,
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
-    $parallel, $servers, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
+    $parallel, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
     $help, $help_simplifier, $help_combinator, $help_verdict, $help_rr, $help_archiving, $help_local,
     $help_rqg_home, $help_vardir_type, $runner, $noarchiving,
     $rr, $rr_options, $sqltrace,
@@ -280,14 +280,14 @@ if (not GetOptions(
            'basedir3=s'                => \$basedirs[3], # Swallowed and handled by rqg_batch
 #          'workdir=s'                 => \$workdir,     # Check+set here but pass as parameter to Combinator etc.
            'vardir_type=s'             => \$vardir_type, # Swallowed and handled by rqg_batch
-#          'vardir=s'                  => \$vardir,      # Swallowed and handled by rqg_batch
-           'build_thread=i'            => \$build_thread, # Swallowed and handled by rqg_batch
-#          'trials=i'                  => \$trials,      # Pass through (@ARGV) to Combinator ...
-#          'duration=i'                => \$duration,    # Pass through (@ARGV) to Combinator ...
-#          'seed=s'                    => \$seed,        # Pass through (@ARGV) to Combinator ...
+#          'vardir=s'                  => \$vardir,                 # local.cfg
+#          'build_thread=i'            => \$build_thread,           # local.cfg
+#          'trials=i'                  => \$trials,                 # Pass through (@ARGV) to Combinator ...
+#          'duration=i'                => \$duration,               # Pass through (@ARGV) to Combinator ...
+#          'seed=s'                    => \$seed,                   # Pass through (@ARGV) to Combinator ...
            'force'                     => \$force,                  # Swallowed and handled by rqg_batch
-#          'no-mask'                   => \$no_mask,     # Pass through (@ARGV) to Combinator ...
-#          'grammar=s'                 => \$grammar,     # Pass through (@ARGV) to Combinator ...
+#          'no-mask'                   => \$no_mask,                # Pass through (@ARGV) to Combinator ...
+#          'grammar=s'                 => \$grammar,                # Pass through (@ARGV) to Combinator ...
            'gendata=s'                 => \$gendata,                # Currently handle here
            'testname=s'                => \$testname,               # Swallowed and handled by rqg_batch
            'xml-output=s'              => \$xml_output,             # Swallowed and handled by rqg_batch
@@ -315,7 +315,6 @@ if (not GetOptions(
            'noarchiving'               => \$noarchiving,            # Swallowed and handled by rqg_batch
            'rr:s'                      => \$rr,                     # Swallowed and handled by rqg_batch
            'rr_options=s'              => \$rr_options,             # Swallowed and handled by rqg_batch
-           'servers=i'                 => \$servers,                # Swallowed and handled by rqg_batch
            'sqltrace:s'                => \$sqltrace,               # Swallowed and handled by rqg_batch
 #          'threads=i'                 => \$threads,                # Pass through (@ARGV). Simplifier maybe needs that
            'discard_logs'              => \$discard_logs,           # Swallowed and handled by rqg_batch
@@ -1485,10 +1484,10 @@ sub help() {
    "         Extreme resource consumption (high value for <n> and/or fat RQG tests) could result\n".
    "         in some very slow reacting testing box up till OS crashes.\n"                         .
    "         Critical candidates: open files, max user processes, free space in tmpfs\n"           .
-   "         Future improvement of rqg_batch.pl will reduce these risks drastic.\n\n"              .
-   "--build_thread=<n> Begin of the range of build threads assigned to RQG runs.\n"                .
-   "      (Recommendation) Do not assign this parameter.\n"                                        .
-   "      (Default) " .  DEFAULT_MTR_BUILD_THREAD . "\n"                                           .
+   "      The risks decrease drastic in case the automatic RQG BATCH resource control is not "     .
+   "disabled. (see paramater --resource_control=...)\n\n"                                          .
+   "No more supported: --build_thread=<n>  start of the range of build threads assigned to RQG "   .
+   "runs. The value has to be assigned in local.cfg.\n"                                            .
    "--runner=...\n"                                                                                .
    "      The RQG runner to be used. The value assigned must be without path.\n"                   .
    "      (Default) '" . DEFAULT_RQG_RUNNER . " in RQG_HOME.\n"                                    .
