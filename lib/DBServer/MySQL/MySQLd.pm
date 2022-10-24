@@ -1260,6 +1260,9 @@ sub term {
 
     my $term_timeout = DEFAULT_TERM_TIMEOUT * Runtime::get_runtime_factor();
 
+    # For experimenting
+    # system("killall -6 mysqld mariadbd; sleep 10");
+
     if (osWindows()) {
         ### Not for windows
         say("Don't know how to do SIGTERM on Windows");
@@ -1594,8 +1597,15 @@ sub binary {
 
 sub stopServer {
     my ($self, $shutdown_timeout) = @_;
+
+    # For innodb_fast_shutdown = 1 (default)
+    my $innodb_fast_shutdown_factor = 1;
+    $innodb_fast_shutdown_factor = 4 if 0 == $self->serverVariable('innodb_fast_shutdown');
+
     $shutdown_timeout = DEFAULT_SHUTDOWN_TIMEOUT unless defined $shutdown_timeout;
-    $shutdown_timeout = $shutdown_timeout * Runtime::get_runtime_factor();
+    $shutdown_timeout = $shutdown_timeout * Runtime::get_runtime_factor()
+                        * $innodb_fast_shutdown_factor;
+    say("DEBUG: Effective shutdown_timeout: $shutdown_timeout" . "s.");
     my $errorlog      = $self->errorlog;
     my $check_shutdown = 0;
     my $res;

@@ -1641,7 +1641,7 @@ sub execute {
                          "ERROR: ->$line<-.\n" .
                          "ERROR: Will exit with status STATUS_DATABASE_CORRUPTION.");
                      # Without knowing the server process we can only request a SHUTDOWN.
-                     # But during experiments that caused reporting finally a DEADLOCK.
+                     # But during experiments that caused RQG reporting finally a DEADLOCK.
                      # $dbh->do("SHUTDOWN");
                      exit STATUS_DATABASE_CORRUPTION;
                  }

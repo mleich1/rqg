@@ -1,7 +1,7 @@
 # Copyright (c) 2008, 2011, Oracle and/or its affiliates. All rights
 # reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018, 2021 MariaDB Corporation Program Ab.
+# Copyright (c) 2018, 2022 MariaDB Corporation Program Ab.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -169,7 +169,7 @@ sub sayFile {
        Carp::cluck("ERROR: The file '$file' does not exist or is no plain file.");
        return ;
     }
-    say("--------- Contents of $file -------------");
+    say("--------- Content of $file -------------");
     if (not open FILE, $file) {
        Carp::cluck("ERROR: Unable to open the file '$file' : $!");
        return ;
