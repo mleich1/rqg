@@ -35,7 +35,8 @@ require Exporter;
     RULE_UNIQUE_COMPONENTS
     RULE_IS_TOP_LEVEL
     SIMP_EMPTY_QUERY
-    SIMP_WAIT_QUERY
+    SIMP_WAIT_EXIT_QUERY
+    SIMP_EXIT_QUERY
 );
 
 use utf8;
@@ -72,11 +73,9 @@ use constant SIMP_EMPTY_QUERY     => '';
 # Hence we go with a wait which is less costly. A "SELECT SLEEP(1)" would make "SQL noise" without
 # value because the really working threads or reporters could detect some not responding or dead
 # DB server too. So we use Perl.
-# use constant SIMP_WAIT_QUERY      => '{ sleep 1 ; return undef }';
-# Experiment begin
 # The next line caused a lot trouble. AFAIR something with reporters.
-# use constant SIMP_WAIT_QUERY      => '{ exit 0 }';
-  use constant SIMP_WAIT_QUERY      => '{ sleep 30 ; exit 0 }';
+  use constant SIMP_EXIT_QUERY      => '{ exit 0 }';
+  use constant SIMP_WAIT_EXIT_QUERY => '{ sleep 30 ; exit 0 }';
 # Experiment end
 
 # Structure for keeping the actual grammar
@@ -119,9 +118,9 @@ sub init {
 
     # The extension gets placed on top so that any definitions of rules with the same names
     # of the non extended grammar win.
-    my $extended_grammar = "thread: "        . SIMP_WAIT_QUERY  . " ;\n" .
-                           "thread_init: "   . SIMP_EMPTY_QUERY . " ;\n" .
-                           "thread_connect:" . SIMP_EMPTY_QUERY . " ;\n" .
+    my $extended_grammar = "thread: "        . SIMP_WAIT_EXIT_QUERY  . " ;\n" .
+                           "thread_init: "   . SIMP_EMPTY_QUERY      . " ;\n" .
+                           "thread_connect:" . SIMP_EMPTY_QUERY      . " ;\n" .
                            $grammar_obj->toString();
     if (STATUS_OK != load_grammar_from_string($extended_grammar)) {
         say("INTERNAL ERROR: $snip load_grammar_from_string failed. Will return undef.");
@@ -566,7 +565,7 @@ sub set_default_rules_for_threads {
 #      Start with $threads = 48, it is not a concurrency problem, phase PHASE_THREAD1_REPLAY is
 #      not assigned or had just no luck
 #      n simplifications lead to
-#      - thread47 = <crashing SQL> and remaining thread*: SIMP_WAIT_QUERY ;
+#      - thread47 = <crashing SQL> and remaining thread*: SIMP_WAIT_EXIT_QUERY ;
 #    - before PHASE_GRAMMAR_CLONE (if assigned) because there we try to simplify further like
 #      Assume two threads assigned --> if replaying --> thread1: ddl;
 #      query: ddl | dml ;                               thread2: dml;
@@ -594,7 +593,7 @@ sub set_default_rules_for_threads {
             }
             if ('' eq $sentence) {
                 say("WARN: The grammar contains neither the rule 'query' nor 'thread'.");
-                $sentence = SIMP_WAIT_QUERY;
+                $sentence = SIMP_WAIT_EXIT_QUERY;
             }
             my $string_addition = $rule_name . ":\n" . "$component_indent" . $sentence . " ;";
             # Prevent   BOL <no white space><more than one white space>;EOL
@@ -1635,19 +1634,22 @@ sub shrink_grammar {
 
             if (1 == scalar @unique_components) {
                 my $existing_component_string = shift @unique_components;
-                if ($existing_component_string eq SIMP_WAIT_QUERY) {
+                if ($existing_component_string eq SIMP_WAIT_EXIT_QUERY or
+                    $existing_component_string eq SIMP_EXIT_QUERY) {
                     say("DEBUG: shrink_grammar: The rule '$rule_name' has already only one unique " .
                         "component and its ->$existing_component_string<-.") if $script_debug;
                     return undef;
                 }
             }
             say("DEBUG: shrink_grammar: Trying to replace the content of rule '$rule_name' by '" .
-                SIMP_WAIT_QUERY . "'.") if $script_debug;
-            @reduced_components = ( SIMP_WAIT_QUERY );
+                SIMP_WAIT_EXIT_QUERY . "'.") if $script_debug;
+            @reduced_components = ( SIMP_WAIT_EXIT_QUERY );
         } else {
             if (1 == scalar @unique_components) {
                 my $existing_component_string = shift @unique_components;
-                if ($existing_component_string eq SIMP_EMPTY_QUERY) {
+                if ($existing_component_string eq SIMP_EMPTY_QUERY     or
+                    $existing_component_string eq SIMP_WAIT_EXIT_QUERY or
+                    $existing_component_string eq SIMP_EXIT_QUERY)        {
                     say("DEBUG: shrink_grammar: The rule '$rule_name' has already only one unique " .
                         "component and its ->$existing_component_string<-.") if $script_debug;
                     return undef;
