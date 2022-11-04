@@ -1630,7 +1630,7 @@ sub execute {
              next if ('status' eq $ct_Msg_type or 'note' eq $ct_Msg_type);
              if ('Warning' eq $ct_Msg_type and $ct_Msg_text =~ /InnoDB: /i) {
                  if ($ct_Msg_text =~ /InnoDB: Unpurged clustered index record/          or
-                     $ct_Msg_text =~ /nnoDB: Clustered index record with stale history/ or
+                     $ct_Msg_text =~ /InnoDB: Clustered index record with stale history/ or
                      $ct_Msg_text =~ /InnoDB: Clustered index record not found for index/ )
                  {
                      # Per Marko:
