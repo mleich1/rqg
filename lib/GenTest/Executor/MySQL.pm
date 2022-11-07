@@ -1622,28 +1622,71 @@ sub execute {
          # if ($executor->task() == GenTest::Executor::EXECUTOR_TASK_REPORTER) {
          #         $result_status = STATUS_DATABASE_CORRUPTION;
          # }
+         my $full_result = "Full result of ->$query<-";
+         foreach my $data_elem (@data) {
+             $full_result .= "\n" . join(" ", @{$data_elem});
+             my ($ct_table, $ct_Op, $ct_Msg_type, $ct_Msg_text) = @{$data_elem};
+             # We can have concurrency even if we are not a thread or some reporter.
+             # Example: An event gets executed.
+             # So could get something like
+             # <TS> [118034] test.t3 check Error Query execution was interrupted
+             # <TS> [118034] test.t3 check error Corrupt <=====
+             if (($ct_Msg_text =~ /Table \'$ct_table\' doesn\'t exist/)     or
+                 ($ct_Msg_text =~ /Deadlock found when trying to get lock/) or
+                 ($ct_Msg_text =~ /Lock wait timeout exceeded/)             or
+                 ($ct_Msg_text =~ /Query execution was interrupted/)          ) {
+                 return GenTest::Result->new(
+                     query       => $query,
+                     status      => STATUS_SKIP,
+                 );
+             }
+         }
 
          foreach my $data_elem (@data) {
              # ->test.t1<->check<->Warning<->InnoDB: Index 'c' contains 1 entries, should be 0.<-
              my $line = join(" ", @{$data_elem});
+             # say("DEBUG ->" . $line . "<-");
              my ($ct_table, $ct_Op, $ct_Msg_type, $ct_Msg_text) = @{$data_elem};
              next if ('status' eq $ct_Msg_type or 'note' eq $ct_Msg_type);
              if ('Warning' eq $ct_Msg_type and $ct_Msg_text =~ /InnoDB: /i) {
                  if ($ct_Msg_text =~ /InnoDB: Unpurged clustered index record/          or
-                     $ct_Msg_text =~ /InnoDB: Clustered index record with stale history/ or
+                     $ct_Msg_text =~ /nnoDB: Clustered index record with stale history/ or
                      $ct_Msg_text =~ /InnoDB: Clustered index record not found for index/ )
                  {
                      # Per Marko:
                      # Only if CHECK ... EXTENDED + harmless/to be expected.
                      say("DEBUG: Harmless ->$line<- observed.");
+                     next;
                  } else {
                      say("ERROR: The query '$query' passed but has a result set line\n" .
-                         "ERROR: ->$line<-.\n" .
-                         "ERROR: Will exit with status STATUS_DATABASE_CORRUPTION.");
-                     # Without knowing the server process we can only request a SHUTDOWN.
-                     # But during experiments that caused RQG reporting finally a DEADLOCK.
+                         "ERROR: ->$line<-.");
+                         $result_status = STATUS_DATABASE_CORRUPTION;
+                 }
+             }
+             if ('Error') {
+                 say("ERROR: The query '$query' passed but has a result set line\n" .
+                     "ERROR: ->$line<-.\n");
+                 $result_status = STATUS_DATABASE_CORRUPTION;
+             }
+             if ($result_status == STATUS_DATABASE_CORRUPTION) {
+                 if ($executor->task() == GenTest::Executor::EXECUTOR_TASK_THREAD or
+                     $executor->task() == GenTest::Executor::EXECUTOR_TASK_REPORTER) {
+                     # A process which can exit without harm.
+                     # Enforcing some rapid test end might look attractive.
+                     # But without knowing the server process we can only request a SHUTDOWN.
+                     # And during experiments that caused RQG reporting finally a DEADLOCK.
                      # $dbh->do("SHUTDOWN");
+                     say("ERROR: $full_result");
+                     say("ERROR: Will exit with status STATUS_DATABASE_CORRUPTION.");
                      exit STATUS_DATABASE_CORRUPTION;
+                 } else {
+                     # A process like rqg.pl which should not exit without cleanup.
+                     say("ERROR: $full_result");
+                     say("ERROR: Will return a result containing status STATUS_DATABASE_CORRUPTION.");
+                     return GenTest::Result->new(
+                        query       => $query,
+                        status      => $result_status,
+                     );
                  }
              }
          }
