@@ -110,9 +110,9 @@ my $database = 'test';
 my $user     = 'root';
 my @dsns;
 
-my (@basedirs, @mysqld_options, @vardirs, $vardir_type, $rpl_mode, $major_runid, $minor_runid,
+my (@basedirs, @mysqld_options, @vardirs, $dbdir_type, $vardir_type, $rpl_mode, $major_runid, $minor_runid,
     $batch,
-    @engine, $help, $help_vardir_type, $help_sqltrace, $debug, @validators, @reporters, @transformers,
+    @engine, $help, $help_dbdir_type, $help_sqltrace, $debug, @validators, @reporters, @transformers,
     $grammar_file, $skip_recursive_rules,
     @redefine_files, $seed, $mask, $mask_level, $rows,
     $varchar_len, $xml_output, $valgrind, $valgrind_options, @vcols, @views,
@@ -171,8 +171,9 @@ if (not GetOptions(
     'basedir1=s'                  => \$basedirs[1],
     'basedir2=s'                  => \$basedirs[2],
     'basedir3=s'                  => \$basedirs[3],
-#   'basedir=s@'                 => \@basedirs,
-    'vardir_type:s'               => \$vardir_type,
+#   'basedir=s@'                  => \@basedirs,
+    'dbdir_type:s'                => \$dbdir_type,
+    'vardir_type:s'               => \$dbdir_type,
 #   'vardir=s'                    => \$vardirs[0], # Computed by lib/Local.pm and used internal only
 #   'vardir1=s'                   => \$vardirs[1], # used internal only
 #   'vardir2=s'                   => \$vardirs[2], # used internal only
@@ -195,7 +196,7 @@ if (not GetOptions(
     'duration=i'                  => \$duration,
     'help'                        => \$help,
     'help_sqltrace'               => \$help_sqltrace,
-    'help_vardir_type'            => \$help_vardir_type,
+    'help_dbdir_type'             => \$help_dbdir_type,
     'debug'                       => \$debug,
     'validators=s@'               => \@validators,
     'reporters=s@'                => \@reporters,
@@ -266,7 +267,7 @@ if (not GetOptions(
     'script_debug:s'              => \$script_debug_value,
     )) {
     if (not defined $help and not defined $help_sqltrace and
-        not defined $help_vardir_type) {
+        not defined $help_dbdir_type) {
         help();
         exit STATUS_CONFIG_ERROR;
     }
@@ -280,8 +281,8 @@ if ( defined $help_sqltrace) {
     SQLtrace::help();
     exit STATUS_OK;
 }
-if (defined $help_vardir_type) {
-    Local::help_vardir_type();
+if (defined $help_dbdir_type) {
+    Local::help_dbdir_type();
     exit STATUS_OK;
 }
 
@@ -324,10 +325,15 @@ if ($status != STATUS_OK) {
 $rr_options = Runtime::get_rr_options();
 my $rr_rules = Runtime::get_rr_rules;
 
+# Solution for compatibility with older config files where the parameter 'vardir_type' was used.
+if (not defined $dbdir_type) {
+    $dbdir_type = $vardir_type;
+}
+
 # Read local.cfg
 # 1. clean and generate some share of the required infrastructure if batch=0
 # 2. check some share of the infrastructure
-Local::check_and_set_local_config($major_runid, $minor_runid, $vardir_type, $batch);
+Local::check_and_set_local_config($major_runid, $minor_runid, $dbdir_type, $batch);
 
 $workdir = Local::get_results_dir();
 # say("DEBUG: workdir ->" . $workdir . "<-");
@@ -348,6 +354,15 @@ if (not $batch) {
         safe_exit($status);
     }
 }
+# system("find $workdir -follow");
+# system("find $vardirs[0] -follow");
+# Example from RQG stand alone run:
+# /data/results/SINGLE_RQG
+# /data/results/SINGLE_RQG/rqg.log
+# /data/results/SINGLE_RQG/rqg_verdict.init
+# /data/results/SINGLE_RQG/rqg_phase.init
+# /data/results/SINGLE_RQG/rqg.job
+# /dev/shm/rqg_ext4/SINGLE_RQG
 $result = Auxiliary::check_rqg_infrastructure($workdir);
 if ($result) {
     say("ERROR: Auxiliary::check_rqg_infrastructure failed with $result.");
@@ -437,7 +452,7 @@ say("Please see http://forge.mysql.com/wiki/Category:RandomQueryGenerator for mo
 #    Do not add a space after the '\' around line end. Otherwise when converting the printout to
 #    a shell script the shell assumes command end after the '\ '.
 # - rqg_options value does not get replaced by the effective value (affected by rqg_options_add)
-# - vardir_type gets maybe printed
+# - dbdir_type gets maybe printed
 # say("Starting \n# $0 \\\n# " . join(" \\\n# ", @ARGV_saved));
 $message = "# -------- Informations useful for bug reports --------------------------------------" .
            "----------------------\n" .
@@ -1049,6 +1064,25 @@ Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_PREPARE);
 my @server;
 my $rplsrv;
 
+my $max_id = $number_of_servers - 1;
+say("DEBUG: max_id is $max_id");
+
+# Generate the infrastructure for all required servers.
+# -----------------------------------------------------
+foreach my $server_id (0.. $max_id) {
+    # Example in shell code
+    # mkdir $fast_dir/1
+    # ln -s $fast_dir/1 $vardir/1
+    # Hence mysql.err lands in $fast_dir/1/mysql.err == tmpfs
+    my $what_dir = $workdir . "/" . ($server_id+1);
+    if (STATUS_OK != Auxiliary::make_dbs_dirs($what_dir)) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: Preparing the storage structure for the server[$server_id] failed.");
+        say("RESULT: The RQG run ended with status " . status2text($status) . " ($status)");
+        exit_test($status);
+    }
+}
+
 say("DEBUG: rpl_mode is '$rpl_mode'");
 # FIXME: Let a routine in Auxiliary figure that out or figure out once and memorize result.
 if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
@@ -1064,10 +1098,10 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
     $rplsrv = DBServer::MySQL::ReplMySQLd->new(
                  master_basedir      => $basedirs[1],
                  slave_basedir       => $basedirs[2],
-                 master_vardir       => $vardirs[1],
+                 master_vardir       => $workdir . "/1",
                  debug_server        => $debug_server[1],
                  master_port         => $ports[0],
-                 slave_vardir        => $vardirs[2],
+                 slave_vardir        => $workdir . "/2",
                  slave_port          => $ports[1],
                  mode                => $rpl_mode,
                  server_options      => $mysqld_options[1],
@@ -1307,7 +1341,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
 
         $server[$server_id] = DBServer::MySQL::MySQLd->new(
                             basedir            => $basedirs[$server_id+1],
-                            vardir             => $vardirs[$server_id+1],
+                            vardir             => $workdir . "/" . ($server_id+1),
                             debug_server       => $debug_server[$server_id],
                             port               => $ports[$server_id],
                             start_dirty        => $start_dirty,
@@ -1318,6 +1352,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                             server_options     => $mysqld_options[$server_id],
                             general_log        => 1,
                             config             => $cnf_array_ref,
+                            id                 => ($server_id+1),
                             user               => $user);
 
         if (not defined $server[$server_id]) {
@@ -1330,17 +1365,22 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
 
         my $status = $server[$server_id]->startServer;
         if ($status > DBSTATUS_OK) {
-            # exit_test will run killServers
+            # In case the server died upon start startServer itself generates the backtrace.
             say("ERROR: Could not start all servers");
-            my $status = STATUS_CRITICAL_FAILURE;
             say("RESULT: The RQG run ended with status " . status2text($status) . " ($status)");
-            # $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
+            # exit_test will killServers and set_rqg_phase RQG_PHASE_FINISHED.
             exit_test($status);
         }
 
-        # Printing the systemvariables of the server is doable.
-        # But for the moment I prefer printing that in startServer.
-        # $server[$server_id]->serverVariablesDump;
+        # For experimenting
+        # system("killall -11 mysqld; sleep 3");
+        #   $server[$server_id]->make_backtrace();
+
+        # Printing the systemvariables of the server here would be doable.
+        #    $server[$server_id]->serverVariablesDump;
+        # But I prefer printing that in startServer because
+        # - Reporters could also reconfigure and start servers.
+        # - the branches != "Simple" test ... need that too.
 
         $dsns[$server_id] = $server[$server_id]->dsn($database, $user);
         say("DEBUG: dsns[$server_id] defined.");
@@ -1381,6 +1421,9 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         }
     }
 }
+
+# In case something went wrong around server starts than the corresponding routine
+# made a backtrace and there should have been some exit.
 
 #
 # Wait for user interaction before continuing, allowing the user to attach
@@ -1551,13 +1594,16 @@ say("---------------------------------------------------------------");
 
 # Push certain information into environment variables so that grammars but also reporters
 # and validators could exploit that in case the information is not somewhere else available.
-#
+# ------------------------------------------------------------------------------------------
 # Number of "worker" threads
 #    lib/GenTest/Generator/FromGrammar.pm will generate a corresponding grammar element.
 $ENV{RQG_THREADS}= $threads;
 #
-# The pids of the servers started.
-#    Good for crash testing and similar.
+# The pids of the servers started are good for crash testing and similar.
+# Warning:
+# The memorized values
+# - are invalid/undef for not yet started server
+# - become invalid for server shut down or crashed or previous+restarted
 foreach my $server_id (0..$#server) {
     my $varname = "SERVER_PID" . ($server_id + 1);
     $ENV{$varname} = $server[$server_id]->serverpid;
@@ -1569,6 +1615,8 @@ my $gentest = GenTest::App::GenTest->new(config => $gentestProps);
 if (not defined $gentest) {
     say("ERROR: GenTest::App::GenTest->new delivered undef.");
     $final_result = STATUS_ENVIRONMENT_FAILURE;
+    say("RESULT: The RQG run ended with status " . status2text($final_result) . " ($final_result)");
+    exit_test($final_result);
 }
 
 # The branch is just for the optics :-).
@@ -1683,6 +1731,15 @@ if ($final_result == STATUS_OK) {
     $gentest_result = $gentest->doGenTest();
     say("GenTest returned status " . status2text($gentest_result) . " ($gentest_result)");
     $final_result = $gentest_result;
+    if ($final_result != STATUS_OK) {
+        say("INFO: Printing content of all server error logs because of error in doGenTest ==========");
+        foreach my $server_id (0..$#server) {
+            say("INFO: Server[" . ($server_id + 1) . "] ---");
+            my $error_log = $server[$server_id]->errorlog;
+            sayFile($error_log);
+        }
+        say("INFO: Printing content of all server error logs End ==========");
+    }
     $message = "RQG GenTest runtime in s : " . (time() - $start_time);
     $summary .= "SUMMARY: $message\n";
     say("INFO: " . $message);
@@ -1710,7 +1767,7 @@ if (0) {
             say("ERROR: 'mysqlcheck' failed. Will exit with status : " .
                 status2text($status) . "($status).");
             sayFile("$workdir/mysqlcheck.err");
-            exit_test($status);
+            exit_test($status);    # Better do not exit here
         } else {
             sayFile("$workdir/mysqlcheck.out");
         }
@@ -1836,7 +1893,7 @@ if (($final_result == STATUS_OK)                         and
             say("DEBUG: Deleting the dump file of the first server.");
             unlink($dump_files[0]);
         } else {
-            # FIXME:
+            # FIXME maybe:
             # ok we have a diff. But maybe the dumps of the second and third server are equal
             # and than we could remove one.
         }
@@ -1850,6 +1907,10 @@ say("RESULT: The core of the RQG run ended with status " . status2text($final_re
 #     print all server error logs, stop all servers + cleanup + exit
 # and do not print any server error logs earlier except they would get later removed or ...
 
+
+# For debugging
+# killServers();
+# $server[0]->crashServer;
 
 if ($final_result >= STATUS_CRITICAL_FAILURE) {
     # Optimization:
@@ -1870,8 +1931,9 @@ if ($final_result >= STATUS_CRITICAL_FAILURE) {
     #   a too big timespan between detection of bad state and some SIGABRT or SIGSEGV sent followed
     #   by the generation of a core file
     #
-    if (killServers() != STATUS_OK) {
-        say("ERROR: Killing the server(s) failed somehow.");
+    my $kill_status = killServers();
+    if ($kill_status != STATUS_OK) {
+        say("ERROR: Killing the server(s) failed with status $kill_status.");
     } else {
         say("INFO: Any remaining servers were killed because of bad status.");
     }
@@ -1885,7 +1947,6 @@ if ($final_result >= STATUS_CRITICAL_FAILURE) {
             say("DEBUG: Raising status from " . $final_result . " to " . STATUS_CRITICAL_FAILURE);
             $final_result = STATUS_CRITICAL_FAILURE;
         }
-        # FIXME: In case there is a core file make a backtrace what than?
     }
 }
 
@@ -1945,7 +2006,7 @@ sub stopServers {
         }
     }
     if ($ret != STATUS_OK) {
-        say("DEBUG: stopServers(rqg.pl) failed with : ret : $ret");
+        say("DEBUG: stopServers(rqg.pl) returned status $ret");
     }
     return $ret;
 }
@@ -2144,7 +2205,7 @@ $0 - Run a complete random query generation (RQG) test.
                      Some directory assigned: We use the assigned directory and expect that certain files already exist.
     --help         : This help message
     --help_sqltrace : help about SQL tracing by RQG
-    --help_vardir_type   : help about the parameter vardir_type
+    --help_dbdir_type   : help about the parameter dbdir_type
 
 EOF
     ;

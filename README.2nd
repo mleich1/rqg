@@ -1,14 +1,14 @@
 
 This RQG version is focussed on taking care that
-- single RQG test runs with
+- RQG tests running with
   - serious concurrency (threads > 1) and
     invoking KILL session, KILL QUERY, COMMIT/ROLLBACK RELEASE ....
     and a serious amount of DDL
   - intentional crashing of the server
   tend to a smaller fraction of false alarms and work more like wished
-- problem analysis becomes more comfortable and faster
+- problem classification and analysis becomes more comfortable and faster
 - parallel RQG test runs on the same box
-  - have a (hopefully) zero risk to clash on the same ressources like ports
+  - have a (hopefully) zero risk to clash on the same ressources like ports, files etc.
   - are hopefully unable to cause trouble via resource consumption
     except high CPU and IO load
 - grammar simplification becomes faster
@@ -62,18 +62,17 @@ Preparations for using RQG, my batch tool and build scripts
   sudo apt-get install liblog-log4perl-perl
 
   Prevent swapping because the resource control in rqg_batch.pl fears swapping goes towards
-  on SSD and wants to avoid a wear out of that device by excessive writing.
+  a SSD and wants to avoid a wear out of that device by excessive writing.
 
   Recommended:
   As root:
   - solution which survives the next reboot
     # Edit the fstab, set mountimg the swap to comment so that it does not get lost during restart.
     sudo vi /etc/fstab
-    # and maybe remove the swap device or file.
   - solution which does not survive the next reboot
     sudo swapoff -a
 
-  Serious less robust than above:
+  Serious less robust than the recommendation above:
   As root:
   - solution which survives the next reboot
     Edit /etc/sysctl.conf and add
@@ -85,17 +84,18 @@ Preparations for using RQG, my batch tool and build scripts
   - solution which will disappear after the next reboot
     echo 0 > /proc/sys/vm/swappiness
 
+
   - Edit /etc/sysctl.conf and add for example
         fs.aio-max-nr=99999999
     and similar
         /etc/security/limits.conf
         * hard nofile 102400
         * soft nofile 51200
-    in case the actual numbers for no of open files, aio, processes etc. are too low.
+    in case the actual numbers for number of open files, aio, processes etc. are too low.
 
 - Stuff needed for rr tracing
   https://rr-project.org/
-  Arund 60% of the page are instructions how to install the latest version of rr
+  Around 60% of the page are instructions how to install the latest version of rr
   on Fedora and Ubuntu.
 
 - Stuff needed for build MariaDB and RQG testing
@@ -115,33 +115,41 @@ Preparations for using RQG, my batch tool and build scripts
   cp <RQG install dir>/local_template.cfg <RQG install dir>/local.cfg
   Please edit <RQG install dir>/local.cfg so that it fits to your needs.
 
-How to build
-------------
+How to build by example
+-----------------------
 Assuming that you have set the environment variables to values like above
    cd /Server
-   git clone https://github.com/MariaDB/server.git preview-10.8-MDEV-14425-concurrency-friendly-log-format
-   cd preview-10.8-MDEV-14425-concurrency-friendly-log-format
-   git checkout origin/preview-10.8-MDEV-14425-concurrency-friendly-log-format
-   bld_asan.sh preview-10.8-MDEV-14425-concurrency-friendly-log-format
+   git clone https://github.com/MariaDB/server.git preview-10.8-MDEV-14425
+   cd preview-10.8-MDEV-14425
+   git checkout origin/preview-10.8-MDEV-14425
+
+   bld_asan.sh preview-10.8-MDEV-14425
+
    If something goes
    - wrong than /dev/shm/build_dir/build.prt shows the output of the build process.
      More comfortable for finding the problem would be
      cd /dev/shm/build_dir
      make
    - well than MariaDB compiled with debug+asan will be installed in
-        /Server_bin/preview-10.8-MDEV-14425-concurrency-friendly-log-format_asan
-     and the files
-        /data/binarchs/timestamp>.prt       # Protocol of build
-        /data/binarchs/<timestamp>.tar.xz   # Archive of install directory
+        /Server_bin/preview-10.8-MDEV-14425_asan
+     and the (1656597700 is the unixtimestamp of the build)
+     - detailed protocol about the build will be
+        /data/binarchs/preview-10.8-MDEV-14425_asan_1656597700.prt.xz
+     - short protocol about the build will be
+        /data/binarchs/preview-10.8-MDEV-14425_asan_1656597700.short
+     - archive of the installed binaries will be
+        /data/binarchs/preview-10.8-MDEV-14425_asan_1656597700.tar.xz
 
 How to make a single RQG run
 ----------------------------
 Please make a copy of the script RQG.sh and adjust it to your needs.
 The log of the RQG run will be $GENERAL_STORE_DIR/results/SINGLE_RQG/rqg.log
 The remains of the RQG run will be in /dev/shm/rqg/SINGLE_RQG .
+They will contain symlinks to directories and files pointing to somewhere inside and outside
+of /dev/shm like /dev/shm/rqg_ext4, /data/rqg and similar.
 Warning:
-The next run with RQG.sh will drop and recreate $GENERAL_STORE_DIR/SINGLE_RQG and /dev/shm/rqg/SINGLE_RQG .
-
+The next run with RQG.sh will drop and recreate directories $GENERAL_STORE_DIR/SINGLE_RQG and
+/dev/shm/rqg/SINGLE_RQG and in the locations like /dev/shm/rqg_ext4, /data/rqg and similar. 
 
 How to run a batch of RQG runs with massive parallelization
 -----------------------------------------------------------
@@ -149,15 +157,49 @@ Please make a copy of
 - the script BATCH.sh and adjust it to your needs
 - the batch configuration file conf/mariadb/InnoDB_standard.cc and adjust it to your needs
 
-The workdir of the last rqg_bat.pl run is
+    ./<edited copy of BATCH.sh> <batch config file> <path to the installed binaries>
+    Example:
+    ./BATCH.sh conf/mariadb/InnoDB_standard.cc /Server_bin/10.8_asan
+
+The workdir of the last RQG batch (-> rqg_batch.pl) run is
     last_result_dir == symlink pointing to $GENERAL_STORE_DIR/results/<highest timestamp>
 
 Content of that workdir
-    result.txt   Tabellaric overview about the RQG runs performed + the final verdict
-    setup.txt    Tabellaric overview ... with full setup of the single RQG runs
-    <number>.log rqg log of run <number>
-    <number>.tar.xz compressed archive with the remains (data files, core,...) of run <number>
-    some additional files
+- Short build protocol of the first and second set of binaries assigned
+  basedir1.short
+  basedir1.tar.xz
+  basedir2.short
+  basedir2.tar.xz
+- GIT related information about RQG, source/branch for basedir1 and basedir2
+  SourceInfo.txt
+- copy of the configuration file for this RQG batch run
+  Combinator.cc or Simplifier.cfg
+- derivate of the configuration files used for making the RQG batch run and the verdicts
+  Verdict.cfg
+- Log file of the RQG batch resource control
+  resource.txt
+- Tabellaric overview about the RQG runs performed + the final verdict
+  result.txt
+  result.new in case you run util/SUMMARY.sh in addition
+- Tabellaric overview ... with nearly full setup of the single RQG runs
+  setup.txt
+  setup.new in case you run util/SUMMARY.sh in addition
+- Directories <number with up to three digits and never leading zeros) like 266
+  per active RQG runner.
+  This directory contains gendata files (*.zz), grammars *.yy), the RQG log etc.
+  The fate of that directory depends on the final verdict.
+  In case the result is not of interest than it gets dropped. Other wise it gets transformed
+  to some directory for any finished RQG run with result of interest.
+- Directories <number with six digits and leading zeros> like 000266 for any finished RQG run with
+  result of interest.
+  Content:
+  - RQG log     rqg.log
+  - Archive of the remains of the test run excluding rr traces but maybe with core files
+    archive.tar.xz
+  - RQG grammars etc. like    rqg.zz, rqg.sql, rqg.yy
+  - Auxiliary files with names following the pattern     rqg*.*
+  - Directories for DB servers and their rr traces like
+    1/rr, 1_clone/rr, 2/rr
 
 The verdict is made based on verdict_general.cfg.
 Feel free to edit your version of it but never push that to the official repository.
@@ -165,9 +207,9 @@ Feel free to edit your version of it but never push that to the official reposit
 
 How to get a verdict about the the result of some RQG run
 ---------------------------------------------------------
-perl verdict.pl --log_file=last_result_dir/000001.log
+perl verdict.pl --log_file=last_result_dir/000001/rqg.log
 which is equivalent to
-perl verdict.pl --batch_config=verdict_general.cfg --log_file=last_result_dir/000001.log
+perl verdict.pl --batch_config=verdict_general.cfg --log_file=last_result_dir/000001/rqg.log
 
 
 Collection of hints (under construction)
@@ -248,7 +290,7 @@ Collection of hints (under construction)
      routines (2) we could have transformations of the status. Such intentional transformations
      need to get reported.
      We need to understand why some lost connection, DBSTATUS_ERROR etc. finally leads to
-     that the RQG runner exits with STATUS_ENVIRONMENT_FAILURE ro similar.
+     that the RQG runner exits with STATUS_ENVIRONMENT_FAILURE or similar.
      (1) Low level routines are usually quite good in "describing" detailed what happened
          physically. But they also usually lack the overview for judging if that is an error
          (deviation from expectation) or not.
@@ -323,10 +365,7 @@ DONE (incomplete and arbitrary sorted list):
    - text patterns which are desired/replay or of interest or unwanted
    Implement a program which processes config file and log of a RQG run and gives a verdict based
    on these lists. --> verdict.pl , lib/Verdict.pm , verdict_general.cfg
-2. Implement some new RQG runner (rqg.pl) which
-   1. performs a RQG run according to the setup supplied via call/command line
-   2. calculates the verdict based on balck/whitelist matching after the RQG run finished
-   3. performs a (hopefully) perfect cleanup including archiving according to the verdict got
+2. Implement some new RQG runner rqg.pl which replaces runall-new.pl
 4. Implement a new RQG tool (rqg_batch.pl) which performs a batch of RQG runs according to the
    setup supplied via config file and command line.
    Massive parallelization is supported too.
@@ -334,12 +373,18 @@ DONE (incomplete and arbitrary sorted list):
       bughunt.pl
       combinations.pl
       util/simplify-grammar.pl
+      runall-trials.pl
    Certain features for
    - efficient job management are located in lib/Batch.pm
    - resource control for preventing disasters on the testing box are in lib/ResourceControl.pm
-   rqg_batch.pl uses some configurable RQG runner. The default is rqg.pl.
+   rqg_batch.pl uses
+   - some configurable RQG runner. The default is rqg.pl.
+   - the concept of a RQG worker which performs
+     1. performs a RQG run according to the setup supplied via call/command line
+     2. calculates the verdict based on interest/ignorelist matching after the RQG run finished
+     3. performs a (hopefully) perfect cleanup including archiving according to the verdict got
 5. Implement some new grammar simplifier (lib/Simplifier.pm etc.) which exploits the capabililties
-   provided by rqg_batch.pl and rqg.pl.
+   provided by rqg_batch.pl and rqg.pl like the massive parallelization.
 6. rqg.pl, rqg_batch.pl follow some extreme strict regulations regarding placement of files,
    cleanup etc.
 7. Extend the grammar simplification algorithm so that all top level rules get simplified.
@@ -368,7 +413,7 @@ DONE (incomplete and arbitrary sorted list):
           rule_1 : SELECT 13 ; # last non "empty string" component which would get "attacked"
                                # == attempt to remove the value!
 
-          rule_2  : ;          # last "empty string" component. The simplifier would inline
+          rule_2 : ;           # last "empty string" component. The simplifier would inline
                                # that rule and by that the empty string == no removal of value.
 
     2. The simplifier tries to remove parts of components.
@@ -490,6 +535,7 @@ DONE (incomplete and arbitrary sorted list):
     Whatever simplification (grammar, reporters, ...) goes with steps doing different things.
     - So which order of steps to use?
     - How to avoid that we trade simplification and replay speed for simplicity?
+21. Optional invocation of rr
 
 
 TODO (incomplete list):
@@ -765,10 +811,22 @@ Hints
 6. Events like kill the server process initiated by reporters must happen within the assigned
    duration. In case the automatic test simplification shortens the duration than
    we could come into trouble.
+7. It could happen that the execution of a test battery or a RQG tests simplification does
+   not reach the CPU load wanted.
+   Observation 2022-09:
+   Big server, 270 (== upper limit reached) concurrent tests running under the simplifier,
+   a lot free virtual memory, no paging, 35% CPU idle
+   The most probable reason for that is:
+   Every test runs with one thread only.
+   Solution:
+   - set threads = 10
+   - thread1 needs its own thread1_connect and should work like before
+   - add a rule
+     thread_connect: COMMMIT WORK RELEASE;
+     ==> The remaining nine threads will connect+disconnect extreme frequent.
+   0% CPU idle
 
 
 
-
-
-Matthias 2022-01
+Matthias 2022-11
 

@@ -35,6 +35,7 @@ use File::Path qw(mkpath rmtree);
 use File::Copy qw(move);
 use Auxiliary;
 use Runtime;
+use GenTest;
 use GenTest::Constants;
 
 use constant MYSQLD_BASEDIR                      => 0;
@@ -73,6 +74,24 @@ use constant MYSQLD_SERVER_VARIABLES             => 31;
 use constant MYSQLD_SQL_RUNNER                   => 32;
 use constant MYSQLD_RR                           => 33;
 use constant MYSQLD_RR_OPTIONS                   => 34;
+# RQG server id   1 till number of servers.
+# It is recommended to
+# - set the server variable server_id to the same value
+# - have that value of vardir
+# in order to reduce confusion.
+# But do not write code which relies on that the recommendation is followed.
+# Some example of an exception:
+#     server[0]->[MYSQLD_SERVER_OPTIONS] describes the setup of the first server.
+#         vardir of that server is <some value>/1
+#         basedir is $basedir[1] == /Server_bin/10.5
+#     ... get it up, GenData, GenTest, Shutdown ...
+#     server[1]->[MYSQLD_SERVER_OPTIONS] describes the setup of the to be restarted server.
+#         vardir of that server needs to be <some value>/1
+#         basedir could be $basedir[2] == /Server_bin/10.5
+#         but also maybe $basedir[2] == /Server_bin/10.6
+# MYSQLD_SERVER_ID will be most time used for better messages in case we run several
+# DB server in parallel.
+use constant MYSQLD_SERVER_ID                    => 35;
 
 use constant MYSQLD_PID_FILE                     => "mysql.pid";
 use constant MYSQLD_ERRORLOG_FILE                => "mysql.err";
@@ -133,7 +152,8 @@ sub new {
                 'config'                => MYSQLD_CONFIG_CONTENTS,
                 'user'                  => MYSQLD_USER,
                 'rr'                    => MYSQLD_RR,
-                'rr_options'            => MYSQLD_RR_OPTIONS
+                'rr_options'            => MYSQLD_RR_OPTIONS,
+                'id'                    => MYSQLD_SERVER_ID
     },@_);
 
     if (osWindows()) {
@@ -418,31 +438,16 @@ sub createMysqlBase  {
 
     my $who_am_i = Basics::who_am_i;
 
-    #### Clean old db if any
-    if (-d $self->vardir) {
-        if(not File::Path::rmtree($self->vardir)) {
-            my $status = DBSTATUS_FAILURE;
-            say("ERROR: createMysqlBase: Removal of the tree ->" . $self->vardir .
-                "<- failed. : $!. Will return status DBSTATUS_FAILURE" . "($status)");
-            return $status;
-        }
-    }
-
-    #### Create database directory structure
-    foreach my $dir ($self->vardir, $self->tmpdir, $self->datadir) {
-        if (not mkdir($dir)) {
-            my $status = DBSTATUS_FAILURE;
-            say("ERROR: createMysqlBase: Creating the directory ->" . $dir . "<- failed : $!. " .
-                "Will return status DBSTATUS_FAILURE" . "($status)");
-            return $status;
-        }
-    }
+    # Important:
+    # rqg.pl calls a routine which
+    # - removes existing DB related directories including content if already existing
+    # - creates DB related directories
+    # per DB server to be used.
 
     #### Prepare config file if needed
     if ($self->[MYSQLD_CONFIG_CONTENTS] and ref $self->[MYSQLD_CONFIG_CONTENTS] eq 'ARRAY' and
         scalar(@{$self->[MYSQLD_CONFIG_CONTENTS]})) {
-        $self->[MYSQLD_CONFIG_FILE] = $self->vardir."/my.cnf";
-        # FIXME: Replace the 'die'
+        $self->[MYSQLD_CONFIG_FILE] = $self->vardir . "/my.cnf";
         if (not open(CONFIG, ">$self->[MYSQLD_CONFIG_FILE]")) {
             my $status = DBSTATUS_FAILURE;
             say("ERROR: $who_am_i Could not open ->" . $self->[MYSQLD_CONFIG_FILE] .
@@ -552,7 +557,6 @@ sub createMysqlBase  {
     }
     close BOOT;
 
-    # my $rr = $self->[MYSQLD_RR];
     my $rr = Runtime::get_rr();
     if (defined $rr) {
         # Experiments showed that the rr trace directory must exist in advance.
@@ -566,12 +570,7 @@ sub createMysqlBase  {
             }
         }
         $ENV{'_RR_TRACE_DIR'} = $rr_trace_dir;
-        # if ($rr eq Auxiliary::RR_TYPE_EXTENDED) {
         if ($rr eq Runtime::RR_TYPE_EXTENDED) {
-        #   my $rr_options = '';
-        #   if (defined $self->[MYSQLD_RR_OPTIONS]) {
-        #       $rr_options = $self->[MYSQLD_RR_OPTIONS];
-        #   }
             my $rr_options = Runtime::get_rr_options();
             $rr_options =    '' if not defined $rr_options;
             # 1. ulimit -c 0
@@ -609,7 +608,7 @@ sub createMysqlBase  {
         # 1. In case bootstrap fails calling the routine make_backtrace might generate some
         #    nice backtrace automatic. Up till today 2022-06-23 its unclear if that works well.
         # 2. The current code of make_backtrace is focused on server crashes outside of bootstrap.
-        #    And because of that it insist in inspecting the stderr output in some 'mysql.err'.
+        #    And because of that it insists in inspecting the stderr output in some 'mysql.err'.
         #    Hence I copy 'boot.err' to 'mysql.err' first.
         File::Copy::copy($booterr, $self->errorlog);
         $self->make_backtrace();
@@ -638,6 +637,7 @@ sub startServer {
 
     my @defaults = ($self->[MYSQLD_CONFIG_FILE] ? ("--defaults-group-suffix=.runtime",
                    "--defaults-file=$self->[MYSQLD_CONFIG_FILE]") : ("--no-defaults"));
+
 
     my ($v1, $v2, @rest) = $self->versionNumbers;
     my $v = $v1 * 1000 + $v2;
@@ -672,7 +672,6 @@ sub startServer {
     }
     # If we don't remove the existing pidfile, the server will be considered started too early,
     # and further flow can fail. $self->cleanup_dead_server does that and a bit more.
-    # unlink($self->pidfile);
     my $status = $self->cleanup_dead_server;
     if (DBSTATUS_OK != $status) {
         $status = DBSTATUS_FAILURE;
@@ -836,7 +835,13 @@ sub startServer {
                     if (DBSTATUS_OK == $status) {
                         say("DEBUG: $who_am_i Auxpid $pid exited with exit status STATUS_OK.")
                     } else {
-                        say("WARN: $who_am_i Auxpid $pid exited with exit status $status.")
+                        say("WARN: $who_am_i Auxpid $pid exited with exit status $status.");
+                        # Making a backtrace if DBSTATUS_OK != $status might look attractive but
+                        # it will kick even in harmless situations.
+                        # system("killall -15 mysqld") leads to auxpid exits with 137.
+                        # Impact:
+                        # Aside of confusion if its a server error or not we will get all time
+                        # a valueless backtrace if rr tracing.
                     }
                 }
                 if (0 == $reaped and DBSTATUS_OK != $status) {
@@ -1598,6 +1603,8 @@ sub binary {
 sub stopServer {
     my ($self, $shutdown_timeout) = @_;
 
+    my $server_id = $self->server_id();
+
     # For innodb_fast_shutdown = 1 (default)
     my $innodb_fast_shutdown_factor = 1;
     $innodb_fast_shutdown_factor = 4 if 0 == $self->serverVariable('innodb_fast_shutdown');
@@ -1606,7 +1613,7 @@ sub stopServer {
     $shutdown_timeout = $shutdown_timeout * Runtime::get_runtime_factor()
                         * $innodb_fast_shutdown_factor;
     say("DEBUG: Effective shutdown_timeout: $shutdown_timeout" . "s.");
-    my $errorlog      = $self->errorlog;
+    my $errorlog      =  $self->errorlog;
     my $check_shutdown = 0;
     my $res;
 
@@ -1615,11 +1622,12 @@ sub stopServer {
         # Use of uninitialized value in concatenation (.) or string at lib/DBServer/MySQL/MySQLd.pm
         my $message_part = $self->serverpid;
         $message_part = '<never known or now already unknown pid>' if not defined $message_part;
-        say("DEBUG: DBServer::MySQL::MySQLd::stopServer: The server with process [" .
+        say("DEBUG: DBServer::MySQL::MySQLd::stopServer: The server[" . $server_id . "] with process [" .
             $message_part . "] is already no more running.");
+        $self->make_backtrace;
         say("DEBUG: Omitting shutdown attempt, but will clean up and return DBSTATUS_OK.");
         $self->cleanup_dead_server;
-        return DBSTATUS_OK;
+        return STATUS_SERVER_CRASHED;
     }
 
     # Get the actual size of the server error log.
@@ -1633,7 +1641,7 @@ sub stopServer {
     # system("killall -11 mysqld mariadbd; sleep 10");
 
     if ($shutdown_timeout and defined $self->[MYSQLD_DBH]) {
-        say("Stopping server on port " . $self->port);
+        say("Stopping server[" . $server_id . "] on port " . $self->port);
         ## Use dbh routine to ensure reconnect in case connection is
         ## stale (happens i.e. with mdl_stability/valgrind runs)
         my $dbh = $self->dbh();
@@ -1649,7 +1657,7 @@ sub stopServer {
                 if ($self->waitForServerToStop($shutdown_timeout) != DBSTATUS_OK) {
                     # The server process has not disappeared.
                     # So try to terminate that process.
-                    say("ERROR: Server did not shut down properly. Terminate it");
+                    say("ERROR: Server[" . $server_id . "] did not shut down properly. Terminate it");
                     sayFile($errorlog);
                     $res= $self->term;
                     # If SIGTERM does not work properly then SIGKILL is used.
@@ -1657,7 +1665,7 @@ sub stopServer {
                         $check_shutdown = 1;
                     }
                 } else {
-                    say("INFO: Time for shutting down the server on port " . $self->port .
+                    say("INFO: Time for shutting down server[" . $server_id . "] on port " . $self->port .
                         " in s : " . (time() - $start_time));
                     $check_shutdown = 1;
                     # Observation 2020-12
@@ -1758,45 +1766,106 @@ sub stopServer {
 } # End of sub stopServer
 
 sub checkDatabaseIntegrity {
-  my $self= shift;
+# Code uses GenTest::Executor.
+    my $self = shift;
 
-  say("Testing database integrity");
-  my $dbh= $self->dbh;
-  my $status= DBSTATUS_OK;
+    my $who_am_i =  Basics::who_am_i();
+    my $server_id =        $self->server_id();
+    my $status =    DBSTATUS_OK;
+    my $err;
 
-  my $databases = $dbh->selectcol_arrayref("SHOW DATABASES");
-  foreach my $database (@$databases) {
-      next if $database =~ m{^(rqg|mysql|information_schema|pbxt|performance_schema)$}sio;
-      $dbh->do("USE $database");
-      my $tabl_ref = $dbh->selectcol_arrayref("SHOW FULL TABLES", { Columns=>[1,2] });
-      # 1178 is ER_CHECK_NOT_IMPLEMENTED
-      my %tables = @$tabl_ref;
-      foreach my $table (sort keys %tables) {
-        # Should not do CHECK etc., and especially ALTER, on a view
-        next if $tables{$table} eq 'VIEW';
-#        say("Verifying table: $database.$table:");
-        my $check = $dbh->selectcol_arrayref("CHECK TABLE `$database`.`$table` EXTENDED", { Columns=>[3,4] });
-        my $err = $dbh->err();
-        if (defined $err and $err > 0 && $err != 1178) {
-          say("ERROR: Table $database.$table appears to be corrupted, error: $err");
-          $status= DBSTATUS_FAILURE;
+    my $dsn =      $self->dsn();
+    my $executor = GenTest::Executor->newFromDSN($dsn);
+    $executor->setId($server_id);
+    $executor->setRole("checkDatabaseIntegrity");
+    # EXECUTOR_TASK_REPORTER ensures that max_statement_time is set to 0 for the current executor.
+    # But this is not valid for the connection established by mysqldump!
+    $executor->setTask(GenTest::Executor::EXECUTOR_TASK_UNKNOWN);
+    $status = $executor->init();
+    $who_am_i .= " server[" . $server_id . "] ";
+    return $status if $status != STATUS_OK;
+
+    # For debugging
+    # $self->killServer;
+    # SELECT 'test' WHERE 1 IS NULL --> not undef
+    # GARBAGE                       --> undef and 1064
+    my $aux_query = "SHOW DATABASES";
+    my $res_databases = $executor->execute($aux_query);
+    $status = $res_databases->status;
+    if (STATUS_OK != $status) {
+        $executor->disconnect();
+        my $err    = $res_databases->err;
+        my $errstr = $res_databases->errstr;
+        my $status = STATUS_CRITICAL_FAILURE;
+        say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
+            Auxiliary::build_wrs($status));
+        return $status;
+    }
+
+    if (0) {
+        # Generate some damaged view so that CHECK TABLE reports an error.
+        # Do not forget to uncomment the 'next if "VIEW" eq $table_type;' some lines later.
+        $executor->execute("CREATE TABLE test.extra_t2 (col1 INT, UNIQUE(KEY ");
+        $executor->execute("CREATE TABLE test.extra_t1 (col1 INT)");
+        $executor->execute("CREATE VIEW test.extra_v1 AS SELECT * FROM test.extra_t1");
+        $executor->execute("DROP TABLE test.extra_t1");
+    }
+
+    my $key_ref = $res_databases->data;
+    foreach my $val (@$key_ref) {
+        my $database = $val->[0];
+        # say("DEBUG: database ->" . $database . "<-");
+        next if $database =~ m{^(rqg|mysql|information_schema|pbxt|performance_schema)$}sio;
+        $aux_query = "USE $database";
+        my $res_use = $executor->execute($aux_query);
+        $status = $res_use->status;
+        if (STATUS_OK != $status) {
+            $executor->disconnect();
+            $err = $res_use->err;
+            say("ERROR: $who_am_i '$aux_query' failed, error: $err");
+            return $status;
         }
-        else {
-          my %msg = @$check;
-          foreach my $m (keys %msg) {
-            say("For table `$database`.`$table` : $m $msg{$m}");
-            if ($m ne 'status' and $m ne 'note') {
-              $status= DBSTATUS_FAILURE;
+        $aux_query = "SHOW FULL TABLES";
+        my $res_tables = $executor->execute($aux_query);
+        $status = $res_tables->status;
+        if (STATUS_OK != $status) {
+            $executor->disconnect();
+            my $err    = $res_tables->err;
+            my $errstr = $res_tables->errstr;
+            say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
+                Auxiliary::build_wrs($status));
+            return $status;
+        }
+        my $key_ref1 = $res_tables->data;
+        # Tables_in_test  Table_type
+        # t2      BASE TABLE
+        # v1      VIEW
+        foreach my $val1 (@$key_ref1) {
+            my $table =      $val1->[0];
+            my $table_type = $val1->[1];
+            # say("DEBUG: table ->" . $table . "<- table_type ->" . $table_type . "<-");
+            next if "VIEW" eq $table_type;
+            $aux_query = "CHECK TABLE `$database`.`$table` EXTENDED";
+            my $res_check = $executor->execute($aux_query);
+            $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
+            if (STATUS_OK != $status) {
+                $executor->disconnect();
+                my $err    = $res_check->err;
+                $err = "<undef>" if not defined $err;
+                my $errstr = $res_check->errstr;
+                $errstr = "<undef>" if not defined $errstr;
+                say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
+                    Auxiliary::build_wrs($status));
+                return $status;
+            } else {
+                say("INFO: $who_am_i $aux_query : pass");
+                # No reason to analyse the result because that was already done by MySQL.pm and
+                # we received some corresponding status.
             }
-          }
         }
-      }
-  }
-  if ($status > DBSTATUS_OK) {
-    sayError("Database integrity check failed");
-  }
-  return $status;
-}
+    }
+    return $status;
+} # End of sub checkDatabaseIntegrity
 
 sub addErrorLogMarker {
    my $self   = shift;
@@ -2098,6 +2167,15 @@ sub dbh {
    return $self->[MYSQLD_DBH];
 }
 
+sub server_id {
+    # A number > 0
+    my ($self) = @_;
+    # my $server_id = $self->vardir;
+    # $server_id =~ s{.*/}{};
+    # return $server_id;
+    return $self->[MYSQLD_SERVER_ID];
+}
+
 sub _findDir {
     my($self, $bases, $subdir, $name) = @_;
 
@@ -2393,7 +2471,7 @@ sub make_backtrace {
 #
 # FIXME:
 # Every piece in RQG wanting a backtrace should call the routine from here.
-# IMHO it is rather questionable if the current Reporter Backtrace is needed at all.
+# IMHO it is rather questionable if the current Reporter Backtrace is needed in its current form.
 # The reasons:
 # The server could die intentional or non intentional
 # - during bootstrap
@@ -2401,7 +2479,7 @@ sub make_backtrace {
 # - during gendata -- GenTest initiates backtracing based on the reporter Backtrace
 # - during gentest -- GenTest initiates backtracing based on the reporter Backtrace
 # - during some reporter Reporter initiates a shutdown or TERM server
-# - during stopping the servers smooth after GenTest fails
+# - during stopping the servers smooth after GenTest failed
 # - via SIGABRT/SIGSEGV/SIGKILL sent by some reporter
 # Hint: Backtraces of mariabackup are also needed.
 #
@@ -2409,9 +2487,11 @@ sub make_backtrace {
     my $self = shift;
 
     # my $server_running = kill (0, serverpid());
-    my $who_am_i    = Basics::who_am_i;
-    my $vardir      = $self->vardir();
-    my $error_log   = $self->errorlog();
+    my $who_am_i =  Basics::who_am_i;
+    my $server_id = $self->server_id();
+    $who_am_i .=    " server[" . $server_id . "] ";
+    my $vardir =    $self->vardir();
+    my $error_log = $self->errorlog();
 
     # my $server_pid  = $self->serverpid();
 
@@ -2432,7 +2512,7 @@ sub make_backtrace {
             $status = STATUS_SERVER_CRASHED;
         }
         # cleanup_dead_server waits till the aux/fork pis is gone.
-        # FIXME maybe: cleanup_dead_server could fail
+        # FIXME maybe: cleanup_dead_server could fail (report status of waitForAuxpidGone)
         $self->cleanup_dead_server;
     }
 
@@ -2619,5 +2699,109 @@ sub make_backtrace {
     return $status;
 
 } # End sub make_backtrace
+
+sub server_is_operable {
+# 1. Check if the server is running
+#    No  --> make_backtrace return STATUS_SERVER_CRASHED
+#    Yes --> go on
+# 2. Try to connect (Supervised with timeout? But load by sessions should be ~ 0.)
+#    Fail    --> kill server with SIGABRT, make_backtrace, return STATUS_SERVER_DEADLOCKED
+#    Success --> SHOW PROCESSLIST, print result, disconnect, return STATUS_OK
+#
+# There must be never more than one process running server_is_operable.
+#
+# Example of a SHOW PROCESSLIST result set.
+# 0   1     2          3     4        5     6      7                 8
+# Id  User  Host       db    Command  Time  State  Info              Progress
+#  4  root  localhost  test  Query       0   Init  SHOW PROCESSLIST  0.000
+use constant PROCESSLIST_PROCESS_ID          => 0;
+use constant PROCESSLIST_PROCESS_COMMAND     => 4;
+use constant PROCESSLIST_PROCESS_TIME        => 5;
+use constant PROCESSLIST_PROCESS_INFO        => 7;
+
+    my $self = shift;
+
+    my $status =    STATUS_OK;
+    my $who_am_i =  Basics::who_am_i;
+    my $server_id = $self->server_id();
+    $who_am_i .= " server[" . $server_id . "] ";
+
+
+    if (not $self->running) {
+        my $pid = $self->serverpid;
+        $pid = "<unknown>" if not defined $pid;
+        say("ERROR: $who_am_i with process [" . $pid . "] is no more running.");
+        $status = $self->make_backtrace();
+        say("INFO: $who_am_i make_backtrace reported status $status. Will return that.");
+    } else {
+        # say("DEBUG: The server[" . $server_id . "] with process [" . $pid . "] is running.");
+        # say("DEBUG: port is " . $self->port );
+        if (not defined $self->dbh) {
+            # $self->dbh is a function which tries to make a connect(with timeout).
+            say("ERROR: $who_am_i Did not get a connection to the running server[" .
+                $server_id . "].");
+            say("INFO: $who_am_i Will kill the server and generate a backtrace.");
+            $status = $self->make_backtrace();
+            say("INFO: $who_am_i make_backtrace reported status $status.");
+            $status = STATUS_SERVER_DEADLOCKED;
+            say("ERROR: $who_am_i Will return STATUS_SERVER_DEADLOCKED" .
+                "($status) because of previous error.");
+        } else {
+            # FIXME:
+            # We need some reasonable timeout for any query like Deadlock1 already has.
+            my $query = '/*!100108 SET @@max_statement_time = 0 */';
+            my $dbh =   $self->dbh;
+            $dbh->do($query);
+            $query =    "SHOW FULL PROCESSLIST";
+            my $processlist = $dbh->selectall_arrayref($query);
+            # The query could have failed.
+            if (not defined $processlist) {
+                if (not $self->running) {
+                    $dbh->disconnect;
+                    say("ERROR: $who_am_i with process [" . $self->serverpid .
+                        "] is no more running.");
+                    $status = $self->make_backtrace();
+                    say("INFO: $who_am_i make_backtrace reported status $status. " .
+                        "Will return that.");
+                } else {
+                    say("ERROR: $who_am_i The query '$query' failed with " . $DBI::err);
+                    my $return = GenTest::Executor::MySQL::errorType($DBI::err);
+                    if (not defined $return) {
+                        say("ERROR: $who_am_i The type of the error got is unknown. " .
+                            "Will exit with STATUS_INTERNAL_ERROR");
+                        $dbh->disconnect;
+                        $status = STATUS_INTERNAL_ERROR;
+                        # $status = STATUS_UNKNOWN_ERROR;
+                    } else {
+                        say("ERROR: $who_am_i Will return status $return" . ".");
+                        $dbh->disconnect;
+                        $status = $return;
+                    }
+                }
+            } else {
+                my $processlist_report = "$who_am_i Content of processlist ---------- begin\n";
+                $processlist_report .= "$who_am_i ID -- COMMAND -- TIME -- INFO -- state\n";
+                foreach my $process (@$processlist) {
+                    my $process_command = $process->[PROCESSLIST_PROCESS_COMMAND];
+                    $process_command = "<undef>" if not defined $process_command;
+                    # next if $process_command eq 'Daemon';
+                    my $process_id   = $process->[PROCESSLIST_PROCESS_ID];
+                    my $process_info = $process->[PROCESSLIST_PROCESS_INFO];
+                    $process_info    = "<undef>" if not defined $process_info;
+                    my $process_time = $process->[PROCESSLIST_PROCESS_TIME];
+                    $process_time    = "<undef>" if not defined $process_time;
+                    $processlist_report .= "$who_am_i " . $process_id . " -- " . $process_command .
+                                " -- " . $process_time . " -- " . $process_info . "\n";
+                 }
+                 $processlist_report .= "$who_am_i Content of processlist ---------- end";
+                 say($processlist_report);
+                 $dbh->disconnect;
+            }
+        }
+    }
+    say("DEBUG: $who_am_i Will return $status.");
+    return $status;
+} # End of sub server_is_operable
+
 
 1;

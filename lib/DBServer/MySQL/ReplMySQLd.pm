@@ -155,6 +155,7 @@ sub new {
                                      rr               => $self->[REPLMYSQLD_RR],
                                      rr_options       => $self->[REPLMYSQLD_RR_OPTIONS],
                                      config           => $self->[REPLMYSQLD_CONFIG_CONTENTS],
+                                     id               => 1,
                                      user             => $self->[REPLMYSQLD_USER]);
 
         if (not defined $self->master) {
@@ -187,6 +188,7 @@ sub new {
                                      rr               => $self->[REPLMYSQLD_RR],
                                      rr_options       => $self->[REPLMYSQLD_RR_OPTIONS],
                                      config           => $self->[REPLMYSQLD_CONFIG_CONTENTS],
+                                     id               => 2,
                                      user             => $self->[REPLMYSQLD_USER]);
 
         if (not defined $self->slave) {

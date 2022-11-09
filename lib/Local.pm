@@ -60,20 +60,22 @@ our $binarch_dir;
 our $build_thread;
 our $major_runid;
 our $minor_runid;
-our $vardir_type;
+our $dbdir_type;
+our $dbdir_fs_type;
 our $rqg_fast_dir;
 our $rqg_slow_dir;
 our $vardir;
+our $dbdir;
 
 sub check_and_set_local_config {
 
-    ($major_runid, $minor_runid, $vardir_type, my $batch) = @_;
+    ($major_runid, $minor_runid, $dbdir_type, my $batch) = @_;
     my $who_am_i = Basics::who_am_i;
 
     if (4 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: $who_am_i" .
-                    " Exact four parameters(major_runid, minor_runid, vardir_type, batch) need " .
+                    " Exact four parameters(major_runid, minor_runid, dbdir_type, batch) need " .
                     "to get assigned. " . Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
@@ -177,9 +179,9 @@ sub check_and_set_local_config {
         }
 
         sub check_dir {
-            my ($dir, $text) = @_;
+            my ($dir) = @_;
             if (not -d $dir) {
-                if (STATUS_OK != Basics::conditional_make_dir($dir, $text)) {
+                if (STATUS_OK != Basics::conditional_make_dir($dir)) {
                     my $status = STATUS_ENVIRONMENT_FAILURE;
                     safe_exit($status);
                 }
@@ -193,14 +195,8 @@ sub check_and_set_local_config {
             safe_exit($status);
         } else {
             $rqg_fast_dir = Basics::unify_path($rqg_fast_dir);
-            check_dir($rqg_fast_dir, "Per file '$local_config' a directory '$rqg_fast_dir' should exist.");
+            # local.cfg has already checked that this directory exists.
         }
-        if (defined $major_runid) {
-            $rqg_fast_dir = Basics::unify_path($rqg_fast_dir . "/" . $major_runid);
-            check_dir($rqg_fast_dir, "The directory '$rqg_fast_dir' should already exist.");
-        }
-        $rqg_fast_dir = Basics::unify_path($rqg_fast_dir . "/" . $minor_runid);
-        check_dir($rqg_fast_dir, "The directory '$rqg_fast_dir' should already exist.");
         my $fast_fs_type = Auxiliary::get_fs_type($rqg_fast_dir);
 
         if (not defined $rqg_slow_dir) {
@@ -210,23 +206,39 @@ sub check_and_set_local_config {
             safe_exit($status);
         } else {
             $rqg_slow_dir = Basics::unify_path($rqg_slow_dir);
-            check_dir($rqg_slow_dir, "Per file '$local_config' a directory '$rqg_slow_dir' should exist.");
+            # local.cfg has already checked that this directory exists.
         }
-        if (defined $major_runid) {
-            $rqg_slow_dir = Basics::unify_path($rqg_slow_dir . "/" . $major_runid);
-            check_dir($rqg_slow_dir, "The directory '$rqg_slow_dir' should already exist.");
-        }
-        $rqg_slow_dir = Basics::unify_path($rqg_slow_dir . "/" . $minor_runid);
-        check_dir($rqg_slow_dir, "The directory '$rqg_slow_dir' should already exist.");
         my $slow_fs_type = Auxiliary::get_fs_type($rqg_slow_dir);
+
+        if ($rqg_fast_dir eq $rqg_slow_dir) {
+            say("ERROR: '$rqg_fast_dir' and '$rqg_slow_dir' are equal which is bad " .
+                "for the functional coverage. Abort");
+            safe_exit(STATUS_ENVIRONMENT_FAILURE);
+        }
+
+        if ($fast_fs_type eq $slow_fs_type and $slow_fs_type eq 'tmpfs'
+            and $rqg_fast_dir =~ m{\/dev\/shm\/}) {
+            say("ERROR: rqg_fast_dir '$rqg_fast_dir' and rqg_slow_dir '$rqg_slow_dir' are of " .
+                "type 'tmpfs'. This is bad for the functional coverage. Abort");
+            safe_exit(STATUS_ENVIRONMENT_FAILURE);
+        }
+
+        if (defined $major_runid) {
+            $rqg_fast_dir = Basics::unify_path($rqg_fast_dir . "/" . $major_runid);
+            check_dir($rqg_fast_dir);
+            $rqg_slow_dir = Basics::unify_path($rqg_slow_dir . "/" . $major_runid);
+            check_dir($rqg_slow_dir);
+        }
+        $rqg_fast_dir = Basics::unify_path($rqg_fast_dir . "/" . $minor_runid);
+        Basics::conditional_remove__make_dir($rqg_fast_dir);
+        $rqg_slow_dir = Basics::unify_path($rqg_slow_dir . "/" . $minor_runid);
+        Basics::conditional_remove__make_dir($rqg_slow_dir);
 
         if (not defined $binarch_dir) {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: The variable \$binarch_dir is undef. " .
                 Auxiliary::exit_status_text($status));
             safe_exit($status);
-        } else {
-            check_dir($binarch_dir, "Per file '$local_config' a directory '$binarch_dir' should exist.");
         }
         $binarch_dir = Basics::unify_path($binarch_dir);
 
@@ -235,62 +247,68 @@ sub check_and_set_local_config {
             say("ERROR: The variable \$results_dir is undef. " .
                 Auxiliary::exit_status_text($status));
             safe_exit($status);
-        } else {
-            check_dir($results_dir, "Per file '$local_config' a directory '$results_dir' should exist.");
         }
         if (defined $major_runid) {
             $results_dir = Basics::unify_path($results_dir . "/" . $major_runid);
-            check_dir($results_dir, "The directory '$results_dir' should already exist.");
+            check_dir($results_dir);
         }
         $results_dir = Basics::unify_path($results_dir . "/" . $minor_runid);
-        if (not defined $batch or 0 == $batch) {
+        if (0 == $batch) {
+            # $build_thread stays unchanged.
             if (STATUS_OK != Basics::conditional_remove__make_dir($results_dir)) {
                 my $status = STATUS_ENVIRONMENT_FAILURE;
                 safe_exit($status);
             }
         } else {
             $build_thread = $build_thread + $minor_runid - 1;
-            check_dir($results_dir, "The directory '$results_dir' should already exist.");
+            check_dir($results_dir);
         }
 
-#       if (not defined $build_thread) {
-#           my $status = STATUS_ENVIRONMENT_FAILURE;
-#           say("ERROR: The variable \$binarch_dir is undef. " . $message_correct .
-#               Auxiliary::exit_status_text($status));
-#           safe_exit($status);
-#       }
-
-        if (not defined $vardir_type) {
-            $vardir_type = DBDIR_TYPE_FAST;
-            say("INFO: The value for vardir_type was undef. Changing it to the default '" .
-                $vardir_type . "'.");
+        if (not defined $dbdir_type and 2 != $batch) {
+            $dbdir_type = DBDIR_TYPE_FAST;
+            say("INFO: The value for dbdir_type was undef. Changing it to the default '" .
+                $dbdir_type . "'.");
         }
-        my $result = Auxiliary::check_value_supported ('vardir_type', DBDIR_TYPE_LIST,
-                                                       $vardir_type);
-
-        if ($result != STATUS_OK) {
-            help_vardir_type();
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            safe_exit($status);
-        } else {
-            if      (DBDIR_TYPE_FAST eq $vardir_type) {
-                $rqg_rr_add = '';
-                $vardir = $rqg_fast_dir;
-            } elsif (DBDIR_TYPE_SLOW eq $vardir_type) {
-                $rqg_rr_add = $rqg_slow_dbdir_rr_add;
-                $vardir = $rqg_slow_dir;
+        if (defined $dbdir_type) {
+            my $result = Auxiliary::check_value_supported ('dbdir_type', DBDIR_TYPE_LIST,
+                                                           $dbdir_type);
+            if ($result != STATUS_OK) {
+                help_dbdir_type();
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                safe_exit($status);
+            } else {
+                if      (DBDIR_TYPE_FAST eq $dbdir_type) {
+                    $rqg_rr_add = '';
+                    $vardir =        $rqg_fast_dir;
+                    $dbdir  =        $rqg_fast_dir;
+                    $dbdir_fs_type = $fast_fs_type;
+                } elsif (DBDIR_TYPE_SLOW eq $dbdir_type) {
+                    $rqg_rr_add =    $rqg_slow_dbdir_rr_add;
+                    $vardir =        $rqg_slow_dir;
+                    $dbdir  =        $rqg_slow_dir;
+                    $dbdir_fs_type = $slow_fs_type;
+                }
             }
+        } else {
+            my $val = 'undef == decided later by the RQG runner';
+            $rqg_rr_add =    $val;
+            $vardir =        $val;
+            $dbdir  =        $val;
+            $dbdir_fs_type = $val;
+            $dbdir_type =    $val;
         }
 
         my $replacement = $major_runid;
         $replacement = '<undef --> not used>' if not defined $major_runid;
-        say("---------------------------------------------------------\n" .
-            "Local Properties after processing '$local_config' and parameters assigned\n"          .
+        my $message = "Local Properties after processing '$local_config' and parameters assigned";
+        say(Auxiliary::dash_line(length($message)) . "\n"                                          .
+            $message . "\n"                                                                        .
             "INFO: major_runid           : '$replacement'\n"                                       .
             "INFO: minor_runid           : '$minor_runid'\n"                                       .
-            "INFO: vardir_type           : '$vardir_type'\n"                                       .
-            "INFO: rqg_fast_dir          : '$rqg_fast_dir' -- fs_type observed: $fast_fs_type \n"  .
-            "INFO: rqg_slow_dir          : '$rqg_slow_dir' -- fs_type observed: $slow_fs_type \n"  .
+            "INFO: dbdir_type            : '$dbdir_type'\n"                                        .
+            "INFO: dbdir                 : '$dbdir'        -- fs_type observed: $dbdir_fs_type\n"  .
+            "INFO: rqg_fast_dir          : '$rqg_fast_dir' -- fs_type observed: $fast_fs_type\n"   .
+            "INFO: rqg_slow_dir          : '$rqg_slow_dir' -- fs_type observed: $slow_fs_type\n"   .
             "INFO: rqg_slow_dbdir_rr_add : '$rqg_slow_dbdir_rr_add'\n"                             .
             "INFO: rr_options_add        : '$rr_options_add'\n"                                    .
             "INFO: rqg_rr_add            : '$rqg_rr_add'\n"                                        .
@@ -298,7 +316,7 @@ sub check_and_set_local_config {
             "INFO: results_dir           : '$results_dir'\n"                                       .
             "INFO: vardir                : '$vardir'\n"                                            .
             "INFO: build_thread          : '$build_thread'\n"                                      .
-            "---------------------------------------------------------")                           ;
+            Auxiliary::dash_line(length($message)))                                                ;
     }
     # For debugging
     # system("ls -ld /dev/shm/rqg*/* /data/rqg/* /data/results/*");
@@ -324,25 +342,25 @@ sub get_rqg_slow_dir {
 
 sub get_vardir_per_type {
     # To be used by rqg_batch.pl
-    my ($vardir_type) = @_;
+    my ($dbdir_type) = @_;
     if (1 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: script_debug_init : 1 Parameter (vardir_type) is required.");
+        Carp::cluck("INTERNAL ERROR: script_debug_init : 1 Parameter (dbdir_type) is required.");
         safe_exit($status);
     };
-    if (not defined $vardir_type) {
-        $vardir_type = DBDIR_TYPE_FAST;
-        say("INFO: The value for vardir_type was undef. Changing it to the default '" .
-            $vardir_type . "'.");
+    if (not defined $dbdir_type) {
+        $dbdir_type = DBDIR_TYPE_FAST;
+        say("INFO: The value for dbdir_type was undef. Changing it to the default '" .
+            $dbdir_type . "'.");
     }
     my $comp_vardir;
-    my $result = Auxiliary::check_value_supported ('vardir_type', DBDIR_TYPE_LIST, $vardir_type);
+    my $result = Auxiliary::check_value_supported ('dbdir_type', DBDIR_TYPE_LIST, $dbdir_type);
     if ($result != STATUS_OK) {
         return undef;
     } else {
-        if      (DBDIR_TYPE_FAST eq $vardir_type) {
+        if      (DBDIR_TYPE_FAST eq $dbdir_type) {
             $comp_vardir = $rqg_fast_dir;
-        } elsif (DBDIR_TYPE_SLOW eq $vardir_type) {
+        } elsif (DBDIR_TYPE_SLOW eq $dbdir_type) {
             $comp_vardir = $rqg_slow_dir;
         }
     }
@@ -352,10 +370,18 @@ sub get_vardir_per_type {
 sub get_vardir {
     return $vardir;
 }
-
-sub get_vardir_type {
-    return $vardir_type;
+sub get_dbdir {
+    return $dbdir;
 }
+
+sub get_dbdir_type {
+    return $dbdir_type;
+}
+
+sub get_dbdir_fs_type {
+    return $dbdir_fs_type;
+}
+
 sub get_rr_options_add {
     return $rr_options_add;
 }
@@ -384,20 +410,18 @@ sub help_local {
     "Please copy local_template.cfg to local.cfg and adjust the values there.\n" ;
 }
 
-sub help_vardir_type {
+sub help_dbdir_type {
 
-   say("\nHELP about the RQG run option 'vardir_type'.\n"                                          .
+   say("\nHELP about the RQG run option 'dbdir_type'.\n"                                           .
        "Supported values: " . Auxiliary::list_values_supported(DBDIR_TYPE_LIST) . "\n"             .
        "Default value:    '" . DBDIR_TYPE_FAST . "'\n\n"                                           .
        "Based on the type provided and the content of the file 'local.cfg' RQG will calculate "    .
        "some corresponding var directory.\n"                                                       .
        "      The vardirs of all database servers will be created as sub directories within "      .
        "that directory.\n"                                                                         .
-       "      Also certain dumps, temporary files (variable tmpdir in RQG code) etc. will be "     .
-       "placed there.\n"                                                                           .
        "      RQG tools and the RQG runners feel 'free' to destroy or create the vardir whenever " .
        "they want.\n\n"                                                                            .
-       "The recommendation is to assign some 'vardir_type' which leads to using some filesystem "  .
+       "The recommendation is to assign some 'dbdir_type' which leads to using some filesystem "   .
        "which satisfies your needs.\n"                                                             .
        "'" . DBDIR_TYPE_FAST . "':\n"                                                              .
        "   Advantage:\n"                                                                           .
@@ -420,13 +444,14 @@ sub help_vardir_type {
        "   - In case the final device is a SSD than some risk to wear it out soon.\n\n"            .
        "Recommendation for RQG Batch:\n"                                                           .
        "   Have within the batch config file a section assigning something like\n"                 .
-       "   9 times vardir_type' " . DBDIR_TYPE_FAST . "' and one time '" . DBDIR_TYPE_SLOW."'\n\n" .
-       "Why is it no more supported to set the vardir<n> for the DB servers within the RQG call?\n".
-       "   - Maximum safety against concurrent activity of other RQG and MTR tests could be\n"     .
-       "     only ensured if the RQG run uses vardirs for servers which are specific to the\n"     .
-       "     RQG run. Just assume the ugly case that concurrent tests create/destroy/modify\n"     .
-       "     in <release>/mysql-test/var.\n"                                                       .
-       "   - Creating/Archiving/Removing only one directory 'vardir' only is easier.");
+       "   Variant 1\n"                                                                            .
+       "   batch config file         | corresponding entry in local.cfg\n"                         .
+       "   3 times dbdir_type' " . DBDIR_TYPE_FAST . "' | /dev/shm/rqg (tmpfs)\n"                  .
+       "   7 times dbdir_type' " . DBDIR_TYPE_SLOW . "' | /dev/shm/rqg_ext4 (ext4 with image in tmpfs)\n" .
+       "   Variant 2\n"                                                                            .
+       "   batch config file         | corresponding entry in local.cfg\n"                         .
+       "   9 times dbdir_type' " . DBDIR_TYPE_FAST . "' | /dev/shm/rqg (tmpfs)\n"                  .
+       "   1 time  dbdir_type' " . DBDIR_TYPE_SLOW . "' | /data/rqg (ext4 located on HDD or SSD)\n\n");
 }
 
 1;

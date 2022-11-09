@@ -1608,10 +1608,59 @@ sub archive_results {
         say("ERROR: $who_am_i RQG workdir '$workdir' is missing or not a directory.");
         return STATUS_FAILURE;
     }
-    if (not -d $vardir) {
-        say("ERROR: RQG vardir '$vardir' is missing or not a directory.");
+    # /data/results/1649954330/1
+    # say("DEBUG: Processing workdir '$workdir'");
+    if (not opendir(TOPDIR, $workdir)) {
+        Carp::cluck("ERROR: Opening the directory '$workdir' failed: $!");
         return STATUS_FAILURE;
     }
+    # Move the rr trace directories to their final position.
+    while( (my $object = readdir(TOPDIR))) {
+        my $more_object = $workdir . "/" . $object;
+        # describe_object($more_object);
+        if ($object eq '.' or $object eq '..') {
+            # say("DEBUG: '$more_object' is point object. Omitting");
+            next;
+        }
+        # say("Checking ---------- $more_object\n");
+        if (-d $more_object) {
+            # say("DEBUG: '$more_object' is directory.");
+        } else {
+            next;
+        }
+
+        # /data/results/1649954330/1/1
+        if (not opendir(SUBDIR, $more_object)) {
+            Carp::cluck("ERROR: Opening the directory '$more_object' failed: $!");
+            return STATUS_FAILURE;
+        }
+        while( (my $subobject = readdir(SUBDIR))) {
+            my $more_subobject = $more_object . "/" . $subobject;
+            # say("Checking ---------- $more_subobject\n");
+            # describe_object($more_subobject);
+            # /data/results/1649954330/1/1/rr
+            if ($subobject eq 'rr' and -l $more_subobject and -d $more_subobject) {
+                # say("DEBUG: '$more_subobject' has the desired name and is a symlink pointing " .
+                #     "to a directory.");
+                my $abs_object = Cwd::abs_path($more_subobject);
+                # system("ls -ld $more_subobject $abs_object");
+                unlink($more_subobject);
+                if (STATUS_OK != Basics::move_dir_to_newdir($abs_object, $more_subobject)) {
+                    return STATUS_FAILURE;
+                }
+                # File::Path::rmtree($abs_object);
+                # system("ls -ld $more_subobject $abs_object");
+                # system("find $more_subobject");
+            }
+
+        }
+        closedir(SUBDIR);
+        # say("DEBUG: Finished processing of '$more_object'.");
+
+    }
+    closedir(TOPDIR);
+    # say("DEBUG: Finished processing of '$workdir'.");
+
     my $compress_option;
     my $suffix;
     if ( STATUS_OK == find_external_command('xz') ) {
@@ -1630,46 +1679,31 @@ sub archive_results {
     my $cmd;
     my $rc;
     my $status;
-    $cmd  = "cd $workdir";
-    $rc = $? >> 8;
-    if ($rc != 0) {
-        say("ERROR: ->" . $cmd . "<- failed with exit status $rc");
-        return STATUS_FAILURE;
-    }
-    Auxiliary::tweak_permissions(".");
-    Auxiliary::tweak_permissions($vardir);
+    tweak_permissions($workdir);
     # WARNING:
     # Never run a    system("sync -f $workdir $vardir");    here
-    # because that easy last > 2000s on a box with many concurrent RQG runs which all
-    # work on some HDD.
+    # because that easy lasts > 2000s on a box with many concurrent RQG runs which all
+    # work on maybe the same HDD.
 
-    # FIXME/DECIDE:
-    # - Use the GNU tar long options because the describe better what is done
-    # h           --> --dereference     sql/mysqld is a symlink pointing on sql/mariadbd
-    # c           --> --create
-    # f <archive> --> --file <archive>
-    # Whereas dereference looks "attractive"
-    # - because it would materialize symlinks like sql/mysqld pointing on sql/mariadbd
-    #   Fortunately mysqld/mariadbd does not need to get archived here.
-    # it is rather fatal in the region of archiving rr traces
-    #   because last_trace pointing to some mysqld-<n> which we archive too
-    #   would get materialized.
     # Failing cmd for experimenting
     # $cmd = "cd $workdir ; tar csf $archive rqg* $vardir 2>$archive_err";
     #
-    # Having a compressed archive and appending files to it is not supported!
-    #
-    # Some thoughts about why not prepending a nice -19 to the tar command.
-    # ---------------------------------------------------------------------
-    # 1. Less elapsed time for tar with compression means shorter remaining lifetime for the
-    #    voluminous data on vardir. The latter is usual on fast storage like tmpfs with
-    #    limited storage space. And it is frequent a bottleneck for increasing the load.
-    # 2. Not using nice -19 for some auxiliary task like archiving means also less CPU for
-    #    for RQG runner, especially involved DB server. This increases the time required
-    #    for any work phase. And that makes more capable to reveal phases where locks or
-    #    similar are missing or wrong handled.
-    $cmd = "cd $workdir 2>>$archive_err; tar --use-compress-program='$compress_option' -cf "       .
-           "$archive rqg* $vardir 2>>$archive_err";
+    # 1. Having a compressed archive and appending files to it is not supported!
+    # 2. Some thoughts about why not prepending a nice -19 to the tar command.
+    #    - Less elapsed time for tar with compression means shorter remaining lifetime for the
+    #      voluminous data on vardir. The latter is usual on fast storage like tmpfs with
+    #      limited storage space. And it is frequent a bottleneck for increasing the load.
+    #    - Not using nice -19 for some auxiliary task like archiving means also less CPU for
+    #      for RQG runner, especially involved DB server. This increases the time required
+    #      for any work phase. And that makes more capable to reveal phases where locks or
+    #      similar are missing or wrong handled.
+    # 3. cd $workdir prevents to have the full path in the archive.
+    # 4. The subdirectory 'rr' gets excluded from the tar archiving because its nearly not
+    #    compressible and not usable for replaying when being inside some tar archive.
+    # 5. --dereference is required because of the excessive symlinking.
+    $cmd = "cd $workdir 2>>$archive_err; tar --create --file - "               .
+           "--exclude='./archive.*' --exclude='./*/rr' --dereference ./* | "   .
+           "xz --threads=1 -0 --stdout > $archive 2>>$archive_err";
     say("DEBUG: cmd : ->$cmd<-") if script_debug("A5");
     system($cmd);
     $rc = $? >> 8;
@@ -2882,19 +2916,18 @@ sub tweak_permissions {
 #   during archiving.
 # - When running   rr replay  rr can lament that binaries are modified or similar.
 # Hence files with 'mmap_hardlink' in their name get excluded from chmod.
-    my ($whatever_file) = @_;
-    if (not -e $whatever_file) {
-        say("INTERNAL ERROR: Whatever file '$whatever_file' does not exist.");
+    my ($whatever_dir) = @_;
+    if (not -e $whatever_dir or not -d $whatever_dir) {
+        say("INTERNAL ERROR: Whatever directory '$whatever_dir' does not exist or " .
+            "is not a directory.");
         return STATUS_INTERNAL_ERROR;
     }
     my $status = STATUS_OK;
     if (not osWindows()) {
-        my $prt = "chmod.prt";
+        my $prt = $whatever_dir . "/chmod.prt";
         unlink $prt;
-        my $cmd = "find " . $whatever_file . " -print | grep -v 'mmap_hardlink' | " .
-                  "xargs --no-run-if-empty chmod g+rw > $prt 2>&1";
-        $cmd .= "; find " . $whatever_file . " -type d -print | grep -v 'mmap_hardlink' | " .
-               "xargs --no-run-if-empty chmod g+x > $prt 2>&1";
+        my $cmd = "find " . $whatever_dir . " -follow -print | grep -v 'mmap_hardlink' | " .
+                  "xargs --no-run-if-empty chmod g+rwX > $prt 2>&1";
         my $rc = system($cmd);
         $rc = $? >> 8;
         if ($rc != 0) {
@@ -2908,6 +2941,441 @@ sub tweak_permissions {
         $status = STATUS_OK;
     }
     return $status;
+}
+
+sub clean_workdir_preserve {
+# Use case:
+# Some RQG run is finished with some result of interest.
+# Main goals:
+# - move the rr traces from somewhere under /dev/shm to
+#   their final destination (big permanent storage like HDD)
+# - remove anything else except rqg* files and archives
+#
+# But the storage structure required for
+# - keeping rr traces runnable
+# - minimizing the total IO on slow storage devices
+# is complicated and prone to mistakes when code is changed.
+
+    my $who_am_i = Basics::who_am_i();
+    # say("DEBUG: $who_am_i ---------- start");
+
+    my ($workdir) = @_;
+    # SAMPLE: /data/results/1653923445/3
+    if (not -d $workdir) {
+        say("ERROR: $who_am_i RQG workdir '$workdir' is missing or not a directory.");
+        return STATUS_FAILURE;
+    }
+
+    if (not opendir(TOPDIR, $workdir)) {
+        say("ERROR: $who_am_i Opening the directory '$workdir' failed: $!");
+        return STATUS_FAILURE;
+    }
+    # system("find $workdir -follow | xargs ls -ld");
+    while( (my $object = readdir(TOPDIR))) {
+        my $more_object = $workdir . "/" . $object;
+        if ($object eq '.' or $object eq '..' or -f $object) {
+            # say("DEBUG: $who_am_i '$more_object' is point object or file. Omitting");
+            # SAMPLES:
+            # /data/results/1653923445/3/rqg.log
+            # /data/results/1653923445/3/.
+            next;
+        }
+        # say("DEBUG: $who_am_i Checking in TOPDIR ---------- $more_object\n");
+        # describe_object($more_object);
+        # say("DEBUG: $who_am_i '$more_object' is directory or symlink to directory.");
+        my $final_path;
+        if (-l $more_object) {
+            # SAMPLE: /data/results/1653923445/3/1 -> /dev/shm/rqg/1653923445/3/1
+            if (not -d $more_object) {
+                unlink($more_object);
+                # 2022-05-30 In the moment I assume that this should never show up.
+                say("WARN: $who_am_i Symlink '$more_object' pointing to not existing directory deleted.");
+                next;
+            } else {
+                $final_path = Cwd::abs_path($more_object);
+                # SAMPLE: /dev/shm/rqg/1653923445/3/1
+                unlink($more_object);
+                # SAMPLE: /data/results/1653923445/3/1
+                if (STATUS_OK != Basics::make_dir($more_object)) {
+                    say("ERROR: $who_am_i Making a directory instead of symlimk '$more_object' failed.");
+                    return STATUS_FAILURE;
+                }
+                # say("DEBUG: $who_am_i Symlink '$more_object' deleted and as directory recreated.");
+            }
+        } else {
+            $final_path = $more_object;
+        }
+        # say("DEBUG: $who_am_i more_object '$more_object' final_path '$final_path'");
+        # SAMPLE: more_object '/data/results/1653923445/3/1' final_path '/dev/shm/rqg/1653923445/3/1'
+
+        if (not opendir(SUBDIR, $final_path)) {
+            # SAMPLE: '/dev/shm/rqg/1653923445/3/1'
+            say("ERROR: $who_am_i Opening the directory '$final_path' failed: $!");
+            return STATUS_FAILURE;
+        }
+        while( (my $subobject = readdir(SUBDIR))) {
+            # SAMPLES:
+            # subobject   |  more_subobject
+            # ------------+-------------------------------------------
+            #         .   | /dev/shm/rqg/1653923445/3/1/.
+            # mysql.err   | /dev/shm/rqg/1653923445/3/1/mysql.err
+            #       tmp   | /dev/shm/rqg/1653923445/3/1/tmp
+            #        rr   | /dev/shm/rqg/1653923445/3/1/rr
+            my $more_subobject = $final_path . "/" . $subobject;
+            # say("DEBUG: $who_am_i Checking in SUBDIR ---------- $more_subobject\n");
+            # describe_object($more_subobject);
+            if ($subobject eq '.' or $subobject eq '..') {
+                # say("DEBUG: $who_am_i '$more_subobject' is point object. Omitting");
+                next;
+            }
+            if(-f $more_subobject) {
+                if (not unlink $more_subobject) {
+                    say("ERROR: $who_am_i Processing subobjects. Removing File '$more_subobject' failed : $!.");
+                    return STATUS_FAILURE;
+                } else {
+                    # say("INFO: $who_am_i Processing subobjects. File '$more_subobject' deleted.");
+                }
+                next;
+            } elsif (-d $more_subobject) {
+                if ($subobject ne 'rr') {
+                    my $abs_object;
+                    if (-l $more_subobject) {
+                        # say("DEBUG: $who_am_i '$more_subobject' is a symlink pointing to a directory " .
+                        #     "and not for use by rr.");
+                        $abs_object = Cwd::abs_path($more_subobject);
+                        unlink($more_subobject);
+                        # say("DEBUG: $who_am_i Symlink '$more_subobject' pointing to a directory " .
+                        #       "not for use by rr removed.");
+                    } else {
+                        $abs_object = $more_subobject;
+                        # say("DEBUG: $who_am_i '$more_subobject' is a tree not for use by rr.");
+                    }
+                    if (STATUS_OK != Basics::remove_dir($abs_object)) {
+                        say("ERROR: $who_am_i Removing the tree '$abs_object' failed.");
+                        return STATUS_FAILURE;
+                    } else {
+                        # say("DEBUG: $who_am_i Tree '$abs_object' not for use by rr removed.");
+                    }
+                } else {
+                    # SAMPLE: rr
+                    # say("DEBUG: $who_am_i '$more_subobject' is for use by rr.");
+                    # SAMPLE: /dev/shm/rqg/1653923445/3/1/rr
+                    my $source = $more_subobject;
+                    my $target = $more_object . "/" . $subobject;
+                    # SAMPLE: /data/results/1653923445/3/1/rr
+                    # The rr trace dir gets created no matter if we go with rr or not.
+                    # Experimental:
+                    if (not rmdir $source) {
+                        # In case rr tracing was performed than this directory will be not empty.
+                        # say("WARN: $who_am_i Removing '$source' failed : $!.");
+                        # system("find $source -follow");
+                    } else {
+                        # say("DEBUG: $who_am_i Directory '$source' removed");
+                        next;
+                    }
+
+                    if ($source eq $target) {
+                        say("WARN: $who_am_i source equals the target '$target'. Omit moving data.");
+                    } else {
+                        if (STATUS_OK != Basics::move_dir_to_newdir($source, $target)) {
+                            say("ERROR: $who_am_i Logical move '$source' to '$target' failed.");
+                            return STATUS_FAILURE;
+                        }
+                        # say("DEBUG: $who_am_i Logical move '$source' to '$target'.");
+                    }
+
+                }
+                next;
+            } else {
+                say("ERROR: $who_am_i Object '$more_subobject' cannot be handled.");
+                system("ls -ld $more_subobject");
+                return STATUS_FAILURE;
+            }
+
+        }
+        closedir(SUBDIR);
+        # say("DEBUG: Finished processing of '$more_object'.");
+
+        # Experimental:
+        # SAMPLE: /dev/shm/rqg/1654789418/3/1
+        if (not rmdir $final_path) {
+            say("ERROR: $who_am_i Removing '$final_path' failed : $!.");
+            # FIXME: Leftover rr subdir !!
+            system("ls -ld $final_path/*");
+            # Observation 2022-09-02 (rare)
+            # Removing ..../rr failed because its not empty
+            return STATUS_FAILURE;
+        } else {
+            # say("DEBUG: $who_am_i Directory '$final_path' removed");
+        }
+    }
+    closedir(TOPDIR);
+
+    my $name_of_worker = File::Basename::basename($workdir);
+    foreach my $tree (Local::get_rqg_fast_dir . "/" . $name_of_worker,
+                      Local::get_rqg_slow_dir . "/" . $name_of_worker) {
+        # In case the call of rqg.pl fails because of unknown parameter or
+        # wrong value assigned than these trees will not exist.
+        if(STATUS_OK != Basics::conditional_remove_dir($tree)) {
+            say("ERROR: $who_am_i Removal of the tree '$tree' failed. : $!.");
+            return STATUS_FAILURE;
+        }
+    }
+    # system("find $workdir -follow | xargs ls -ld");
+    tweak_permissions($workdir);
+
+    # say("DEBUG: $who_am_i ---------- end");
+
+    return STATUS_OK;
+}
+
+
+sub clean_workdir {
+# Use case:
+# A RQG worker (child forked by rqg_batch.pl) has
+# 1. performed an RQG run (rqg.pl) via system
+# 2. generated a verdict via system and the verdict is ignore*
+# now to
+# - preserve a few important files like the log of the RQG run (rqg.log)
+# - clean up anything else.
+# FIXME: Compare with "clean_workdir" and remove weaknesses.
+#
+    my $who_am_i = Basics::who_am_i();
+
+    my ($workdir) = @_;
+    if (not -d $workdir) {
+        say("ERROR: $who_am_i RQG workdir '$workdir' is missing or not a directory.");
+        return STATUS_FAILURE;
+    }
+    # system("find $workdir -follow | xargs ls -ld");
+
+    # Free a lot storage space first.
+    my $name_of_worker = File::Basename::basename($workdir);
+    foreach my $tree (Local::get_rqg_fast_dir . "/" . $name_of_worker,
+                      Local::get_rqg_slow_dir . "/" . $name_of_worker) {
+        # In case the call of rqg.pl fails because of unknown parameter or
+        # wrong value assigned than these trees will not exist.
+        if(STATUS_OK != Basics::conditional_remove_dir($tree)) {
+            say("ERROR: $who_am_i Removal of the tree '$tree' failed. : $!.");
+            return STATUS_FAILURE;
+        }
+    }
+
+    # SAMPLE: /data/results/1649954330/1
+    if (not opendir(TOPDIR, $workdir)) {
+        say("ERROR: $who_am_i Opening the directory '$workdir' failed: $!");
+        return STATUS_FAILURE;
+    }
+    while( (my $object = readdir(TOPDIR))) {
+        my $more_object = $workdir . "/" . $object;
+        if ($object eq '.' or $object eq '..' or $object eq 'rqg.log' or
+            $object =~ '^rqg_verdict\.' or $object =~ '^rqg_phase\.' ) {
+            # say("DEBUG: $who_am_i '$more_object' is point object or an important file. Omitting");
+            next;
+        }
+        if (-l $more_object or -f $more_object) {
+            unlink($more_object);
+            # say("DEBUG: $who_am_i $more_object (file or symlink) was removed.");
+            next;
+        }
+        if (-d $more_object) {
+            if (STATUS_OK != Basics::conditional_remove_dir($more_object)) {
+                say("ERROR: $who_am_i removal of '$more_object' (directory) failed.");
+                return STATUS_FAILURE;
+            } else {
+            #   say("DEBUG: $who_am_i '$more_object' (directory) was removed.");
+            }
+            next;
+        }
+        say("ALARM: $who_am_i Meeting unexpected objects.");
+        # say("DEBUG: $who_am_i Checking ---------- $more_object\n");
+        # describe_object($more_object);
+        if (-d $more_object) {
+            # say("DEBUG: $who_am_i '$more_object' is directory or symlink to directory.");
+            if (not rmdir($more_object)) {
+                say("ERROR: $who_am_i Removing '$more_object' (directory or symlink to directory) failed: $!");
+                return STATUS_FAILURE;
+            } else {
+                # say("DEBUG: $who_am_i '$more_object' (directory or symlink to directory) was removed.");
+            }
+        } else {
+            next;
+        }
+        my $final_path;
+        if (-l $more_object) {
+            # SAMPLE: /data/results/1651147111/1/1 -> /dev/shm/rqg/1651147111/1/1
+            $final_path = Cwd::abs_path($more_object);
+            if (not -d $final_path) {
+                unlink($more_object);
+                # say("DEBUG: $who_am_i Symlink '$more_object' pointing to not existing directory deleted.");
+                next;
+            } else {
+                unlink($more_object);
+                if (STATUS_OK != Basics::make_dir($more_object)) {
+                    say("ERROR: $who_am_i Removing '$more_object' (directory or symlink to directory) failed: $!");
+                    return STATUS_FAILURE;
+                }
+                # say("DEBUG: $who_am_i Symlink '$more_object' deleted and as directory recreated.");
+            }
+        } else {
+            $final_path = $more_object;
+        }
+
+        # SAMPLE: /dev/shm/rqg/1651156052/1/1
+        if (not opendir(SUBDIR, $final_path)) {
+            say("ERROR: $who_am_i Opening the directory '$final_path' failed: $!");
+            return STATUS_FAILURE;
+        }
+        while( (my $subobject = readdir(SUBDIR))) {
+            my $more_subobject = $more_object . "/" . $subobject;
+            # say("DEBUG: $who_am_i Checking ---------- $more_subobject\n");
+            # describe_object($more_subobject);
+            # SAMPLE: /data/results/1649954330/1/1/rr
+            if ($subobject ne 'rr' and -l $more_subobject and -d $more_subobject) {
+                # say("DEBUG: $who_am_i '$more_subobject' is a symlink pointing to a directory " .
+                #     "and not for use by rr.");
+                my $abs_object = Cwd::abs_path($more_subobject);
+                unlink($more_subobject);
+                if (STATUS_OK != Basics::remove_dir($abs_object)) {
+                    return STATUS_FAILURE;
+                }
+                # say("DEBUG: $who_am_i Symlink '$more_subobject' pointing to tree " .
+                #     "'$abs_object' including that tree removed.");
+            }
+            if ($subobject eq 'rr') {
+                # say("DEBUG: $who_am_i '$more_subobject' is for use by rr.");
+                # SAMPLE: /dev/shm/rqg/1651156052/1/1/rr
+                my $source = $final_path . "/rr";
+                # SAMPLE: /data/results/1651156052/1/1/rr
+                my $target = Cwd::abs_path($more_subobject);
+                if (STATUS_OK != Basics::move_dir_to_newdir($source, $target)) {
+                    Carp::cluck("ERROR: Logical move '$source' to '$target' failed.");
+                    return STATUS_FAILURE;
+                }
+            }
+
+        }
+        closedir(SUBDIR);
+        # say("DEBUG: Finished processing of '$more_object'.");
+
+    }
+    closedir(TOPDIR);
+    # say("DEBUG: Finished processing of '$workdir'.");
+
+    # system("find $workdir -follow | xargs ls -ld");
+
+    return STATUS_OK;
+}
+
+
+sub make_dbs_dirs {
+# Build the infrastructure (storage area) required for on DB server.
+    my ($vardir) = @_;
+
+    # say("DEBUG: In make_dbs_dirs for ->$vardir<-");
+
+    # Lets assume vardir is    /data/results/SINGLE_RQG/1
+    # and what we need is the '1' at the end.
+    my $name_for_dbs = File::Basename::basename($vardir);
+    # FIXME: Implement or correct comment.
+    # If
+    # - '' than it should already exist.
+    # - '<number>' or <1_clone> than it + symlink should be created.
+    # say("DEBUG: name_for_dbs '$name_for_dbs'.");
+    if ($name_for_dbs eq '') {
+        say("ERROR: name_for_dbs '' caught");
+        return STATUS_INTERNAL_ERROR;
+    }
+
+    if (STATUS_OK != remove_dbs_dirs($vardir)) {
+        say("ERROR: remove_dbs_dirs('$vardir') failed.");
+        return STATUS_FAILURE;
+    }
+
+    # Storage area for objects like
+    # - mysql.err , mysql.log, boot.log,
+    # - rr traces and backups of files/directories
+    # All time tmpfs or similar. Hence $dbdir_fast can already exist. ?????????
+    my $dbdir_fast = Local::get_rqg_fast_dir . "/" . $name_for_dbs;
+    if (STATUS_OK != Basics::conditional_make_dir($dbdir_fast)) {
+        return STATUS_FAILURE;
+    }
+    if (STATUS_OK != Basics::symlink_dir($dbdir_fast, $vardir)) {
+        return STATUS_INTERNAL_ERROR;
+    }
+    foreach my $sub_dir ("/rr", "/fbackup") {
+        my $extra_dir = $dbdir_fast . $sub_dir;
+        if (STATUS_OK != Basics::make_dir($extra_dir)) {
+            return STATUS_FAILURE;
+        }
+    }
+
+    # Storage area for objects like
+    # data and tmp dir of the dbserver
+    my $dbdir = Local::get_dbdir() . "/" . $name_for_dbs;
+    if (not -d $dbdir) {
+        if (STATUS_OK != Basics::make_dir($dbdir)) {
+            return STATUS_FAILURE;
+        }
+    }
+    foreach my $sub_dir ("/data", "/tmp") {
+        my $extra_dir = $dbdir . $sub_dir;
+        if (STATUS_OK != Basics::make_dir($extra_dir)) {
+            return STATUS_FAILURE;
+        }
+        my $symlink = $vardir . $sub_dir;
+        if (not -d $symlink) {
+            if (STATUS_OK != Basics::symlink_dir($extra_dir, $symlink)) {
+                return STATUS_INTERNAL_ERROR;
+            }
+        }
+    }
+
+    return STATUS_OK;
+}
+
+sub remove_dbs_dirs {
+# Remove the infrastructure (storage area) required for one DB server.
+# Hint:
+# RQG testing related files like rqg.log or an archive will be not affected
+# except objects are placed wrong.
+    my ($vardir) = @_;
+
+    # say("DEBUG: In make_dbs_dirs for ->$vardir<-");
+
+    # Lets assume vardir is    /data/results/SINGLE_RQG/1
+    # and what we need is the '1' at the end.
+    my $name_for_dbs = File::Basename::basename($vardir);
+    # FIXME: Implement or correct comment.
+    # If
+    # - '' than it should already exist.
+    # - '<number>' or <1_clone> than it + symlink should be created.
+    # say("DEBUG: name_for_dbs '$name_for_dbs'.");
+    if ($name_for_dbs eq '') {
+        say("ERROR: name_for_dbs '' caught");
+        return STATUS_INTERNAL_ERROR;
+    }
+
+    if (STATUS_OK != Basics::conditional_remove_dir($vardir)) {
+        return STATUS_FAILURE;
+    }
+
+    # Storage area for objects like
+    # - mysql.err , mysql.log, boot.log,
+    # - rr traces and backups of files/directories
+    my $dbdir_fast = Local::get_rqg_fast_dir . "/" . $name_for_dbs;
+    if (STATUS_OK != Basics::conditional_remove_dir($dbdir_fast)) {
+        return STATUS_FAILURE;
+    }
+
+    # Storage area for objects like
+    # data and tmp dir of the dbserver
+    my $dbdir = Local::get_dbdir() . "/" . $name_for_dbs;
+    if (STATUS_OK != Basics::conditional_remove_dir($dbdir)) {
+        return STATUS_FAILURE;
+    }
+
+    return STATUS_OK;
 }
 
 1;

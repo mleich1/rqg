@@ -1210,13 +1210,12 @@ sub reap_workers {
                     Carp::cluck("INTERNAL ERROR: verdict_collected is undef.");
                     emergency_exit(STATUS_INTERNAL_ERROR, "ERROR: This must not happen.");
                 }
-                my $target_prefix_rel = Auxiliary::lfill0($verdict_collected, RQG_NO_LENGTH);
-                my $target_prefix     = $workdir . "/" . $target_prefix_rel;
-                my $saved_log_rel     = $target_prefix_rel . ".log";
-                my $saved_job_rel     = $target_prefix_rel . ".job";
-                $worker_array[$worker_num][WORKER_LOG] = $saved_log_rel;
-                my $saved_log         = $target_prefix     . ".log";
-                my $saved_job         = $target_prefix     . ".job";
+
+                my $target_prefix     = $workdir . "/" . Auxiliary::lfill0($verdict_collected,
+                                                                           RQG_NO_LENGTH);
+                my $saved_log         = $target_prefix     . "/rqg.log";
+                $worker_array[$worker_num][WORKER_LOG] = $saved_log;
+                my $saved_job         = $target_prefix     . "/rqg.job";
 
                 $iso_ts = isoTimestamp();
 
@@ -1238,48 +1237,43 @@ sub reap_workers {
                     $verdict eq Verdict::RQG_VERDICT_IGNORE_STATUS_OK or
                     $verdict eq Verdict::RQG_VERDICT_IGNORE_STOPPED   or
                     $verdict eq Verdict::RQG_VERDICT_IGNORE_UNWANTED    ) {
-                    if (not $discard_logs) {
-                        rename_file($rqg_log, $saved_log);
-                        rename_file($rqg_job, $saved_job);
-                    } else {
-                        $saved_log_rel = "<deleted>";
-                        $worker_array[$worker_num][WORKER_LOG] = $saved_log_rel;
-                    }
-                    $verdict_ignore++;
                     if ($verdict eq Verdict::RQG_VERDICT_IGNORE_STOPPED) {
                         $stopped++;
                         # Do nothing with $order_array[$order_id][ORDER_EFFORTS*]
+                        $worker_array[$worker_num][WORKER_LOG] = "<deleted>";
+                        drop_directory($rqg_workdir);
                     } else {
-                        # Do nothing with $order_array[$order_id][ORDER_EFFORTS*]
+                        if ($discard_logs) {
+                            $worker_array[$worker_num][WORKER_LOG] = "<deleted>";
+                            drop_directory($rqg_workdir);
+                        } else {
+                            # WARNING: The "move" does not work across filesystems.
+                            if (STATUS_OK != Basics::rename_dir($rqg_workdir, $target_prefix)) {
+                                emergency_exit(STATUS_ENVIRONMENT_FAILURE,
+                                    "ERROR: This must not happen.");
+                            }
+                        }
                     }
+                    $verdict_ignore++;
                 } elsif ($verdict eq Verdict::RQG_VERDICT_INTEREST or
                          $verdict eq Verdict::RQG_VERDICT_REPLAY     ) {
-                    rename_file($rqg_log, $saved_log);
+                    # WARNING: The "move" does not work across filesystems.
+                    if (STATUS_OK != Basics::rename_dir($rqg_workdir, $target_prefix)) {
+                        emergency_exit(STATUS_ENVIRONMENT_FAILURE,
+                            "ERROR: This must not happen.");
+                    }
+                    say("DEBUG: '$rqg_workdir' moved to '$target_prefix'");
                     if ($dryrun) {
                         # We fake a RQG run and therefore some archive cannot exist.
                     } else {
-                        my $rqg_arc;
-                        my $saved_arc         = $target_prefix     . ".tgz";
-                        my $val;
-                        $val = "$rqg_workdir" . "/archive.tar.gz";
-                        if (-e $val) {
-                            $rqg_arc   = $val;
-                            $saved_arc = $target_prefix . ".tar.gz";
-                        }
-                        $val = "$rqg_workdir" . "/archive.tar.xz";
-                        if (-e $val) {
-                            $rqg_arc   = $val;
-                            $saved_arc = $target_prefix . ".tar.xz";
-                        }
-                        if (not defined $rqg_arc) {
+                        my $rqg_arc = $target_prefix . "/archive.tar.xz";
+                        if (not -e $rqg_arc) {
                             if (not $archive_warning_emitted) {
                                 say("WARN: Some archive does not exist. This might be " .
                                     "intentional or a mistake. Further warnings of this kind " .
                                     "will be suppressed.");
                                 $archive_warning_emitted = 1;
                             }
-                        } else {
-                            rename_file($rqg_arc, $saved_arc);
                         }
                     }
                     if ($verdict eq Verdict::RQG_VERDICT_INTEREST) {
@@ -1287,6 +1281,7 @@ sub reap_workers {
                     } else {
                         $verdict_replay++;
                     }
+                    # FIXME: MLML Cleanup is open
                 } elsif ($verdict eq Verdict::RQG_VERDICT_INIT) {
                     # The RQG worker was definitely not the 'victim' of a stop_worker because
                     # that gets marked as RQG_VERDICT_STOPPED.
@@ -1306,7 +1301,11 @@ sub reap_workers {
                     # that any remaining data would be valuable.
                     # Letting the rqg_batch process generate an archive is a too big danger
                     # (death during archiving or too long busy with just that) for control.
-                    rename_file($rqg_log, $saved_log);
+                    # WARNING: The "move" does not work across filesystems.
+                    if (STATUS_OK != Basics::rename_dir($rqg_workdir, $target_prefix)) {
+                        emergency_exit(STATUS_ENVIRONMENT_FAILURE,
+                            "ERROR: This must not happen.");
+                    }
                     $verdict_init++;
                     say("WARN: The final Verdict in '$saved_log' is RQG_VERDICT_INIT.");
                     # Maybe touch ORDER_EFFORTS_INVESTED or ORDER_EFFORTS_LEFT
@@ -1320,7 +1319,6 @@ sub reap_workers {
                                  Local::get_rqg_slow_dir . $rqg_appendix) {
                     drop_directory($dir);
                 }
-                drop_directory($rqg_workdir);
             } elsif (-1 == $kid) {
                 say("ALARM: RQG worker $worker_num was already reaped.");
                 worker_reset($worker_num);

@@ -170,9 +170,9 @@ my ($config_file, $basedir, $vardir, $trials, $duration, $grammar, $gendata,
     $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
     $parallel, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
     $help, $help_simplifier, $help_combinator, $help_verdict, $help_rr, $help_archiving, $help_local,
-    $help_rqg_home, $help_vardir_type, $runner, $noarchiving,
+    $help_rqg_home, $help_dbdir_type, $runner, $noarchiving,
     $rr, $rr_options, $sqltrace,
-    $vardir_type, $fast_vardir, $slow_vardir,
+    $dbdir_type, $vardir_type, $fast_vardir, $slow_vardir,
     $stop_on_replay, $script_debug_value, $runid, $threads, $type, $algorithm, $resource_control);
 
 use constant DEFAULT_MAX_RQG_RUNTIME => 3600;
@@ -263,7 +263,7 @@ if (not GetOptions(
            'help_local'                => \$help_local,
            'help_rr'                   => \$help_rr,
            'help_archiving'            => \$help_archiving,
-           'help_vardir_type'          => \$help_vardir_type,
+           'help_dbdir_type'           => \$help_dbdir_type,
            'help_rqg_home'             => \$help_rqg_home,
            ### type == Which type of campaign to run
            # pass_through: no
@@ -275,19 +275,20 @@ if (not GetOptions(
            # Check here if assigned basedir<n> exists.
            # Do not pass_through. Glue to end of rqg.pl call.
 ####       'basedir=s'                 => \$basedirs[0],
-           'basedir1=s'                => \$basedirs[1], # Swallowed and handled by rqg_batch
-           'basedir2=s'                => \$basedirs[2], # Swallowed and handled by rqg_batch
-           'basedir3=s'                => \$basedirs[3], # Swallowed and handled by rqg_batch
-#          'workdir=s'                 => \$workdir,     # Check+set here but pass as parameter to Combinator etc.
-           'vardir_type=s'             => \$vardir_type, # Swallowed and handled by rqg_batch
-#          'vardir=s'                  => \$vardir,                 # local.cfg
-#          'build_thread=i'            => \$build_thread,           # local.cfg
-#          'trials=i'                  => \$trials,                 # Pass through (@ARGV) to Combinator ...
-#          'duration=i'                => \$duration,               # Pass through (@ARGV) to Combinator ...
-#          'seed=s'                    => \$seed,                   # Pass through (@ARGV) to Combinator ...
+           'basedir1=s'                => \$basedirs[1],  # Swallowed and handled by rqg_batch
+           'basedir2=s'                => \$basedirs[2],  # Swallowed and handled by rqg_batch
+           'basedir3=s'                => \$basedirs[3],  # Swallowed and handled by rqg_batch
+#          'workdir=s'                 => \$workdir,      # Check+set here but pass as parameter to Combinator etc.
+           'dbdir_type=s'              => \$dbdir_type,   # Swallowed and handled by rqg_batch
+           'vardir_type=s'             => \$vardir_type,  # Swallowed and handled by rqg_batch
+#          'vardir=s'                  => \$vardir,       # Swallowed and handled by rqg_batch      local.cfg
+#          'build_thread=i'            => \$build_thread, # Swallowed and handled by rqg_batch     local.cfg
+#          'trials=i'                  => \$trials,       # Pass through (@ARGV) to Combinator ...
+#          'duration=i'                => \$duration,     # Pass through (@ARGV) to Combinator ...
+#          'seed=s'                    => \$seed,         # Pass through (@ARGV) to Combinator ...
            'force'                     => \$force,                  # Swallowed and handled by rqg_batch
-#          'no-mask'                   => \$no_mask,                # Pass through (@ARGV) to Combinator ...
-#          'grammar=s'                 => \$grammar,                # Pass through (@ARGV) to Combinator ...
+#          'no-mask'                   => \$no_mask,      # Pass through (@ARGV) to Combinator ...
+#          'grammar=s'                 => \$grammar,      # Pass through (@ARGV) to Combinator ...
            'gendata=s'                 => \$gendata,                # Currently handle here
            'testname=s'                => \$testname,               # Swallowed and handled by rqg_batch
            'xml-output=s'              => \$xml_output,             # Swallowed and handled by rqg_batch
@@ -326,7 +327,7 @@ if (not GetOptions(
     if (not defined $help             and
         not defined $help_simplifier  and not defined $help_combinator and
         not defined $help_verdict     and not defined $help_rr         and
-        not defined $help_vardir_type                                     and
+        not defined $help_dbdir_type                                     and
         not defined $help_archiving   and not defined $help_rqg_home      ) {
         # Somehow wrong option.
         help();
@@ -350,8 +351,8 @@ if (defined $help) {
 } elsif (defined $help_verdict) {
     Verdict::help();
     safe_exit(0);
-} elsif (defined $help_vardir_type) {
-    Local::help_vardir_type();
+} elsif (defined $help_dbdir_type) {
+    Local::help_dbdir_type();
     safe_exit(0);
 } elsif (defined $help_rr) {
     Runtime::help_rr();
@@ -405,9 +406,14 @@ Batch::check_and_set_batch_type($type);
 
 Local::check_and_set_rqg_home($rqg_home);
 
+# Solution for compatibility with older config files where the parameter 'vardir_type' was used.
+if (not defined $dbdir_type) {
+    $dbdir_type = $vardir_type;
+}
+
 # Read local.cfg and make the infrastructure down to <whatever>/<runid>.
 # ($major_runid, $minor_runid, $dbdir_type, my $batch)
-Local::check_and_set_local_config(undef, undef, undef, 2);
+Local::check_and_set_local_config(undef, undef, $dbdir_type, 2);
 # Never use $vardir = Local::get_vardir();
 
 # In case rr is invoked and local.cfg contains some defined value rr_options_add than
@@ -965,6 +971,11 @@ while($Batch::give_up <= 1) {
                 }
 
                 $command .= $cl_end;
+                # Add dbdir_type if defined in command line because parameter set there should
+                # overrule setting from the Combinator or Simplifier config file.
+                if (defined $dbdir_type) {
+                    $command .= " --dbdir_type=$dbdir_type";
+                }
                 my $rqg_log = $rqg_workdir . "/rqg.log";
                 my ($whatever, $rqg_major_runid) = Local::get_runid();
                 # Experimental:
@@ -1002,24 +1013,6 @@ while($Batch::give_up <= 1) {
                 Batch::append_string_to_file($rqg_log, $message);
                 # say("DEBUG: $who_am_i rqg_log ==>" . $rqg_log . "<==");
 
-                # Calculate the vardir
-                my $rqg_vardir_type = $command;
-                if ($rqg_vardir_type =~ m{--vardir_type=}o) {
-                    $rqg_vardir_type =~ s{.*--vardir_type=(\w*) .*}{$1}s;
-                } else {
-                    $rqg_vardir_type = Local::DBDIR_TYPE_FAST;
-                }
-                # say("DEBUG: $who_am_i ->$command<-");
-                # say("DEBUG: $who_am_i vardir_type discovered ->$rqg_vardir_type<-");
-
-                my $rqg_vardir = Local::get_vardir_per_type($rqg_vardir_type);
-                if (not defined $rqg_vardir or $rqg_vardir eq '') {
-                    say("ERROR: $who_am_i vardir computed is undef or ''.");
-                    my $status = STATUS_INTERNAL_ERROR;
-                    safe_exit($status);
-                } else {
-                    $rqg_vardir .= "/" . $free_worker;
-                }
 
                 # Unclear of 100% needed.
                 $ENV{_RR_TRACE_DIR} = undef;
@@ -1058,7 +1051,7 @@ while($Batch::give_up <= 1) {
                     # Child == RQG Worker
                     #
                     # The RQG Worker does
-                    # 1. Further preparations
+                    # 1. Further preparations (already done)
                     # 2. Perform the RQG test via "system"
                     # 3. Verdict computation via "system"
                     # 4. Archiving if required and cleanup
@@ -1097,12 +1090,9 @@ while($Batch::give_up <= 1) {
 
                     # Initiate calculation of verdict
                     # -------------------------------
-                    # 1. 2>&1 at command end ensures that we do not pollute the output of
-                    #    rqg_batch.pl with verdict output.
-                    # 2. 'rqg_matching.log' is a file name starting with 'rqg'.
-                    #    Hence it will be archived if archiving not disabled.
-                    # 3. 'rqg_verdict.log' might sound better than 'rqg_matching.log' but the first
-                    #    might be interpreted wrong like "The result of matching is 'log'".
+                    # 2>&1 at command end ensures that we do not pollute the output of rqg_batch.pl
+                    # with the verdict output.
+                    # 'rqg_matching.log' will be archived if archiving not disabled.
                     $command = "perl $rqg_home/verdict.pl --workdir=$rqg_workdir > " .
                                "$rqg_workdir/rqg_matching.log 2>&1";
                     $command = Auxiliary::prepare_command_for_system($command);
@@ -1139,8 +1129,7 @@ while($Batch::give_up <= 1) {
                             safe_exit(STATUS_ENVIRONMENT_FAILURE);
                         }
                         if (not $noarchiving) {
-                            if (STATUS_OK != Auxiliary::archive_results($rqg_workdir,
-                                                                        $rqg_vardir)) {
+                            if (STATUS_OK != Auxiliary::archive_results($rqg_workdir)) {
                                 my $msg_snip = "ERROR: Archiving the remainings of the RQG " .
                                                "test failed.";
                                 # We already have the current process family within the rqg.log.
@@ -1159,13 +1148,24 @@ while($Batch::give_up <= 1) {
                         # So this looks like we cannot remove a directory tree in case
                         # our current working directory is in it.
                         chdir($rqg_workdir);
-                        if(not File::Path::rmtree($rqg_vardir)) {
-                            say("ERROR: $who_am_i Removal of the tree '$rqg_vardir' failed. : $!.");
-                            safe_exit(STATUS_ENVIRONMENT_FAILURE);
+                        my $extra = Local::get_dbdir . "/$free_worker";
+                        # say("DEBUG rqg_workdir ->$rqg_workdir<-");
+                        # say("DEBUG: Some fast dir ->" . Local::get_rqg_fast_dir . "/$free_worker<-");
+                        # say("DEBUG: Some slow dir ->" . Local::get_rqg_slow_dir . "/$free_worker<-");
+                        if (STATUS_OK != Auxiliary::clean_workdir_preserve($rqg_workdir)) {
+                            say("ERROR FATAL: rqg_batch.pl Auxiliary::clean_workdir_preserve failed.");
+                            my $status = STATUS_ENVIRONMENT_FAILURE;
+                            safe_exit($status);
                         }
-                        say("DEBUG: $who_am_i The RQG vardir '$rqg_vardir' was removed.")
-                            if Auxiliary::script_debug("W2");
+                    } else {
+                        # say("DEBUG: The result in $rqg_workdir is not of interest -------------");
+                        if (STATUS_OK != Auxiliary::clean_workdir($rqg_workdir)) {
+                            say("ERROR FATAL: rqg_batch.pl Auxiliary::clean_workdir failed.");
+                            my $status = STATUS_ENVIRONMENT_FAILURE;
+                            safe_exit($status);
+                        }
                     }
+
                     if (STATUS_OK != Auxiliary::set_rqg_phase($rqg_workdir,
                                                     Auxiliary::RQG_PHASE_COMPLETE)) {
                         safe_exit(STATUS_ENVIRONMENT_FAILURE);
@@ -1460,8 +1460,8 @@ sub help() {
    "      Information about how and when archives of the binaries used and results are made\n"     .
    "--help_sqltrace\n"                                                                             .
    "      Information about client side SQL tracing by RQG\n"                                      .
-   "--help_vardir_type\n"                                                                          .
-   "      Information about the RQG option vardir_type\n"                                          .
+   "--help_dbdir_type\n"                                                                           .
+   "      Information about the RQG option dbdir_type\n"                                           .
    "--help_local\n"                                                                                .
    "      Information about the mandatory file local.cfg which gets used for computing the\n"      .
    "      storage places for archives, vardirs, workdirs and other stuff.\n"                       .
@@ -1487,7 +1487,7 @@ sub help() {
    "      The risks decrease drastic in case the automatic RQG BATCH resource control is not "     .
    "disabled. (see paramater --resource_control=...)\n\n"                                          .
    "No more supported: --build_thread=<n>  start of the range of build threads assigned to RQG "   .
-   "runs. The value has to be assigned in local.cfg.\n"                                            .
+   "runs. The value has to be assigned in local.cfg.\n\n"                                          .
    "--runner=...\n"                                                                                .
    "      The RQG runner to be used. The value assigned must be without path.\n"                   .
    "      (Default) '" . DEFAULT_RQG_RUNNER . " in RQG_HOME.\n"                                    .

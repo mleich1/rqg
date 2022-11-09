@@ -167,6 +167,7 @@ sub report {
 
     $server->setStartDirty(1);
     my $recovery_status = $server->startServer();
+    # In case $server->startServer failed than it makes a backtrace + cleanup.
     if ($recovery_status > STATUS_OK) {
         say("ERROR: $who_am_i Status based on server start attempt is $recovery_status");
     }
@@ -175,6 +176,8 @@ sub report {
     # system("killall -9 mysqld");
 
     # We look into the server error log even if the start attempt failed.
+    # Reason: Filesystem full should not be classified as STATUS_RECOVERY_FAILURE.
+    my $errorlog_status = STATUS_OK;
     open(RECOVERY, $server->errorlog);
     while (<RECOVERY>) {
         $_ =~ s{[\r\n]}{}siog;
@@ -182,19 +185,19 @@ sub report {
         # say($_);
         if ($_ =~ m{registration as a STORAGE ENGINE failed.}sio) {
             say("ERROR: $who_am_i Storage engine registration failed");
-            $recovery_status = STATUS_RECOVERY_FAILURE;
+            $errorlog_status = STATUS_RECOVERY_FAILURE;
         } elsif ($_ =~ m{corrupt|crashed}) {
             say("WARN: $who_am_i Log message '$_' might indicate database corruption");
         } elsif ($_ =~ m{exception}sio) {
-            $recovery_status = STATUS_RECOVERY_FAILURE;
+            $errorlog_status = STATUS_RECOVERY_FAILURE;
         } elsif ($_ =~ m{ready for connections}sio) {
-            if ($recovery_status == STATUS_OK) {
+            if ($errorlog_status == STATUS_OK) {
                 say("INFO: $who_am_i Server Recovery was apparently successfull.");
             }
             last;
         } elsif ($_ =~ m{device full error|no space left on device}sio) {
             say("ERROR: $who_am_i Filesystem full");
-            $recovery_status = STATUS_ENVIRONMENT_FAILURE;
+            $errorlog_status = STATUS_ENVIRONMENT_FAILURE;
             last;
         } elsif (
             ($_ =~ m{got signal}sio) ||
@@ -202,30 +205,32 @@ sub report {
             ($_ =~ m{segmentation fault}sio)
         ) {
             say("ERROR: $who_am_i Recovery has apparently crashed.");
-            # FIXME: This should lead to an automatic the generation of a backtrace.
-            $recovery_status = STATUS_RECOVERY_FAILURE;
+            # In case $server->startServer failed than it makes a cleanup + backtrace.
+            $errorlog_status = STATUS_RECOVERY_FAILURE;
         }
     }
     close(RECOVERY);
+    if ($recovery_status > STATUS_OK) {
+        say("ERROR: $who_am_i Status based on error log checking is $recovery_status");
+        if ($errorlog_status > $recovery_status) {
+            say("ERROR: $who_am_i Raising the recovery_status from $recovery_status " .
+                "to $errorlog_status.");
+        }
+        if ($recovery_status >= STATUS_CRITICAL_FAILURE) {
+            sayFile($server->errorlog);
+            say("ERROR: $who_am_i Will kill the server and " .
+                Auxiliary::build_wrs($recovery_status));
+            # $server->killServer an maybe already dead server does not waste ressources.
+            $server->killServer;
+            return $recovery_status;
+        }
+    }
+    # Left over cases: $recovery_status < STATUS_CRITICAL_FAILURE.
 
     # Experiment:
     # This is the no more valid (before KILL) pid.
     # my $pid = $reporter->serverInfo('pid');
 
-    if ($recovery_status > STATUS_OK) {
-        say("ERROR: $who_am_i Status based on error log checking is $recovery_status");
-    }
-
-    # We try to connect independent of the actual history and report everything.
-    # In case of rather unlikely events like
-    # - start exits with != 0 but server process runs
-    # - start exits with 0 but the server error contains a critical string like 'crashed'
-    # and similar show up than this means that we have either
-    # - a serious new bug in the server
-    # or
-    # - a serious change of behaviour in the server and the current and other reporters
-    #   cannot be trusted any more because probably needing heavy adjustments
-    # ...
     my $dbh = DBI->connect($reporter->dsn(), undef, undef, {
             mysql_connect_timeout  => Runtime::get_connect_timeout(),
             PrintError             => 0,
@@ -237,22 +242,20 @@ sub report {
     if (not defined $dbh) {
         say("ERROR: $who_am_i Connect attempt to dsn " . $reporter->dsn() . " after " .
             "restart+recovery failed: " . $DBI::errstr);
-        # Do not set STATUS_RECOVERY_FAILURE if we already have STATUS_ENVIRONMENT_FAILURE etc.
-        if ($recovery_status < STATUS_CRITICAL_FAILURE) {
             $recovery_status = STATUS_RECOVERY_FAILURE;
             say("INFO: $who_am_i Status changed to $recovery_status.");
-        }
+            sayFile($server->errorlog);
+            say("ERROR: $who_am_i Will kill the server and " .
+                Auxiliary::build_wrs($recovery_status));
+            $server->killServer;
+            return $recovery_status;
     }
 
     if ($recovery_status > STATUS_OK) {
         $dbh->disconnect() if defined $dbh;
-        # Do not set STATUS_RECOVERY_FAILURE if we already have STATUS_ENVIRONMENT_FAILURE etc.
-        if ($recovery_status < STATUS_CRITICAL_FAILURE) {
-            $recovery_status = STATUS_RECOVERY_FAILURE;
-            say("INFO: $who_am_i Status changed to $recovery_status.");
-        }
+        $recovery_status = STATUS_RECOVERY_FAILURE;
+        say("INFO: $who_am_i Status changed to $recovery_status.");
         sayFile($server->errorlog);
-        # FIXME: Do not kill if the server is already dead?
         # Doing the kill here might be not necessary. But I prefer to not rely on the cleanup
         # abilities of RQG runners and similar.
         say("INFO: $who_am_i Will kill the server because of previous failure.");

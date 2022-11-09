@@ -92,31 +92,30 @@ sub make_dir {
         Carp::cluck("ERROR: Creating the directory '$dir' failed : $!.");
         return $status;
     } else {
-        say("INFO: The directory '$dir' was created.");
+        # say("INFO: The directory '$dir' was created.");
         return STATUS_OK;
     }
 }
 
 sub conditional_make_dir {
-    my ($dir, $text) = @_;
-    if (2 != scalar @_) {
+    my ($dir) = @_;
+    if (1 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: " . Basics::who_am_i .
-                    " Exact two parameters(dir, text) need to get assigned. " .
+                    " Exact one parameter(dir) needs to get assigned. " .
                     Auxiliary::exit_status_text($status));
         safe_exit($status);
     }
-    $text = ' ' if not defined $text;
     if (not defined $dir or $dir eq '') {
         Carp::cluck("INTERNAL ERROR: \$dir is undef or ''.");
         return STATUS_FAILURE;
     }
     if (not -d $dir) {
         if (not mkdir $dir) {
-            Carp::cluck("ERROR: Creating the directory '$dir' failed : $!.\n" . $text);
+            Carp::cluck("ERROR: Creating the directory '$dir' failed : $!.\n");
             return STATUS_FAILURE;
         } else {
-            say("INFO: The directory '$dir' was created.");
+            # say("INFO: The directory '$dir' was created.");
             return STATUS_OK;
         }
     }
@@ -140,7 +139,7 @@ sub conditional_remove__make_dir {
             say("ERROR: Removal of the already existing tree ->" . $dir . "<- failed. : $!.");
             return STATUS_FAILURE;
         }
-        say("DEBUG: Already existing tree ->" . $dir . "<- was removed.");
+        # Carp::cluck("DEBUG: Already existing tree ->" . $dir . "<- was removed.");
     }
     if (STATUS_OK != Basics::make_dir($dir)) {
         return STATUS_FAILURE;
@@ -166,10 +165,108 @@ sub remove_dir {
         safe_exit($status);
     }
     if (not File::Path::rmtree($dir)) {
-        say("ERROR: Removal of the already existing tree ->" . $dir . "<- failed. : $!.");
+        Carp::cluck("ERROR: Removal of the already existing? tree ->" . $dir . "<- failed. : $!.");
         return STATUS_FAILURE;
     }
-    say("DEBUG: " . Basics::who_am_i . " Already existing tree ->" . $dir . "<- was removed.");
+    # say("DEBUG: " . Basics::who_am_i . " Already existing tree ->" . $dir . "<- was removed.");
+    return STATUS_OK;
+}
+
+sub conditional_remove_dir {
+# Remove means the complete tree.
+    my ($dir) = @_;
+    if (1 != scalar @_) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: " . Basics::who_am_i .
+                    " Exact one parameter(\$dir) needs to get assigned. " .
+                    Auxiliary::exit_status_text($status));
+        safe_exit($status);
+    }
+    if (not defined $dir or $dir eq '') {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: \$dir is undef or ''. " .
+                    Auxiliary::exit_status_text($status));
+        safe_exit($status);
+    }
+    if (-e $dir) {
+        if (STATUS_OK != remove_dir($dir)) {
+            return STATUS_FAILURE;
+        }
+    }
+    return STATUS_OK;
+}
+
+sub copy_dir_to_newdir {
+    my ($source, $target) = @_;
+    if (2 != scalar @_) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: " . Basics::who_am_i .
+                    " Exact two parameter(\$source,\$target) need to get assigned. " .
+                    Auxiliary::exit_status_text($status));
+        safe_exit($status);
+    }
+    if (not defined $source or $source eq '' or not defined $target or $target eq '') {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: (\$source or \$target) is (undef or ''). " .
+                    Auxiliary::exit_status_text($status));
+        safe_exit($status);
+    }
+    if (not -d $source) {
+        my $status = STATUS_FAILURE;
+        Carp::cluck("ERROR: Source directory '$source' does not exist or is not a directory.");
+        return $status;
+    }
+    if (-e $target) {
+        my $status = STATUS_FAILURE;
+        Carp::cluck("ERROR: Target directory '$target' does already exist.");
+        return $status;
+    }
+    my $rc;
+    if (osWindows()) {
+        $rc = system("xcopy \"$source\" \"$target\" /E /I /Q") >> 8;
+    } else {
+        $rc = system("cp -r $source $target 2>dir_copy.err") >> 8;
+    }
+    # https://metacpan.org/pod/File::Copy::Recursive::Reduced
+    # might be able to do the job.
+    if ($rc != 0) {
+        Carp::cluck("ERROR: Copying the directory '$source' including content to some new " .
+                    "directory '$target' failed with RC: $rc");
+        sayFile("dir_copy.err");
+        unlink("dir_copy.err");
+        return STATUS_FAILURE;
+    } else {
+        unlink("dir_copy.err");
+        return STATUS_OK;
+    }
+}
+
+sub rename_dir {
+    # Requirement: Both are in the same filesystem.
+    my ($source, $target) = @_;
+    my $who_am_i = who_am_i();
+    if (not move ($source, $target)) {
+        # The move operation failed.
+        Carp::cluck("ERROR: $who_am_i Moving the directory '$source' to '$target' failed : $!");
+        return STATUS_FAILURE;
+    } else {
+        say("DEBUG: $who_am_i '$source' to '$target'.")
+            if Auxiliary::script_debug("A5");
+        return STATUS_OK;
+    }
+}
+
+sub move_dir_to_newdir {
+    # I assume here that the directories are in different filesystems.
+    my ($source, $target) = @_;
+    my $who_am_i = who_am_i();
+    if (STATUS_OK != copy_dir_to_newdir($source, $target)) {
+        return STATUS_FAILURE;
+    }
+    if (STATUS_OK != remove_dir($source)) {
+        return STATUS_FAILURE;
+    }
+    # say("DEBUG: $who_am_i Directory '$source' moved to '$target'.");
     return STATUS_OK;
 }
 
@@ -386,6 +483,41 @@ sub get_process_family {
             }
         }
         return $return;
+    }
+}
+
+sub symlink_dir {
+    my ($source_dir, $symlink_dir) = @_;
+    if (2 != scalar @_) {
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL ERROR: " . Basics::who_am_i .
+                    " Exact two parameters(source_dir, symlink_dir) need to get assigned. " .
+                    Auxiliary::exit_status_text($status));
+        safe_exit($status);
+    }
+    if (not defined $source_dir or $source_dir eq '') {
+        Carp::cluck("INTERNAL ERROR: The value for the directory name is undef.");
+        return STATUS_FAILURE;
+    }
+    if (not defined $symlink_dir or $symlink_dir eq '') {
+        Carp::cluck("INTERNAL ERROR: The value for the symlink name is undef.");
+        return STATUS_FAILURE;
+    }
+    if (not -d $source_dir) {
+        Carp::cluck("ERROR: The source directory '$source_dir' does not exist or is not a directory.");
+        return STATUS_FAILURE;
+    }
+    if (-e $symlink_dir) {
+        Carp::cluck("ERROR: An object with the symlink name '$symlink_dir' does already exist.");
+        return STATUS_FAILURE;
+    }
+    if (not symlink($source_dir, $symlink_dir)) {
+        Carp::cluck("ERROR: Creating the symlink '$symlink_dir' pointing to '$source_dir' failed: $!");
+        system("ls -ld $source_dir $symlink_dir");
+        return STATUS_INTERNAL_ERROR;
+    } else {
+        say("DEBUG: The symlink '$symlink_dir' pointing to '$source_dir' has been created.");
+        return STATUS_OK;
     }
 }
 

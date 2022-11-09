@@ -96,7 +96,7 @@ use POSIX;
 #    Quite often parts of the server or the RQG core could be also guilty.
 #
 
-use constant BACKUP_TIMEOUT  => 180;
+use constant BACKUP_TIMEOUT  => 300;
 use constant PREPARE_TIMEOUT => 600;
 
 my $first_reporter;
@@ -188,23 +188,14 @@ sub monitor {
     my $clone_datadir = $clone_vardir . "/data";
     my $clone_tmpdir  = $clone_vardir . "/tmp";
     my $clone_rrdir   = $clone_vardir . '/rr';
+
     ## Create clone database server directory structure
-    foreach my $dir ( $clone_vardir, $clone_datadir, $clone_tmpdir, $clone_rrdir) {
-        if(-d $dir) {
-            if(not File::Path::rmtree($dir)) {
-                say("ERROR: Removal of the already existing tree ->" . $dir . "<- failed. : $!.");
-                my $status = STATUS_ENVIRONMENT_FAILURE;
-                run_end($status);
-            }
-            say("DEBUG: The already existing tree ->" . $dir . "<- was removed.");
-        }
-        if (not mkdir($dir)) {
-            direct_to_std();
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: $who_am_i : mkdir($dir) failed with : $!. " .
-                "Will exit with status " . status2text($status) . "($status)");
-            exit $status;
-        }
+    if (STATUS_OK != Auxiliary::make_dbs_dirs($clone_vardir)) {
+        direct_to_std();
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: $who_am_i : Preparing the storage structure for the server '1_clone' failed. " .
+            "Will exit with status " . status2text($status) . "($status)");
+        exit $status;
     }
 
     if ($script_debug) {
@@ -229,17 +220,19 @@ sub monitor {
 
     # We make a backup of $clone_datadir within $rqg_backup_dir because in case of failure we
     # need these files not modified by mariabackup --prepare.
-    my $rqg_backup_dir = $server0->datadir() . '_backup';
+    # my $rqg_backup_dir = $server0->datadir() . '_backup';
+    my $rqg_backup_dir = $clone_vardir . '/fbackup';
     # We let the copy operation create the directory $rqg_backup_dir later.
     my $source_port    = $reporter->serverVariable('port');
     # FIXME:
     # This port computation is unsafe. There might be some already running server there.
-    my $clone_port    = $source_port + 4;
-    my $log_output    = $reporter->serverVariable('log_output');
-    my $plugin_dir    = $reporter->serverVariable('plugin_dir');
-    my $fkm_file      = $reporter->serverVariable('file_key_management_filename');
-    my $plugins       = $reporter->serverPlugins();
-    my ($version)     = ( $reporter->serverVariable('version') =~ /^(\d+\.\d+)\./ ) ;
+    my $clone_port    =         $source_port + 4;
+    my $log_output    =         $reporter->serverVariable('log_output');
+    my $plugin_dir    =         $reporter->serverVariable('plugin_dir');
+    my $fkm_file      =         $reporter->serverVariable('file_key_management_filename');
+    my $innodb_use_native_aio = $reporter->serverVariable('innodb_use_native_aio');
+    my $plugins       =         $reporter->serverPlugins();
+    my ($version)     =         ($reporter->serverVariable('version') =~ /^(\d+\.\d+)\./);
 
     # Replace maybe by use of Auxiliary::find_file_at_places like in rqg_batch.pl
     # mariabackup could be in bin too.
@@ -262,10 +255,32 @@ sub monitor {
     $backup_binary .= " --host=127.0.0.1 --user=root --password='' --log-innodb-page-corruption ";
 
     if (not osWindows()) {
-        $backup_binary .= " --innodb-use-native-aio=0 ";
+    # Mariabackup --backup with mmap (used on fake PMEM == /dev/shm) and rr cannot work.
+    # If needing some rr trace than the following patch will help
+    #
+    # diff --git a/storage/innobase/log/log0log.cc b/storage/innobase/log/log0log.cc
+    # index 69ee386293f..c6ad406f313 100644
+    # --- a/storage/innobase/log/log0log.cc
+    # +++ b/storage/innobase/log/log0log.cc
+    # @@ -219,7 +219,7 @@ void log_t::attach(log_file_t file, os_offset_t size)
+    #        my_mmap(0, size_t(size),
+    #                srv_read_only_mode ? PROT_READ : PROT_READ | PROT_WRITE,
+    #                MAP_SHARED_VALIDATE | MAP_SYNC, log.m_file, 0);
+    # -#ifdef __linux__
+    # +#ifdef MLEICH1
+    #      if (ptr == MAP_FAILED)
+    #      {
+    #        struct stat st;
+    #
+    # The patch above is not used in QA "production".
+    # In order to be on the safe side we just do not assign the innodb-use-native-aio value which
+    # is used by the running server.
+    #   $backup_binary .= " --innodb-use-native-aio=$innodb_use_native_aio ";
     }
     $backup_binary .= '--innodb_flush_method="' . $flush_method . '" '
         if (defined $flush_method and '' ne $flush_method);
+
+    my $dbdir =       Local::get_dbdir();
 
     my $rr =          Runtime::get_rr();
     my $rr_options =  Runtime::get_rr_options();
@@ -280,26 +295,27 @@ sub monitor {
     # $backup_binary = "not_exists ";
     # my $backup_backup_cmd = "$backup_binary --port=$source_port --hickup " .
 
-    # Mariabackup --backup with mmap and rr cannot work.
-    # If needing some rr trace than the following patch will help
-# diff --git a/storage/innobase/log/log0log.cc b/storage/innobase/log/log0log.cc
-# index 69ee386293f..c6ad406f313 100644
-# --- a/storage/innobase/log/log0log.cc
-# +++ b/storage/innobase/log/log0log.cc
-# @@ -219,7 +219,7 @@ void log_t::attach(log_file_t file, os_offset_t size)
-#        my_mmap(0, size_t(size),
-#                srv_read_only_mode ? PROT_READ : PROT_READ | PROT_WRITE,
-#                MAP_SHARED_VALIDATE | MAP_SYNC, log.m_file, 0);
-# -#ifdef __linux__
-# +#ifdef MLEICH1
-#      if (ptr == MAP_FAILED)
-#      {
-#        struct stat st;
+    # A DB server under high load can write a huge amount of committed changes per time unit.
+    # In case that exceeds the read speed of Mariabackup serious than we need to increase the
+    # innodb_log_file_size in order to prevent that mariabackup --backup fails.
+    # Observation 2022-07:
+    # The DB server writes to /dev/shm/<somewhere> and mariabackup --backup reads from there.
+    # The PMEM emulation used in the server writes gives the DB server some serious speed advantage.
+    # There was a lot trouble.
+    #
+    # --log-copy-interval defines the copy interval between checks done by the log copying thread.
+    # The given value is in milliseconds.
+
     my $backup_backup_cmd = " $backup_binary --port=$source_port --backup " .
-                            "--datadir=$datadir --target-dir=$clone_datadir";
-#   if (Local::DBDIR_TYPE_SLOW eq Local::get_vardir_type ) {
+                            "--datadir=$datadir --target-dir=$clone_datadir " .
+                            "--log-copy-interval=1";
+
+    if ($rr_addition ne '' and not $dbdir =~ /^\/dev\/shm\/rqg\//) {
         $backup_backup_cmd = $rr_addition . $backup_backup_cmd;
-#   }
+    } else {
+        say("INFO: Running mariabackup --backup not under rr because the DB server runs " .
+            "on fake PMEM (/dev/shm).");
+    }
 
     # Mariabackup could hang.
     my $exit_msg      = '';
@@ -329,9 +345,7 @@ sub monitor {
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
         direct_to_std();
-        foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
-            File::Path::rmtree($dir);
-        }
+        remove_clone_dbs_dirs($clone_vardir);
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
         return $status;
     }
@@ -346,6 +360,29 @@ sub monitor {
     alarm (0);
     if ($res != 0) {
         direct_to_std();
+        # mariabackup --backup failing with
+        #    [00] FATAL ERROR: 2022-05-20 18:56:44 failed to execute query BACKUP STAGE START:
+        #         Deadlock found when trying to get lock; try restarting transaction
+        # is a serious weakness but it does not count as bug.
+        my $found = Auxiliary::search_in_file($reporter_prt,
+                        '\[00\] FATAL ERROR: .{1,20} failed to execute query ' .
+                        'BACKUP STAGE START: Deadlock found when trying to get lock');
+        if (not defined $found) {
+            # Technical problems!
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            say("FATAL ERROR: $who_am_i \$found is undef. " .
+                "Will exit with STATUS_ENVIRONMENT_FAILURE.");
+            exit $status;
+        } elsif ($found) {
+            say("INFO: $who_am_i BACKUP STAGE START failed with Deadlock. No bug. " .
+                "Will return STATUS_OK later.");
+            sayFile($reporter_prt);
+            remove_clone_dbs_dirs($clone_vardir);
+            return STATUS_OK;
+        } else {
+            # Nothing to do
+        }
+
         # It is quite likely that the source DB server does no more react because of
         # crash, server freeze or similar.
         my $dbh = DBI->connect($dsn, undef, undef, {
@@ -373,9 +410,7 @@ sub monitor {
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
         direct_to_std();
-        foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
-            File::Path::rmtree($dir);
-        }
+        remove_clone_dbs_dirs($clone_vardir);
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
         return $status;
     }
@@ -425,9 +460,7 @@ sub monitor {
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
         direct_to_std();
-        foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
-            File::Path::rmtree($dir);
-        }
+        remove_clone_dbs_dirs($clone_vardir);
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
         return $status;
     }
@@ -456,24 +489,12 @@ sub monitor {
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
         direct_to_std();
-        foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
-            File::Path::rmtree($dir);
-        }
+        remove_clone_dbs_dirs($clone_vardir);
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
         return $status;
     }
 
     # system("ls -ld " . $clone_datadir . "/ib_logfile*");
-
-    if ($reporter->testEnd() <= time() + 5) {
-        my $status = STATUS_OK;
-        direct_to_std();
-        foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
-            File::Path::rmtree($dir);
-        }
-        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
-        return $status;
-    }
 
     # Warning:
     # Older and/or similar code was trying to set the server general log and error log files to non
@@ -565,9 +586,7 @@ sub monitor {
         my $status = STATUS_OK;
         direct_to_std();
         $clone_server->killServer();
-        foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
-            File::Path::rmtree($dir);
-        }
+        remove_clone_dbs_dirs($clone_vardir);
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
         return $status;
     }
@@ -603,9 +622,7 @@ sub monitor {
         my $status = STATUS_OK;
         direct_to_std();
         $clone_server->killServer();
-        foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
-            File::Path::rmtree($dir);
-        }
+        remove_clone_dbs_dirs($clone_vardir);
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
         return $status;
     }
@@ -620,9 +637,7 @@ sub monitor {
             my $status = STATUS_OK;
             direct_to_std();
             $clone_server->killServer();
-            foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
-                File::Path::rmtree($dir);
-            }
+            remove_clone_dbs_dirs($clone_vardir);
             say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
             return $status;
         }
@@ -702,10 +717,8 @@ sub monitor {
         say("ERROR: $who_am_i : Will return status " . status2text($status) . "($status)");
         return $status;
     }
-    # The other $clone_* are subdirectories of $clone_vardir.
-    foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
-        File::Path::rmtree($dir);
-    }
+    remove_clone_dbs_dirs($clone_vardir);
+    # system("find $clone_vardir -follow");
     direct_to_std();
     unlink ($reporter_prt);
     say("DEBUG: $who_am_i : Pass") if $script_debug;
@@ -771,6 +784,16 @@ sub direct_to_std {
 
 sub type {
     return REPORTER_TYPE_PERIODIC;
+}
+
+sub remove_clone_dbs_dirs {
+    my ($clone_vardir) = @_;
+    if (STATUS_OK != Auxiliary::remove_dbs_dirs($clone_vardir)) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: $who_am_i : Removing the storage structure for the server '1_clone' failed. " .
+            "Will exit with status " . status2text($status) . "($status)");
+        exit $status;
+    }
 }
 
 1;
