@@ -272,18 +272,30 @@ sub waitForSlaveSync {
     if (! $self->master->dbh) {
         say("ERROR: $who_am_i Could not connect to master. " .
             "Will return DBSTATUS_FAILURE.");
+        # Experimental
+        $self->master->dbh->disconnect();
         return DBSTATUS_FAILURE;
     }
     if (! $self->slave->dbh) {
         say("ERROR: $who_am_i Could not connect to slave. " .
             "Will return DBSTATUS_FAILURE.");
+        # Experimental
+        $self->master->dbh->disconnect();
         return DBSTATUS_FAILURE;
     }
 
     # FIXME: All the SQL which follows could fail!
-    my ($file, $pos) = $self->master->dbh->selectrow_array("SHOW MASTER STATUS");
+    my $query = "SHOW MASTER STATUS";
+    my ($file, $pos) = $self->master->dbh->selectrow_array($query);
+    my $error = $self->master->dbh->err();
+    if (defined $error and $error > 0) {
+        say("EROR: The query '$query' failed with error: $error");
+        $self->master->dbh->disconnect();
+        return DBSTATUS_FAILURE;
+    }
     say("Master status $file/$pos. Waiting for slave to catch up...");
-    my $wait_result = $self->slave->dbh->selectrow_array("SELECT MASTER_POS_WAIT('$file',$pos)");
+    $query = "SELECT MASTER_POS_WAIT('$file',$pos)";
+    my $wait_result = $self->slave->dbh->selectrow_array($query);
     if (not defined $wait_result) {
         if ($self->slave->dbh) {
             my @slave_status = $self->slave->dbh->selectrow_array(
@@ -294,6 +306,8 @@ sub waitForSlaveSync {
             say("ERROR: $who_am_i Lost connection to the slave. " .
                 "Will return DBSTATUS_FAILURE.");
         }
+        $self->master->dbh->disconnect();
+        $self->slave->dbh->disconnect();
         return DBSTATUS_FAILURE;
     } else {
         return DBSTATUS_OK;
@@ -327,21 +341,27 @@ sub stopServer {
             "Will return DBSTATUS_FAILURE.");
         $total_ret = DBSTATUS_FAILURE;
     }
+#   if (defined $self->master->dbh) {
+#       $self->master->dbh->disconnect();
+#   }
+#   if (defined $self->slave->dbh) {
+#       $self->slave->dbh->disconnect();
+#   }
     return $total_ret;
 }
 
 sub killServer {
-    my ($self) = @_;
+    my ($self, $silent) = @_;
 
     my $who_am_i = Basics::who_am_i();
 
     my $total_ret = DBSTATUS_OK;
-    if ($self->slave->killServer != DBSTATUS_OK) {
+    if ($self->slave->killServer($silent) != DBSTATUS_OK) {
         say("WARN: $who_am_i Killing the slave made trouble. " .
             "Will return DBSTATUS_FAILURE.");
         $total_ret = DBSTATUS_FAILURE;
     }
-    if ($self->master->killServer != DBSTATUS_OK) {
+    if ($self->master->killServer($silent) != DBSTATUS_OK) {
         say("WARN: $who_am_i Killing the master made trouble. " .
             "Will return DBSTATUS_FAILURE.");
         $total_ret = DBSTATUS_FAILURE;

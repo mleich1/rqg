@@ -979,7 +979,7 @@ sub startServer {
                 # Maybe $self->[MYSQLD_AUXPID] has already finished and was reaped.
                 if (not kill(0, $self->[MYSQLD_AUXPID])) {
                     my $status = STATUS_SERVER_CRASHED;
-                    say("ERROR: $who_am_i The auxiliary process is no more running." .
+                    say("ERROR: $who_am_i The auxiliary process is no more running. " .
                         Auxiliary::build_wrs($status));
                     # The status reported by cleanup_dead_server does not matter.
                     $self->cleanup_dead_server;
@@ -1198,6 +1198,7 @@ sub killServer {
     my ($self, $silent) = @_;
 
     my $who_am_i = Basics::who_am_i();
+    $silent = 0 if not defined $silent;
 
     my $kill_timeout = DEFAULT_SERVER_KILL_TIMEOUT * Runtime::get_runtime_factor();
 
@@ -1211,13 +1212,13 @@ sub killServer {
             # Why not picking the value from server error log?
             $self->[MYSQLD_SERVERPID] = Auxiliary::get_pid_from_file($self->pidfile, $silent);
             if (defined $self->serverpid) {
-                say("WARN: $who_am_i serverpid had to be extracted from pidfile.");
+                say("WARN: $who_am_i serverpid had to be extracted from pidfile.") if not $silent;
             }
         }
         if (defined $self->serverpid) {
             if (not $self->running) {
                 say("INFO: $who_am_i The server with process [" . $self->serverpid .
-                    "] is already no more running. Will return DBSTATUS_OK.");
+                    "] is already no more running. Will return DBSTATUS_OK.") if not $silent;
                 # IMPORTANT:
                 # Do NOT return from here because this will break the scenario of the reporter
                 # Crashrecovery.
