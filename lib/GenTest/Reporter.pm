@@ -32,6 +32,7 @@ require Exporter;
 );
 
 use strict;
+use Basics;
 use GenTest;
 use GenTest::Result;
 use GenTest::Random;
@@ -74,7 +75,7 @@ use constant REPORTER_TYPE_END              => 256;
 sub new {
     my $class = shift;
 
-    my $who_am_i = "GenTest::Reporter::new:";
+    my $who_am_i = Basics::who_am_i();
 
     my $reporter = $class->SUPER::new({
         dsn             => REPORTER_SERVER_DSN,

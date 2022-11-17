@@ -169,6 +169,11 @@ sub report {
     my $recovery_status = $server->startServer();
     # In case $server->startServer failed than it makes a backtrace + cleanup.
     if ($recovery_status > STATUS_OK) {
+        if ($recovery_status == STATUS_SERVER_CRASHED) {
+            say("DEBUG: $who_am_i The server crashed during restart. Hence setting " .
+                "recovery_status STATUS_RECOVERY_FAILURE.");
+            $recovery_status = STATUS_RECOVERY_FAILURE;
+        }
         say("ERROR: $who_am_i Status based on server start attempt is $recovery_status");
     }
 
@@ -184,20 +189,30 @@ sub report {
         # Only for debugging
         # say($_);
         if ($_ =~ m{registration as a STORAGE ENGINE failed.}sio) {
-            say("ERROR: $who_am_i Storage engine registration failed");
-            $errorlog_status = STATUS_RECOVERY_FAILURE;
+            say("ERROR: $who_am_i Log message '$_' . Assuming recovery failure or " .
+                "failure in RQG reporter.");
+            my $status = STATUS_RECOVERY_FAILURE;
+            $errorlog_status = $status if $status > $errorlog_status;
         } elsif ($_ =~ m{corrupt|crashed}) {
-            say("WARN: $who_am_i Log message '$_' might indicate database corruption");
+            say("WARN: $who_am_i Log message '$_' might indicate database corruption.");
+            my $status = STATUS_RECOVERY_FAILURE;
+            $errorlog_status = $status if $status > $errorlog_status;
         } elsif ($_ =~ m{exception}sio) {
-            $errorlog_status = STATUS_RECOVERY_FAILURE;
+            my $status = STATUS_RECOVERY_FAILURE;
+            $errorlog_status = $status if $status > $errorlog_status;
         } elsif ($_ =~ m{ready for connections}sio) {
             if ($errorlog_status == STATUS_OK) {
-                say("INFO: $who_am_i Server Recovery was apparently successfull.");
+                say("INFO: $who_am_i Log message '$_' found.");
             }
-            last;
+            # Some of the actions belonging to a restart with crash recovery are asynchronous.
+            # So it can happen that 'ready for connections' was already printed before one
+            # of the asynchronous actions crashes the server.
+            # Hence we should no more run here a 'last'.
+            # last;
         } elsif ($_ =~ m{device full error|no space left on device}sio) {
-            say("ERROR: $who_am_i Filesystem full");
-            $errorlog_status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i Log message '$_' indicating environment failure found.");
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            $errorlog_status = $status if $status > $errorlog_status;
             last;
         } elsif (
             ($_ =~ m{got signal}sio) ||
@@ -206,7 +221,8 @@ sub report {
         ) {
             say("ERROR: $who_am_i Recovery has apparently crashed.");
             # In case $server->startServer failed than it makes a cleanup + backtrace.
-            $errorlog_status = STATUS_RECOVERY_FAILURE;
+            my $status = STATUS_RECOVERY_FAILURE;
+            $errorlog_status = $status if $status > $errorlog_status;
         }
     }
     close(RECOVERY);
@@ -215,6 +231,7 @@ sub report {
         if ($errorlog_status > $recovery_status) {
             say("ERROR: $who_am_i Raising the recovery_status from $recovery_status " .
                 "to $errorlog_status.");
+            $recovery_status = $errorlog_status;
         }
         if ($recovery_status >= STATUS_CRITICAL_FAILURE) {
             sayFile($server->errorlog);
