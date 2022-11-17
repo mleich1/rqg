@@ -17,6 +17,7 @@
 package Local;
 
 use strict;
+use Basics;
 use GenTest::Constants;
 use Auxiliary;
 use GenTest;

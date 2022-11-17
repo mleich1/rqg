@@ -729,11 +729,12 @@ TODO (incomplete list):
   by how much it would be appreciated that this feature is not required for replaying
   some badd effect.
   Make order ids along that list.
-  Have in the derivate grammar that keyword mangled or the rule component mangeled or
+  Have in the derivate grammar that keyword mangled or the rule component mangled or
   the rule component set to '' because the generated statement will be most probably
   rotten anyway.
 
 --dryrun=... works quite incomplete because best_grammar.yy is not fully maintained.
+- The combination TEMPORARY TABLE -- CHECK TABLE is nowhere or too rare tested.
 
 
 The architecture around rqg_batch.pl

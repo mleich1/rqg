@@ -29,7 +29,7 @@ package Basics;
 use strict;
 use File::Copy;  # basename
 use File::Basename;
-use Cwd;
+use Cwd qw(getcwd);
 use GenTest::Constants;
 use Auxiliary;
 use GenTest;
@@ -225,7 +225,7 @@ sub copy_dir_to_newdir {
     if (osWindows()) {
         $rc = system("xcopy \"$source\" \"$target\" /E /I /Q") >> 8;
     } else {
-        $rc = system("cp -r $source $target 2>dir_copy.err") >> 8;
+        $rc = system("cp -rL $source $target 2>dir_copy.err") >> 8;
     }
     # https://metacpan.org/pod/File::Copy::Recursive::Reduced
     # might be able to do the job.
