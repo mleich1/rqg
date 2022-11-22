@@ -1,0 +1,3 @@
+$rules = {
+  'fulltext' => sub { $_ =~ m{FULLTEXT}is },
+}

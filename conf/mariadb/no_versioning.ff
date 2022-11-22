@@ -1,0 +1,3 @@
+$rules = {
+  'versioning' => sub { $_ =~ m{VERSIONING}is },
+}

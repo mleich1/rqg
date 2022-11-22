@@ -1,0 +1,961 @@
+This RQG version is focussed on taking care that
+- RQG tests running with
+  - serious concurrency (threads > 1) and
+    invoking KILL session, KILL QUERY, COMMIT/ROLLBACK RELEASE .... and a serious amount of DDL
+  - intentional crashing of the server
+  tend to a smaller fraction of false alarms and work more like wished
+- problem classification and analysis becomes more comfortable and faster
+- parallel RQG test runs on the same box
+  - have a (hopefully) zero risk to clash on the same ressources like ports, files etc.
+  - are hopefully unable to cause trouble via resource consumption except high CPU and IO load
+- grammar simplification becomes faster
+- some RQG run with "perl -w" throws significant less warnings than in history.
+
+The "start" of the development was a fork of https://github.com/elenst/rqg 2018-04-11.
+The forking was done in order to avoid any thinkable damage to Elena's RQG repository which
+is used in whatever QA.
+
+
+The main components
+===================
+1. The RQG runner who manages DB server and clients which run on the same testing box is 'rqg.pl'.
+   It replaces 'runall-new.pl'.
+   There are many improvements compared to 'runall-new.pl' but it does no more support the
+   functionality around the parameter 'debug_server', testtool.
+2. The batch tool which manages to run concurrent RQG tests on the same testing
+   box according to some config file is 'rqg_batch.pl'.
+   In case of using the the mode
+   - 'Combinator' it runs some test battery consisting of different RQG tests, including
+     archiving of the remains of failing tests and aggregation of results.
+     This replaces the older batch tools 'combinations.pl' and bughunt.pl'.
+     The properties of the test battery are defined in some config file (*.cc).
+   - 'Simplifier' it runs some test battery consisting of dynamic generated slightly different
+     RQG tests with the goal to achieve some simplified RQG test which replay some bad effect.
+     This replaces the former tool 'simplify-grammar.pl' which is far way less powerful.
+     Config file *.cfg
+3. 'verdict.pl' makes a classification/verdict of some RQG test result based on some config file
+   'verdict_general.cfg' containing corresponding definitions.
+4. local.cfg (template is local_template.cfg) is used for defining properties of the testing box
+   like the locations of test results, data directories of ongoing tests etc.
+5. My perl scripts use
+       lib/DBServer_e , lib/GenTest_e , lib/GenTest_e.pm
+   instead of
+       lib/DBServer , lib/GenTest , lib/GenTest.pm
+   which are used by the outdated or unused scripts.
+6. lib/GenTest_e/Grammar.pm supports to define rules like
+   - thread (alias of query)
+   - thread_connect (alias of query_connect)
+   - thread<number>_connect
+   - query_connect
+   *_connect will get processed direct after any connect.
+   Use case of *_connect:
+   A RQG worker(==thread) has to
+   - SET SESSION AUTOCOMMIT = OFF or similar
+   - compute a value and assign it to some perl variable
+   before running any other SQL. But he could also lose his connection from non bad reason like
+   COMMIT WORK RELEASE and perform than a reconnect.
+7. Support the processing a file containing plain SQL within the work flow
+   --gendata ....
+   --gendata_sql
+   --genTest
+8. Some forecast
+   Certain reporter (Backtrace , Deadlock , RestartConsistency , Upgrade , CrashRecovery, ...
+   will either shrink drastic or disappear sooner or later.
+   Examples:
+   - lib::DBServer_e::MySQL::MySQLd::make_backtrace provides the capability to make a backtrace
+     whenever the RQG runner or one of his components has the "opinion" that some phase of work
+     (start server, gendata, gentest, ...) has failed because of crashed server.
+     So the reporter "Backtrace" could be replaced by RQG runner code which gets executed in case
+     the phase "GenTest" ended with a server crash.
+   - The reporter RestartConsistency, Upgrade, CrashRecovery and also the RQG runner itself have
+     partially redundant and also more or less perfect code for checking of database content.
+     There should be only one roughly perfect check routine.
+   - Some extended RQG runner could run a sequence up till loops existing of
+        0. The DB server is stopped.
+        1. In case there is some older file backup of the DB server datadir remove it.
+           Make a new one.
+        2. Restart the server
+        3. Optional: Run upgrade or downgrade scripts
+        4. Check for corruptions
+        5. Only if 6. gets omitted:
+           Make a data dump.
+           If having some older data dump compare both and remove the old one if both are equal.
+        6. Run GenTest
+        7. Stop the DB server via kill or
+           make a data dump followed by shutdown.
+           Remove the file backup made in 1.
+        8. Our state equals 0. Therefore jump to 1.
+
+     So the main functionality of certain reporters could be partially or total replaced by rqg.pl
+     calling routines stored somewhere (rqg.pl, lib/Auxiliary.pm or lib/DBServer_e/MySQL/MySQLd.pm).
+
+
+The fate of outdated RQG components or components no more used by me
+--------------------------------------------------------------------
+Perl scripts which
+- are outdated
+  Examples:
+  - runall.pl
+    It relies on using some older MTR version for starting the DB server and is
+    outdated since ~ 2012.
+  - combinations.pl
+    The functionality of that script is now covered by rqg_batch.pl.
+  were moved to the subdirectory 'outdated'.
+- were no more used by me since end of 2018 or never used at all
+  Examples:
+  - runall-new.pl
+    I use my RQG runner 'rqg.pl' instead.
+  - server.pl
+    I use all time RQG runner (rqg.pl today, runall-new.pl) which manage DB server and clients
+    which run on the same testing box.
+  were moved to the subdirectory 'unused'.
+There will be usually no maintenance for stuff which I do not use.
+
+The permissions of lib/DBServer , lib/GenTest , lib/GenTest.pm were set to -rwx for all in
+order to avoid their use by my RQG components.
+
+
+Please excuse
+- any problems of my RQG when using it with
+  - Windows
+  - complicated usage variants of Combinations
+  - optimizer tests
+  - sophisticated setups with Galera, whatever replication, multi server setup etc. because I
+    do not see me able to check any modification regarding usability in these areas in the moment.
+- that some
+  - git blame <a file in lib/GenTest_e or lib/DBServer_e and similar>
+    shows me all time as author.
+    All these files are derivates of the files under lib/GenTest and lib/DBServer.
+    My modification are
+    - minor like adjust the code to my personal standards regarding readability
+    till
+    - intrusive with heavy improved checks etc.
+  - git blame <a file under lib/GenTest , lib/DBServer or conf>
+    shows me maybe sometimes as author of some file but it is 100% the work of Elena only.
+    Reason: I copied that file from one of her development trees into my tree.
+- that it is extreme unlikely that
+  - the commits to my RQG can be used for other RQG trees too
+  - commits to other RQG trees can be used for my RQG trees
+- that the branch
+  - "master" might contain perl scripts in the subdirectories 'outdated' and 'unused' and files
+    in lib/GenTest, lib/DBServer and conf which do no more work well.
+    Reasons:
+    - I do not need them for my work.
+    - These files lack adjustments to the current MariaDB properties.
+    - I use some replacement anyway.
+  - "experimental" might be broken from time to time
+    I use that branch including some not yet pushed changes frequent for InnoDB QA.
+- that certain validators, transformers or reporters below lib/GenTest_e might not work well
+  They lack most probably adjustments to the now roughly stable properties of my RQG.
+  As long as I do not know of trouble I will not touch them.
+
+Anything used when running
+    ./BATCH.sh conf/mariadb/InnoDB_standard.cc <path to MariaDB install>
+that means (incomplete list)
+- rqg_batch.pl , rqg.pl , verdict.pl, verdict_general.cfg
+- reporter: Backtrace,ErrorLog,Deadlock,CrashRecovery,RestartConsistency,Upgrade
+- validator: DatabaseConsistency, RepeatableRead, SelectStability
+should work well.
+
+Preparations for using RQG, my batch tool and build scripts
+-----------------------------------------------------------
+- Stuff needed for plain RQG and the mysqltest simplifier
+  sudo apt-get install libdbi-perl
+  sudo apt-get install libdbd-mariadb-perl
+  sudo apt-get install libdbd-mysql
+  sudo apt-get install libdbd-mysql-perl
+  sudo apt-get install libtext-csv-perl
+
+- Stuff needed for my batch tool rqg_batch.pl
+  sudo apt-get install libfilesys-df-perl
+  sudo apt-get install libsys-statistics-linux-perl
+  sudo apt-get install liblog-log4perl-perl
+
+  Prevent swapping because the resource control in rqg_batch.pl fears swapping goes towards
+  a SSD and wants to avoid a wear out of that device by excessive writing.
+
+  Recommended:
+  As root:
+  - solution which survives the next reboot
+    # Edit the fstab, set mountimg the swap to comment so that it does not get lost during restart.
+    sudo vi /etc/fstab
+  - solution which does not survive the next reboot
+    sudo swapoff -a
+
+  Serious less robust than the recommendation above:
+  As root:
+  - solution which survives the next reboot
+    Edit /etc/sysctl.conf and add
+    ###################################################################
+    # For rqg_batch.pl
+    # Make using the swap rare.
+    #
+    vm.swappiness = 0
+  - solution which will disappear after the next reboot
+    echo 0 > /proc/sys/vm/swappiness
+
+
+  - Edit /etc/sysctl.conf and add for example
+        fs.aio-max-nr=99999999
+    and similar
+        /etc/security/limits.conf
+        * hard nofile 102400
+        * soft nofile 51200
+    in case the actual numbers for number of open files, aio, processes etc. are too low.
+
+- Stuff needed for rr tracing
+      https://rr-project.org/
+  Around 60% of the page are instructions how to install the latest version of rr on
+  Fedora and Ubuntu.
+
+- Stuff needed for build MariaDB and RQG testing
+
+  Your .profile should set variables like
+
+  # Used by RQG Release build scripts and RQG testing
+  export GENERAL_SOURCE_DIR="/Server"
+  export GENERAL_STORE_DIR="/data"
+  export GENERAL_BIN_DIR="/Server_bin"
+
+  ulimit -c unlimited
+  ulimit -S -n 61440
+
+  sudo cp <RQG install dir>/util/bld_*.sh /usr/local/bin
+
+  cp <RQG install dir>/local_template.cfg <RQG install dir>/local.cfg
+  Please edit <RQG install dir>/local.cfg so that it fits to your needs.
+
+  sudo <RQG install dir>/util/MK_EXT4_VAR.sh
+  will generate some container file using 1/3 of the free space of the device
+  where /dev/shm is located and mount that file as /dev/shm/rqg_ext4.
+
+How to build by example
+-----------------------
+Assuming that you have set the environment variables to values like above
+   cd /Server
+   git clone https://github.com/MariaDB/server.git preview-10.8-MDEV-14425
+   cd preview-10.8-MDEV-14425
+   git checkout origin/preview-10.8-MDEV-14425
+
+   bld_asan.sh preview-10.8-MDEV-14425
+
+   If something goes
+   - wrong than /dev/shm/build_dir/build.prt shows the output of the build process.
+     More comfortable for finding the problem would be
+     cd /dev/shm/build_dir
+     make
+   - well than MariaDB compiled with debug+asan will be installed in
+        /Server_bin/preview-10.8-MDEV-14425_asan
+     and the (1656597700 is the unixtimestamp of the build)
+     - detailed protocol about the build will be
+        /data/binarchs/preview-10.8-MDEV-14425_asan_1656597700.prt.xz
+     - short protocol about the build will be
+        /data/binarchs/preview-10.8-MDEV-14425_asan_1656597700.short
+     - archive of the installed binaries will be
+        /data/binarchs/preview-10.8-MDEV-14425_asan_1656597700.tar.xz
+
+How to make a single RQG run
+----------------------------
+Please make a copy of the script RQG.sh and adjust it to your needs.
+The log of the RQG run will be $GENERAL_STORE_DIR/results/SINGLE_RQG/rqg.log
+The remains of the RQG run will be in /dev/shm/rqg/SINGLE_RQG .
+They will contain symlinks to directories and files pointing to somewhere inside and outside
+of /dev/shm like /dev/shm/rqg_ext4, /data/rqg and similar.
+Warning:
+The next run with RQG.sh will drop and recreate directories $GENERAL_STORE_DIR/SINGLE_RQG and
+/dev/shm/rqg/SINGLE_RQG and in the locations like /dev/shm/rqg_ext4, /data/rqg and similar.
+
+How to run a batch of RQG runs with massive parallelization
+-----------------------------------------------------------
+Please make a copy of
+- the script BATCH.sh and adjust it to your needs
+- the batch configuration file conf/mariadb/InnoDB_standard.cc and adjust it to your needs
+
+    ./<edited copy of BATCH.sh> <batch config file> <path to the installed binaries>
+    Example:
+    ./BATCH.sh conf/mariadb/InnoDB_standard.cc /Server_bin/10.8_asan
+
+The workdir of the last maybe ongoing RQG batch (-> rqg_batch.pl) run is
+    last_result_dir == symlink pointing to $GENERAL_STORE_DIR/results/<highest timestamp>
+
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    @
+    @ HOW TO STOP SOME ONGOING    rqg_batch.pl    RUN?
+    @ ------------------------------------------------
+    @
+    @      touch last_result_dir/exit
+    @
+    @ In the unlikely case that the command above does not help
+    @
+    @      killall -9 perl mysqld mariadbd rr
+    @
+    @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+Content of that workdir
+- Short build protocol of the first and second set of binaries assigned
+  basedir1.short
+  basedir2.short
+- hardlink to an archive of the binaries
+  basedir1.tar.xz
+  basedir2.tar.xz
+- GIT related information about RQG, source/branch for basedir1 and basedir2
+  SourceInfo.txt
+- copy of the configuration file for this RQG batch run
+  Combinator.cc or Simplifier.cfg
+- derivate of the configuration files used for making the RQG batch run and the verdicts
+  Verdict.cfg
+- Log file of the RQG batch resource control
+  resource.txt
+- Tabellaric overview about the RQG runs performed + the final verdict
+  result.txt
+  result.new in case you run util/SUMMARY.sh later in addition
+- Tabellaric overview ... with nearly full setup of the single RQG runs
+  setup.txt
+  setup.new in case you run util/SUMMARY.sh later in addition
+- Directories <number with up to three digits and never leading zeros) like 266
+  per active RQG runner.
+  This directory contains gendata files (*.zz), grammars *.yy), the RQG log etc.
+  The fate of that directory depends on the final verdict.
+  In case the result is not of interest than it gets dropped. Otherwise it gets
+  transformed to some directory for any finished RQG run with result of interest.
+- Directories <number with six digits and leading zeros> like 000113 for any
+  finished RQG run with result of interest.
+  Content:
+  - RQG log     rqg.log
+  - Archive of the remains of the test run excluding rr traces but maybe with core files
+    archive.tar.xz
+  - RQG grammars etc. like    rqg.zz, rqg.sql, rqg.yy
+  - Auxiliary files with names following the pattern     rqg*.*
+  - Directories for DB servers and their rr traces like
+    1/rr, 1_clone/rr, 2/rr
+
+The verdict is made based on verdict_general.cfg.
+Feel free to edit your version of it but never push that to the official repository.
+
+
+How to get a verdict about the the result of some RQG run
+---------------------------------------------------------
+perl verdict.pl --log_file=last_result_dir/000001/rqg.log
+which is equivalent to
+perl verdict.pl --batch_config=verdict_general.cfg --log_file=last_result_dir/000001/rqg.log
+
+
+Collection of hints (under construction)
+----------------------------------------
+1. Please be aware that the names of the exit statuses of the RQG runner (rqg.pl, runall*.pl ...)
+   are not 100% accurate regarding some bad effect met or its reason.
+   Sometimes the name is nothing more than a more or less qualified (~ pick the most likely
+   reason) guess.
+   Just one example of some thinkable scenario:
+      (1) Prepare test ground                                   --> success
+      (2) Start server                                          --> success
+      (3) Whatever which finally causes that the server is down --> success
+      (4) Start server (again)                                  --> fail
+      ==> get STATUS_ENVIRONMENT_FAILURE
+      (*) success == The expectations checked are fulfilled but some some deeper inspection
+                     might show that already some states are not intended.
+   (4) could for example fail because of
+       a) The RQG runner made some internal error before.
+          Than some STATUS_INTERNAL_ERROR would be more correct but the RQG runner
+          is unable to throw that in case he has no consistency check indicating
+          that he must have done something wrong.
+       b) Something bad on the testing box happened like another MariaDB server
+          occupies ports or required files were deleted or file system full etc.
+          Than STATUS_ENVIRONMENT_FAILURE is quite perfect except somebody assumes to get
+          this status only or already at begin of the test.
+       c) In (3) the server misbehaved so that his data is non recoverable damaged.
+          And that prevents to get success on server restart.
+          Than STATUS_DATABASE_CORRUPTION or similar would be better.
+   The reason why a STATUS_ENVIRONMENT_FAILURE might be thrown instead of some maybe better
+   status might be:
+   - A low level routine throws STATUS_ENVIRONMENT_FAILURE and the calling routines
+     have no additional thoughts and just pass that status through.
+   - The low level routine returns that it failed maybe including basic/low-level reason
+     like file missing/crash/....
+     Some caller routine transforms that status to what it assumes.
+   I am working on making the status name reported more accurate.
+2. The status STATUS_SERVER_CRASHED and/or its use is frequent very misleading up till plain wrong.
+   There are many different reasons why the communication between the client and some server
+   does not work like expected like timeout for response exceeded because
+   - the server has really crashed
+   - the server was crashed intentional
+   - the server has not crashed but somehow hangs/is no more responsive
+   - the server is healthy but under too high load for the timeouts given
+   - shortages in free OS ressources etc.
+   and so on.
+   IMHO routines need to have some status for describing communication trouble with unclear reason.
+   But the name for that should be rather STATUS_COMMUNICATION_TROUBLE.
+   STATUS_SERVER_CRASHED should be only used if
+   - we have a core file or
+   - the process of the server within the OS has disappeared.
+   But even than a clean distinction between
+   - real server crash because of server code failure -- ok, STATUS_SERVER_CRASHED
+   - real server crash because of intentional server kill -- ok, STATUS_SERVER_KILLED
+   - real server crash because of misbehaviour of concurrent programs on testing box
+   - real server crash because of OS kills server because of whatever reason
+   - intentional and simple shut down of the server
+   is quite complicated.
+3. My preference regarding formatting in order to improve readability:
+   - removal of trailing white spaces
+   - line length <= 100 characters
+     Exception: Comments containing text fragments of rqg log or server error log.
+   - no use of tabs because authors frequent
+     - mix tabs and spaces which looks than ugly in case you go with some different tabstop value
+     - did not agree on how many spaces a tabstop should be
+   - indentation unit of 4 white spaces
+     I am aware that a few spaces more would increase the readability.
+     But more spaces would also frequent cause that the line length limit of 100 is reached and
+     than we need serious more lines for the logical same code.
+   - Avoid dense code like: $m+1 or $part1.$part2."ABC"
+   - Comments must have one or more white spaces after '#'
+   - Placing '=', '.', ';', '=>' for several text lines in the same column helps frequent to
+     avoid forgotten chars, accidents like ':' instead of ';' and similar.
+4. Other preferences
+   - Messages should be mostly complete sentences.
+   - Messages about serious failures should start with "ERROR: "
+   - Messages about important states reached should start with "INFO: "
+   - Especially in case of serious bad statuses handed from low level (1) routines to high level
+     routines (2) we could have transformations of the status. Such intentional transformations
+     need to get reported.
+     We need to understand why some lost connection, STATUS_ERROR etc. finally leads to
+     that the RQG runner exits with STATUS_ENVIRONMENT_FAILURE or similar.
+     (1) Low level routines are usually quite good in "describing" detailed what happened
+         physically. But they also usually lack the overview for judging if that is an error
+         (deviation from expectation) or not.
+     (2) High level routines call low level routines and get usually statuses returned.
+         These statuses lack often details which were known to the low level routine.
+         So we have some loss of information.
+         But high level routines have also some better overview about what is to be expected
+         than low level routines. So they can better judge if they have met an error
+         including giving some qualified guess about the most lileky reason.
+   - Try to use some more accurate wording.
+     Call a vague though qualified guess a "guess".
+     Feel free to
+     - give a list of guesses per event of interest
+     - call a guess which is with a likelihood of lets say >= 95% true "truth"
+   - A bunch of extra output lines, lets assume 100 per RQG run, which start with "INFO: "
+     and allow to conclude in which phase of the RQG test work flow we are might help a lot
+     in failure analysis.
+   - As soon as its obvious that GenTest will have to exit with a status code > 0 the amount
+     of extra information is allowed to be big.
+   - Make messages "grep friendly"
+   - Reduce the use of "croak"
+     - We might want some more specific exit status than just "2".
+     - Carp::cluck gives frequent a serious better information how we reached the routine
+       where the problem showed up.
+     - There might be cases where the immediate exit prevents to make some cleanup like
+       throw valueless files away or stop running servers or similar.
+       Whatever test runs being executed in parallel or successing might be serious harmed
+       by such a missing cleanup.
+       Typical bad effects of more or less serious extend:
+       - Server start fails because there is already some old server using that port.
+       - Short or long timespans with masses of zombie processes
+       - A client which belongs to some old long gone test fiddles in the server of our
+         current test.
+       - Reach tmpfs full far way more often
+       - Server for test Y starts somehow on data belonging to the the server of the
+         already gone test X instead of his own data.
+5. Easy code failure
+   my $config = GenTest_e::Properties->new(
+       options =>  $options,
+       legal   =>
+           [
+                'config',
+                'input_file',
+                ....
+           ],
+       required =>
+           [
+                   'basedir',
+                   ...
+           ],
+       # Attention {} and never [] because that leads to
+       # Not a HASH reference at lib/GenTest_e/Properties.pm line ~ 125
+       defaults =>
+           {
+                   'parallel'          =>  1,
+                   ...
+           },
+   );
+6. Never run something like
+   my ($ret, $args) = Getopt::Long::GetOptionsFromString($cl_snip,
+       'runner=s'                 => \$runner_passed_back,
+   );
+   because it will
+       wanted     remove some  '--runner=<value>'
+       disaster   remove single quotes from values within $cl_snip.
+
+
+DONE (incomplete and arbitrary sorted list):
+--------------------------------------------
+1. Introduce the capability to define and process variables keeping lists with
+   - RQG exit statuses which are desired/replay or of interest or unwanted
+   - text patterns which are desired/replay or of interest or unwanted
+   Implement a program which processes config file and log of a RQG run and gives a verdict based
+   on these lists. --> verdict.pl , lib/Verdict.pm , verdict_general.cfg
+2. Implement some new RQG runner rqg.pl which replaces runall-new.pl
+4. Implement a new RQG tool (rqg_batch.pl) which performs a batch of RQG runs according to the
+   setup supplied via config file and command line.
+   Massive parallelization is supported too.
+   This tool replaces (at least for my tasks)
+      bughunt.pl
+      combinations.pl
+      util/simplify-grammar.pl
+      runall-trials.pl
+   Certain features for
+   - efficient job management are located in lib/Batch.pm
+   - resource control for preventing disasters on the testing box are in lib/ResourceControl.pm
+   rqg_batch.pl uses
+   - some configurable RQG runner. The default is rqg.pl.
+   - the concept of a RQG worker which performs
+     1. performs a RQG run according to the setup supplied via call/command line
+     2. calculates the verdict based on interest/ignorelist matching after the RQG run finished
+     3. performs a (hopefully) perfect cleanup including archiving according to the verdict got
+5. Implement some new grammar simplifier (lib/Simplifier.pm etc.) which exploits the capabililties
+   provided by rqg_batch.pl and rqg.pl like the massive parallelization.
+6. rqg.pl, rqg_batch.pl follow some extreme strict regulations regarding placement of files,
+   cleanup etc.
+7. Extend the grammar simplification algorithm so that all top level rules get simplified.
+   Old state: Only the rule 'query' gets considered up till that the simplifier might
+              not work if other top level rules exist and play an important role.
+   New state: All currently supported top level rules get considered.
+              query, thread<n>, *_init, *_connect
+8. Introduce the grammar rule class *_connect. To be executed for every (re)connect.
+   This was required for better testing of SQL affected by KILL QUERY, KILL <session> issued
+   by some concurrent session etc.
+9. Certain improvements up till fixes within the RQG core in order to support RQG concurrency
+   testing, testing with massive parallelization better and to reduce the fraction of false alarms.
+10. Implement routines which cause that the final gendata, gentest call works
+    - with the files
+        rqg.yy , rqg.sql (might not exist), rqg.zz (might not exist)
+      only
+    - without giving $no_mask, $mask, $mask_level any attention because any impact of masking
+      is already in the content of rqg.yy
+    This is required for the grammar simplifier but gives also advantages in other situations
+    like archiving of data for replay attempts in future.
+11. Correct the simplifier algorithm (--> lib/GenTest_e/Simplifier/Grammar_advanced.pm)
+    The sometimes illegal actions:
+    1. The simplifier tries to remove even the last non "empty string" component/alternative
+       of a grammar rule.
+       Examples:
+          rule_1 : SELECT 13 ; # last non "empty string" component which would get "attacked"
+                               # == attempt to remove the value!
+
+          rule_2 : ;           # last "empty string" component. The simplifier would inline
+                               # that rule and by that the empty string == no removal of value.
+
+    2. The simplifier tries to remove parts of components.
+       Example observed:
+          Snip of some component: , REPEAT ( CAST ( $my_int AS CHAR(1)), @fill_amount ) )
+          Attempts to remove (between the arrows):
+          ->) ) ;<-  ->fill_amount<- ->)), @<- ->1<- ->(<- ->CHAR<- -> <- ->AS<- -> <-
+          ->$my_int<- ->( <- ->CAST<- ->(<- ->REPEAT<- ->,<-
+    Both cases could be tolerated in case we simplify a crash but they are plain illegal in case
+    we simplify for something different.
+    Example of evil impact in some artificial scenario:
+        rule_no_change:
+            rule_1(modify data) ; rule_2(revert the modification);
+        followed by validate that the sequence has "Something" not changed.
+        "Something": Number of rows in table A or SUM(column_a) or
+                     column_b WHERE column_pk = 13 or ...
+        And we had the interesting case that there was a change though it should not.
+        The old simplifier would maybe shrink one of the rules 'rule_1' or 'rule_2' to "empty"
+        and than the validator will kick in and "cry" his alarm which gets than valuated as success
+        (replay) in simplification.
+        Impact: The final result of grammar simplification will be nothing else than garbage.
+    This happens frequent but there must be some simplification algorithm which could be used
+    for all the other cases too.
+    Now we have some non destructive and some destructive (default) grammar simplification mode.
+12. Use within the grammar simplifier some more dynamic amount of walk through the grammar rounds
+    (--> lib/GenTest_e/Simplifier/Grammar_advanced.pm)
+13. Develop a program which is capable to check if the protocol of some RQG run matches the
+    wanted/unwanted statuses/patterns setting provided.
+    (--> verdict.pl)
+14. https://jira.mariadb.org/browse/MDEV-16863 Extend the RQG infrastructure for backup testing
+    Reporter: Mariabackup
+    1. Hot backup of data of running server 1
+    2. Prepare the data backed up for restore + restore to other place than server 1
+    3. Start some additional server 2 on that data
+    4. Run check table in server 2
+    5. If no trouble during 4. shutdown of server 2 + destroy his data + run next loop round.
+       If trouble terminate the test.
+15. Job queues (--> lib/Batch.pm)
+16. Simplification
+    Having n RQG tests with different grammars
+        They are all slightly shrinked derivates of in history successful grammars.
+    in parallel could culminate in more than one grammar replaying the desired outcome.
+    We can only pick one of them.
+    In case we memorize (requires bookkeeping) what the second replayer Y made like
+         That run tried with
+         dml:
+             INSERT ... |
+             UPDATE ... | <======= This removed
+             DELETE ... ;
+    than we could apply that in some next grammar simplification attempt again including
+    to give such runs a higher priority.
+17. Modify the grammar simplifier algorithm so that we need the same number of grammar
+    simplification steps no matter if GRAMMAR_FLAG_COMPACT_RULES is applied or not.
+      Example:
+      rule1: update | insert | delete | insert ;
+
+      Old algorithm (GRAMMAR_FLAG_COMPACT_RULES is default)
+      -----------------------------------------------------
+      With GRAMMAR_FLAG_COMPACT_RULES use as base:    rule1: update | delete | insert ;
+      and try in worst case 3 steps
+          rule1: update | delete          ;
+          rule1: update |          insert ;
+          rule1:          delete | insert ;
+      Without GRAMMAR_FLAG_COMPACT_RULES use as base:    rule1: update | insert | delete | insert ;
+      and try in worst case 4 steps
+          rule1: update | insert | delete          ;
+          rule1: update | insert            insert ;
+          rule1: update |          delete | insert ;
+          rule1:          insert | delete | insert ;
+      Note: The number of steps depends a lot on the shape of the grammar.
+
+      New algorithm (default is "no" transformation of grammar)
+      ---------------------------------------------------------
+      Use as base:    rule1: update | insert | delete | insert ;
+      and try in worst case
+          rule1: update |          delete          ;
+          rule1: update | insert |          insert ;
+          rule1:          insert | delete | insert ;
+      So the historic advantage of GRAMMAR_FLAG_COMPACT_RULES when using the old simplifier
+      algorithm does no more exist with the new one.
+
+      Advantages/disadvantages of the new algorithm + default per already existing experience:
+      a) Simplification speed
+         Depending on the test GRAMMAR_FLAG_COMPACT_RULES could be an advantage but also a
+         disadvantage.
+         In average there is a minor advantage when not applying GRAMMAR_FLAG_COMPACT_RULES.
+      b) Evolution of resource consumption during grammar simplification
+         There could be some drastic change of resource consumption (especially the space required
+         in vardir) to the bad but also the good.
+         Given the facts that
+         - (unlikely) the rqg_batch.pl parameter "--parallel" might be tweaked to avoid some
+           dangerous resource consumption and the corresponding experience was taken from
+           previous tests with the original grammar
+         - (all time) the rqg_batch.pl ResourceControl works better when having
+           - a bigger amount of experiences (tests already run since start of rqg_batch.pl)
+             At the point of progress where GRAMMAR_FLAG_COMPACT_RULES is applied if
+             assigned at all both variants (with/without GRAMMAR_FLAG_COMPACT_RULES) have the
+             same rather limited amount of experiences.
+           - slowly changing grammars
+             And here makes the application of GRAMMAR_FLAG_COMPACT_RULES some unusal big change.
+
+      Using GRAMMAR_FLAG_COMPACT_RULES is no more the default and no more recommended.
+      But there are also up till today no experiences which show that GRAMMAR_FLAG_COMPACT_RULES can
+      be serious bad.
+      Feel free to experiment.
+18. Remove empty statements from grammars.
+    Example:   SELECT 13 ; ;
+19. Add some simple error tagging
+    Example:
+    wanted pattern
+    [ 'MDEV-20775' , 'InnoDB: Failing assertion: \!page_zip \|\| page_zip_validate\(page_zip, page, index\)' ],
+    In case you hit a server crash + the RQG log contains the text pattern than the file
+    last_result_dir/result.txt will contain an entry like
+    2020-01-17T18:13:14 | Number | Worker | Verdict          | RQG log    | OrderId | RunTime | Derivate used      | Parent of derivate | Extra_info
+    ...
+    2020-01-17T18:25:00 |    284 |     67 | replay           | 000283.log |     178 |      72 | c00193.yy          | p00000.yy          | STATUS_SERVER_CRASHED--MDEV-20775
+20. Simplify also the amount of reporters, validators, transformers and threads.
+    Open:
+    Whatever simplification (grammar, reporters, ...) goes with steps doing different things.
+    - So which order of steps to use?
+    - How to avoid that we trade simplification and replay speed for simplicity?
+21. Optional invocation of rr
+
+
+TODO (incomplete list):
+-----------------------
+   1. Add maybe the option to not remove components of rules which contain the keywords DROP,
+      TRUNCATE or DELETE.
+      Background:
+      - As soon as we remove such components we are non rare faced with some serious growth of the
+        storage space consumption which is counter productive in many aspects
+        1. It might cause some OS breakdown in case of placing the vardir on a filesystem of type
+           tmpfs as long as we have no load/resource control mechanism which prevents trouble.
+        2. Especially without but also with a load/resource control mechanism we are faced with
+           that the current MariaDB and also MySQL the server tend to assert with
+              InnoDB error 28 (no space on disk)
+           and the debugger analyzing the core file (reporter Backtrace) reports frequent
+              BFD: Warning: .....data/core is truncated:
+                            expected core file size >= 959647744, found: 55398400.
+           I have no fixed opinion regarding if its better to assert with core or to make something
+           like an emergency shutdown of the server without core.
+           Even a clever RQG resource control and emergency shutdowns cannot prevent that maybe
+           even one RQG test with one server consumes all available storage space.
+           And the result of the test is of no value.
+      - The simplifier produces grammars which are capable to replay but start to need to require
+        far way more test runs.
+        Example:
+        Assume that some assert happens during CREATE TABLE <not yet existing table> meeting certain
+        concurrent SQL. The simplifier will detect that some corresponding DROP TABLE <sample table>
+        is not required for replaying the assert. Hence it will shrink the DROP away.
+        But that leads to the following change in properties to replay
+        1. The average runtime of replaying runs decreases negligible.
+        2. We need serious more replay attempts because we either replay with some extreme short
+           RQG run or never in this run no matter how long it lasts because after some one and only
+           passing CREATE TABLE any future CREATE TABLE will fail because that table already exists.
+      I think already since some time about
+      - first phase A of simplification:
+        "Do not attack SQL containing DROP (schema, table, key, trigger, .... ) or DELETE at all.
+        Final result of this phase is grammar a.
+        Warning regarding how to do that:
+        Filtering out simplifications like "remove from rule X the component DROP ..." is not
+        sufficient because we could also have "remove from X the component c" and c contains
+        the rule Y which contains the DROP.
+        Idea: Compare parent P<m> grammar to potentional tried grammar T<n> regarding the amount
+              of DROP and DELETE. In case there are less in T<n> than T<n> removed some.
+        Problem: Case insensitive drop as Rule name or just word of statement.
+                 But I assume extreme perfection in this case is not required.
+      - later phase B:
+        Take grammar a and attack DROP/DELETE but check for any shrinked grammar which replays if
+        the likelihood to replay has dropped. If yes, than revert this simplification.
+        Final result of this phase is grammar b.
+      - later phase C or somehow joined with B:
+        Take grammar b and now attack DROP/DELETE too.
+        Final result of this phase is grammar c.
+      How to use these grammars later:
+      - ignore or drop grammar a. Depending on point of view either grammar b or c is better.
+      - Present the bug fixer grammar c as example which SQL the bug needs
+      - From now on use grammar c for any replay attempt. Its the most efficient.
+      Some prototype code exists but I am not convinced of it.
+   5. The first step within the grammar simplification process is:
+      Try to replay with the original YY grammar and give up in case that goal was not achieved.
+      Handle this amount of trials better if required.
+-- Improve RQG components like reporters and validators as soon as I am forced to use them and
+   meet trouble.
+   This might sound banal but per my experience many parts of RQG are the opposite of well prepared
+   for meeting the rough conditions of tests invoking KILL QUERY up till KILL <session> and
+   that even on some heavy loaded testing box.
+-- Ugly observation (2018-08)
+   During grammar simplification range_access.yy shows some disastrous runtime behaviour.
+   After quite short runtime the perl processes for the threads consumed more memory than
+   the DB server. I guess this problem is caused by the "stack" feature of RQG.
+   No idea who will fix that problem.
+-- Describe the work flow from
+   1. bug hunting with RQG tests (rqg_batch.pl with cc config file)
+   2. grammar simplification for one or more of the bugs found in 1.
+   3. How to develop ibased on 2. some final replay testcase which is maybe MTR based.
+-- Find some way to preserve the server binaries used.
+   Purpose:
+   Lets assume at some point of time after the test run the binary gets modified or the
+   complete build gets thrown away.
+   But the analysis of core files requires corresponding binaries + reconstructing them is
+   some costly process and quite error prone (What if local non committed modifications?).
+   Hence preserving at least the server binaries used is recommended.
+   Letting rqg.pl do that is thinkable.
+   The difficulties show up as soon as
+   - more than one binary is used per test (upgrade or replication)
+     How to name/mark different binaries?
+   - batches of tests are performed
+     How to
+     a) avoid to preserve duplicates of binaries (storage space + efforts (time, CPU, IO) at runtime.
+     b) avoid the overhead of
+        We run a batch of RQG tests with the same basedirs.
+        All rqg.pl preserve the binary in their work directory. (time, CPU, IO at runtime)
+        rqg_batch.pl acts according to a) and throws duplicates away but needs to somehow
+        preserve the knowledge the test X was using preserved binary x.
+     c) somehow minimize that the rqg_batch.pl needs to act
+        - in advance and analyze what some RQG run is going to do (basedir etc.)
+        - after some RQG run and analyze results
+        because that
+        - must not cause that rqg_batch.pl loses its control over the active RQG runner
+          Just assume rqg_batch.pl exits when hitting a problem.
+        - should not cause to lose its control over too long timespans.
+          Assume some long lasting analysis or copy process.
+          During that controlling the RQG runner is with the current concept impossible.
+     rqg.pl
+     - creating files outside of his workdir and vardir
+     - inspecting files (example: server binaries already stored by rqg_batch.pl)
+       outside of $RQG_HOME
+     is strict out of discussion.
+     Idea:
+     rqg.pl could store the binary identifying information (location + md5sum, maybe GIT info) in
+     some file within its workdir.
+     rqg_batch.pl could process that file and preserve binaries and whatever information if
+     not already done for some finished RQG run.
+     IMHO acceptable weak point: Modification of binary during rqg_batch.pl runtime.
+-- Let rqg_batch.pl run mysqltest simplification
+-- Implement several optional "strangler" which cause that some ongoing simplifications attempt
+   is stopped in case it is extreme likely that we will get no more a replay with this one.
+   Criterions:
+   - up till now elapsed RQG/MTR runtime (one tool call running a campaign of tests)
+   - up till now elapsed runtime for a RQG/MTR test executed by a Worker within a tool
+   - actual size of output
+   Maintain a fifo with n elements whenever a replay was achieved.
+   Compute a value giving a > 85% percentil and use that as upper limit for the next to be
+   started RQG/MTR run. Stop that run as soon as that limit was exceeded and maybe charge into
+   the fifo a value like limit * 1.01.
+-- Ideas for some improved mysqltest simplifier
+   Some first note:
+   The algorithm (--> Andreas Zeller) of the current mysqltest simplifier is extreme efficient
+   but lacks support for parallelization.
+   I am aware that 2. is in some points maybe less efficient but supports parallelization.
+   1. Try with parallel=1 and repeat=1.
+      In case that fails than there might be two reasons
+      a) the search pattern is wrong
+      b) unknown but per more than one time observation going with
+         - repeat > 1 helped sometimes but often not
+         - In all cases where repeat > 1 helped a doubling of the test code helped too.
+         My guess: It was a problem in InnoDB purge.
+         The original test was derived from some rqg_batch run and that probably
+         - generates per RQG worker -> server more log than per MTR worker -> server
+         - runs more SQL -> need more time than in MTR
+         - runs with more parallel CPU load on testing box  SQL -> need more time than in MTR
+         So whatever criterion purge uses for deciding to become active, there is sufficient
+         in RQG but not in the derived MTR Test.
+      So if no replay
+      -  Try with doubled script code.
+      -  Try with quadrupled script code.
+      If even this does not replay than give up.
+   2. When having some "base" test
+      Set $parallel to user defined value or the default `nproc`.
+      Set $dividor = $parallel.
+      $replay_in_round = 1;
+      Loop (if 1 == $replay_in_round)
+          $replay_in_round = 0;
+          Add x empty lines to the last replaying script so that  no of lines MOD dividor = 0.
+          Make dividor derivates
+              First derivat = Last replayer with the first 1/dividor lines removed.
+              Last  derivat = Last replayer with the last  1/dividor lines removed at end.
+              Naming of tests: SD_<iteration with left side zeros>-<1 till dividor>
+          Loop as long as (combine with "and")
+              - no replay achieved
+              - $dividor < 2 * number of line in replaying test
+                Goal: The ~ last round should be : Attack any single code line in test.
+              ./mtr --parallel=$parallel ... --do-test=SD_<iteration with left zeros>
+              If replay
+              - YES: Catch the name of the test and declare it to be the last replaying script.
+                Delete all other non replaying scripts SD_<iteration with left zeros>_...
+                $replay_in_round = 1;
+                (perl) last    (*)
+              - NO: $dividor = 2 * $dividor
+                (perl) last
+      -----------------------------------------------------------------------------
+      Problems(test it out):
+          Is it possible to identify the replaying test with 100% accuracy?
+          V1.test == V2.test with content
+          --disable_abort_on_error
+          CREATE TABLE t1 (col1 INT);
+          A result file does not exist.
+          We get a pass no matter how many repeats I run.
+   3. Try competing
+      -filters
+       - failing statements removed
+       - SHOW
+       - SELECT
+       - ???
+      - test setups which make the run faster
+        - no warnings
+        - fast shutdown
+        - ......
+- new simplification_phase
+  grammar_disarm ?
+  Have a configurable list of keywords like XA, FOREIGN KEY, references, ... ordered
+  by how much it would be appreciated that this feature is not required for replaying
+  some bad effect.
+  Make order ids along that list.
+  Have in the derivate grammar that keyword mangled or the rule component mangled or
+  the rule component set to '' because the generated statement will be most probably
+  rotten anyway.
+
+--dryrun=... works quite incomplete because best_grammar.yy is not fully maintained.
+- The combination TEMPORARY TABLE -- CHECK TABLE is nowhere or too rare tested.
+
+
+The architecture around rqg_batch.pl
+------------------------------------
+rg_batch.pl
+0. processes certain options from his command line
+1. initializes the Combinator or Simplifier by passing a sub set of the options through
+   Some main mandatory option is the rqg_batch.pl config file which gets processed by
+   the Combinator or the Simplifier.
+2. as soon as there are free resources rqg_batch "asks" the Combinator or Simplifier for some
+   job and gets than some fragment of a RQG command line (grammar, threads etc. assignment)
+   returned.
+3. complements the fragment with parameters which guarantee that a to be started RQG runner
+   does not clash with his resources (vardir, workdir, ports, files) with other RQG runners
+   in parallel.
+4. forks some corresponding RQG Worker
+   This Worker does some preparations and makes the RQG run, getting the verdict etc. via "system".
+5. "reports" the outcome of any finished job to the Combinator or Simplifier so that they
+   can update their bookkeeping and adjust their responses (see 2.) according to the
+   progress currently achieved.
+6. observes the state of the system and prevents certain disasters
+      Example: The vardir for the RQG batch run is frequent located on some RAM based
+               filesystem which has usually some quite limited size.
+               So a filesystem full is some real risk.
+   and stops RQG runner in order to prevent them.
+   The "stopped" run will get repeated if required and as soon as possible.
+   - The resource control is implemented.
+   - The repetition of stopped RQG runs is implemented.
+
+
+Hints
+---------------------------------------
+1. Typical errors when editing verdict_general.cfg or Combinations or Simplifier config files
+   1. [ 'TBR-1143', $cr_reporter_server_start .
+                    $crash_recovery_start ,   <======= This must be a '.' and not a ',' at end.
+                    '.+mysqld: .{1,200}sux_lock.h:.{1,200}: Assertion \`\!have_s\(\)\' failed.' .
+                    $recovery_failure_end ],
+   2. [ 'TBR-1143 MDEV-11111' , '<whatever> ]
+         ################### There must be no space in that name.
+   3. [ 'TBR-1144' , '<whatever A> ]          <======= There must be a ',' at end.
+      [ 'TBR-1143' , '<whatever A> ]          <------- A ',' at end is recommended.
+2. Typical errors in RQG YY grammars
+2.1 Rules must have a lower case name.
+    Otherwise they will not get valuated as the name of a rule.
+2.2 Separating the components of a rule is intented but instead of the correct '|' a ';' is used.
+    Negative example:
+    rule1:
+        t3 ;
+        t4 ;
+    query:
+        SELECT col1 FROM rule1;
+    leads to the generation of queries like
+    a)  SELECT col1 FROM t3 ; <-- correct syntax
+    b)  t4 ;                  <-- wrong syntax
+3. Take care that the content of literals is not equal to a rule name.
+   Negative example:
+    rule1: { $var = 'rule1' ; return undef };
+4. Generation of random characters via   _letter
+   _letter at certain places can lead to
+       1054 (ER_BAD_FIELD_ERROR): Unknown column '%-.192s' in '%-.192s'
+       if RQG does not add quotes around it.
+   "_letter" or '_letter' will lead to the string '_letter' instead of a random character.
+   TRIM(' _letter ') will generate '<random character'
+5. Stay away from running system("sync -f $workdir $vardir") more often than once per RQG run.
+   Real life example where many concurrent RQG runs work on some HDD:
+   # 2021-08-31T15:21:19 [1325860] ERROR: rqg.pl: max_gd_duration(1200s * 1) was exceeded. Will kill DB servers and exit with STATUS_ALARM(110) later.
+   ...
+   # 2021-08-31T15:21:22 [1325860] /home/mleich/RQG_O/rqg.pl will exit with exit status STATUS_ENVIRONMENT_FAILURE(110)
+       Make a verdict
+       chmod for certain files
+       system("sync -f $workdir $vardir")
+       Archiving         But neither an error message nor an archive found.
+       exit              BATCH saw all time this process running.
+   # 2021-08-31T15:59:15 BATCH: Stop the run because of 'rqg_limit'.
+6. Events like kill the server process initiated by reporters must happen within the assigned
+   duration. In case the automatic test simplification shortens the duration than
+   we could come into trouble.
+7. It could happen that the execution of a test battery or a RQG tests simplification does
+   not reach the CPU load wanted.
+   Observation 2022-09:
+   Big server, 270 (== upper limit reached) concurrent tests running under the simplifier,
+   a lot free virtual memory, no paging, 35% CPU idle
+   The most probable reason for that is:
+   Every test runs with one thread only.
+   Solution:
+   - set threads = 10
+   - thread1 needs its own thread1_connect and should work like before
+   - add a rule
+     thread_connect: COMMMIT WORK RELEASE;
+     ==> The remaining nine threads will connect+disconnect extreme frequent.
+   0% CPU idle
+
+
+
+Matthias 2022-11
+
