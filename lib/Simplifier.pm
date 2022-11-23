@@ -47,6 +47,7 @@ use GenTest_e;
 use GenTest_e::Constants;
 use GenTest_e::Grammar;
 use GenTest_e::Properties;
+use GenTest_e::App::GenTest_e;
 use GenTest_e::Simplifier::Grammar;
 use Verdict;
 
@@ -669,10 +670,6 @@ sub init {
         'grammar=s'                 => \$grammar_file,          # Handle here. Requirement caused by Simplifier
     #   'gendata=s'                 => \$gendata,               # Rather handle here
     #   'testname=s'                => \$testname,              # Swallowed and handled by rqg_batch
-    #   'xml-output=s'              => \$xml_output,            # Swallowed and handled by rqg_batch
-    #   'report-xml-tt'             => \$report_xml_tt,         # Swallowed and handled by rqg_batch
-    #   'report-xml-tt-type=s'      => \$report_xml_tt_type,    # Swallowed and handled by rqg_batch
-    #   'report-xml-tt-dest=s'      => \$report_xml_tt_dest,    # Swallowed and handled by rqg_batch
     #   'run-all-combinations-once' => \$exhaustive,            # For Combinator only
     #   'start-combination=i'       => \$start_combination,     # For Combinator only
     #   'no-shuffle'                => \$noshuffle,             # For Combinator only
@@ -1882,12 +1879,15 @@ sub register_result {
         # 2018-11-19T16:16:19 [19309] SUMMARY: RQG GenTest runtime in s : 31
         # 2018-11-19T16:16:19 [19309] SUMMARY: RQG total runtime in s : 34
         ##### 2018-11-19T16:16:19 [19309] SUMMARY: RQG verdict : replay
+        # Hint: $what_string = "INFO: GenTest_e: Effective duration in s : ";
+        my $what_string = GenTest_e::App::GenTest_e::GT_TIME_MESSAGE;
         $gentest_runtime = Batch::get_string_after_pattern($saved_log,
-                               "INFO: GenTest_e: Effective duration in s : ");
+                               $what_string);
         if (defined $gentest_runtime and $gentest_runtime =~ /^[0-9]+$/) {
             # Do nothing.
         } else {
             # No valid YY grammar processing runtime found. Use the bigger GenTest runtime instead.
+            # FIXME: There is no more code which would write this text fragment.
             $gentest_runtime = Batch::get_string_after_pattern($saved_log,
                                    "SUMMARY: RQG GenTest runtime in s : ");
             if (defined $gentest_runtime and $gentest_runtime =~ /^[0-9]+$/) {

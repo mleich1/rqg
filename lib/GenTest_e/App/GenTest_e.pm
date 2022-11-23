@@ -74,6 +74,9 @@ use constant GT_TEST_END            => 10;
 use constant GT_QUERY_FILTERS       => 11;
 use constant GT_LOG_FILES_TO_REPORT => 12;
 
+# Constant required because lib/Simplifier.pm uses that message for search.
+use constant GT_TIME_MESSAGE        => 'INFO: GenTest_e: Effective duration in s : ';
+
 my $debug_here = 0;
 
 sub new {
@@ -617,7 +620,8 @@ sub doGenTest {
     my $duration_to_report = time() - $self->[GT_TEST_START];
     $duration_to_report = 1 if $duration_to_report < 0;
 
-    say("INFO: GenTest_e: Effective duration in s : $duration_to_report");
+    # say("INFO: GenTest_e: Effective duration in s : $duration_to_report");
+    say(GT_TIME_MESSAGE . "$duration_to_report");
 
     return $self->reportResults($total_status);
 
@@ -1368,21 +1372,6 @@ sub initValidators {
 #       @{$self->config->transformers}) . "<-");
 
     return STATUS_OK;
-}
-
-sub copyLogFiles {
-    my ($self, $logdir, $dsns) = @_;
-    ## Do this only when tt-logging is enabled
-    if (-e $self->config->property('report-tt-logdir')) {
-        mkpath($logdir) if ! -e $logdir;
-
-        # copy database logs
-        foreach my $filename ($self->logFilesToReport()) {
-            copyFileToDir($filename, $logdir);
-        }
-        # copy RQG log
-        copyFileToDir($self->config->logfile, $logdir);
-    }
 }
 
 sub copyFileToDir {
