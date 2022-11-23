@@ -1,5 +1,5 @@
 # Copyright (C) 2009 Sun Microsystems, Inc. All rights reserved.
-# Copyright (c) 2016,2021 MariaDB Corporation Ab
+# Copyright (c) 2016,2022 MariaDB Corporation Ab
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -603,7 +603,8 @@ sub gen_table {
             elsif ($c->[0] =~ /(TINY|MEDIUM|LONG)?TEXT/)
             {
                 my $maxlength= 65535;
-                if ($1 eq 'TINY') {
+                # if ($1 eq 'TINY') {
+                if ($c->[0] eq 'TINY') {
                   $maxlength= 255;
                 }
                 my $length= $prng->uint16(0,$maxlength);
