@@ -166,7 +166,7 @@ $SIG{TERM} = sub { Batch::emergency_exit(STATUS_OK, "INFO: SIGTERM or SIGINT rec
 $SIG{CHLD} = "IGNORE" if osWindows();
 
 my ($config_file, $basedir, $vardir, $trials, $duration, $grammar, $gendata,
-    $seed, $testname, $max_runtime,
+    $seed, $max_runtime,
     $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
     $parallel, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
     $help, $help_simplifier, $help_combinator, $help_verdict, $help_rr, $help_archiving, $help_local,
@@ -290,7 +290,6 @@ if (not GetOptions(
 #          'no-mask'                   => \$no_mask,      # Pass through (@ARGV) to Combinator ...
 #          'grammar=s'                 => \$grammar,      # Pass through (@ARGV) to Combinator ...
            'gendata=s'                 => \$gendata,                # Currently handle here
-           'testname=s'                => \$testname,               # Swallowed and handled by rqg_batch
 #          'run-all-combinations-once' => \$exhaustive,             # Pass through (@ARGV). Combinator maybe needs that
 #          'start-combination=i'       => \$start_combination,      # Pass through (@ARGV). Combinator maybe needs that
 #          'no-shuffle'                => \$noshuffle,              # Pass through (@ARGV). Combinator maybe needs that
@@ -522,7 +521,6 @@ if (defined $gendata) {
     }
 }
 
-$cl_end .= " --testname=$testname" if defined $testname and $testname ne '';
 $cl_end .= " --script_debug=" . $script_debug_value
     if $script_debug_value ne '';
 $cl_end .= " --sqltrace=" . $sqltrace if defined $sqltrace;
@@ -1543,7 +1541,6 @@ sub help() {
    "--threads=<n>\n"                                                                               .
    "--no_mask      (Assigning --mask or --mask-level on command line is not supported anyway.)\n"  .
    "--sqltrace=...\n"                                                                              .
-   "--testname=...\n"                                                                              .
    "-------------------------------------------------------------------------------------------\n" .
    "rqg_batch will create a symlink '" . BATCH_RESULT_SYMLINK . "' pointing to the workdir of "    .
    "his run\n which is <value assigned to workdir>/<runid>.\n"                                     .
