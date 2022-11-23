@@ -280,10 +280,6 @@ sub init {
         'grammar=s'                 => \$grammar_file,          # Handle here. Requirement caused by Simplifier
     #   'gendata=s'                 => \$gendata,               # Rather handle here
     #   'testname=s'                => \$testname,              # Swallowed and handled by rqg_batch
-    #   'xml-output=s'              => \$xml_output,            # Swallowed and handled by rqg_batch
-    #   'report-xml-tt'             => \$report_xml_tt,         # Swallowed and handled by rqg_batch
-    #   'report-xml-tt-type=s'      => \$report_xml_tt_type,    # Swallowed and handled by rqg_batch
-    #   'report-xml-tt-dest=s'      => \$report_xml_tt_dest,    # Swallowed and handled by rqg_batch
         'run-all-combinations-once' => \$exhaustive,            # Handled here
         'start-combination=i'       => \$start_combination,     # Handled here
         'no-shuffle'                => \$noshuffle,             # Handled here

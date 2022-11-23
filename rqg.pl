@@ -108,10 +108,9 @@ my (@basedirs, @mysqld_options, @vardirs, $dbdir_type, $vardir_type, $rpl_mode, 
     @engine, $help, $help_dbdir_type, $help_sqltrace, $debug, @validators, @reporters, @transformers,
     $grammar_file, $skip_recursive_rules,
     @redefine_files, $seed, $mask, $mask_level, $rows,
-    $varchar_len, $xml_output, $valgrind, $valgrind_options, @vcols, @views,
+    $varchar_len, $valgrind, $valgrind_options, @vcols, @views,
     $start_dirty, $filter, $build_thread, $sqltrace, $testname,
-    $report_xml_tt, $report_xml_tt_type, $report_xml_tt_dest,
-    $notnull, $logfile, $logconf, $report_tt_logdir, $querytimeout, $no_mask,
+    $notnull, $logfile, $logconf, $querytimeout, $no_mask,
     $short_column_names, $strict_fields, $freeze_time, $wait_debugger,
     $skip_gendata, $skip_shutdown, $galera, $use_gtid, $annotate_rules,
     $restart_timeout, $gendata_advanced, $scenario, $upgrade_test,
@@ -208,10 +207,6 @@ if (not GetOptions(
     'mask_level:i'                => \$mask_level,
     'rows=s'                      => \$rows,
     'varchar-length=i'            => \$varchar_len,
-    'xml-output=s'                => \$xml_output,
-    'report-xml-tt'               => \$report_xml_tt,
-    'report-xml-tt-type=s'        => \$report_xml_tt_type,
-    'report-xml-tt-dest=s'        => \$report_xml_tt_dest,
     'restart-timeout=i'           => \$restart_timeout,
     'restart_timeout=i'           => \$restart_timeout,
     'testname=s'                  => \$testname,
@@ -236,7 +231,6 @@ if (not GetOptions(
     'sqltrace:s'                  => \$sqltrace,
     'logfile=s'                   => \$logfile,
     'logconf=s'                   => \$logconf,
-    'report-tt-logdir=s'          => \$report_tt_logdir,
     'querytimeout=i'              => \$querytimeout,
     'no-mask'                     => \$no_mask,
     'no_mask'                     => \$no_mask,
@@ -896,15 +890,44 @@ if ($genconfig) {
 #    server based on basedir2 etc.
 # 3. this will than fail with Perl error because of basedir2 , .. undef.
 #    The big problem: The already started Server will be than not stopped.
-# FIXME: Replace that splitting with some general routine in Auxiliary
+# FIXME:
+# 1. Maybe replace that splitting with some general routine in Auxiliary
+# 2. Add default reporters, validators, .... already here.
 if ($#validators == 0 and $validators[0] =~ m/,/) {
     @validators = split(/,/,$validators[0]);
+}
+foreach my $validator (@validators) {
+    next if "None" eq $validator;
+    my $validator_file = $rqg_home . "/lib/GenTest_e/Validator/" . $validator . ".pm";
+    if (not -f $validator_file) {
+        say("ERROR: The validator file '$validator_file' does not exist or is not a plain file.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        run_end($status);
+    }
 }
 if ($#reporters == 0 and $reporters[0] =~ m/,/) {
     @reporters = split(/,/,$reporters[0]);
 }
+foreach my $reporter (@reporters) {
+    next if "None" eq $reporter;
+    my $reporter_file = $rqg_home . "/lib/GenTest_e/Reporter/" . $reporter . ".pm";
+    if (not -f $reporter_file) {
+        say("ERROR: The reporter file '$reporter_file' does not exist or is not a plain file.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        run_end($status);
+    }
+}
 if ($#transformers == 0 and $transformers[0] =~ m/,/) {
     @transformers = split(/,/,$transformers[0]);
+}
+foreach my $transformer (@transformers) {
+    next if "None" eq $transformer;
+    my $transformer_file = $rqg_home . "/lib/GenTest_e/Transformer/" . $transformer . ".pm";
+    if (not -f $transformer_file) {
+        say("ERROR: The transformer file '$transformer_file' does not exist or is not a plain file.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        run_end($status);
+    }
 }
 my $upgrade_rep_found = 0;
 foreach my $rep (@reporters) {
@@ -1345,7 +1368,6 @@ my $gentestProps = GenTest_e::Properties->new(
               'mask-level',
               'rows',
               'varchar-length',
-              'xml-output',
               'vcols',
               'views',
               'start-dirty',
@@ -1355,18 +1377,13 @@ my $gentestProps = GenTest_e::Properties->new(
               'strict_fields',
               'freeze_time',
               'valgrind',
-              'valgrind-xml',
               'rr',
               'rr_options',
               'testname',
               'sqltrace',
               'querytimeout',
-              'report-xml-tt',
-              'report-xml-tt-type',
-              'report-xml-tt-dest',
               'logfile',
               'logconf',
-              'report-tt-logdir',
               'servers',
               'multi-master',
               'annotate-rules',
@@ -1412,7 +1429,6 @@ $gentestProps->rows($rows) if defined $rows;
 $gentestProps->vcols(\@vcols) if @vcols;
 $gentestProps->views(\@views) if @views;
 $gentestProps->property('varchar-length',$varchar_len) if defined $varchar_len;
-$gentestProps->property('xml-output',$xml_output) if defined $xml_output;
 $gentestProps->debug(1) if defined $debug;
 $gentestProps->filter($filter) if defined $filter;
 $gentestProps->notnull($notnull) if defined $notnull;
@@ -1432,10 +1448,6 @@ $gentestProps->querytimeout($querytimeout) if defined $querytimeout;
 $gentestProps->testname($testname) if $testname;
 $gentestProps->logfile($logfile) if defined $logfile;
 $gentestProps->logconf($logconf) if defined $logconf;
-$gentestProps->property('report-tt-logdir',$report_tt_logdir) if defined $report_tt_logdir;
-$gentestProps->property('report-xml-tt', 1) if defined $report_xml_tt;
-$gentestProps->property('report-xml-tt-type', $report_xml_tt_type) if defined $report_xml_tt_type;
-$gentestProps->property('report-xml-tt-dest', $report_xml_tt_dest) if defined $report_xml_tt_dest;
 $gentestProps->property('restart-timeout', $restart_timeout) if defined $restart_timeout;
 # In case of multi-master topology (e.g. Galera with multiple "masters"),
 # we don't want to compare results after each query.
@@ -2058,7 +2070,6 @@ $0 - Run a complete random query generation (RQG) test.
     --varchar-length: length of strings. Passed to lib/GenTest_e/App/Gentest.pm.
     --minor_runid  : Name of a subdirectory
                      If not defined than its the UNIX timestamp from the start of the test.
-    --xml-outputs  : Passed to gentest.pl
     --vcols        : Types of virtual columns (only used if data is generated by GendataSimple or GendataAdvanced)
     --views        : Generate views. Optionally specify view type (algorithm) as option value. Passed to gentest.pl.
                      Different values can be provided to servers through --views1 | --views2 | --views3
