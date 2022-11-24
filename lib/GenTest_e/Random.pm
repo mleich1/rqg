@@ -428,21 +428,22 @@ sub set {
 }
 
 sub text {
-  my ($prng, $len)= @_;
-  # If length is not defined, stick with the shortest text length
-  $len= 255 unless defined $len;
-  my $str= '';
-  while (my $remainder= $len - length($str)) {
-    my $word= $prng->fromDictionary('english');
-    if (length($word) < $remainder) {
-      $str .= "$word ";
+    my ($prng, $len)= @_;
+    # If length is not defined, stick with the shortest text length
+    $len= 255 unless defined $len;
+    my $str = '';
+    while (my $remainder = $len - length($str)) {
+        my $word= $prng->fromDictionary('english');
+        if (length($word) < $remainder) {
+            $str .= "$word ";
+        } else {
+            chop $str if $str;
+            last;
+        }
     }
-    else {
-      chop $str if $str;
-      last;
-    }
-  }
-  return $str;
+    # Protect the quotes in order to prevent wrong syntax.
+    $str =~ s/\'/\\'/g;
+    return $str;
 }
 
 sub string {
