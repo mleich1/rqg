@@ -544,21 +544,19 @@ sub createMysqlBase  {
             }
         }
         $ENV{'_RR_TRACE_DIR'} = $rr_trace_dir;
-        if ($rr eq Runtime::RR_TYPE_EXTENDED) {
-            my $rr_options = Runtime::get_rr_options();
-            $rr_options =    '' if not defined $rr_options;
-            # 1. ulimit -c 0
-            #    because we do not want to waste space for core files we do not need if using rr.
-            # 2. Maybe banal:
-            #    Do not place the rr call somewhere at begin of the command sequence or similar.
-            #    Either we trace everything starting with the shell or just one of the commands
-            #    but not the server. In addition the '--mark-stdio' causes that the output of
-            #    commands might be decorated with rr event ids which some consuming command
-            #    is unable to understand. Example: cat <bootstrap file> | ....
-            $command_begin = "ulimit -c 0; " .  $command_begin .
-                             " rr record " . $rr_options . " --mark-stdio ";
-            $command .= ' "--log_warnings=4" ' . Local::get_rqg_rr_add();
-        }
+        my $rr_options = Runtime::get_rr_options();
+        $rr_options =    '' if not defined $rr_options;
+        # 1. ulimit -c 0
+        #    because we do not want to waste space for core files we do not need if using rr.
+        # 2. Maybe banal:
+        #    Do not place the rr call somewhere at begin of the command sequence or similar.
+        #    Either we trace everything starting with the shell or just one of the commands
+        #    but not the server. In addition the '--mark-stdio' causes that the output of
+        #    commands might be decorated with rr event ids which some consuming command
+        #    is unable to understand. Example: cat <bootstrap file> | ....
+        $command_begin = "ulimit -c 0; " .  $command_begin .
+                         " rr record " . $rr_options . " --mark-stdio ";
+        $command .= ' "--log_warnings=4" ' . Local::get_rqg_rr_add();
     }
 
     # In theory the bootstrap can end up with a freeze.

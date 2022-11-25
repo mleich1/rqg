@@ -105,7 +105,7 @@ my @dsns;
 
 my (@basedirs, @mysqld_options, @vardirs, $dbdir_type, $vardir_type, $rpl_mode, $major_runid, $minor_runid,
     $batch,
-    @engine, $help, $help_dbdir_type, $help_sqltrace, $debug, @validators, @reporters, @transformers,
+    @engine, $help, $help_dbdir_type, $help_sqltrace, $help_rr, $debug, @validators, @reporters, @transformers,
     $grammar_file, $skip_recursive_rules,
     @redefine_files, $seed, $mask, $mask_level, $rows,
     $varchar_len, $valgrind, $valgrind_options, @vcols, @views,
@@ -185,6 +185,7 @@ if (not GetOptions(
     'help'                        => \$help,
     'help_sqltrace'               => \$help_sqltrace,
     'help_dbdir_type'             => \$help_dbdir_type,
+    'help_rr'                     => \$help_rr,
     'debug'                       => \$debug,
     'validators=s@'               => \@validators,
     'reporters=s@'                => \@reporters,
@@ -264,6 +265,10 @@ if ( defined $help_sqltrace) {
 }
 if (defined $help_dbdir_type) {
     Local::help_dbdir_type();
+    exit STATUS_OK;
+}
+if (defined $help_rr) {
+    Runtime::help_rr();
     exit STATUS_OK;
 }
 
@@ -423,7 +428,7 @@ say("Please see http://forge.mysql.com/wiki/Category:RandomQueryGenerator for mo
 # say("Starting \n# $0 \\\n# " . join(" \\\n# ", @ARGV_saved));
 $message = "# -------- Informations useful for bug reports --------------------------------------" .
            "----------------------\n" .
-           "# git clone https://github.com/mleich1/rqg --branch experimental RQG\n#\n" .
+           "# git clone https://github.com/mleich1/rqg --branch <pick the right branch> RQG\n#\n" .
            "# " . Auxiliary::get_git_info($rqg_home) . "\n" .
            "# rqg.pl  : " . RQG_RUNNER_VERSION . "\n#\n" .
            "# $0 \\\n# " . join(" \\\n# ", @ARGV_saved) . "\n#\n";
@@ -2069,7 +2074,7 @@ $0 - Run a complete random query generation (RQG) test.
                      Different values can be provided to servers through --views1 | --views2 | --views3
     --valgrind     : Start the DB server with valgrind, adjust timeouts to the use of valgrind
     --valgrind_options : Use these additional options for any start under valgrind
-    --rr           : Start the DB server and maybe more programs under rr rr, adjust timeouts to the use of rr
+    --rr           : Start the DB server and mariabackup under rr including adjust timeouts to the use of rr
     --rr_options   : Use these additional options for any start under rr
     --filter       : File for disabling the execution of SQLs containing certain patterns. Passed to lib/GenTest_e/App/Gentest.pm.
     --mtr-build-thread: Value used for MTR_BUILD_THREAD when servers are started and accessed

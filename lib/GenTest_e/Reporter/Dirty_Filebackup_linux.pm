@@ -244,14 +244,14 @@ sub monitor {
     my $plugins       = $reporter->serverPlugins();
     my ($version)     = ( $reporter->serverVariable('version') =~ /^(\d+\.\d+)\./ ) ;
 
-    my $rr =          Runtime::get_rr();
-    my $rr_options =  Runtime::get_rr_options();
-    my $rr_addition = '';
-    if (defined $rr and $rr eq Runtime::RR_TYPE_EXTENDED) {
-        $rr_options =  '' if not defined $rr_options;
-        $ENV{'_RR_TRACE_DIR'} = $clone_rrdir;
-        $rr_addition = "ulimit -c 0; rr record --mark-stdio $rr_options";
-    }
+#   my $rr =          Runtime::get_rr();
+#   my $rr_options =  Runtime::get_rr_options();
+#   my $rr_addition = '';
+#   if (defined $rr and $rr eq Runtime::RR_TYPE_EXTENDED) {
+#       $rr_options =  '' if not defined $rr_options;
+#       $ENV{'_RR_TRACE_DIR'} = $clone_rrdir;
+#       $rr_addition = "ulimit -c 0; rr record --mark-stdio $rr_options";
+#   }
 
     # For experimenting:
     # $backup_binary = "not_exists ";
