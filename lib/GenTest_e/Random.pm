@@ -1,5 +1,5 @@
 # Copyright (c) 2008,2010 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2020,2021 MariaDB Corporation Ab.
+# Copyright (c) 2020,2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -203,40 +203,40 @@ my $rqg_home = $ENV{'RQG_HOME'};
 # Min and max values for integer data types
 
 my %name2range = (
-	'bool'		=> [0, 1],
-	'boolean'	=> [0, 1],
-        'tinyint'       => [-128, 127],
-        'smallint'      => [-32768, 32767],
-        'mediumint'     => [-8388608, 8388607],
-        'int'           => [-2147483648, 2147483647],
-        'integer'       => [-2147483648, 2147483647],
-        'bigint'        => [-9223372036854775808, 9223372036854775807],
-        'float'         => [-9223372036854775808, 9223372036854775807],
-        'double'        => [-999999999999999999999999999999999999999999999999999999999999999999999999999999999, 999999999999999999999999999999999999999999999999999999999999999999999999999999999],
-        'double_nano'   => [-0.00000000000000000000000000000000000000000000000000000000000000000001, 0.00000000000000000000000000000000000000000000000000000000000000000001],
+    'bool'                  => [0, 1],
+    'boolean'               => [0, 1],
+    'tinyint'               => [-128, 127],
+    'smallint'              => [-32768, 32767],
+    'mediumint'             => [-8388608, 8388607],
+    'int'                   => [-2147483648, 2147483647],
+    'integer'               => [-2147483648, 2147483647],
+    'bigint'                => [-9223372036854775808, 9223372036854775807],
+    'float'                 => [-9223372036854775808, 9223372036854775807],
+    'double'                => [-999999999999999999999999999999999999999999999999999999999999999999999999999999999, 999999999999999999999999999999999999999999999999999999999999999999999999999999999],
+    'double_nano'           => [-0.00000000000000000000000000000000000000000000000000000000000000000001, 0.00000000000000000000000000000000000000000000000000000000000000000001],
 
-        'tinyint_unsigned'      => [0, 255],
-        'tinyint_positive'      => [1, 255],
-        'smallint_unsigned'     => [0, 65535],
-        'smallint_positive'     => [1, 65535],
-        'mediumint_unsigned'    => [0, 16777215],
-        'mediumint_positive'    => [1, 16777215],
-        'int_unsigned'          => [0, 4294967295],
-        'int_positive'          => [1, 4294967295],
-        'integer_unsigned'      => [0, 4294967295],
-        'integer_positive'      => [1, 4294967295],
-        'bigint_unsigned'       => [0, 18446744073709551615],
-        'bigint_positive'       => [1, 18446744073709551615],
-        # decimal and numeric
-        # - State till 2020-04
-        #   There was no entry for these data types here.
-        #   Hence the border values used in the sub int ($_[0] and $_[1]) were undef
-        #   (perl warns) and the value finally used is 0.
-        # - Without knowing the total and fractional number of digits we have no
-        #   good chances to guess valid values.
-        # Therefore we set simply [ 0, 0] and get rid of the warnings.
-        'decimal'               => [0, 0],
-        'numeric'               => [0, 0],
+    'tinyint_unsigned'      => [0, 255],
+    'tinyint_positive'      => [1, 255],
+    'smallint_unsigned'     => [0, 65535],
+    'smallint_positive'     => [1, 65535],
+    'mediumint_unsigned'    => [0, 16777215],
+    'mediumint_positive'    => [1, 16777215],
+    'int_unsigned'          => [0, 4294967295],
+    'int_positive'          => [1, 4294967295],
+    'integer_unsigned'      => [0, 4294967295],
+    'integer_positive'      => [1, 4294967295],
+    'bigint_unsigned'       => [0, 18446744073709551615],
+    'bigint_positive'       => [1, 18446744073709551615],
+    # decimal and numeric
+    # - State till 2020-04
+    #   There was no entry for these data types here.
+    #   Hence the border values used in the sub int ($_[0] and $_[1]) were undef
+    #   (perl warns) and the value finally used is 0.
+    # - Without knowing the total and fractional number of digits we have no
+    #   good chances to guess valid values.
+    # Therefore we set simply [ 0, 0] and get rid of the warnings.
+    'decimal'               => [0, 0],
+    'numeric'               => [0, 0],
 );
 
 my $prng_class;
@@ -246,28 +246,28 @@ my $prng_class;
 sub new {
     my $class = shift;
 
-	my $prng = $class->SUPER::new({
-		'seed'			=> RANDOM_SEED,
-		'varchar_length'	=> RANDOM_VARCHAR_LENGTH
-	}, @_ );
+    my $prng = $class->SUPER::new({
+        'seed'              => RANDOM_SEED,
+        'varchar_length'    => RANDOM_VARCHAR_LENGTH
+    }, @_ );
 
 
-	$prng->setSeed($prng->seed() > 0 ? $prng->seed() : 1);
+    $prng->setSeed($prng->seed() > 0 ? $prng->seed() : 1);
 
-#	say("Initializing PRNG with seed '".$prng->seed()."' ...");
+#   say("Initializing PRNG with seed '".$prng->seed()."' ...");
 
-	$prng->[RANDOM_GENERATOR] = $prng->seed();
+    $prng->[RANDOM_GENERATOR] = $prng->seed();
 
-	return $prng;
+    return $prng;
 }
 
 sub seed {
-	return $_[0]->[RANDOM_SEED];
+    return $_[0]->[RANDOM_SEED];
 }
 
 sub setSeed {
-	$_[0]->[RANDOM_SEED] = $_[1];
-	$_[0]->[RANDOM_GENERATOR] = $_[1];
+    $_[0]->[RANDOM_SEED] = $_[1];
+    $_[0]->[RANDOM_GENERATOR] = $_[1];
 }
 
 sub update_generator {
@@ -306,13 +306,15 @@ sub uint16 {
     use integer;
     # urand() is manually inlined for efficiency
     update_generator($_[0]);
-    # Hint:
-    # In case GendataAdvanced.pm is used than I get masses of
-    # Use of uninitialized value $_[2] in integer subtraction (-)
-    $val2 = $_[2];
-    $val2 = 0 if not defined $val2;
+    # When being called from somewhere like GendataAdvanced.pm I get masses of
+    # Use of uninitialized value $_[*].
+    if (not defined $_[1] or not defined $_[2]) {
+        # Carp::cluck("WARN: Call of 'uint16' with not defined parameters. " .
+        #             "Will return 0.");
+        return 0;
+    }
     return $_[1] +
-        ((($_[0]->[RANDOM_GENERATOR] >> 15) & 0xFFFF) % ($val2 - $_[1] + 1));
+        ((($_[0]->[RANDOM_GENERATOR] >> 15) & 0xFFFF) % ($_[2] - $_[1] + 1));
 }
 
 ### Signed 64-bit integer of any range.
@@ -327,73 +329,65 @@ sub int {
         # to ensure the division below becomes correct.
         $rand = ($_[0]->[RANDOM_GENERATOR] >> 15) & 0xFFFF;
     }
-    $val2 = $_[2];
-    $val2 = 0 if not defined $val2;
-    return int($_[1] + (($rand / 0x10000) * ($val2 - $_[1] + 1)));
+    if (not defined $_[1] or not defined $_[2]) {
+        Carp::cluck("WARN: Call of 'int' with not defined parameters. " .
+                    "Will return 0.");
+        return 0;
+        # ($_[1], $_[2]) = @{$name2range{'int'}}; ???
+    }
+    return int($_[1] + (($rand / 0x10000) * ($_[2] - $_[1] + 1)));
 }
 
 ### Signed 64-bit float of any range.
 sub float {
-	my $rand;
-	# urand() is manually inlined for efficiency
-	update_generator($_[0]);
-	# Since this may be a 64-bit platform, we mask down to 16 bit
-	# to ensure the division below becomes correct.
-	$rand = ($_[0]->[RANDOM_GENERATOR] >> 15) & 0xFFFF;
-    #
-    # I get sometimes masses of $_[1] and $_[2] are undef. The reason is not 100% known.
-    # if (not defined $_[1]) {
-    #     say("DEBUG \$_1... is undef");
-    # } else {
-    #     say("DEBUG \$_1... is ->" . $_[1] . "<-");
-    # }
-    # if (not defined $_[2]) {
-    #     say("DEBUG \$_2... is undef");
-    # } else {
-    #     say("DEBUG \$_2... is ->" . $_[2] . "<-");
-    # }
-    # say("DEBUG rand ... is undef") if not defined $rand;
-    # my $final_val = $_[1] + (($rand / 0x10000) * ($_[2] - $_[1] + 1));
-    # say("DEBUG final_val ... is defined and ->$final_val<-") if defined $final_val;
-    $val2 = $_[2];
-    $val2 = 0 if not defined $val2;
-	return $_[1] + (($rand / 0x10000) * ($val2 - $_[1] + 1));
+    my $rand;
+    # urand() is manually inlined for efficiency
+    update_generator($_[0]);
+    # Since this may be a 64-bit platform, we mask down to 16 bit
+    # to ensure the division below becomes correct.
+    $rand = ($_[0]->[RANDOM_GENERATOR] >> 15) & 0xFFFF;
+    if (not defined $_[1] or not defined $_[2]) {
+        # Carp::cluck("WARN: Call of 'float' with not defined parameters. " .
+        #             "Will preload the border values.");
+        ($_[1], $_[2]) = @{$name2range{'float'}};
+    }
+    return $_[1] + (($rand / 0x10000) * ($_[2] - $_[1] + 1));
 }
 
 sub digit {
-	return $_[0]->uint16(0, 9);
+    return $_[0]->uint16(0, 9);
 }
 
 sub positive_digit {
-	return $_[0]->uint16(1, 9);
+    return $_[0]->uint16(1, 9);
 }
 
 sub letter {
-	return $_[0]->string(1);
+    return $_[0]->string(1);
 }
 
 sub hex {
-	my ($prng, $length) = @_;
-	$length = 4 if not defined $length;
-	return '0x'.join ('', map { (0..9,'A'..'F')[$prng->int(0,15)] } (1..$prng->int(1,$length)) );
+    my ($prng, $length) = @_;
+    $length = 4 if not defined $length;
+    return '0x'.join ('', map { (0..9,'A'..'F')[$prng->int(0,15)] } (1..$prng->int(1,$length)) );
 }
 
 sub date {
-	my $prng = shift;
-	return sprintf('%04d-%02d-%02d',
+    my $prng = shift;
+    return sprintf('%04d-%02d-%02d',
                    $prng->uint16(1971,2035),
                    $prng->uint16(1,12),
                    $prng->uint16(1,28));
 }
 
 sub year {
-	my $prng = shift;
-	return $prng->uint16(1971,2035);
+    my $prng = shift;
+    return $prng->uint16(1971,2035);
 }
 
 sub time {
-	my $prng = shift;
-	return sprintf('%02d:%02d:%02d.%06d',
+    my $prng = shift;
+    return sprintf('%02d:%02d:%02d.%06d',
                    $prng->uint16(0,23),
                    $prng->uint16(0,59),
                    $prng->uint16(0,59),
@@ -401,13 +395,13 @@ sub time {
 }
 
 sub datetime {
-	my $prng = shift;
-	return $prng->date()." ".$prng->time();
+    my $prng = shift;
+    return $prng->date()." ".$prng->time();
 }
 
 sub timestamp {
-	my $prng = shift;
-	return sprintf('%04d%02d%02d%02d%02d%02d.%06d',
+    my $prng = shift;
+    return sprintf('%04d%02d%02d%02d%02d%02d.%06d',
                    $prng->uint16(1971,2035),
                    $prng->uint16(1,12),
                    $prng->uint16(1,28),
@@ -418,13 +412,13 @@ sub timestamp {
 }
 
 sub enum {
-	my $prng = shift;
-	return $prng->letter();
+    my $prng = shift;
+    return $prng->letter();
 }
 
 sub set {
-	my $prng = shift;
-	return join(',', map { $prng->letter() } (0..$prng->digit() ) );
+    my $prng = shift;
+    return join(',', map { $prng->letter() } (0..$prng->digit() ) );
 }
 
 sub text {
@@ -447,35 +441,35 @@ sub text {
 }
 
 sub string {
-	use integer;
+    use integer;
 
-	my ($prng, $len) = @_;
+    my ($prng, $len) = @_;
 
-	$len = defined $len ? $len : ($prng->[RANDOM_VARCHAR_LENGTH] || 1);
+    $len = defined $len ? $len : ($prng->[RANDOM_VARCHAR_LENGTH] || 1);
 
-	# If the length is 0 or negative, return a zero-length string
-	return '' if $len <= 0;
+    # If the length is 0 or negative, return a zero-length string
+    return '' if $len <= 0;
 
-	# If the length is 1, just return one random character
+    # If the length is 1, just return one random character
         return chr($prng->uint16(ASCII_RANGE_START, ASCII_RANGE_END)) if $len == 1;
 
-	# We store a random string of length RANDOM_STRBUF_SIZE which we fill with
-	# random bytes. Each time a new string is requested, we shift the
-	# string one byte right and generate a new string at the beginning
-	# of the string.
+    # We store a random string of length RANDOM_STRBUF_SIZE which we fill with
+    # random bytes. Each time a new string is requested, we shift the
+    # string one byte right and generate a new string at the beginning
+    # of the string.
 
-	if (not defined $prng->[RANDOM_STRBUF]) {
+    if (not defined $prng->[RANDOM_STRBUF]) {
 		$prng->[RANDOM_STRBUF] = join('', map{ chr($prng->uint16(ASCII_RANGE_START, ASCII_RANGE_END)) } (1..RANDOM_STRBUF_SIZE) );
-	} else {
+    } else {
 		$prng->[RANDOM_STRBUF] = substr($prng->[RANDOM_STRBUF], 1).chr($prng->uint16(ASCII_RANGE_START, ASCII_RANGE_END));
-	}
+    }
 
-	my $actual_length = $prng->uint16(1,$len);
+    my $actual_length = $prng->uint16(1,$len);
 
-	if ($actual_length <= RANDOM_STRBUF_SIZE) {
+    if ($actual_length <= RANDOM_STRBUF_SIZE) {
 		## If the wanted length fit in the buffer, just return a slice of it.
 		return substr($prng->[RANDOM_STRBUF], 0, $actual_length);
-	} else {
+    } else {
 		## Otherwise wil fill repeatedly from the buffer
 		my $res;
 		while ($actual_length > RANDOM_STRBUF_SIZE){
@@ -747,7 +741,7 @@ sub isFieldType {
 	} elsif (exists $dict_exists{$field_name}) {
 		return $dict_exists{$field_name};
 	} else {
-                my $dict_file = $ENV{RQG_HOME} ne '' ? $ENV{RQG_HOME}."/dict/$field_name.txt" : "dict/$field_name.txt";
+                my $dict_file = $rqg_home ne '' ? $rqg_home ."/dict/$field_name.txt" : "dict/$field_name.txt";
 
                 if (-e $dict_file) {
 			$dict_exists{$field_name} = FIELD_TYPE_DICT;
@@ -764,7 +758,7 @@ sub fromDictionary {
 	my ($rand, $dict_name) = @_;
 
 	if (not exists $dict_data{$dict_name}) {
-		my $dict_file = $ENV{RQG_HOME} ne '' ? $ENV{RQG_HOME}."/dict/$dict_name.txt" : "dict/$dict_name.txt";
+		my $dict_file = $rqg_home ne '' ? $rqg_home ."/dict/$dict_name.txt" : "dict/$dict_name.txt";
 
 		open (DICT, $dict_file) or warn "# Unable to load $dict_file: $!";
 		my @dict_data = map { chop; $_ } <DICT>;
