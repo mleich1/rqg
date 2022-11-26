@@ -30,6 +30,7 @@ use base 'Exporter';
 use strict;
 use Auxiliary;
 use GenTest_e;
+use Basics;
 use Local;
 use GenTest_e::Constants;
 
@@ -71,7 +72,7 @@ sub check_and_set_rr_valgrind {
                                                      # 1 -- rqg_batch.pl ist the caller
                                                      # 0 -- rqg.pl ist the caller
 
-    my $who_am_i = "Runtime::check_and_set_rr_valgrind: ";
+    my $who_am_i = Basics::who_am_i;
 
     if (5 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;

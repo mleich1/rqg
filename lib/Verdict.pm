@@ -194,7 +194,7 @@ sub reset_hashes {
 #--------------------------------------
 sub extract_verdict_config {
     my ($config_file) = @_;
-    my $who_am_i = "Verdict::extract_verdict_config";
+    my $who_am_i = Basics::who_am_i;
     my $verdict_code = Auxiliary::getFileSection($config_file, 'Verdict setup');
     if (not defined $verdict_code) {
         # say("DEBUG: verdict_code is undef");
@@ -224,17 +224,16 @@ sub load_verdict_config {
 # printable description
     my ($content) = @_;
 
-    my $who_am_i = 'Verdict::load_verdict_config:';
+    my $who_am_i = Basics::who_am_i;
 
     if (1 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: $who_am_i One parameter " .
-                    "(content) is required.");
+        Carp::cluck("INTERNAL ERROR: One parameter (content) is required.");
         safe_exit($status);
     }
     if (not defined $content) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: $who_am_i \$content is not defined.");
+        Carp::cluck("INTERNAL ERROR: \$content is not defined.");
         safe_exit($status);
     }
 
@@ -254,8 +253,7 @@ sub load_verdict_config {
     our $failure_met = 0;
     # print("====\n" . $content . "\n====");
     if (not eval ($content)) {
-        Carp::cluck("FATAL ERROR: eval \$content failed with\n    " .
-                    $@ . "\n");
+        Carp::cluck("FATAL ERROR: eval \$content failed with\n    " . $@ . "\n");
         my $status = STATUS_ENVIRONMENT_FAILURE;
         safe_exit($status);
     }
@@ -263,16 +261,15 @@ sub load_verdict_config {
     sub load_statuses {
         my ($assessment, $statuses) = @_;
 
-        my $who_am_i = 'Verdict::load_verdict_config::load_statuses:';
+        my $who_am_i = Basics::who_am_i;
         if (2 != scalar @_) {
             my $status = STATUS_INTERNAL_ERROR;
-            Carp::cluck("INTERNAL ERROR: $who_am_i Two parameters " .
-                        "(assessment, statuses) are required.");
+            Carp::cluck("INTERNAL ERROR: Two parameters (assessment, statuses) are required.");
             safe_exit($status);
         }
         if (not defined $assessment) {
             my $status = STATUS_INTERNAL_ERROR;
-            Carp::cluck("INTERNAL ERROR: $who_am_i The parameter assessment is undef.");
+            Carp::cluck("INTERNAL ERROR: The parameter assessment is undef.");
             safe_exit($status);
         }
         if (not defined $statuses) {
@@ -286,7 +283,7 @@ sub load_verdict_config {
         foreach my $status_rec_ref (@{$statuses}) {
             my @status_rec = @{$status_rec_ref};
             if (1 != scalar @status_rec) {
-                say("ERROR: The status entry ->" . join("<->", @status_rec) . "<-\n" .
+                say("ERROR: $who_am_i The status entry ->" . join("<->", @status_rec) . "<-\n" .
                     "ERROR: Does not contain exact 1 element.");
                 $failure_met = 1;
             }
@@ -296,10 +293,11 @@ sub load_verdict_config {
                 $failure_met = 1;
             }
             if (exists $tmp_status_hash{$status_rec[STATUS_STATUS]}) {
-                say("ERROR: Duplicate status entry '" . $status_rec[STATUS_STATUS] . "' met.");
+                say("ERROR: $who_am_i Duplicate status entry '" . $status_rec[STATUS_STATUS] .
+                    "' met.");
                 $failure_met = 1;
             } else {
-                say("DEBUG: Adding status entry '" . $status_rec[STATUS_STATUS]      .
+                say("DEBUG: $who_am_i Adding status entry '" . $status_rec[STATUS_STATUS] .
                     "' assessment '" . $assessment . "'.")
                     if Auxiliary::script_debug("V6");
             }
@@ -314,16 +312,16 @@ sub load_verdict_config {
     sub load_patterns {
         my ($assessment, $patterns) = @_;
 
-        my $who_am_i = 'Verdict::load_verdict_config::load_patterns:';
+        my $who_am_i = Basics::who_am_i;
         if (2 != scalar @_) {
             my $status = STATUS_INTERNAL_ERROR;
-            Carp::cluck("INTERNAL ERROR: $who_am_i Two parameters " .
+            Carp::cluck("INTERNAL ERROR: Two parameters " .
                         "(assessment, patterns) are required.");
             safe_exit($status);
         }
         if (not defined $assessment) {
             my $status = STATUS_INTERNAL_ERROR;
-            Carp::cluck("INTERNAL ERROR: $who_am_i The parameter " .
+            Carp::cluck("INTERNAL ERROR: The parameter " .
                         "assessment is undef.");
             safe_exit($status);
         }
@@ -338,16 +336,16 @@ sub load_verdict_config {
         foreach my $pattern_rec_ref (@{$patterns}) {
             my @pattern_rec = @{$pattern_rec_ref};
             if (2 != scalar @pattern_rec) {
-                say("ERROR: The pattern entry ->" . join("<->", @pattern_rec) . "<-\n" .
-                    "ERROR: Does not contain exact 2 elements.");
+                say("ERROR: $who_am_i The pattern entry ->" . join("<->", @pattern_rec) . "<-\n" .
+                    "ERROR: $who_am_i Does not contain exact 2 elements.");
                 $failure_met = 1;
             }
 
             my $key = $pattern_rec[PATTERN_PATTERN];
             if ($pattern_rec[PATTERN_PATTERN] =~ /^\.\+/ ) {
                 my $status = STATUS_ENVIRONMENT_FAILURE;
-                say("ERROR: The pattern starts with '.+' which could lead to incredible search " .
-                    "runtimes which must be avoided.\n" .
+                say("ERROR: $who_am_i The pattern starts with '.+' which could lead to " .
+                    "incredible search runtimes which must be avoided.\n" .
                     "       Pattern:   ->" . $pattern_rec[PATTERN_PATTERN] . "<-\n" .
                     "       Info:       '" . $pattern_rec[PATTERN_INFO] . "'\n" .
                     "       Assessment: '" . $assessment . "'\n");
@@ -357,10 +355,10 @@ sub load_verdict_config {
 
             if (exists $tmp_pattern_hash{$key}) {
                 my @o_pattern_rec = @{$tmp_pattern_hash{$key}};
-                say("ERROR: Duplicate pattern entry ->" . $key . "<- met.");
+                say("ERROR: $who_am_i Duplicate pattern entry ->" . $key . "<- met.");
                 $failure_met = 1;
             } else {
-                say("DEBUG: Adding pattern entry '" . $key .
+                say("DEBUG: $who_am_i Adding pattern entry '" . $key .
                     "' assessment '" . $n_pattern_rec[R_PATTERN_ASSESSMENT] .
                     "' info '"       . $n_pattern_rec[R_PATTERN_INFO] . "'.")
                     if Auxiliary::script_debug("V6");
@@ -376,7 +374,7 @@ sub load_verdict_config {
     load_patterns("replay",   $patterns_replay);
 
     if ($failure_met) {
-        say("ERROR: Exiting with STATUS_ENVIRONMENT_FAILURE because of previous errors.");
+        say("ERROR: $who_am_i Exiting with STATUS_ENVIRONMENT_FAILURE because of previous errors.");
         my $status = STATUS_ENVIRONMENT_FAILURE;
         safe_exit($status);
     }
@@ -492,23 +490,18 @@ sub calculate_verdict {
 #
 
     my ($file_to_search_in) = @_;
+    my $who_am_i = Basics::who_am_i;
 
-#   if (not $bw_lists_set) {
-#       Carp::cluck("INTERNAL ERROR: calculate_verdict was called before " .
-#                   "the call of check_normalize_set_black_white_lists.");
-#       return undef;
-#   }
-
-    say("DEBUG: file_to_search_in '$file_to_search_in'") if Auxiliary::script_debug("V3");
+    say("DEBUG: $who_am_i file_to_search_in '$file_to_search_in'") if Auxiliary::script_debug("V3");
 
     # RQG logs could be huge and even the memory on testing boxes is limited.
     # So we push in maximum the last 100000000 bytes of the log into $content.
     my $content = Auxiliary::getFileSlice($file_to_search_in, 100000000);
     if (not defined $content or '' eq $content) {
-        say("FATAL ERROR: calculate_verdict: No RQG log content got. Will return undef.");
+        say("FATAL ERROR: $who_am_i No RQG log content got. Will return undef.");
         return undef, undef;
     } else {
-        say("DEBUG: Auxiliary::getFileSlice got content : ->$content<-")
+        say("DEBUG: $who_am_i Auxiliary::getFileSlice got content : ->$content<-")
             if Auxiliary::script_debug("V4");
     }
 
@@ -516,17 +509,17 @@ sub calculate_verdict {
     $cut_position = index($content, MATCHING_START);
     if ($cut_position >= 0) {
         $content = substr($content, $cut_position);
-        say("DEBUG: cut_position : $cut_position") if Auxiliary::script_debug("V3");
+        say("DEBUG: $who_am_i cut_position : $cut_position") if Auxiliary::script_debug("V3");
     }
 
     $cut_position = index($content, MATCHING_END);
     if ($cut_position >= 0) {
         $content = substr($content, 0, $cut_position);
-        say("DEBUG: cut_position : $cut_position") if Auxiliary::script_debug("V3");
+        say("DEBUG: $who_am_i cut_position : $cut_position") if Auxiliary::script_debug("V3");
     }
 
     if (not defined $content or $content eq '') {
-        say("INFO: No RQG log content left over after cutting. Will return undef.");
+        say("INFO: $who_am_i No RQG log content left over after cutting. Will return undef.");
         return undef, undef;
     }
 
@@ -565,7 +558,7 @@ sub calculate_verdict {
 
     ($p_match, $p_info) = Auxiliary::status_matching($content, \@blacklist_statuses   ,
                                           $status_prefix, 'MATCHING: Unwanted statuses', 1);
-    say("INFO: Unwanted status matching returned : $p_match");
+    say("INFO: $who_am_i Unwanted status matching returned : $p_match");
     # Note: Hitting Auxiliary::MATCH_UNKNOWN would be not nice.
     #       But its acceptable compared to Auxiliary::MATCH_YES.
     if ($p_match eq Auxiliary::MATCH_YES) {
@@ -573,14 +566,14 @@ sub calculate_verdict {
         $maybe_interest = 0;
         $bl_match       = 1;
     }
-    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match, " .
+    say("DEBUG: $who_am_i maybe_interest : $maybe_interest, maybe_match : $maybe_match, " .
         "p_match : $p_match, f_info: $f_info")
         if Auxiliary::script_debug("V2");
 
     ($p_match, $p_info) = Auxiliary::content_matching2 ($content, \@blacklist_patterns ,
                                            'MATCHING: Unwanted text patterns', 1);
     $p_info = '<undef2>' if not defined $p_info;
-    say("INFO: Unwanted pattern matching returned : $p_match - $p_info");
+    say("INFO: $who_am_i Unwanted pattern matching returned : $p_match - $p_info");
     if ($p_match eq Auxiliary::MATCH_YES) {
         $f_info         = $f_info . '--' . $p_info;
     }
@@ -589,14 +582,14 @@ sub calculate_verdict {
         $maybe_interest = 0;
         $bl_match       = 1;
     }
-    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match, " .
+    say("DEBUG: $who_am_i maybe_interest : $maybe_interest, maybe_match : $maybe_match, " .
         "p_match : $p_match, f_info: $f_info")
         if Auxiliary::script_debug("V2");
 
 
     ($p_match, $p_info) = Auxiliary::status_matching($content, \@whitelist_statuses   ,
                                           $status_prefix, 'MATCHING: Whitelist statuses', 1);
-    say("INFO: Whitelist status matching returned : $p_match , $p_info");
+    say("INFO: $who_am_i Whitelist status matching returned : $p_match , $p_info");
     if (0 == $bl_match) {
         # Note: Hitting Auxiliary::MATCH_UNKNOWN is not acceptable because it would
         #       degenerate runs of the grammar simplifier.
@@ -604,14 +597,14 @@ sub calculate_verdict {
             $maybe_match = 0;
         }
     }
-    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match, " .
+    say("DEBUG: $who_am_i maybe_interest : $maybe_interest, maybe_match : $maybe_match, " .
         "p_match : $p_match, f_info: $f_info")
         if Auxiliary::script_debug("V2");
 
     ($p_match, $p_info) = Auxiliary::content_matching2 ($content, \@whitelist_patterns ,
                                             'MATCHING: Whitelist text patterns', 1);
     $p_info = '<undef4>' if not defined $p_info;
-    say("INFO: Whitelist pattern matching returned : $p_match - $p_info");
+    say("INFO: $who_am_i Whitelist pattern matching returned : $p_match - $p_info");
     if ($p_match eq Auxiliary::MATCH_YES) {
         $f_info         = $f_info . '--' . $p_info;
     }
@@ -628,18 +621,18 @@ sub calculate_verdict {
             }
         }
     }
-    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match, " .
+    say("DEBUG: $who_am_i maybe_interest : $maybe_interest, maybe_match : $maybe_match, " .
         "p_match : $p_match, f_info: $f_info")
         if Auxiliary::script_debug("V2");
 
     ($p_match, $p_info) = Auxiliary::content_matching2 ($content, \@interlist_patterns ,
                                             'MATCHING: Interestlist text patterns', 1);
     $p_info = '<undef5>' if not defined $p_info;
-    say("INFO: Interestlist pattern matching returned : $p_match - $p_info");
+    say("INFO: $who_am_i Interestlist pattern matching returned : $p_match - $p_info");
     if ($p_match eq Auxiliary::MATCH_YES) {
         $f_info         = $f_info . '--' . $p_info;
     }
-    say("DEBUG: maybe_interest : $maybe_interest, maybe_match : $maybe_match, " .
+    say("DEBUG: $who_am_i maybe_interest : $maybe_interest, maybe_match : $maybe_match, " .
         "p_match : $p_match, f_info: $f_info")
         if Auxiliary::script_debug("V2");
 
@@ -668,12 +661,12 @@ sub set_final_rqg_verdict {
 # -------
 # Signal via setting a file name the final verdict.
 #
-    my $who_am_i = "Verdict::set_final_rqg_verdict:";
+    my $who_am_i = Basics::who_am_i;
 
     my ($workdir, $verdict, $extra_info) = @_;
     if (3 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: $who_am_i Three parameters (workdir, verdict, extra_info) " .
+        Carp::cluck("INTERNAL ERROR: Three parameters (workdir, verdict, extra_info) " .
                       "are required.");
         return STATUS_FAILURE;
     }
@@ -683,12 +676,12 @@ sub set_final_rqg_verdict {
         return STATUS_FAILURE;
     }
     if (not defined $verdict or $verdict eq '') {
-        Carp::cluck("ERROR: $who_am_i verdict is either not defined or ''.");
+        Carp::cluck("ERROR: verdict is either not defined or ''.");
         return STATUS_FAILURE;
     }
     my $extra_text = "EXTRA_INFO: ";
     if ((not defined $extra_info) or ('' eq $extra_info)) {
-        Carp::cluck("ERROR: $who_am_i \$extra_info is not defined or ''.");
+        Carp::cluck("ERROR: \$extra_info is not defined or ''.");
         $extra_text .= "<undef>";
     } else {
         $extra_text .= $extra_info;
@@ -697,7 +690,7 @@ sub set_final_rqg_verdict {
     my $result = Auxiliary::check_value_supported ('verdict', RQG_VERDICT_ALLOWED_VALUE_LIST,
                                                   $verdict);
     if ($result != STATUS_OK) {
-        Carp::cluck("ERROR: $who_am_i Auxiliary::check_value_supported returned $result. " .
+        Carp::cluck("ERROR: Auxiliary::check_value_supported returned $result. " .
                     "Will return that too.");
         return $result;
     }
@@ -709,15 +702,16 @@ sub set_final_rqg_verdict {
     # Basics::rename_file is safe regarding existence of these files.
     $result = Basics::rename_file ($source_file, $target_file);
     if ($result) {
-        say("ERROR: set_rqg_verdict from '$initial_verdict' to '$verdict' failed.");
+        say("ERROR: $who_am_i set_rqg_verdict from '$initial_verdict' to '$verdict' failed.");
         return STATUS_FAILURE;
     } else {
         $result = Basics::append_string_to_file($target_file, $extra_text . "\n");
         if ($result) {
-            say("ERROR: set_rqg_verdict: Appending '$extra_text' to '$target_file' failed.");
+            say("ERROR: $who_am_i set_rqg_verdict: Appending '$extra_text' to " .
+                "'$target_file' failed.");
             return STATUS_FAILURE;
         } else {
-            say("DEBUG: set_rqg_verdict from '$initial_verdict' to '$verdict' and " .
+            say("DEBUG: $who_am_i set_rqg_verdict from '$initial_verdict' to '$verdict' and " .
                 "extra_info '$extra_info'.") if Auxiliary::script_debug("V2");
             return STATUS_OK;
         }
@@ -732,8 +726,9 @@ sub get_rqg_verdict {
 # undef - $workdir not existing, verdict file not found ==> RQG should abort later
 # $verdict_value - all ok
     my ($workdir) = @_;
+    my $who_am_i = Basics::who_am_i;
     if (not -d $workdir) {
-        say("ERROR: get_rqg_verdict : RQG workdir '$workdir' " .
+        say("ERROR: $who_am_i get_rqg_verdict : RQG workdir '$workdir' " .
             " is missing or not a directory. Will return undef, '<undef>'.");
         system("ls -ld $workdir");
         return undef, '<undef>';
@@ -751,7 +746,7 @@ sub get_rqg_verdict {
         }
     }
     # In case we reach this point than we have no verdict file found.
-    say("ERROR: get_rqg_verdict : No RQG verdict file in directory '$workdir' found. " .
+    say("ERROR: $who_am_i get_rqg_verdict : No RQG verdict file in directory '$workdir' found. " .
         "Will return undef, '<undef>'.");
     return undef, '<undef>';
 }

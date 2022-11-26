@@ -1,6 +1,6 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018, 2021 MariaDB Corporation Ab.
+# Copyright (c) 2018, 2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -152,7 +152,6 @@ sub sendError {
     $self->channel->send($msg);
 }
 
-
 sub dbh {
     return $_[0]->[EXECUTOR_DBH];
 }
@@ -287,7 +286,7 @@ sub type {
     }
 }
 
-my @dbid = ("Unknown","Dummy", "MySQL","Postgres","JavaDB","Drizzle");
+my @dbid = ("Unknown","Dummy","MySQL","Postgres","JavaDB","Drizzle");
 
 sub getName {
     my ($self) = @_;
