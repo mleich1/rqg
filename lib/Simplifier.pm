@@ -1883,7 +1883,7 @@ sub register_result {
         # 2018-11-19T16:16:19 [19309] SUMMARY: RQG total runtime in s : 34
         ##### 2018-11-19T16:16:19 [19309] SUMMARY: RQG verdict : replay
         $gentest_runtime = Batch::get_string_after_pattern($saved_log,
-                               "INFO: GenTest_e: Effective duration in s : ");
+                               "INFO: GenTest: Effective duration in s : ");
         if (defined $gentest_runtime and $gentest_runtime =~ /^[0-9]+$/) {
             # Do nothing.
         } else {
