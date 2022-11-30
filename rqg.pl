@@ -109,8 +109,8 @@ my (@basedirs, @mysqld_options, @vardirs, $dbdir_type, $vardir_type, $rpl_mode, 
     $grammar_file, $skip_recursive_rules,
     @redefine_files, $seed, $mask, $mask_level, $rows,
     $varchar_len, $valgrind, $valgrind_options, @vcols, @views,
-    $start_dirty, $filter, $build_thread, $sqltrace,
-    $notnull, $logfile, $querytimeout, $no_mask,
+    $start_dirty, $filter, $build_thread, $sqltrace, $testname,
+    $notnull, $logfile, $logconf, $querytimeout, $no_mask,
     $short_column_names, $strict_fields, $freeze_time, $wait_debugger,
     $skip_gendata, $skip_shutdown, $galera, $use_gtid, $annotate_rules,
     $restart_timeout, $gendata_advanced, $scenario, $upgrade_test,
@@ -209,6 +209,7 @@ if (not GetOptions(
     'varchar-length=i'            => \$varchar_len,
     'restart-timeout=i'           => \$restart_timeout,
     'restart_timeout=i'           => \$restart_timeout,
+    'testname=s'                  => \$testname,
     'valgrind!'                   => \$valgrind,
     'valgrind_options=s'          => \$valgrind_options,
     'rr:s'                        => \$rr,
@@ -229,6 +230,7 @@ if (not GetOptions(
 #   'mtr-build-thread=i'          => \$build_thread, # Computed based on local.cfg and ...
     'sqltrace:s'                  => \$sqltrace,
     'logfile=s'                   => \$logfile,
+    'logconf=s'                   => \$logconf,
     'querytimeout=i'              => \$querytimeout,
     'no-mask'                     => \$no_mask,
     'no_mask'                     => \$no_mask,
@@ -1377,9 +1379,11 @@ my $gentestProps = GenTest_e::Properties->new(
               'valgrind',
               'rr',
               'rr_options',
+              'testname',
               'sqltrace',
               'querytimeout',
               'logfile',
+              'logconf',
               'servers',
               'multi-master',
               'annotate-rules',
@@ -1441,7 +1445,9 @@ $gentestProps->rr_options($rr_options) if defined $rr_options;
 $gentestProps->property('ps-protocol',1) if $ps_protocol;
 $gentestProps->sqltrace($sqltrace) if defined $sqltrace;
 $gentestProps->querytimeout($querytimeout) if defined $querytimeout;
+$gentestProps->testname($testname) if $testname;
 $gentestProps->logfile($logfile) if defined $logfile;
+$gentestProps->logconf($logconf) if defined $logconf;
 $gentestProps->property('restart-timeout', $restart_timeout) if defined $restart_timeout;
 # In case of multi-master topology (e.g. Galera with multiple "masters"),
 # we don't want to compare results after each query.
