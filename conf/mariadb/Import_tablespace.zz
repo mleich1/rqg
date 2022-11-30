@@ -1,6 +1,4 @@
-# Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
-# Copyright (c) 2015, 2016 MariaDB Corporation Ab
-# Use is subject to license terms.
+# Copyright (c) 2021 MariaDB Corporation
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,23 +13,21 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301
 # USA
+#
 
 $tables = {
-	rows => [0, 1, 10, 20, 100],
-	engines => [ 'MyISAM', 'InnoDB', 'Aria' ],
-	views => [ 'MERGE', 'TEMPTABLE' ],
+   rows     => [0, 1, 10 ],
+   pk       => [ undef , 'int', 'varchar(255)' ]
 };
 
 $fields = {
-	types => [ 'int', 'char(2)', 'char(255)', 'varchar(64)', 'date', 'time', 'datetime', 'text', 'blob', 'decimal' ],
-	indexes => [ undef, 'key' ],
-	null => [ 'null', 'not null' ],
+   types    => [ 'int', 'varchar(255)', 'text' ],
+   indexes  => [ undef, 'key' ],
+   charsets => [ 'utf8', 'latin1' ],
 };
 
 $data = {
-        numbers => [ 'digit', 'null', undef, 'smallint_unsigned' ],
-        strings => [ 'letter', 'english', 'char(128)', 'null' ],
-        temporals => ['date', 'year', 'null', undef ],
-        blobs => [ 'varchar(1024)', 'char(1024)', 'null' ]
-}
-
+   numbers  => [ 'digit', 'null', undef ],
+   strings  => [ 'letter', 'english', 'char(255)' ],
+   blobs    => [ 'english' ],
+};

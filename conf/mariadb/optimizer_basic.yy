@@ -740,9 +740,8 @@ having_item:
 	existing_int_select_item arithmetic_operator value |
 	existing_int_select_item arithmetic_operator value |
 	existing_int_select_item arithmetic_operator value |
-	existing_int_select_item arithmetic_operator value ;
-# TODO: Commented due to MDEV-7691, uncomment when fixed
-#	{ $subquery_idx += 1 ; $subquery_tables=0 ; $sq_ifields = 0; $sq_cfields = 0; ""} having_subquery;
+	existing_int_select_item arithmetic_operator value |
+	{ $subquery_idx += 1 ; $subquery_tables=0 ; $sq_ifields = 0; $sq_cfields = 0; ""} having_subquery;
 
 having_subquery:
 	existing_int_select_item arithmetic_operator int_single_value_subquery  |
@@ -1286,7 +1285,7 @@ not_equal:
   <> | != ;
 
 int_value:
-   _digit | _digit | _digit | _digit | _digit | digit | other_int ;
+   _digit | _digit | _digit | _digit | _digit | _digit | other_int ;
 
 other_int:
    _tinyint_unsigned | 20 | 25 | 30 | 35 | 50 | 65 | 75 | 100 ;
