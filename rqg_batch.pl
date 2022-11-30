@@ -166,8 +166,8 @@ $SIG{TERM} = sub { Batch::emergency_exit(STATUS_OK, "INFO: SIGTERM or SIGINT rec
 $SIG{CHLD} = "IGNORE" if osWindows();
 
 my ($config_file, $basedir, $vardir, $trials, $duration, $grammar, $gendata,
-    $seed, $testname, $max_runtime,
-    $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
+    $seed, $testname, $xml_output, $report_xml_tt, $report_xml_tt_type, $max_runtime,
+    $report_xml_tt_dest, $force, $no_mask, $exhaustive, $start_combination, $dryrun, $noLog,
     $parallel, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
     $help, $help_simplifier, $help_combinator, $help_verdict, $help_rr, $help_archiving, $help_local,
     $help_rqg_home, $help_dbdir_type, $runner, $noarchiving,
@@ -291,6 +291,10 @@ if (not GetOptions(
 #          'grammar=s'                 => \$grammar,      # Pass through (@ARGV) to Combinator ...
            'gendata=s'                 => \$gendata,                # Currently handle here
            'testname=s'                => \$testname,               # Swallowed and handled by rqg_batch
+           'xml-output=s'              => \$xml_output,             # Swallowed and handled by rqg_batch
+           'report-xml-tt'             => \$report_xml_tt,          # Swallowed and handled by rqg_batch
+           'report-xml-tt-type=s'      => \$report_xml_tt_type,     # Swallowed and handled by rqg_batch
+           'report-xml-tt-dest=s'      => \$report_xml_tt_dest,     # Swallowed and handled by rqg_batch
 #          'run-all-combinations-once' => \$exhaustive,             # Pass through (@ARGV). Combinator maybe needs that
 #          'start-combination=i'       => \$start_combination,      # Pass through (@ARGV). Combinator maybe needs that
 #          'no-shuffle'                => \$noshuffle,              # Pass through (@ARGV). Combinator maybe needs that
@@ -523,6 +527,13 @@ if (defined $gendata) {
 }
 
 $cl_end .= " --testname=$testname" if defined $testname and $testname ne '';
+$cl_end .= " --xml-output=$xml_output"
+    if defined $xml_output and $xml_output ne '';
+$cl_end .= " --report-xml-tt" if defined $report_xml_tt;
+$cl_end .= " --report-xml-tt-type=$report_xml_tt_type"
+    if defined $report_xml_tt_type and $report_xml_tt_type ne '';
+$cl_end .= " --report-xml-tt-dest=$report_xml_tt_dest"
+    if defined $report_xml_tt_dest and $report_xml_tt_dest ne '';
 $cl_end .= " --script_debug=" . $script_debug_value
     if $script_debug_value ne '';
 $cl_end .= " --sqltrace=" . $sqltrace if defined $sqltrace;
@@ -1544,6 +1555,10 @@ sub help() {
    "--no_mask      (Assigning --mask or --mask-level on command line is not supported anyway.)\n"  .
    "--sqltrace=...\n"                                                                              .
    "--testname=...\n"                                                                              .
+   "--xml-output=...\n"                                                                            .
+   "--report-xml-tt=...\n"                                                                         .
+   "--report-xml-tt-type=...\n"                                                                    .
+   "--report-xml-tt-dest=...\n"                                                                    .
    "-------------------------------------------------------------------------------------------\n" .
    "rqg_batch will create a symlink '" . BATCH_RESULT_SYMLINK . "' pointing to the workdir of "    .
    "his run\n which is <value assigned to workdir>/<runid>.\n"                                     .
