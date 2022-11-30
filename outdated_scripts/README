@@ -1,0 +1,3 @@
+Many of these scripts need the outdated MTR version 1 for
+managing server starts etc.
+Other scripts were replaced by functionality in rqg_batch.pl.
