@@ -526,84 +526,86 @@ sub gen_table {
 
             my $c = $columns{$cname};
 
-            if      ($c->[0] eq 'TINYINT' or $c->[0] eq 'SMALLINT' or $c->[0] eq 'MEDIUMINT' or
-                     $c->[0] eq 'INT' or $c->[0] eq 'BIGINT')
+            if ($c->[0] eq 'TINYINT' or $c->[0] eq 'SMALLINT' or $c->[0] eq 'MEDIUMINT' or $c->[0] eq 'INT' or $c->[0] eq 'BIGINT')
             {
                 # 10% NULLs, 10% tinyint_unsigned, 80% digits
                 my $pick = $prng->uint16(0,9);
+
                 if ($c->[4] eq 'NOT NULL') {
                     $val = ($pick == 8 ? $prng->int(0,255) : $prng->digit() );
                 } else {
                     $val = $pick == 9 ? "NULL" : ($pick == 8 ? $prng->int(0,255) : $prng->digit() );
                 }
-                # say("DEBUG: *int value ->" . $val . "<-");
-            } elsif ($c->[0] eq 'BIT') {
+            }
+            elsif ($c->[0] eq 'BIT') {
                 if ($c->[4] eq 'NOT NULL') {
                     $val = $prng->bit($c->[1]);
                 } else {
                     $val = $prng->uint16(0,9) == 9 ? "NULL" : $prng->bit($c->[1]);
                 }
-                # say("DEBUG: bit value ->" . $val . "<-");
-            } elsif ($c->[0] =~ /^(?:ENUM|SET)/) {
-                my $temp_val = $prng->arrayElement(['','a','b','c','d','e','f','foo','bar']);
+            }
+            # ('','a','b','c','d','e','f','foo','bar')
+            elsif ($c->[0] =~ /^(?:ENUM|SET)/) {
                 if ($c->[4] eq 'NOT NULL') {
-                    $val = "'" . $temp_val . "'";
+                    $val = "'".$prng->arrayElement('','a','b','c','d','e','f','foo','bar')."'";
                 } else {
-                    $val = $prng->uint16(0,9) == 9 ? "NULL" : "'" . $temp_val . "'";
+                    $val = $prng->uint16(0,9) == 9 ? "NULL" : "'".$prng->arrayElement('','a','b','c','d','e','f','foo','bar')."'";
                 }
-            } elsif ($c->[0] eq 'FLOAT' or $c->[0] eq 'DOUBLE' or $c->[0] eq 'DECIMAL') {
-                my $temp_val = $prng->float();
+            }
+            elsif ($c->[0] eq 'FLOAT' or $c->[0] eq 'DOUBLE' or $c->[0] eq 'DECIMAL') {
                 if ($c->[4] eq 'NOT NULL') {
-                    $val = $temp_val;
+                    $val = $prng->float();
                 } else {
-                    $val = $prng->uint16(0,9) == 9 ? "NULL" : $temp_val;
+                    $val = $prng->uint16(0,9) == 9 ? "NULL" : $prng->float();
                 }
-                # say("DEBUG: float value ->" . $val . "<-");
-            } elsif ($c->[0] eq 'YEAR') {
+            }
+            elsif ($c->[0] eq 'YEAR') {
                 if ($c->[4] eq 'NOT NULL') {
                     $val = $prng->year();
                 } else {
                     $val = $prng->uint16(0,9) == 9 ? "NULL" : $prng->year();
                 }
-            } elsif ($c->[0] eq 'DATE') {
+            }
+            elsif ($c->[0] eq 'DATE') {
                 # 10% NULLS, 10% '1900-01-01', pick real date/time/datetime for the rest
+
                 $val = "'".$prng->date()."'";
-                $val = ($val, $val, $val, $val, $val, $val, $val, $val, "NULL",
-                        "'1900-01-01'")[$prng->uint16(0,9)];
-            } elsif ($c->[0] eq 'TIME') {
+                $val = ($val, $val, $val, $val, $val, $val, $val, $val, "NULL", "'1900-01-01'")[$prng->uint16(0,9)];
+            }
+            elsif ($c->[0] eq 'TIME') {
                 # 10% NULLS, 10% '1900-01-01', pick real date/time/datetime for the rest
+
                 $val = "'".$prng->time()."'";
-                $val = ($val, $val, $val, $val, $val, $val, $val, $val, "NULL",
-                        "'00:00:00'")[$prng->uint16(0,9)];
-            } elsif ($c->[0] eq 'DATETIME' or $c->[0] eq 'TIMESTAMP') {
-                # 10% NULLS, 10% "1900-01-01 00:00:00', 20% date + " 00:00:00"
+                $val = ($val, $val, $val, $val, $val, $val, $val, $val, "NULL", "'00:00:00'")[$prng->uint16(0,9)];
+            }
+            elsif ($c->[0] eq 'DATETIME' or $c->[0] eq 'TIMESTAMP') {
+            # 10% NULLS, 10% "1900-01-01 00:00:00', 20% date + " 00:00:00"
+
                 $val = $prng->datetime();
                 my $val_date_only = $prng->date();
 
                 if ($c->[4] eq 'NOT NULL') {
-                    $val = ($val, $val, $val, $val, $val, $val, $val, $val_date_only .
-                            " 00:00:00", $val_date_only." 00:00:00",
-                            '1900-01-01 00:00:00')[$prng->uint16(0,9)];
+                    $val = ($val, $val, $val, $val, $val, $val, $val, $val_date_only." 00:00:00", $val_date_only." 00:00:00", '1900-01-01 00:00:00')[$prng->uint16(0,9)];
                 } else {
-                    $val = ($val, $val, $val, $val, $val, $val, $val_date_only .
-                            " 00:00:00", $val_date_only." 00:00:00", "NULL",
-                            '1900-01-01 00:00:00')[$prng->uint16(0,9)];
+                    $val = ($val, $val, $val, $val, $val, $val, $val_date_only." 00:00:00", $val_date_only." 00:00:00", "NULL", '1900-01-01 00:00:00')[$prng->uint16(0,9)];
                 }
                 $val = "'".$val."'" if not $val eq "NULL";
-            } elsif ($c->[0] eq 'CHAR' or $c->[0] eq 'VARCHAR' or $c->[0] eq 'BINARY' or
-                     $c->[0] eq 'VARBINARY' or $c->[0] eq 'TINYBLOB' or $c->[0] eq 'BLOB' or
-                     $c->[0] eq 'MEDIUMBLOB' or $c->[0] eq 'LONGBLOB') {
+            }
+            elsif ($c->[0] eq 'CHAR' or $c->[0] eq 'VARCHAR' or $c->[0] eq 'BINARY' or $c->[0] eq 'VARBINARY' or $c->[0] eq 'TINYBLOB' or $c->[0] eq 'BLOB' or $c->[0] eq 'MEDIUMBLOB' or $c->[0] eq 'LONGBLOB')
+            {
                 my $length= $prng->uint16(0,9) == 9 ? $prng->uint16(0,$c->[1]) : $prng->uint16(0,8);
                 if ($c->[4] eq 'NOT NULL') {
                     $val = "'".$prng->string($length)."'";
                 } else {
                     $val = $prng->uint16(0,9) == 9 ? "NULL" : "'".$prng->string($length)."'";
                 }
-            } elsif ($c->[0] =~ /(TINY|MEDIUM|LONG)?TEXT/) {
+            }
+            elsif ($c->[0] =~ /(TINY|MEDIUM|LONG)?TEXT/)
+            {
                 my $maxlength= 65535;
                 # if ($1 eq 'TINY') {
                 if ($c->[0] eq 'TINY') {
-                    $maxlength= 255;
+                  $maxlength= 255;
                 }
                 my $length= $prng->uint16(0,$maxlength);
                 if ($c->[4] eq 'NOT NULL') {
