@@ -1,3 +1,0 @@
-$rules = {
-  'foreignkey' => sub { $_ =~ m{FOREIGN}is },
-}

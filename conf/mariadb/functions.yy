@@ -2,21 +2,14 @@ query_init:
 	{ $tmp_table = 0; '' } ;
 
 query:
-    select_or_explain_select
-  | select_or_explain_select
-  | select_or_explain_select
-  | select_or_explain_select
-  | select_or_explain_select
-  | select_or_explain_select
-  | prepare_execute
-  | { $tmp_table++; '' } create_and_drop
-;
+   select | select | select | select | select | select | 
+	prepare_execute | { $tmp_table++; '' } create_and_drop ;
 
 create_and_drop:
    CREATE temporary TABLE { 'tmp'.$tmp_table } AS select ; DROP TABLE IF EXISTS { 'tmp'.$tmp_table } ; 
 
 prepare_execute:
-	SET @stmt = " select "; SET @stmt_create = CONCAT("CREATE TEMPORARY TABLE `ps` AS ", @stmt ); PREPARE stmt FROM @stmt_create ; EXECUTE stmt ; SET @stmt_ins = CONCAT("INSERT INTO `ps` ", @stmt) ; PREPARE stmt FROM @stmt_ins; EXECUTE stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt; DROP TEMPORARY TABLE `ps`;
+	SET @stmt = " select "; SET @stmt_create = CONCAT("CREATE TEMPORARY TABLE `ps` AS ", @stmt ); PREPARE stmt FROM @stmt_create ; EXECUTE stmt ; SET @stmt_ins = CONCAT("INSERT INTO `ps` ", @stmt) ; PREPARE stmt FROM @stmt_ins; EXECUTE stmt; EXECUTE stmt; DEALLOCATE stmt; DROP TEMPORARY TABLE `ps`;
 
 temporary:
    | TEMPORARY ;
@@ -27,11 +20,8 @@ explain_extended:
 extended:
 	| EXTENDED ;
 
-select_or_explain_select:
-   explain_extended select;
-
 select:
-   { $num = 0; '' } SELECT distinct select_list FROM _table where group_by_having_order_by_limit;
+   { $num = 0; '' } explain_extended SELECT distinct select_list FROM _table where group_by_having_order_by_limit;
 
 select_list:
    select_item AS { $num++; 'field'.$num } | select_item AS { $num++; 'field'.$num } , select_list ;
@@ -88,7 +78,7 @@ limit:
    | | | LIMIT _tinyint_unsigned ;
 
 func:
-  math_func |
+   math_func | 
 	arithm_oper | 
 	comparison_oper | 
 	logical_or_bitwise_oper | 
@@ -105,22 +95,20 @@ func:
 
 misc_func:
 	DEFAULT( _field ) |
-	GET_LOCK( arg_char , zero_or_almost ) |
+	GET_LOCK( arg , zero_or_almost ) |
 # TODO: provide reasonable IP
 	INET_ATON( arg ) |
 	INET_NTOA( arg ) |
-	IS_FREE_LOCK( arg_char ) |
-	IS_USED_LOCK( arg_char ) |
+	IS_FREE_LOCK( arg ) |
+	IS_USED_LOCK( arg ) |
 	MASTER_POS_WAIT( 'log', _int_unsigned, zero_or_almost ) |
-	NAME_CONST( const_char_value, value ) |
+	NAME_CONST( value, value ) |
 	RAND() | RAND( arg ) |
-	RELEASE_LOCK( arg_char ) |
+	RELEASE_LOCK( arg ) |
 	SLEEP( zero_or_almost ) |
 	UUID_SHORT() |
 	UUID() |
-# Changed due to MDEV-14895
-#	VALUES( _field )
-	VALUE( _field )
+	VALUES( _field )
 ;	
 
 zero_or_almost:
@@ -134,7 +122,7 @@ xml_func:
 ;
 
 xpath:
-	{ @chars = ('a','b','c','d','e','/'); $length= int(rand(127)); $x= '/'; $xpath= '/'; foreach ( 1..$length ) { $x= ( ( $x eq '/' or $_ eq $length ) ? $chars[int(rand(scalar(@chars)-1))] : $chars[int(rand(scalar(@chars)))]); $xpath.= $x ; }; "'".$xpath."'" } ;
+	{ @chars = ('/','a','b','c','d','e'); $length = int(rand(128)); $xpath = ''; foreach ( 1..$length ) { $xpath .= $chars[int(rand(scalar(@chars)))] }; "'".$xpath."'" } ;
 
 information_func:
 	CHARSET( arg ) |
@@ -165,15 +153,8 @@ charset:
    utf8 | latin1 ;
 
 type:
-   BINARY | BINARY(_digit) | CHAR | CHAR(_digit) | DATE | DATETIME | DECIMAL | DECIMAL(decimal_m) | DECIMAL(decimal_m,decimal_d) | SIGNED | TIME | UNSIGNED ;
+   BINARY | BINARY(_digit) | CHAR | CHAR(_digit) | DATE | DATETIME | DECIMAL | DECIMAL(_digit) | DECIMAL(_digit,_digit) | SIGNED | TIME | UNSIGNED ;
 
-decimal_m:
-    { $decimal_m = $prng->int(0,65) }
-;
-
-decimal_d:
-    { $decimal_d = $prng->int(0,$decimal_m) }
-;
 
 encrypt_func:
    AES_DECRYPT( arg, arg ) |
@@ -220,7 +201,7 @@ str_func:
    LPAD( arg, arg, arg ) |
    LTRIM( arg ) |
    MAKE_SET( arg_list ) |
-   MATCH( field_list ) AGAINST ( const_char_value search_modifier ) |
+	MATCH( field_list ) AGAINST ( arg search_modifier ) |
    MID( arg, arg, arg ) |
    OCT( arg ) |
    OCTET_LENGTH( arg ) |
@@ -448,14 +429,6 @@ truncate_second_arg:
 
 arg:
    _field | value | ( func ) ;
-
-arg_char:
-  _field_char | _char(1) | _english | _string(16) | NULL
-;
-
-const_char_value:
-  _char(1) | _english | _string(16) | ''
-;
 
 value:
    _bigint | _smallint | _int_usigned | _char(1) | _char(256) | _datetime | _date | _time | NULL ;
