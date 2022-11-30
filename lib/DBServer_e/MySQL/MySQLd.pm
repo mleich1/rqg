@@ -61,6 +61,7 @@ use constant MYSQLD_DUMPER                       => 19;
 use constant MYSQLD_SOURCEDIR                    => 20;
 use constant MYSQLD_GENERAL_LOG                  => 21;
 use constant MYSQLD_WINDOWS_PROCESS_EXITCODE     => 22;
+# use constant MYSQLD_DEBUG_SERVER                 => 22;
 use constant MYSQLD_SERVER_TYPE                  => 23;
 use constant MYSQLD_VALGRIND_SUPPRESSION_FILE    => 24;
 use constant MYSQLD_TMPDIR                       => 25;
@@ -1425,7 +1426,7 @@ sub dumpdb {
 
 sub dumpSchema {
     my ($self,$database, $file) = @_;
-    say("Dumping server ".$self->version." schema on port ".$self->port);
+    say("Dumping MySQL server ".$self->version." schema on port ".$self->port);
     my $dump_command = '"'.$self->dumper.
                              "\" --hex-blob --compact ".
                              "--order-by-primary --skip-extended-insert ".
@@ -2217,7 +2218,7 @@ sub majorVersion {
 sub printInfo {
     my($self) = @_;
 
-    say("Server version: "  . $self->version);
+    say("MySQL Version: "   . $self->version);
     say("Binary: "          . $self->binary);
     say("Type: "            . $self->serverType($self->binary));
     say("Datadir: "         . $self->datadir);
