@@ -220,7 +220,12 @@ set -o pipefail
 #    "rr" tracing of all servers started ( lib/DBServer/MySQL/MySQLd.pm    sub startServer)
 #    This is the default.
 # --rr                                                                 \
+#    or better
+# --rr=Server                                                          \
+#
 #    Preserve the 'rr' traces of the bootstrap, server starts and mariabackup calls.
+#    This is the optimal setting for InnoDB QA.
+# --rr=Extended                                                        \
 #
 #    Recommended settings (Info taken from rr help)
 #    '--chaos' randomize scheduling decisions to try to reproduce bugs

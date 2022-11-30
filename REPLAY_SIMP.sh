@@ -216,8 +216,16 @@ set -o pipefail
 # 8. Use "rr" (https://github.com/mozilla/rr/wiki/Usage) for tracing DB servers and other
 #    programs.
 #
-#    Preserve the 'rr' traces of the bootstrap, server starts and mariabackup calls.
+#    Get the default which is 'Server'
 # --rr                                                                 \
+#
+#    Use rr for all all DB servers to be started
+#        lib/DBServer/MySQL/MySQLd.pm    sub startServer
+# --rr=Server                                                          \
+#
+#    Preserve the 'rr' traces of the bootstrap, server starts and mariabackup calls.
+#    This is the optimal setting for InnoDB QA.
+# --rr=Extended                                                        \
 #
 #    Recommended settings (Info taken from rr help)
 #    '--chaos' randomize scheduling decisions to try to reproduce bugs
