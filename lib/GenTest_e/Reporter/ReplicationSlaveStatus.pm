@@ -1,5 +1,5 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
-# Copyright (C) 2016, 2021 MariaDB Corporation AB.
+# Copyright (C) 2016, 2022 MariaDB Corporation AB.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -26,17 +26,73 @@ use DBI;
 use GenTest_e;
 use GenTest_e::Constants;
 use GenTest_e::Reporter;
-#use GenTest_e::Comparator;
 #use Data::Dumper;
 #use IPC::Open2;
-#use File::Copy;
 #use POSIX;
 
 use DBServer_e::MySQL::MySQLd;
 
-use constant SLAVE_STATUS_LAST_ERROR        => 19;
-use constant SLAVE_STATUS_LAST_SQL_ERROR    => 35;
-use constant SLAVE_STATUS_LAST_IO_ERROR     => 38;
+# "SHOW SLAVE STATUS" result set of some slave server in positive state
+# Slave_IO_State
+# Master_Host       127.0.0.1
+# Master_User       root
+# Master_Port       16000
+# Connect_Retry       1
+# Master_Log_File       master-bin.000001       5 (Index starts with 0)
+# Read_Master_Log_Pos       1579
+# Relay_Log_File       slave-relay-bin.000002
+# Relay_Log_Pos       1879
+# Relay_Master_Log_File       master-bin.000001
+# Slave_IO_Running       No
+# Slave_SQL_Running       No
+# Replicate_Do_DB
+# Replicate_Ignore_DB
+# Replicate_Do_Table
+# Replicate_Ignore_Table
+# Replicate_Wild_Do_Table
+# Replicate_Wild_Ignore_Table
+# Last_Errno       0
+# Last_Error
+# Skip_Counter       0
+# Exec_Master_Log_Pos       1579
+# Relay_Log_Space       2188
+# Until_Condition       None
+# Until_Log_File
+# Until_Log_Pos       0
+# Master_SSL_Allowed       No
+# Master_SSL_CA_File
+# Master_SSL_CA_Path
+# Master_SSL_Cert
+# Master_SSL_Cipher
+# Master_SSL_Key
+# Seconds_Behind_Master       NULL
+# Master_SSL_Verify_Server_Cert       No
+# Last_IO_Errno       0
+# Last_IO_Error
+# Last_SQL_Errno       0
+# Last_SQL_Error
+# Replicate_Ignore_Server_Ids
+# Master_Server_Id       1
+# Master_SSL_Crl
+# Master_SSL_Crlpath
+# Using_Gtid       No
+# Gtid_IO_Pos
+# Replicate_Do_Domain_Ids
+# Replicate_Ignore_Domain_Ids
+# Parallel_Mode       optimistic
+# SQL_Delay       0
+# SQL_Remaining_Delay       NULL
+# Slave_SQL_Running_State
+# Slave_DDL_Groups       6
+# Slave_Non_Transactional_Groups       1
+# Slave_Transactional_Groups       0
+
+use constant SLAVE_STATUS_LAST_ERRNO        => 19;
+use constant SLAVE_STATUS_LAST_ERROR        => 20;
+use constant SLAVE_STATUS_LAST_IO_ERRNO     => 34;
+use constant SLAVE_STATUS_LAST_IO_ERROR     => 35;
+use constant SLAVE_STATUS_LAST_SQL_ERRNO    => 36;
+use constant SLAVE_STATUS_LAST_SQL_ERROR    => 37;
 
 my $first_reporter;
 
@@ -67,12 +123,12 @@ sub status {
 
     }
     # We connect to the slave DB server!
-    my $server = $reporter->properties->servers->[1];
-    my $pid =    $server->pid();
-    my $dsn = $server->dsn();
+    my $server =   $reporter->properties->servers->[1];
+    my $pid =      $server->pid();
+    my $dsn =      $server->dsn();
     my $executor = GenTest_e::Executor->newFromDSN($dsn);
     $executor->setId(2);
-    $executor->setRole("ReplicationSlaveStatus1");
+    $executor->setRole("ReplicationSlaveStatus");
     $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_REPORTER);
     $executor->sqltrace('MarkErrors');
     my $status = $executor->init();
@@ -92,7 +148,7 @@ sub status {
         return $status;
     }
 
-    #   system("kill -9 $pid; sleep 5") if not $first_connect;
+    # system("kill -9 $pid; sleep 1") if not $first_connect;
     my $query = "SHOW SLAVE STATUS";
     my $res = $executor->execute($query);
     $status = $res->status;
@@ -114,28 +170,35 @@ sub status {
         return $status;
     }
     $first_connect = 0;
+    # system("kill -9 $pid; sleep 1") if not $first_connect;
     my $slave_status = $res->data;
 
     my @result_row_ref_array = @{$res->data};
+    # system("kill -9 $pid; sleep 1") if not $first_connect;
     my @status_row = @{$result_row_ref_array[0]};
     my $last_io_error  = $status_row[SLAVE_STATUS_LAST_IO_ERROR];
     my $last_sql_error = $status_row[SLAVE_STATUS_LAST_SQL_ERROR];
     my $last_error     = $status_row[SLAVE_STATUS_LAST_ERROR];
     $executor->disconnect();
 
-    if      (defined $last_io_error and $last_io_error ne '') {
-        say("ERROR: $who_am_i Slave IO thread has stopped with error: " . $last_io_error);
-        return STATUS_REPLICATION_FAILURE;
-    } elsif (defined $last_sql_error and $last_sql_error ne '') {
-        say("ERROR: $who_am_i Slave SQL thread has stopped with error: " . $last_sql_error);
-        return STATUS_REPLICATION_FAILURE;
-    } elsif (defined $last_error and $last_error ne '') {
+    say("DEBUG: $who_am_i last_io_error ->" . $last_io_error . "<-, last_sql_error ->" .
+        $last_sql_error . "<-, last_error ->" . $last_error . "<-");
+
+    # Corrected for
+    # 10.11 2022-12 $last_error is a string if defined
+    # 10.6 2022-12 $last_error is string if defined and '0' if no error
+    if (defined $last_error and $last_error ne '0' and $last_error ne '') {
+        if  (defined $last_io_error and $last_io_error ne '0' and $last_io_error ne '') {
+            say("ERROR: $who_am_i Slave IO thread has stopped with error: " . $last_io_error);
+        }
+        if (defined $last_sql_error and $last_sql_error ne '0' and $last_sql_error ne '') {
+            say("ERROR: $who_am_i Slave SQL thread has stopped with error: " . $last_sql_error);
+        }
         say("ERROR: $who_am_i Slave has stopped with error: " . $last_error);
         return STATUS_REPLICATION_FAILURE;
     } else {
         return STATUS_OK;
     }
-
 }
 
 sub type {

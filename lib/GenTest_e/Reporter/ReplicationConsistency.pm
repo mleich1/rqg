@@ -1,5 +1,5 @@
 # Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2020, 2021 MariaDB Corporation Ab.
+# Copyright (c) 2020, 2022 MariaDB Corporation Ab.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,6 +17,11 @@
 
 package GenTest_e::Reporter::ReplicationConsistency;
 
+# (mleich1):
+# Warning: The code might be biased to 10.11.
+# IMHO this reporter should be replaced by some code to be executed by the RQG runner
+# after finishing GenTest with success.
+
 require Exporter;
 @ISA = qw(GenTest_e::Reporter);
 
@@ -32,6 +37,7 @@ $| = 1;
 
 sub report {
 	my $reporter = shift;
+    my $who_am_i = "Reporter 'ReplicationConsistency':";
 
 	return STATUS_WONT_HANDLE if $reporter_called == 1;
 	$reporter_called = 1;
@@ -39,8 +45,14 @@ sub report {
 	my $master_dbh = DBI->connect($reporter->dsn(), undef, undef, {
                           mysql_connect_timeout  => Runtime::get_connect_timeout(),
                           PrintError             => 0});
-	return STATUS_CRITICAL_FAILURE if not defined $master_dbh;
-      say("DEBUG: master dsn ->" . $reporter->dsn() . "<-");
+      say("DEBUG: $who_am_i master dsn ->" . $reporter->dsn() . "<-");
+    # system('kill -9 $SERVER_PID2; sleep 5');
+    if (not defined $master_dbh) {
+        my $status = STATUS_CRITICAL_FAILURE;
+        say("ERROR: $who_am_i Connect to master failed. " . $DBI::errstr .
+            " Will return status " . status2text($status) . " ($status)\n");
+        return $status;
+    }
 	my $master_port = $reporter->serverVariable('port');
 	my $slave_port;
 
@@ -54,15 +66,21 @@ sub report {
 		$slave_port = $slave_info->[2];
 	} else {
 		$slave_port = $master_port + 2;
+        say("DEBUG: $who_am_i \$slave_info was undef. Guessing? slave_port $slave_port");
 	}
 
     #   my $slave_dsn = "dbi:mysql:host=127.0.0.1:port=".$slave_port.":user=root";
     my $slave_dsn = "dbi:mysql:host=127.0.0.1:port=".$slave_port.":user=root:database=test";
-      say("DEBUG: slave dsn ->" . $slave_dsn . "<-");
+      say("DEBUG: $who_am_i slave dsn ->" . $slave_dsn . "<-");
     my $slave_dbh = DBI->connect($slave_dsn, undef, undef, {
                          mysql_connect_timeout  => Runtime::get_connect_timeout(),
                          PrintError             => 1 } );
-	return STATUS_REPLICATION_FAILURE if not defined $slave_dbh;
+    if (not defined $slave_dbh) {
+        my $status = STATUS_CRITICAL_FAILURE;
+        say("ERROR: $who_am_i Connect to slave failed. " . $DBI::errstr .
+            " Will return status " . status2text($status) . " ($status)\n");
+        return $status;
+    }
 
 	$slave_dbh->do("START SLAVE");
 
@@ -76,10 +94,13 @@ sub report {
 	while (my ($intermediate_binlog_file, $intermediate_binlog_size) = $sth_binlogs->fetchrow_array()) {
 		my $intermediate_binlog_pos = $intermediate_binlog_size < 10000000 ? $intermediate_binlog_size : 10000000;
 		do {
-			say("Executing intermediate MASTER_POS_WAIT('$intermediate_binlog_file', $intermediate_binlog_pos).");
-			my $intermediate_wait_result = $slave_dbh->selectrow_array("SELECT MASTER_POS_WAIT('$intermediate_binlog_file',$intermediate_binlog_pos)");
+            my $query = "SELECT MASTER_POS_WAIT('$intermediate_binlog_file', " .
+                        "$intermediate_binlog_pos)";
+			say("DEBUG: $who_am_i Executing intermediate $query");
+			my $intermediate_wait_result = $slave_dbh->selectrow_array($query);
 			if (not defined $intermediate_wait_result) {
-				say("Intermediate MASTER_POS_WAIT('$intermediate_binlog_file', $intermediate_binlog_pos) failed in slave on port $slave_port. Slave replication thread not running.");
+				say("ERROR: $who_am_i Intermediate $query failed in slave on port $slave_port. " .
+                    $slave_dbh->errstr() . " Slave replication thread not running.");
 				return STATUS_REPLICATION_FAILURE;
 			}
 			$intermediate_binlog_pos += 10000000;
