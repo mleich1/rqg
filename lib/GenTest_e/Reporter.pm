@@ -190,17 +190,12 @@ sub new {
     my $binname;
     $binname = osWindows() ? 'mysqld.exe' : 'mysqld';
     ($bindir,$binary)=$reporter->findMySQLD($binname);
-    if ((-e $binary)) {
+    if (-e $binary) {
         $reporter->[REPORTER_SERVER_INFO]->{bindir} = $bindir;
         $reporter->[REPORTER_SERVER_INFO]->{binary} = $binary;
     } else {
-        # If we dont find non-debug server use debug(mysqld_debug) server.
-        $binname = osWindows() ? 'mysqld-debug.exe' : 'mysqld-debug';
-        ($bindir,$binary)=$reporter->findMySQLD($binname);
-        if ((-e $binary)) {
-            $reporter->[REPORTER_SERVER_INFO]->{bindir} = $bindir;
-            $reporter->[REPORTER_SERVER_INFO]->{binary} = $binary;
-        }
+        say("ERROR: $who_am_i No server binary found. Will return undef.");
+        return undef;
     }
 
     foreach my $client_path ("client/RelWithDebInfo", "client/Debug",
@@ -322,7 +317,6 @@ sub configure {
     return 1;
 }
 
-# Input : For given binary either mysqld/mysqld-debug
 # Output: Return bindir and absolute path of the binary file.
 sub findMySQLD {
     my ($reporter,$binname)=@_;

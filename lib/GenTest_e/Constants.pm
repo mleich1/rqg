@@ -1,6 +1,6 @@
 # Copyright (c) 2008,2011 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013 Monty Program Ab.
-# Copyright (c) 2018,2020 MariaDB Corporation Ab.
+# Copyright (c) 2018,2022 MariaDB Corporation Ab.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -26,6 +26,8 @@ require Exporter;
 @ISA = qw(Exporter);
 
 @EXPORT = qw(
+   STATUS_PREFIX
+
    STATUS_OK
    STATUS_FAILURE
    STATUS_INTERNAL_ERROR
@@ -95,6 +97,8 @@ require Exporter;
 );
 
 use strict;
+
+use constant STATUS_PREFIX                     => 'RESULT: The RQG run ended with status ';
 
 use constant STATUS_OK                         => 0;    # Suitable for exit code
 use constant STATUS_FAILURE                    => 1;    # Used as opposite of STATUS_OK by certain routines
