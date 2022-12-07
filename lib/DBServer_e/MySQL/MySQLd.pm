@@ -182,12 +182,6 @@ sub new {
                                               osWindows()?["sql/Debug","sql/RelWithDebInfo","sql/Release","bin"]:["sql","libexec","bin","sbin"],
                                               osWindows()?"mysqld.exe":"mysqld");
     };
-    # If mysqld server is not found, use mysqld-debug server.
-    if (!$self->[MYSQLD_MYSQLD]) {
-        $self->[MYSQLD_MYSQLD] = $self->_find([$self->basedir],
-                                              osWindows()?["sql/Debug","sql/RelWithDebInfo","sql/Release","bin"]:["sql","libexec","bin","sbin"],
-                                              osWindows()?"mysqld-debug.exe":"mysqld-debug");
-    }
 
     $self->serverType($self->[MYSQLD_MYSQLD]);
 
@@ -584,7 +578,7 @@ sub createMysqlBase  {
         #    Hence I copy 'boot.err' to 'mysql.err' first.
         File::Copy::copy($booterr, $self->errorlog);
         $self->make_backtrace();
-        sayFile($booterr);
+        # sayFile($booterr);
         sayFile($bootlog);
         say("ERROR: Will return STATUS_FAILURE" . "($status)");
         return $status;
@@ -956,7 +950,6 @@ sub startServer {
                     # The status reported by cleanup_dead_server does not matter.
                     $self->cleanup_dead_server;
                     $self->make_backtrace();
-                    sayFile($errorlog);
                     return $status;
                 }
 
@@ -991,7 +984,7 @@ sub startServer {
                     # cleanup_dead_server takes care of $self->[MYSQLD_AUXPID].
                     $self->cleanup_dead_server;
                     $self->make_backtrace();
-                    sayFile($errorlog);
+                    # sayFile($errorlog);
                     return $status;
                 }
 
@@ -1036,7 +1029,7 @@ sub startServer {
                     my $status = STATUS_SERVER_CRASHED;
                     say("INFO: $who_am_i '[ERROR] mysqld got signal ' observed.");
                     $self->make_backtrace();
-                    sayFile($errorlog);
+                    # sayFile($errorlog);
                     return $status;
                 } else {
                     # say("DEBUG: $who_am_i Up till now no '[ERROR] mysqld got signal ' observed.");
@@ -1095,7 +1088,7 @@ sub startServer {
                     # The status returned by cleanup_dead_server does not matter.
                     $self->cleanup_dead_server;
                     $self->make_backtrace();
-                    sayFile($errorlog);
+                    # sayFile($errorlog);
                     return $status;
                 } else {
                     say("ERROR: $who_am_i Server startup is finished, process $pid is running, " .
@@ -1734,8 +1727,9 @@ sub stopServer {
             if ($match) {
                 say("INFO: $who_am_i The shutdown finished with server crash.");
                 $self->make_backtrace;
+            } else {
+                sayFile($file_to_read);
             }
-            sayFile($file_to_read);
         }
     }
     return $res;
@@ -2493,7 +2487,8 @@ sub make_backtrace {
         $self->cleanup_dead_server;
     }
 
-    my $rqg_homedir = $ENV{RQG_HOME} . "/";
+    # my $rqg_homedir = $ENV{RQG_HOME} . "/";
+    my $rqg_homedir = Local::get_rqg_home();
     # For testing:
     # $rqg_homedir = undef;
     if (not defined $rqg_homedir) {
@@ -2532,6 +2527,7 @@ sub make_backtrace {
                           "< $backtrace_cfg";
             system('bash -c "set -o pipefail; '. $command .'"');
             sayFile($backtrace);
+            # sayFile($error_log);
         }
         $status = STATUS_SERVER_CRASHED;
         say("INFO: $who_am_i No core file to be expected. " . Auxiliary::build_wrs($status));
@@ -2567,6 +2563,7 @@ sub make_backtrace {
     }
     if (not defined $core) {
         $status = STATUS_SERVER_CRASHED;
+        sayFile($error_log);
         say("INFO: $who_am_i Even after $wait_timeout" . "s waiting no core file with expected " .
             "name found. " . Auxiliary::build_wrs($status));
         say("INFO: $who_am_i ------------------------------ End");
@@ -2583,6 +2580,7 @@ sub make_backtrace {
         say("INFO: Core file '$core' size in KB: $filesize");
     } else {
         $status = STATUS_SERVER_CRASHED;
+        sayFile($error_log);
         say("ERROR: $who_am_i Core file not found. " . Auxiliary::build_wrs($status));
         say("INFO: $who_am_i ------------------------------ End");
         return $status;
@@ -2671,6 +2669,7 @@ sub make_backtrace {
     }
 
     $status = STATUS_SERVER_CRASHED;
+    sayFile($error_log);
     say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
     say("INFO: $who_am_i ------------------------------ End");
     return $status;
