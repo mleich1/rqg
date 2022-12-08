@@ -139,6 +139,7 @@ sub check_verdict_infrastructure {
 # should be applied. This serves for avoiding of self matches like
 #    There is a line telling that some black_list_pattern is set to 'abc'.
 #    The pattern matching mechanism at test end detects this line and assumes a hit.
+# Currently no more important. Please keep.
 use constant MATCHING_START    => 'MATCHING: Region start =====================';
 use constant MATCHING_END      => 'MATCHING: Region end   =====================';
 #
@@ -155,8 +156,6 @@ use constant MATCHING_END      => 'MATCHING: Region end   ====================='
 # The pattern list was not empty, none of the elements matched but the outcome looks interesting.
 # use constant MATCH_NO_BUT_INTEREST => 'match_no_but_interest';
 
-
-my $status_prefix;
 my @blacklist_statuses;
 my @blacklist_patterns,
 my @whitelist_statuses;
@@ -505,18 +504,18 @@ sub calculate_verdict {
             if Auxiliary::script_debug("V4");
     }
 
-    my $cut_position;
-    $cut_position = index($content, MATCHING_START);
-    if ($cut_position >= 0) {
-        $content = substr($content, $cut_position);
-        say("DEBUG: $who_am_i cut_position : $cut_position") if Auxiliary::script_debug("V3");
-    }
+#   my $cut_position;
+#   $cut_position = index($content, MATCHING_START);
+#   if ($cut_position >= 0) {
+#       $content = substr($content, $cut_position);
+#       say("DEBUG: $who_am_i cut_position : $cut_position") if Auxiliary::script_debug("V3");
+#   }
 
-    $cut_position = index($content, MATCHING_END);
-    if ($cut_position >= 0) {
-        $content = substr($content, 0, $cut_position);
-        say("DEBUG: $who_am_i cut_position : $cut_position") if Auxiliary::script_debug("V3");
-    }
+#   $cut_position = index($content, MATCHING_END);
+#   if ($cut_position >= 0) {
+#       $content = substr($content, 0, $cut_position);
+#       say("DEBUG: $who_am_i cut_position : $cut_position") if Auxiliary::script_debug("V3");
+#   }
 
     if (not defined $content or $content eq '') {
         say("INFO: $who_am_i No RQG log content left over after cutting. Will return undef.");
@@ -535,7 +534,7 @@ sub calculate_verdict {
 
     my $script_debug   = 1;
 
-    my $status_prefix = ' The RQG run ended with status ';
+    my $status_prefix = STATUS_PREFIX;
 
     my @list;
     $list[0] = 'BATCH: Stop the run';

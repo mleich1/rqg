@@ -251,9 +251,11 @@ if (not GetOptions(
     if (not defined $help and not defined $help_sqltrace and
         not defined $help_dbdir_type) {
         help();
-        exit STATUS_CONFIG_ERROR;
+        run_end(STATUS_CONFIG_ERROR);
     }
 };
+
+##### Use run_end(<some status>) for bailing out until the first server is started. #####
 
 if ( defined $help ) {
     help();
@@ -288,7 +290,7 @@ if (defined $batch and $batch != 0) {
     say("DEBUG: The RQG run seems to be under control of RQG Batch.");
     if (not defined $major_runid) {
         say("ERROR: \$batch : $batch but major_runid is undef");
-        safe_exit(STATUS_INTERNAL_ERROR);
+        run_end(STATUS_INTERNAL_ERROR);
     }
 } else {
     $batch = 0;
@@ -305,8 +307,7 @@ if (defined $minor_runid) {
 my $status = Runtime::check_and_set_rr_valgrind ($rr, $rr_options, $valgrind, $valgrind_options, 0);
 if ($status != STATUS_OK) {
     say("The $0 arguments were ->" . join(" ", @ARGV_saved) . "<-");
-    say("$0 will exit with exit status " . status2text($status) . "($status)");
-    safe_exit($status);
+    run_end($status);
 }
 $rr_options = Runtime::get_rr_options();
 my $rr_rules = Runtime::get_rr_rules;
@@ -336,8 +337,7 @@ if (not $batch) {
     if ($result) {
         say("ERROR: Auxiliary::make_rqg_infrastructure failed with $result.");
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("$0 will exit with exit status " . status2text($status) . "($status)");
-        safe_exit($status);
+        run_end($status);
     }
 }
 # system("find $workdir -follow");
@@ -353,8 +353,7 @@ $result = Auxiliary::check_rqg_infrastructure($workdir);
 if ($result) {
     say("ERROR: Auxiliary::check_rqg_infrastructure failed with $result.");
     my $status = STATUS_ENVIRONMENT_FAILURE;
-    say("$0 will exit with exit status " . status2text($status) . "($status)");
-    safe_exit($status);
+    run_end($status);
 }
 
 # Jump into $vardirs[0]).
@@ -363,7 +362,7 @@ if (not chdir($vardirs[0])) {
     my $status = STATUS_ENVIRONMENT_FAILURE;
     say("INTERNAL ERROR: chdir to '$vardirs[0]' failed with : $!\n" .
         "         Will return STATUS_INTERNAL_ERROR.");
-    safe_exit($status);
+    run_end($status);
 }
 
 say("INFO: RQG workdir : '$workdir' and infrastructure is prepared.");
@@ -372,7 +371,7 @@ say("INFO: RQG workdir : '$workdir' and infrastructure is prepared.");
 ####################################################################################################
 
 # In case of failure use
-#    run_end($status);
+#   run_end($status);
 # and never
 #   exit_test($status);
 # as long as
@@ -393,8 +392,7 @@ my $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_START);
 if (STATUS_OK != $return){
     say("ERROR: Setting the phase of the RQG run failed.");
     my $status = STATUS_ENVIRONMENT_FAILURE;
-    say("$0 will exit with exit status " . status2text($status) . "($status)");
-    safe_exit($status);
+    run_end($status);
 }
 # For debugging of Auxiliary::set_rqg_phase
 # $return = Auxiliary::get_rqg_phase($workdir);
@@ -484,7 +482,6 @@ if (not defined $grammar_file) {
     say("ERROR: Grammar file is not defined.");
     help();
     my $status = STATUS_ENVIRONMENT_FAILURE;
-    say("$0 will exit with exit status " . status2text($status) . "($status)");
     run_end($status);
 } else {
     $grammar_file = $rqg_home . "/" . $grammar_file if not $grammar_file =~ m {^/};
@@ -492,7 +489,6 @@ if (not defined $grammar_file) {
         say("ERROR: Grammar file '$grammar_file' does not exist or is not a plain file.");
         help();
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("$0 will exit with exit status " . status2text($status) . "($status)");
         run_end($status);
     }
 }
@@ -523,7 +519,6 @@ $grammar_file = Auxiliary::unify_grammar($grammar_file, $redefine_ref, $workdir,
 if (not defined $grammar_file) {
     say("ERROR: unify_grammar failed.");
     my $status = STATUS_ENVIRONMENT_FAILURE;
-    say("$0 will exit with exit status " . status2text($status) . "($status)");
     run_end($status);
 };
 # The effective grammar rqg.yy which incorporates any masking and redefines was generated
@@ -571,7 +566,6 @@ if ($result != STATUS_OK) {
     Auxiliary::print_list("The values supported for 'rpl_mode' are :" ,
                           Auxiliary::RQG_RPL_ALLOWED_VALUE_LIST);
     my $status = STATUS_ENVIRONMENT_FAILURE;
-    say("$0 will exit with exit status " . status2text($status) . "($status)");
     run_end($status);
 }
 my $number_of_servers = 0;
@@ -950,18 +944,13 @@ if ($upgrade_rep_found && (not defined $upgrade_test)) {
 # sqltracing
 $status = SQLtrace::check_and_set_sqltracing($sqltrace, $workdir);
 if (STATUS_OK != $status) {
-    say("$0 will exit with exit status " . status2text($status) . "($status)");
     run_end($status);
 };
 
 say(Verdict::MATCHING_START);
 
-# FIXME (check code again):
-# Starting from here there should be NEARLY NO cases where the test aborts because some file is
-# missing or a parameter set to non supported value.
 #
-#
-# Start servers.
+# Final preparations followed by start servers.
 #
 Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_PREPARE);
 
@@ -982,10 +971,16 @@ foreach my $server_id (0.. $max_id) {
     if (STATUS_OK != Auxiliary::make_dbs_dirs($what_dir)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Preparing the storage structure for the server[$server_id] failed.");
-        say("RESULT: The RQG run ended with status " . status2text($status) . " ($status)");
-        exit_test($status);
+        run_end($status);
     }
 }
+
+##### Use exit_test(<some status>) for bailing out #####
+#
+# FIXME (check code again):
+# Starting from here there should be NEARLY NO cases where the test aborts because some file is
+# missing or a parameter set to non supported value.
+#
 
 say("DEBUG: rpl_mode is '$rpl_mode'");
 # FIXME: Let a routine in Auxiliary figure that out or figure out once and memorize result.
@@ -1126,22 +1121,22 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
 
     # server0 is the "old" server (before upgrade).
     # We will initialize and start it now
-    $server[0] = DBServer_e::MySQL::MySQLd->new(basedir          => $basedirs[1],
-                                              vardir           => $vardirs[1],
-                                              port             => $ports[0],
-                                              start_dirty      => $start_dirty,
-                                              valgrind         => $valgrind,
-                                              valgrind_options => $valgrind_options,
-                                              rr               => $rr,
-                                              rr_options       => $rr_options,
-                                              server_options   => $mysqld_options[0],
-                                              general_log      => 1,
-                                              config           => $cnf_array_ref,
-                                              user             => $user);
+    $server[0] = DBServer_e::MySQL::MySQLd->new(
+                                    basedir          => $basedirs[1],
+                                    vardir           => $vardirs[1],
+                                    port             => $ports[0],
+                                    start_dirty      => $start_dirty,
+                                    valgrind         => $valgrind,
+                                    valgrind_options => $valgrind_options,
+                                    rr               => $rr,
+                                    rr_options       => $rr_options,
+                                    server_options   => $mysqld_options[0],
+                                    general_log      => 1,
+                                    config           => $cnf_array_ref,
+                                    user             => $user);
     if (not defined $server[0]) {
         say("ERROR: Preparing the server[0] for the start failed.");
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("$0 will exit with exit status " . status2text($status) . "($status)");
         exit_test($status);
     }
 
@@ -1155,7 +1150,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         }
         say("ERROR: Could not start the old server in the upgrade test");
         my $status = STATUS_CRITICAL_FAILURE;
-        say("$0 will exit with exit status " . status2text($status) . "($status)");
         exit_test($status);
     }
 
@@ -1175,7 +1169,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
             say("ERROR: Connect attempt to dsn " . $dsn .
                 " failed: " . $DBI::errstr);
             my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("$0 will exit with exit status " . status2text($status) . "($status)");
             exit_test($status);
         }
 
@@ -1188,7 +1181,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
             say("ERROR: ->" . $aux_query . "<- failed with $error");
             $dbh->disconnect();
             my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("$0 will exit with exit status " . status2text($status) . "($status)");
             exit_test($status);
         }
         $dbh->disconnect();
@@ -1200,7 +1192,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
     if (not defined $mysqld_options[1]) {
         # say("DEBUG: no mysqld_options for the to be upgraded server found.");
         $mysqld_options[1] = $mysqld_options[0];
-        exit;
     } else {
         # say("DEBUG: mysqld_options for the to be upgraded server found.");
     }
@@ -1257,7 +1248,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         if (not defined $server[$server_id]) {
             say("ERROR: Preparing the server[$server_id] for the start failed.");
             my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("RESULT: The RQG run ended with status " . status2text($status) . " ($status)");
             # $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
             exit_test($status);
         }
@@ -1266,7 +1256,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         if ($status > STATUS_OK) {
             # In case the server died upon start startServer itself generates the backtrace.
             say("ERROR: Could not start all servers");
-            say("RESULT: The RQG run ended with status " . status2text($status) . " ($status)");
             # exit_test will killServers and set_rqg_phase RQG_PHASE_FINISHED.
             exit_test($status);
         }
@@ -1298,7 +1287,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
             if (not defined $dbh) {
                 say("ERROR: Connect attempt to dsn " . $dsn . " failed: " . $DBI::errstr);
                 my $status = STATUS_ENVIRONMENT_FAILURE;
-                say("$0 will exit with exit status " . status2text($status) . "($status)");
                 exit_test($status);
             }
 
@@ -1312,7 +1300,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                 say("ERROR: ->" . $aux_query . "<- failed with $error");
                 $dbh->disconnect();
                 my $status = STATUS_ENVIRONMENT_FAILURE;
-                say("$0 will exit with exit status " . status2text($status) . "($status)");
                 exit_test($status);
             }
 
@@ -1497,7 +1484,6 @@ my $gentest = GenTest_e::App::GenTest_e->new(config => $gentestProps);
 if (not defined $gentest) {
     say("ERROR: GenTest_e::App::GenTest_e->new delivered undef.");
     $final_result = STATUS_ENVIRONMENT_FAILURE;
-    say("RESULT: The RQG run ended with status " . status2text($final_result) . " ($final_result)");
     exit_test($final_result);
 }
 
@@ -1522,7 +1508,6 @@ if ($final_result == STATUS_OK) {
             File::Path::rmtree($db_vardir) if -e $db_vardir;
         }
         say("INFO: The vardirs of the servers were deleted.");
-        say("RESULT: The RQG run ended with status " . status2text($status) . " ($status)");
         exit_test($status);
     } or die "ERROR: rqg.pl: Error setting SIGALRM handler: $!\n";
 
@@ -1843,7 +1828,6 @@ if ($final_result >= STATUS_CRITICAL_FAILURE) {
 
 # For experiments requiring that a RQG test has failed:
 # $final_result = STATUS_SERVER_CRASHED;
-say("RESULT: The RQG run ended with status " . status2text($final_result) . " ($final_result)");
 
 exit_test($final_result);
 
@@ -1979,14 +1963,6 @@ sub help1 {
                      fi
                  fi
 
-    debug-server<m> : Use mysqld-debug server for MariaDB server <m>
-    The "take over" mechanism is like for "basedir".
-
-                 If (not defined debug-server<m>) then
-                     debug-server<m> = debug-server
-                 fi
-
-
 EOF
   ;
 }
@@ -2121,7 +2097,7 @@ sub exit_test {
 
     my $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
 
-    $message = "RQG total runtime in s : " . (time() - $rqg_start_time);
+    $message =  "RQG total runtime in s : " . (time() - $rqg_start_time);
     $summary .= "SUMMARY: $message\n";
     say("INFO: " . $message);
 
@@ -2138,15 +2114,19 @@ sub run_end {
     my ($status) = @_;
     say($summary);
     # $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_COMPLETE);
-    say("$0 will exit with exit status " . status2text($status) . "($status)");
     # There might be failures in the process handling of the RQG mechanics.
     # So better try to kill all left over processes having the same process group
     # but not the current process.
     kill '-9', $$;
     Auxiliary::reapChildren;
-    Auxiliary::tweak_permissions($vardirs[0]);
+    # Tolerate that we might fail before $vardirs[0] is set or checked and
+    # avoid by that perl warnings etc.
+    if (defined $vardirs[0] and -e $vardirs[0]) {
+        Auxiliary::tweak_permissions($vardirs[0]);
+    }
     # tweak_permissions reports errors and returns a status.
     # The latter is rather unimportant.
+    say(STATUS_PREFIX . status2text($status) . "($status)");
     safe_exit($status);
 }
 
