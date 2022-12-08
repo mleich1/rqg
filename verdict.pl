@@ -33,20 +33,19 @@ my $general_config_file;
 BEGIN {
     # Cwd::abs_path reports the target of a symlink.
     $rqg_home = File::Basename::dirname(Cwd::abs_path($0));
-    print("# DEBUG: rqg_home computed is '" . $rqg_home . "'.\n");
-    my $rqg_libdir = $rqg_home . '/lib';
-    unshift @INC , $rqg_libdir;
-    print("# DEBUG: '$rqg_libdir' added to begin of \@INC\n");
-    print("# DEBUG \@INC is ->" . join("---", @INC) . "<-\n");
-    # In case of making verdicts its most probably unlikely that $RQG_HOME shows up in content.
-    # But so we are at least prepared for such cases.
-    $ENV{'RQG_HOME'} = $rqg_home;
+    # print("# DEBUG: rqg_home computed is '$rqg_home'.\n");
     if (not -e $rqg_home . "/lib/GenTest_e.pm") {
-        print("ERROR: The rqg_home ('$rqg_home') determined does not look like the root of a " .
+        print("ERROR: The rqg_home ('$rqg_home') calculated does not look like the root of a " .
               "RQG install.\n");
         exit 2;
     }
-    print("# INFO: Environment variable 'RQG_HOME' set to '$rqg_home'.\n");
+    my $rqg_libdir = $rqg_home . '/lib';
+    unshift @INC , $rqg_libdir;
+    # print("# DEBUG: '$rqg_libdir' added to begin of \@INC\n");
+    $ENV{'RQG_HOME'} = $rqg_home;
+    print("# INFO: Top level directory of RQG calculated '$rqg_home'.\n"     .
+          "# INFO: Environment variable 'RQG_HOME' set to '$rqg_home'.\n"    .
+          "# INFO: Perl array variable \@INC adjusted to ->" . join("---", @INC) . "<-\n");
 }
 
 use Auxiliary;

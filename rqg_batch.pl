@@ -47,13 +47,19 @@ my $rqg_home;
 BEGIN {
     # Cwd::abs_path reports the target of a symlink.
     $rqg_home = File::Basename::dirname(Cwd::abs_path($0));
-    print("# DEBUG: rqg_home computed is '$rqg_home'.\n");
+    # print("# DEBUG: rqg_home computed is '$rqg_home'.\n");
+    if (not -e $rqg_home . "/lib/GenTest_e.pm") {
+        print("ERROR: The rqg_home ('$rqg_home') calculated does not look like the root of a " .
+              "RQG install.\n");
+        exit 2;
+    }
     my $rqg_libdir = $rqg_home . '/lib';
     unshift @INC , $rqg_libdir;
-    print("# DEBUG: '$rqg_libdir' added to begin of \@INC\n");
-    print("# DEBUG \@INC is ->" . join("---", @INC) . "<-\n");
+    # print("# DEBUG: '$rqg_libdir' added to begin of \@INC\n");
     $ENV{'RQG_HOME'} = $rqg_home;
-    print("# INFO: Environment variable 'RQG_HOME' set to '$rqg_home'.\n");
+    print("# INFO: Top level directory of RQG calculated '$rqg_home'.\n"     .
+          "# INFO: Environment variable 'RQG_HOME' set to '$rqg_home'.\n"    .
+          "# INFO: Perl array variable \@INC adjusted to ->" . join("---", @INC) . "<-\n");
 }
 use Time::HiRes;
 use POSIX ":sys_wait_h"; # for nonblocking read
