@@ -677,7 +677,6 @@ Auxiliary::print_list("INFO: Final RQG vardirs ",  @vardirs);
 my $tmpdir = $vardirs[0] . "/";
 # Put into environment so that child processes will compute via GenTest_e.pm right.
 $ENV{'TMP'} = $tmpdir;
-
 GenTest_e::set_tmpdir($tmpdir);
 
 ## Make sure that "default" values ([0]) are also set, for compatibility,
@@ -1440,7 +1439,6 @@ $gentestProps->property('restart-timeout', $restart_timeout) if defined $restart
 # Instead, we want to run the flow independently and only compare dumps at the end.
 # If GenTest_e gets 'multi-master' property, it won't run ResultsetComparator
 $gentestProps->property('multi-master', 1) if (defined $galera and scalar(@dsns)>1);
-# Pass debug server if used.
 $gentestProps->servers(\@server) if @server;
 $gentestProps->property('annotate-rules',$annotate_rules) if defined $annotate_rules;
 $gentestProps->property('upgrade-test',$upgrade_test) if $upgrade_test;
@@ -1949,6 +1947,29 @@ sub killServers {
 sub help1 {
     print <<EOF
 
+    mysqld    : Options to be set first for all servers.
+                If (not defined mysqld) then
+                    If (defined mysqld1) then
+                        mysqld = mysqld1
+                    fi
+                fi
+    mysqld<m> : Options to be set for the m'th server in addition to what is in mysqld.
+                If (not defined mysqld<m>) then
+                    mysqld<m> = mysqld
+                else
+                    mysqld<m> = mysqld , mysqld<m>
+                fi
+                In case of multiple settings of one option than the last wins.
+                Example:
+                mysqld:  --innodb_page_size=8K <other options>
+                mysqld1: --innodb_page_size=16K
+                         --> --innodb_page_size=8K <other options> --innodb_page_size=16K
+                         --> <other options> --innodb_page_size=16K
+
+    For all mysqld*: Do not set server system variables containing paths or file names like
+                     --datadir or --log_error.
+                     rqg.pl and components used calculate such paths and names.
+                     They either win or the RQG run ends in a disaster.
 
     basedir<m> : Specifies the base directory (== directory with binaries) for the m'th server.
                  If (not defined basedir<m>) then
@@ -1974,19 +1995,23 @@ Copyright (c) 2010,2011 Oracle and/or its affiliates. All rights reserved. Use i
 Copyright (c) 2018,2022 MariaDB Corporation Ab.
 
 $0 - Run a complete random query generation (RQG) test.
-     Sorry, the description here is partially outdated.
+     Sorry, the description here might be partially outdated.
 
      How to catch output:
      Sorry the shape of the command lines is not really satisfying.
-     perl rqg.pl ... --logfile=<RQG log>                                # Output to screen and log file
-     perl rqg.pl ... --workdir="\$WORKDIR" > \$WORKDIR/rqg.log 2>&1     # Output to log file only
-     perl rqg.pl ... --workdir="\$WORKDIR"                     2>&1     # Output to screen only
+     perl rqg.pl ... --logfile=<RQG log>        # Output to screen and log file
+     perl rqg.pl ... > <workdir>/rqg.log   2>&1 # Output to log file only
+     perl rqg.pl ...   2>&1                     # Output to screen only
+
+    <workdir> == Workdir of the current RQG run.
+                 It gets calculated from the settings in local.cfg and
+                 the values assigned to
+                 --minor_runid (optional, default 'SINGLE_RUN')
 
     Options related to one standalone MariaDB server:
 
     --basedir   : Specifies the base directory of the stand-alone MariaDB installation (location of binaries)
     --mysqld    : Options passed to the MariaDB server
-    --debug-server: Use mysqld-debug server
 
     Options related to two MariaDB servers
 
@@ -1995,11 +2020,10 @@ $0 - Run a complete random query generation (RQG) test.
     --mysqld    : Options passed to both MariaDB servers
     --mysqld1   : Options passed to the first MariaDB server
     --mysqld2   : Options passed to the second MariaDB server
-    --debug-server1: Use mysqld-debug server for MariaDB server1
-    --debug-server2: Use mysqld-debug server for MariaDB server2
     The options --vardir* are no more supported.
     RQG computes the location of the vardir of the RQG run based on --vardir_type and 'local.cfg'.
     The vardirs of the servers will be subdirectories of that vardir of the RQG run.
+    The options --debug-server* are no more supported.
 
     General options
 
@@ -2065,9 +2089,6 @@ $0 - Run a complete random query generation (RQG) test.
     --upgrade-test : enable Upgrade reporter and treat server1 and server2 as old/new server, correspondingly. After the test flow
                      on server1, server2 will be started on the same datadir, and the upgrade consistency will be checked
                      Non simple upgrade variants will most probably fail because of weaknesses in RQG. Sorry for that.
-    --workdir      : (optional) Workdir of this RQG run
-                     Nothing assigned: We use the current working directory of the RQG runner process, certain files will be created.
-                     Some directory assigned: We use the assigned directory and expect that certain files already exist.
     --help         : This help message
     --help_sqltrace : help about SQL tracing by RQG
     --help_dbdir_type   : help about the parameter dbdir_type
