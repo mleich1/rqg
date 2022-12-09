@@ -33,10 +33,10 @@ package Auxiliary;
 
 use strict;
 use Basics;
-use GenTest_e::Constants;
 use GenTest_e;
-use Local;
+use GenTest_e::Constants;
 use GenTest_e::Grammar;
+use Local;
 use File::Copy;
 
 # The script debugging "system"
@@ -68,7 +68,7 @@ sub script_debug_init {
     ($script_debug_value) = @_;
     if (1 != scalar @_) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: script_debug_init : 1 Parameter (script_debug) is required.");
+        Carp::cluck("INTERNAL ERROR: script_debug_init: One Parameter (script_debug) is required.");
         safe_exit($status);
     }
     if (not defined $script_debug_value) {
@@ -117,12 +117,13 @@ sub check_and_set_rqg_home {
             exit STATUS_INTERNAL_ERROR;
         } else {
             if (not -d $rqg_home) {
-                Carp::cluck("INTERNAL ERROR: rqg_home($rqg_home) does not exist or is not a directory.");
+                Carp::cluck("INTERNAL ERROR: rqg_home($rqg_home) does not exist or is not " .
+                            "a directory.");
                 exit STATUS_INTERNAL_ERROR;
             }
         }
     }
-    say("DEBUG: rqg_home set to ->$rqg_home<-");
+    # say("DEBUG: rqg_home set to ->$rqg_home<-");
 }
 
 sub check_value_supported {
@@ -347,7 +348,7 @@ sub find_file_at_places {
         return $path if -f $path;
     }
     # In case we are here than we have nothing found.
-    say("DEBUG: We searched at various places below '$basedirectory' but '$name' was not found. " .
+    say("ERROR: We searched at various places below '$basedirectory' but '$name' was not found. " .
         "Will return undef.");
     return undef;
 }
@@ -2298,38 +2299,45 @@ sub unify_rvt_array {
 
 # Purpose:
 # Get a pointer to an array/list of reporters/validators/transformers.
-# - In case there is one element only and that consists of a comma separated list of sub elements
-#   than split this list at the comma and make the sub elements to elements.
+# - Split all lists like --reporters=A,B,C at the comma and make the sub elements to elements.
+# - Treat the multiple assignment additive like
+#   --reporters=A,B --reporters=C is equivalent to --reporters=A,B,C
 # - Eliminate duplicates.
-# - Replace the value '' by 'None'.
-# Return pointers to an array/list and to a hash with the final content.
+# Return a pointer to a hash with the final content.
 #
 
     my ($rvt_array_ref) = @_;
+    my $who_am_i = Basics::who_am_i;
     if (@_ != 1) {
         my $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL ERROR: unify_rvt_array : 1 Parameter (rvt_array_ref) is required.");
+        Carp::cluck("INTERNAL ERROR: $who_am_i : One parameter (rvt_array_ref) is required.");
         safe_exit($status);
     }
+    my @intermediate_rvt_array;
     my @rvt_array;
     my %rvt_hash;
     if (defined $rvt_array_ref) {
-        @rvt_array = @$rvt_array_ref;
         # In case of assignment style
-        #    --reporter=Backtrace,ErrorLog <never --reporter=... again>
+        #    --reporter=Backtrace,ErrorLog
         # split at ',' into elements.
-        if (0 == $#rvt_array and $rvt_array[0] =~ m/,/) {
-            @rvt_array = split(/,/,$rvt_array[0]);
+        foreach my $element (@{$rvt_array_ref}) {
+            if ($element =~ m/,/) {
+                push @intermediate_rvt_array, split(/,/,$element);
+            } else {
+                push @intermediate_rvt_array, $element;
+            }
+            # say("DEBUG: intermediate_rvt_array ->" . join("<->", @intermediate_rvt_array) . "<-");
         }
+        @rvt_array = @intermediate_rvt_array;
     }
     foreach my $element (@rvt_array) {
-        $element = "None" if $element eq '';
         $rvt_hash{$element} = 1;
     }
     @rvt_array = sort keys %rvt_hash;
+    # say("DEBUG: final rvt_array ->" . join("<->", @rvt_array) . "<-");
 
-    return \@rvt_array, \%rvt_hash;
-}
+    return \%rvt_hash;
+} # End of sub unify_rvt_array
 
 # -----------------------------------------------------------------------------------
 sub check_filter {

@@ -129,6 +129,7 @@ sub new {
     }
 
     if (not defined $self->config) {
+        # In case some hypothetic code sets $self->config to undef because of whatever reason.
         Carp::cluck("ERROR: \$self->config is not defined but we need it. Will return undef.");
         return undef;
     } else {
@@ -391,6 +392,7 @@ sub doGenTest {
 
     $self->[GT_LOG_FILES_TO_REPORT] = \@log_files_to_report;
 
+    # FIXME: Support multiple filter files.
     if (defined $self->config->filter) {
         my $result = GenTest_e::Filter::Regexp->new( file => $self->config->filter);
         if (defined $result) {
@@ -1061,7 +1063,7 @@ sub doGenData {
 
     $gendata_result = $self->check_for_crash($gendata_result);
 
-    say("INFO: End of GenData activity");
+    say("DEBUG: End of GenData activity. Will return $gendata_result");
     return $gendata_result;
 
 } # End of sub doGenData
@@ -1186,16 +1188,12 @@ sub initReporters {
     if (not defined $self->config->reporters or $#{$self->config->reporters} < 0) {
         $self->config->reporters([]);
     }
-    my @reporter_array;
-    my %reporter_hash;
-    my $array_ref;
-    my $hash_ref;
-    ($array_ref, $hash_ref) = Auxiliary::unify_rvt_array($self->config->reporters);
-    @reporter_array = @{$array_ref};
-    %reporter_hash  = %{$hash_ref};
+    my $hash_ref =       Auxiliary::unify_rvt_array($self->config->reporters);
+    my %reporter_hash  = %{$hash_ref};
 
+    my @reporter_array = sort keys %reporter_hash;
     say("DEBUG: GenTest_e::App::GenTest_e::initReporters: Reporters (before check_and_set): ->" .
-        join("<->", sort keys %reporter_hash) . "<-") if $debug_here;
+        join("<->", @reporter_array) . "<-") if $debug_here;
 
     # If one of the reporters is 'None' than don't add any reporters automatically.
     my $no_reporters;
@@ -1247,7 +1245,6 @@ sub initReporters {
 
     my $reporter_manager = GenTest_e::ReporterManager->new();
 
-    # pass option debug server to the reporter, for detecting the binary type.
     foreach my $i (0..2) {
         last if $self->config->property('upgrade-test') and $i > 0;
         next unless $self->config->dsn->[$i];
@@ -1277,16 +1274,11 @@ sub initValidators {
     if (not defined $self->config->validators or $#{$self->config->validators} < 0) {
         $self->config->validators([]);
     }
-    my @validator_array;
-    my %validator_hash;
-    my $array_ref;
-    my $hash_ref;
-    ($array_ref, $hash_ref) = Auxiliary::unify_rvt_array($self->config->validators);
-    @validator_array = @{$array_ref};
-    %validator_hash  = %{$hash_ref};
-
+    my $hash_ref =        Auxiliary::unify_rvt_array($self->config->validators);
+    my %validator_hash  = %{$hash_ref};
+    my @validator_array = sort keys %validator_hash;
     say("DEBUG: GenTest_e::App::GenTest_e::initValidators: Validators (before check_and_set): ->" .
-        join("<->", sort keys %validator_hash) . "<-") if $debug_here;
+        join("<->", @validator_array) . "<-") if $debug_here;
 
     # If one of the validators is 'None' than don't add any validators automatically.
     my $no_validators;
@@ -1322,14 +1314,11 @@ sub initValidators {
     if (not defined $self->config->transformers or $#{$self->config->transformers} < 0) {
         $self->config->transformers([]);
     }
-    my @transformer_array;
-    my %transformer_hash;
-    ($array_ref, $hash_ref) = Auxiliary::unify_rvt_array($self->config->transformers);
-    @transformer_array      = @{$array_ref};
-    %transformer_hash       = %{$hash_ref};
-
+    $hash_ref =             Auxiliary::unify_rvt_array($self->config->transformers);
+    my %transformer_hash  = %{$hash_ref};
+    my @transformer_array = sort keys %transformer_hash;
     say("DEBUG: GenTest_e::App::GenTest_e::initValidators: Transformers (before check_and_set): ->" .
-        join("<->", sort keys %transformer_hash) . "<-") if $debug_here;
+        join("<->", @transformer_array) . "<-") if $debug_here;
 
     if (exists $transformer_hash{'None'}) {
         say("ERROR: The Transformer 'None' is not supported in the current RQG core. Abort");

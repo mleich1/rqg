@@ -1052,15 +1052,11 @@ sub init {
             safe_exit($status);
         }
     }
-    my $array_ref;
-    my $hash_ref;
-    ($array_ref, $hash_ref) = Auxiliary::unify_rvt_array($reporters);
-    @reporter_array = @{$array_ref};
-    %reporter_hash  = %{$hash_ref};
-    # say("DEBUG: Reporters : ->" . join("<->", @reporter_array) . "<-") if Auxiliary::script_debug("S2");
-    # For experimenting:
-    # %reporter_hash  = ();
-    say("DEBUG: Reporters : ->" . join("<->",  sort keys %reporter_hash) . "<-")
+    my $hash_ref = Auxiliary::unify_rvt_array($reporters);
+    %reporter_hash = %{$hash_ref};
+    $reporter_hash{'None'} = 1;
+    @reporter_array = sort keys %reporter_hash;
+    say("DEBUG: Simplifier: Reporters : ->" . join("<->",  @reporter_array) . "<-")
         if Auxiliary::script_debug("S2");
 
     my $validators = $config->validators;
@@ -1075,11 +1071,11 @@ sub init {
         $validators = $config->rqg_options->{'validators'};
         delete $config->rqg_options->{'validators'};
     }
-    ($array_ref, $hash_ref) = Auxiliary::unify_rvt_array($validators);
-    @validator_array = @{$array_ref};
-    %validator_hash  = %{$hash_ref};
-    # say("DEBUG: Validators : ->" . join("<->", @validator_array) . "<-") if Auxiliary::script_debug("S2");
-    say("DEBUG: Validators : ->" . join("<->",  sort keys %validator_hash) . "<-")
+    $hash_ref =                Auxiliary::unify_rvt_array($validators);
+    %validator_hash =          %{$hash_ref};
+    $validator_hash{'None'} = 1;
+    @validator_array =        sort keys %validator_hash;
+    say("DEBUG: Simplifier: Validators : ->" . join("<->",  @validator_array) . "<-")
         if Auxiliary::script_debug("S2");
 
     my $transformers = $config->transformers;
@@ -1094,11 +1090,10 @@ sub init {
         $transformers = $config->rqg_options->{'transformers'};
         delete $config->rqg_options->{'transformers'};
     }
-    ($array_ref, $hash_ref) = Auxiliary::unify_rvt_array($transformers);
-    @transformer_array = @{$array_ref};
-    %transformer_hash  = %{$hash_ref};
-    # say("DEBUG: Transformers : ->" . join("<->", @transformer_array) . "<-") if Auxiliary::script_debug("S2");
-    say("DEBUG: Transformers : ->" . join("<->",  sort keys %transformer_hash) . "<-")
+    $hash_ref =               Auxiliary::unify_rvt_array($transformers);
+    %transformer_hash =       %{$hash_ref};
+    @transformer_array =      sort keys %transformer_hash;
+    say("DEBUG: Simplifier: Transformers : ->" . join("<->",  @transformer_array) . "<-")
         if Auxiliary::script_debug("S2");
 
     # say("RVT options : " . get_shrinked_rvt_options); --> abort

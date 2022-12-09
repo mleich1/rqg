@@ -53,7 +53,7 @@ $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
 $Carp::MaxArgNums= 8;
 
-use constant RQG_RUNNER_VERSION  => 'Version 4.0.6 (2022-09)';
+use constant RQG_RUNNER_VERSION  => 'Version 4.2.1 (2022-12)';
 use constant STATUS_CONFIG_ERROR => 199;
 
 use strict;
@@ -946,7 +946,7 @@ if (STATUS_OK != $status) {
     run_end($status);
 };
 
-say(Verdict::MATCHING_START);
+# say(Verdict::MATCHING_START);
 
 #
 # Final preparations followed by start servers.
@@ -2026,10 +2026,12 @@ $0 - Run a complete random query generation (RQG) test.
     The options --debug-server* are no more supported.
 
     General options
+    In case of multiple assignments the behavior is "The last wins" except stated otherwise.
 
     --grammar      : Grammar file to use when generating queries (REQUIRED)
+                     --grammar=A --grammar=B is equivalent to --grammar=B
     --redefine     : Grammar file(s) to redefine and/or add rules to the given grammar (OPTIONAL)
-                     Write: --redefine='A B'    or    --redefine='A' --redefine='B'
+                     --redefine=A,B,C --redefine=C is equivalent to --redefine=A,B,C
     --rpl_mode     : Replication type to use (statement|row|mixed) (default: no replication).
                      The mode can contain modifier 'nosync', e.g. row-nosync. It means that at the end the test
                      will not wait for the slave to catch up with master and perform the consistency check
@@ -2043,8 +2045,11 @@ $0 - Run a complete random query generation (RQG) test.
     --queries      : Maximum number of queries to execute per thread (default $default_queries);
     --duration     : Maximum duration of the test in seconds (default $default_duration seconds);
     --validators   : The validators to use
+                     --validators=A,B,C --validators=C is equivalent to --validators=A,B,C
     --reporters    : The reporters to use
-    --transformers : The transformers to use (turns on --validator=transformer). Accepts comma separated list
+                     --reporters=A,B,C --reporters=C is equivalent to --reporters=A,B,C
+    --transformers : The transformers to use (leads to addition of --validator=transformer).
+                     --transformers=A,B,C --transformers=C is equivalent to --transformers=A,B,C
     --querytimeout : The timeout to use for the QueryTimeout reporter
     --max_gd_duration : Abort the RQG run in case the work phase Gendata lasts longer than max_gd_duration
     --gendata      : Generate data option. Passed to lib/GenTest_e/App/Gentest.pm. Takes a data template (.zz file)
@@ -2103,7 +2108,7 @@ sub exit_test {
     $silent = 0 if not defined $silent;
     $silent = 1 if $status == STATUS_OK;
 
-    say(Verdict::MATCHING_END);
+#   say(Verdict::MATCHING_END);
 
     # Variants
     # 1.  Around end of test
