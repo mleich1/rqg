@@ -117,7 +117,7 @@ sub sayFile {
        Carp::cluck("ERROR: The file '$file' does not exist or is no plain file.");
        return ;
     }
-    say("--------- Content of $file -------------");
+    say("--------- Content of $file ------------- Begin");
     if (not open FILE, $file) {
        Carp::cluck("ERROR: Unable to open the file '$file' : $!");
        return ;
@@ -126,7 +126,7 @@ sub sayFile {
         say("| ".$_);
     }
     close FILE;
-    say("----------------------------------");
+    say("--------- Content of $file --------------- End");
 }
 
 sub tmpdir {
