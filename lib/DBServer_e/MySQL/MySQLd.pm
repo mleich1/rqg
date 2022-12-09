@@ -1052,10 +1052,11 @@ sub startServer {
                 if (time() >= $wait_end) {
                     my $status = STATUS_CRITICAL_FAILURE;
                     say("ERROR: $who_am_i The Server has not finished its start within the ".
-                        "last $startup_timeout" . "s. Will KILL the server and " .
+                        "last $startup_timeout" . "s. Will crash the server, make a backtrace and " .
                         Auxiliary::build_wrs($status));
+                    $self->crashServer();
+                    $self->make_backtrace();
                     sayFile($errorlog);
-                    $self->killServer();
                     return $status;
                 }
             }
@@ -2481,7 +2482,6 @@ sub make_backtrace {
         $self->cleanup_dead_server;
     }
 
-    # my $rqg_homedir = $ENV{RQG_HOME} . "/";
     my $rqg_homedir = Local::get_rqg_home();
     # For testing:
     # $rqg_homedir = undef;
@@ -2639,8 +2639,8 @@ sub make_backtrace {
         # We should not expect that our RQG Runner has some current working directory
         # containing the RQG to be used or some RQG at all.
         my $command_part = "gdb --batch --se=$binary --core=$core --command=$rqg_homedir";
-        push @commands, "$command_part" . "backtrace.gdb";
-        push @commands, "$command_part" . "backtrace-all.gdb";
+        push @commands, "$command_part" . "/backtrace.gdb";
+        push @commands, "$command_part" . "/backtrace-all.gdb";
     }
 
     # 2021-02-15 Observation:
