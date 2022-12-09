@@ -95,7 +95,6 @@ use constant MYSQLD_SERVER_ID                    => 35;
 use constant MYSQLD_PID_FILE                     => "mysql.pid";
 use constant MYSQLD_ERRORLOG_FILE                => "mysql.err";
 use constant MYSQLD_BOOTSQL_FILE                 => "boot.sql";
-use constant MYSQLD_BOOTLOG_FILE                 => "boot.log";
 use constant MYSQLD_BOOTERR_FILE                 => "boot.err";
 use constant MYSQLD_LOG_FILE                     => "mysql.log";
 use constant MYSQLD_DEFAULT_PORT                 =>  19300;
@@ -560,8 +559,7 @@ sub createMysqlBase  {
     #    Disadvantages: ~ 1800s elapsed time and incomplete rr trace of bootstrap
     # b) sigaction SIGALRM ... like lib/GenTest_e/Reporter/Deadlock*.pm
     # c) fork and go with timeouts like in startServer etc.
-    my $bootlog =   $self->vardir . "/" . MYSQLD_BOOTLOG_FILE;
-    $command_end .= " > \"$bootlog\" 2>$booterr";
+    $command_end .= " > \"$booterr\" 2>&1 ";
     $command =      $command_begin . $command . $command_end;
     # The next line is could be useful/required for the pattern matching.
     say("Bootstrap command: ->" . $command . "<-");
@@ -570,16 +568,12 @@ sub createMysqlBase  {
     if ($rc != 0) {
         my $status = STATUS_FAILURE;
         say("ERROR: Bootstrap failed");
-        # Experimental:
-        # 1. In case bootstrap fails calling the routine make_backtrace might generate some
-        #    nice backtrace automatic. Up till today 2022-06-23 its unclear if that works well.
-        # 2. The current code of make_backtrace is focused on server crashes outside of bootstrap.
-        #    And because of that it insists in inspecting the stderr output in some 'mysql.err'.
-        #    Hence I copy 'boot.err' to 'mysql.err' first.
+        # The current code of make_backtrace is focused on server crashes outside of bootstrap.
+        # And because of that it insists in inspecting the stderr output in some 'mysql.err'.
+        # Hence I copy 'boot.err' to 'mysql.err' first.
         File::Copy::copy($booterr, $self->errorlog);
         $self->make_backtrace();
-        # sayFile($booterr);
-        sayFile($bootlog);
+        sayFile($booterr);
         say("ERROR: Will return STATUS_FAILURE" . "($status)");
         return $status;
     } else {
@@ -2519,7 +2513,13 @@ sub make_backtrace {
             # We try to generate a backtrace from the rr trace.
             my $rr_trace_dir    = $vardir . '/rr';
             my $backtrace       = $vardir . '/backtrace.txt';
-            my $backtrace_cfg   = $rqg_homedir . "backtrace-rr.gdb";
+            my $backtrace_cfg   = $rqg_homedir . "/backtrace-rr.gdb";
+            if (not -e $error_log) {
+                Carp::cluck("ALARM: $who_am_i A server error log '$error_log' does not exist.");
+            }
+            if (not -d $rr_trace_dir) {
+                Carp::cluck("ALARM: $who_am_i Some rr trace directory '$rr_trace_dir' does not exist.");
+            }
             # Note:
             # The rr option --mark-stdio would print STDERR etc. when running 'continue'.
             # But this just shows the content of the server error log which we have anyway.
@@ -2527,7 +2527,7 @@ sub make_backtrace {
                           "< $backtrace_cfg";
             system('bash -c "set -o pipefail; '. $command .'"');
             sayFile($backtrace);
-            # sayFile($error_log);
+            sayFile($error_log);
         }
         $status = STATUS_SERVER_CRASHED;
         say("INFO: $who_am_i No core file to be expected. " . Auxiliary::build_wrs($status));

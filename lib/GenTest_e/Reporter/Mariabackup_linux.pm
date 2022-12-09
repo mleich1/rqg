@@ -545,6 +545,11 @@ sub monitor {
 
     $|=1;
 
+    # For experimenting:
+    # The server start will fail because of unknown parameter.
+    # And $clone_server->startServer should generate a backtrace.
+    # push @mysqld_options, "--crap";
+
     # Let routines from lib/DBServer_e/MySQL/MySQLd.pm do as much of the job as possible.
     # I hope that this will work on WIN.
     $server_id = 'backup';
@@ -591,8 +596,9 @@ sub monitor {
         return $status;
     }
 
-    # For experimenting
-    # $clone_server->killServer();
+    # For experimenting:
+    # The server gets killed with SIGABRT. Caused by that the connect attempt will fail.
+    # $clone_server->crashServer();
 
     my $clone_dsn = "dbi:mysql:user=root:host=127.0.0.1:port=$clone_port";
     my $clone_dbh = DBI->connect($clone_dsn, undef, undef, {
@@ -611,6 +617,7 @@ sub monitor {
         sayFile($reporter_prt);
         say("ERROR: $who_am_i : Connect to the clone $server_name on port $clone_port failed. " .
             $DBI::errstr . " " . Auxiliary::build_wrs($status));
+        $clone_server->make_backtrace;
         exit $status;
     }
 
