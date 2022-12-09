@@ -101,7 +101,8 @@ my $database = 'test';
 # (mleich) Try to escape the initialize the server trouble in 10.4
 # my $user     = 'rqg';
 my $user     = 'root';
-my @dsns;
+my @dsns;    # To be filled around starting the servers.
+my @server;  # To be filled around starting the servers
 
 my (@basedirs, @mysqld_options, @vardirs, $dbdir_type, $vardir_type, $rpl_mode, $major_runid, $minor_runid,
     $batch,
@@ -953,9 +954,6 @@ if (STATUS_OK != $status) {
 #
 Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_PREPARE);
 
-my @server;
-my $rplsrv;
-
 my $max_id = $number_of_servers - 1;
 say("DEBUG: max_id is $max_id");
 
@@ -981,6 +979,7 @@ foreach my $server_id (0.. $max_id) {
 # missing or a parameter set to non supported value.
 #
 
+my $rplsrv;
 say("DEBUG: rpl_mode is '$rpl_mode'");
 # FIXME: Let a routine in Auxiliary figure that out or figure out once and memorize result.
 if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
@@ -1485,138 +1484,184 @@ if (not defined $gentest) {
     exit_test($final_result);
 }
 
-# The branch is just for the optics :-).
-# FIXME:
-# We could set an alarm also from other reason.
-# And than the error message about max_gd_duration would be misleading.
-if ($final_result == STATUS_OK) {
-    sigaction SIGALRM, new POSIX::SigAction sub {
-        my $status = STATUS_ALARM;
-        say("ERROR: rqg.pl: max_gd_duration(" . $max_gd_duration . "s * " .
-            Runtime::get_runtime_factor() . ") was exceeded. " .
-            "Will kill DB servers and exit with STATUS_ALARM(" . $status . ") later.");
-        killServers();
-        # IMHO it is extreme unlikely that content of $vardirs[0] == rqg_vardir explains why
-        # max_gd_duration was exceeded.
-        # Free space as soon as possible because parallel RQG runs might need it.
-        # Welcome sideeffects:
-        # A far way smaller archive and far way shorter load during compressing the archive.
-        foreach my $i (1..10) {
-            my $db_vardir = $vardirs[0] . "/" . $i;
-            File::Path::rmtree($db_vardir) if -e $db_vardir;
-        }
-        say("INFO: The vardirs of the servers were deleted.");
-        exit_test($status);
-    } or die "ERROR: rqg.pl: Error setting SIGALRM handler: $!\n";
-
-    my $start_time = time();
-    $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENDATA);
-    alarm ($max_gd_duration * Runtime::get_runtime_factor());
-    # For debugging
-    # alarm (1);
-
-    # For debugging
-    # killServers();
-
-    $gentest_result = $gentest->doGenData();
-    alarm (0);
-
-    say("GenData returned status " . status2text($gentest_result) . " ($gentest_result)");
-    $final_result = $gentest_result;
-    $message = "RQG GenData runtime in s : " . (time() - $start_time);
-    $summary .= "SUMMARY: $message\n";
-    say("INFO: " . $message);
-
-    # Dump here the inital content
-    if ($final_result == STATUS_OK and $gendata_dump) {
-        my @dump_files;
-        # For testing:
-        # system("killall -9 mysqld mariadbd; sleep 3");
-        my $i = 0;
-        # foreach my $i (0..$#server) {
-            # # Any server needs his own exlusive dumpfile. This is ensured by the '$i'.
-            # # As soon as the caller takes care that any running rqg.pl uses his own exclusive
-            # # $rqg_vardir and $rqg_wordir + dumpfiles in $rqg_vardir it must be clash free.
-            # # The numbering of servers -> name of subdir for data etc. starts with 1!
-            my $result = $server[$i]->nonSystemDatabases1;
-            if (not defined $result) {
-                say("ERROR: Trouble running SQL on Server " . ($i + 1) .
-                    ". Will exit with STATUS_ALARM");
-                exit_test(STATUS_ALARM);
-            } else {
-                my @schema_list = @{$result};
-                my $databases_string = join(' ', @{$result});
-                  say("DEBUG: databases_string ->$databases_string<-");
-                # $vardirs[$server_id+1],
-                my $dump_prefix =  $vardirs[$i + 1] . "/rqg_after_gendata";
-                my $dump_options = "--force --hex-blob --no-tablespaces --compact --order-by-primary ".
-                                   "--skip-extended-insert --databases $databases_string";
-                my $dump_result = $server[$i]->dumpSomething("$dump_options", $dump_prefix);
-                if ( $dump_result > 0 ) {
-                    my $status = STATUS_CRITICAL_FAILURE;
-                    say("ERROR: 'mysqldump' failed. Will exit with status : " .
-                        status2text($status) . "($status).");
-                    exit_test($status);
-                }
-            }
-        # }
+# Gendata -- generate some initial data ------------------------------------------------------------
+sigaction SIGALRM, new POSIX::SigAction sub {
+    my $status = STATUS_ALARM;
+    say("ERROR: rqg.pl: max_gd_duration(" . $max_gd_duration . "s * " .
+        Runtime::get_runtime_factor() . ") was exceeded. " .
+        "Will kill DB servers and exit with STATUS_ALARM(" . $status . ") later.");
+    killServers();
+    # IMHO it is extreme unlikely that content of $vardirs[0] == rqg_vardir explains why
+    # max_gd_duration was exceeded.
+    # Free space as soon as possible because parallel RQG runs might need it.
+    # Welcome sideeffects:
+    # A far way smaller archive and far way shorter load during compressing the archive.
+    foreach my $i (0..$max_id) {
+        my $db_vardir = $vardirs[0] . "/" . ($i + 1);
+        File::Path::rmtree($db_vardir) if -e $db_vardir;
     }
-} # Block for running GenData
+    say("INFO: The vardirs of the servers were deleted.");
+    exit_test($status);
+} or die "ERROR: rqg.pl: Error setting SIGALRM handler: $!\n";
 
-if ($final_result > STATUS_OK) {
-    # FIXME:
-    # $gentest->doGenData should somehow tell if some server and which one looks like no
-    # more responsive (no more connectable). And than some corresponding routine in
-    # lib/DBServer_e/... should make the analysis and print to the RQG output.
-    #
-    # Provisoric solution because (in the moment)
-    # 1. doGenData does not try to analyze the problem deeper like doGenTest would do.
-    #    Example: doGenTest might activate the reporter Backtrace
-    # 2. some sub generating a backtrace and located in lib/DBServer_e.... does not exist.
-    # 3. doGenData reporting STATUS_ALARM and than aborting with that is so horrible unspecific.
-    say("INFO: Printing content of all server error logs because of error in doGenData ==========");
-    foreach my $server_id (0..$#server) {
-        say("INFO: Server[" . ($server_id + 1) . "] ---");
-        my $error_log = $server[$server_id]->errorlog;
-        sayFile($error_log);
-    }
-    say("INFO: Printing content of all server error logs End ==========");
+my $gendata_start_time = time();
+$return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENDATA);
+alarm ($max_gd_duration * Runtime::get_runtime_factor());
+
+# For experimenting
+# The time span required for GenData will exceed 1s.
+# And so the alarm will kick in.
+# alarm (1);
+
+# For experimenting
+# killServers();
+
+$gentest_result = $gentest->doGenData();
+alarm (0);
+
+say("GenData returned status " . status2text($gentest_result) . " ($gentest_result)");
+$final_result = $gentest_result;
+$message =  "RQG GenData runtime in s : " . (time() - $gendata_start_time);
+$summary .= "SUMMARY: $message\n";
+say("INFO: " . $message);
+if (STATUS_INTERNAL_ERROR == $final_result) {
+    # There is nothing which we can do automatic except aborting.
+    exit_test($final_result);
 }
 
-if ($final_result == STATUS_OK) {
-    # FIXME maybe:
-    # Shutdown, maybe file backup, Restart but now including rr/valgrind/...
-    my $start_time = time();
-    $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENTEST);
-    if (STATUS_OK != $return) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("$0 will exit with exit status " . status2text($status) . "($status)");
-        exit_test($status);
-    }
-    $gentest_result = $gentest->doGenTest();
-    say("GenTest returned status " . status2text($gentest_result) . " ($gentest_result)");
-    $final_result = $gentest_result;
-    if ($final_result != STATUS_OK) {
-        say("INFO: Printing content of all server error logs because of error in doGenTest ==========");
-        foreach my $server_id (0..$#server) {
-            say("INFO: Server[" . ($server_id + 1) . "] ---");
-            my $error_log = $server[$server_id]->errorlog;
-            sayFile($error_log);
+# For debugging
+# killServers();                              # All servers are affected
+# system('kill -11 $SERVER_PID1; sleep 10');  # Only the first server is affected.
+# system('kill -11 $SERVER_PID2; sleep 10');  # (for RPL) Only the second server is affected.
+
+# Catch if some server is no more operable.
+# -----------------------------------------
+# In case of $final_result in (STATUS_SERVER_CRASHED, STATUS_CRITICAL_FAILURE) give the
+# corresponding servers more time to finish the crash.
+if (STATUS_SERVER_CRASHED == $final_result or STATUS_CRITICAL_FAILURE == $final_result) {
+    sleep 10;
+}
+foreach my $server_id (0..($number_of_servers - 1)) {
+    my $status = $server[$server_id]->server_is_operable;
+    # Returns:
+    # - STATUS_OK                    (DB process running + server connectable)
+    # - STATUS_SERVER_DEADLOCKED     (DB process running + server not connectable)
+    # - If DB process not running --> make_backtrace returns --> take that return
+    #   - STATUS_SERVER_CRASHED      (no internal problems)
+    #   - STATUS_ENVIRONMENT_FAILURE (internal error)
+    #   - STATUS_INTERNAL_ERROR      (internal error)
+    #   - STATUS_CRITICAL_FAILURE    (waitForServerToStop failed)
+    if (STATUS_OK != $status) {
+        say("ERROR: server_is_operable reported for server[" . ($server_id + 1 ) .
+            "] status $status");
+        if ($status > $final_result) {
+            say("ERROR: Raising final_result from $final_result to $status");
+            $final_result = $status;
         }
-        say("INFO: Printing content of all server error logs End ==========");
     }
-    $message = "RQG GenTest runtime in s : " . (time() - $start_time);
-    $summary .= "SUMMARY: $message\n";
-    say("INFO: " . $message);
-} # Block for running GenTest
+}
+if ($final_result >= STATUS_CRITICAL_FAILURE) {
+    exit_test($final_result);
+}
+if ($final_result > STATUS_OK) {
+    say("INFO: The testing will go on even though GenData ended with status " .
+        status2text($final_result) . "($final_result) because GenData is slightly imperfect.");
+    $final_result = STATUS_OK;
+    say("INFO: Hence reducing the status to " . status2text($final_result) . "($final_result).");
+}
 
-####################################################################################################
-# FIXME:
-# The server could crash during actions performed after doGenTest.
-# Non rare case: The regular shutdown of the server ends with a crash.
-# So we need backtracing if required.
-####################################################################################################
 
+# Dump here the inital content
+if ($gendata_dump) {
+    my @dump_files;
+    # For testing:
+    # killServers();
+    my $i = 0;
+    # foreach my $i (0..$#server) {
+        # # Any server needs his own exlusive dumpfile. This is ensured by the '$i'.
+        # # As soon as the caller takes care that any running rqg.pl uses his own exclusive
+        # # $rqg_vardir and $rqg_wordir + dumpfiles in $rqg_vardir it must be clash free.
+        # # The numbering of servers -> name of subdir for data etc. starts with 1!
+        my $result = $server[$i]->nonSystemDatabases1;
+        if (not defined $result) {
+            say("ERROR: Trouble running SQL on Server " . ($i + 1) .
+                ". Will exit with STATUS_ALARM");
+            exit_test(STATUS_ALARM);
+        } else {
+            my @schema_list = @{$result};
+            my $databases_string = join(' ', @{$result});
+            # say("DEBUG: databases_string ->$databases_string<-");
+            my $dump_prefix =  $vardirs[$i + 1] . "/rqg_after_gendata";
+            my $dump_options = "--force --hex-blob --no-tablespaces --compact --order-by-primary ".
+                               "--skip-extended-insert --databases $databases_string";
+            my $dump_result = $server[$i]->dumpSomething("$dump_options", $dump_prefix);
+            if ( $dump_result > 0 ) {
+                my $status = STATUS_CRITICAL_FAILURE;
+                say("ERROR: 'mysqldump' failed. Will exit with status : " .
+                    status2text($status) . "($status).");
+                exit_test($status);
+            }
+        }
+    # }
+}
+
+# FIXME maybe:
+# Shutdown, maybe file backup, Restart
+# Hint for the case that files should be copied.
+#### if (STATUS_OK != Basics::copy_dir_to_newdir($clone_datadir, $rqg_backup_dir . "/data")) {
+
+# GenTest -- Generate load based on processing the YY grammar --------------------------------------
+my $gentest_start_time = time();
+$return =                Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENTEST);
+if (STATUS_OK != $return) {
+    my $status = STATUS_ENVIRONMENT_FAILURE;
+    exit_test($status);
+}
+$gentest_result = $gentest->doGenTest();
+say("GenTest returned status " . status2text($gentest_result) . " ($gentest_result)");
+$final_result = $gentest_result;
+$message = "RQG GenTest runtime in s : " . (time() - $gentest_start_time);
+$summary .= "SUMMARY: $message\n";
+say("INFO: " . $message);
+if (STATUS_INTERNAL_ERROR == $final_result) {
+    # There is nothing which we can do automatic except aborting.
+    exit_test($final_result);
+}
+
+# 1. Replacement of the backtracing functionality of the Reporter "Backtrace".
+# 2. Check of database integrity is included.
+if (STATUS_SERVER_CRASHED == $final_result or STATUS_CRITICAL_FAILURE == $final_result) {
+    sleep 10;
+}
+foreach my $server_id (0..($number_of_servers - 1)) {
+    my $check_status = $server[$server_id]->checkDatabaseIntegrity();
+    if ($check_status != STATUS_OK) {
+        say("ERROR: Database Integrity check for Server[" . ($server_id + 1) . "] failed " .
+            "with status $check_status.");
+        # Maybe we crashed just now.
+        my $is_operable = $server[$server_id]->server_is_operable;
+        if (STATUS_OK != $is_operable) {
+            say("ERROR: server_is_operable Server[" . ($server_id + 1) . "] reported status " .
+                "$is_operable.");
+            if ($is_operable > $check_status) {
+                say("ERROR: Raising check_status from $check_status to $is_operable.");
+                $check_status = $is_operable;
+            }
+        } else {
+            say("ERROR: Raising check_status from $check_status to STATUS_DATABASE_CORRUPTION");
+            $check_status = STATUS_DATABASE_CORRUPTION;
+        }
+    }
+    if ($check_status > $final_result) {
+        say("ERROR: Raising final_result from $final_result to $check_status.");
+        $final_result = $check_status;
+    }
+}
+if ($final_result > STATUS_OK) {
+    say("RESULT: The core of the RQG run ended with status " . status2text($final_result) .
+        " ($final_result)");
+    exit_test($final_result);
+}
 
 # Disabled sample code (used for some MDEV) about how to do some additional checks.
 # 1. Doing that or similar stuff via some reporter would be also possible.
