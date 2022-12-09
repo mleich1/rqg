@@ -169,8 +169,9 @@ sub report {
     my $recovery_status = $server->startServer();
     # In case $server->startServer failed than it makes a backtrace + cleanup.
     if ($recovery_status > STATUS_OK) {
-        if ($recovery_status == STATUS_SERVER_CRASHED) {
-            say("DEBUG: $who_am_i The server crashed during restart. Hence setting " .
+        if ($recovery_status == STATUS_SERVER_CRASHED or    # Real crash + backtrace
+            $recovery_status == STATUS_CRITICAL_FAILURE) {  # Timeout exceeded, kill + backtrace
+            say("DEBUG: $who_am_i Serious trouble during server restart. Hence setting " .
                 "recovery_status STATUS_RECOVERY_FAILURE.");
             $recovery_status = STATUS_RECOVERY_FAILURE;
         }
