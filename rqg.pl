@@ -1477,7 +1477,7 @@ foreach my $server_id (0..$#server) {
 
 my $gentest_result = STATUS_OK;
 my $final_result   = STATUS_OK;
-my $gentest = GenTest_e::App::GenTest_e->new(config => $gentestProps);
+my $gentest =        GenTest_e::App::GenTest_e->new(config => $gentestProps);
 if (not defined $gentest) {
     say("ERROR: GenTest_e::App::GenTest_e->new delivered undef.");
     $final_result = STATUS_ENVIRONMENT_FAILURE;
@@ -1564,7 +1564,7 @@ if ($final_result >= STATUS_CRITICAL_FAILURE) {
     exit_test($final_result);
 }
 if ($final_result > STATUS_OK) {
-    say("INFO: The testing will go on even though GenData ended with status " .
+    say("INFO: The testing will go on even though GenData+Check ended with status " .
         status2text($final_result) . "($final_result) because GenData is slightly imperfect.");
     $final_result = STATUS_OK;
     say("INFO: Hence reducing the status to " . status2text($final_result) . "($final_result).");
@@ -1633,6 +1633,9 @@ if (STATUS_INTERNAL_ERROR == $final_result) {
 if (STATUS_SERVER_CRASHED == $final_result or STATUS_CRITICAL_FAILURE == $final_result) {
     sleep 10;
 }
+
+
+
 foreach my $server_id (0..($number_of_servers - 1)) {
     my $check_status = $server[$server_id]->checkDatabaseIntegrity();
     if ($check_status != STATUS_OK) {
@@ -1647,9 +1650,6 @@ foreach my $server_id (0..($number_of_servers - 1)) {
                 say("ERROR: Raising check_status from $check_status to $is_operable.");
                 $check_status = $is_operable;
             }
-        } else {
-            say("ERROR: Raising check_status from $check_status to STATUS_DATABASE_CORRUPTION");
-            $check_status = STATUS_DATABASE_CORRUPTION;
         }
     }
     if ($check_status > $final_result) {
