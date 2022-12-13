@@ -1816,14 +1816,18 @@ sub checkDatabaseIntegrity {
             my $res_check = $executor->execute($aux_query);
             $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
             if (STATUS_OK != $status) {
-                $executor->disconnect();
                 my $err    = $res_check->err;
                 $err = "<undef>" if not defined $err;
                 my $errstr = $res_check->errstr;
                 $errstr = "<undef>" if not defined $errstr;
-                say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
-                    Auxiliary::build_wrs($status));
-                return $status;
+                if (STATUS_SKIP == $status) {
+                    say("INFO: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
+                } else {
+                    $executor->disconnect();
+                    say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
+                        Auxiliary::build_wrs($status));
+                    return $status;
+                }
             } else {
                 say("INFO: $who_am_i $aux_query : pass");
                 # No reason to analyse the result because that was already done by MySQL.pm and
