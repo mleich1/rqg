@@ -964,10 +964,10 @@ sub get_connection {
     }
 
     #
-    # Hack around bug 35676, optimizer_switch must be set session-wide in order to have effect
-    # So we read it from the GLOBAL_VARIABLE table and set it locally to the session
-    # Please leave this statement on a single line, which allows easier correct parsing from general log.
-    #
+    # Hack around bug 35676, optimizer_switch must be set session-wide in order to have effect.
+    # So we read it from the GLOBAL_VARIABLE table and set it locally to the session.
+    # Please leave this statement on a single line, which allows easier correct parsing
+    # from general log.
     $aux_query = "SET optimizer_switch = (SELECT variable_value FROM INFORMATION_SCHEMA . " .
                  "GLOBAL_VARIABLES WHERE VARIABLE_NAME = 'optimizer_switch') " .
                  $trace_addition;
@@ -1109,7 +1109,9 @@ sub init {
     } else {
         # say("DEBUG: connection id is : " . $executor->connectionId());
         if ($executor->task() != GenTest_e::Executor::EXECUTOR_TASK_THREAD) {
-            # EXECUTOR_TASK_GENDATA, EXECUTOR_TASK_CACHER, EXECUTOR_TASK_REPORTER, EXECUTOR_TASK_UNKNOWN
+            # The remaining 'tasks':
+            #     EXECUTOR_TASK_GENDATA, EXECUTOR_TASK_CACHER, EXECUTOR_TASK_REPORTER,
+            #     EXECUTOR_TASK_UNKNOWN
             # are all vulnerable to max_statement_time but must not suffer from that.
             $status = $executor->set_safe_max_statement_time ;
             return $status if $status != STATUS_OK;
@@ -1283,12 +1285,12 @@ sub execute {
     my $trace_query;
     my $trace_me = 0;
 
-   # Write query to log before execution so it's sure to get there
-   # mleich experimental changes
-   # 1. Trigger need delimiters too
-   # 2. Only a CREATE [OR REPLACE] PROCEDURE/TRIGGER/... [IF NOT EXISTS] ...
-   # FIXME: Do we really want to trace Reporters and ....
-   # if ($query =~ m{(procedure|function)}sgio) {
+    # Write query to log before execution so it's sure to get there
+    # mleich experimental changes
+    # 1. Trigger need delimiters too
+    # 2. Only a CREATE [OR REPLACE] PROCEDURE/TRIGGER/... [IF NOT EXISTS] ...
+    # FIXME: Do we really want to trace Reporters and ....
+    # if ($query =~ m{(procedure|function)}sgio) {
     if ($query =~ m{(procedure|function|trigger)}sgio) {
         $trace_query = "DELIMITER |;\n$query |\nDELIMITER ;|";
     } else {
@@ -1363,7 +1365,8 @@ sub execute {
     # - will update the EXECUTOR_STATUS_COUNTS.
     # - fiddles with mysql_info etc.
     # - needs $matched_rows, $changed_rows etc.
-    $executor->[EXECUTOR_STATUS_COUNTS]->{$err_type}++ if not ($execution_flags & EXECUTOR_FLAG_SILENT);
+    $executor->[EXECUTOR_STATUS_COUNTS]->{$err_type}++
+        if not ($execution_flags & EXECUTOR_FLAG_SILENT);
     my $mysql_info = $dbh->{'mysql_info'};
     $mysql_info= '' unless defined $mysql_info;
     my ($matched_rows, $changed_rows) = $mysql_info =~ m{^Rows matched:\s+(\d+)\s+Changed:\s+(\d+)}sgio;
@@ -1410,7 +1413,8 @@ sub execute {
             ($err_type == STATUS_SEMANTIC_ERROR)   ||
             ($err_type == STATUS_TRANSACTION_ERROR)  ) {
             # STATUS_SYNTAX_ERROR gets not triggered by 1064 You have an error in your SQL syntax ...
-            $executor->[EXECUTOR_ERROR_COUNTS]->{$errstr}++ if not ($execution_flags & EXECUTOR_FLAG_SILENT);
+            $executor->[EXECUTOR_ERROR_COUNTS]->{$errstr}++
+                if not ($execution_flags & EXECUTOR_FLAG_SILENT);
             $executor->reportError($query, $err, $errstr, $execution_flags);
         } elsif (($err_type == STATUS_SERVER_CRASHED) ||
                  ($err_type == STATUS_SERVER_KILLED)    ) {
@@ -1420,95 +1424,98 @@ sub execute {
             say("$who_am_i $executor_role Query: $query_for_print failed: $err " . $sth->errstr())
                 if not ($execution_flags & EXECUTOR_FLAG_SILENT);
             $executor->disconnect();
-         # Lets assume some evil and complicated scenario (lost connection but no real crash)
-         # ----------------------------------------------------------------------------------
-         # Query from generator is a multi statement query like
-         #    update row A; update row B; COMMIT ; update row C column col1 to @aux ;
-         # State of session on server 1:
-         #    no AUTOCOMMIT, @aux = 13, open transaction with a row updated
-         # State of session on server 2:
-         #    no AUTOCOMMIT, @aux = 13, open transaction with a row updated
-         # We got the error when executing the single query "update row B".
-         # Session on server 1:
-         #    loss of connection -> rollback of update
-         # Session on server 2:
-         #    no AUTOCOMMIT, @aux = 13, open transaction with a row updated
-         # So in case we would just reconnect (assume success) to server 1 than we would suffer
-         # compared to server 2 from missing update and @aux = NULL.
-         # There is IMHO only one clean solution:
-         # 1. For any non first server issue ROLLBACK(if not done per disconnect) and disconnect.
-         # 2. After disconnect+reconnect do not go on with the remaining queries of the multi query.
-         #    There might be some validator running at the end of the multi statement query and
-         #    being not prepared for
-         #    - lose connection/reconnect between
-         #    - @aux is now NULL
-         #    - a single query failed
-         #    etc.
-         # So check first if a connect is possible.
-         # Experiment because of observation 2018-06-22
-         #    Even with mysql_connect_timeout => 20 added the distance between message about
-         #    connection lost and connect attempt failed < 1s seen.
-         # First (because easier to handle) hypothesis:
-         #    The server is for some short timespan so busy especially around managing
-         #    connections so that he simply denies to create a new one.
-         #    2018-07-02 Up till today I have never seen a false alarm from here again.
-         my $status;
-         if (STATUS_OK == $executor->is_connectable()) {
-            $status = STATUS_SKIP_RELOOP;
-            say("INFO: $trace_addition :  The server is connectable. Will return a result " .
-                "containing the status " . status2text($status) . "($status).");
-         } else {
-            # FIXME:
-            # Check if STATUS_SERVER_CRASHED would be better.
-            # Could it happen that we meet some just initiated server shutdown and what would
-            # happen than?
-            $status = STATUS_CRITICAL_FAILURE;
-            say("INFO: $trace_addition :  The server is not connectable. Will sleep 3s and than " .
-                "return a result containing the status " . status2text($status) . "($status).");
-            # The sleep is for preventing the following scenario:
-            # A reporter like CrashRecovery has send SIGKILL/SIGSEGV/SIGABRT to the server and
-            # exited immediate with STATUS_SERVER_KILLED. Of course worker threads will detect
-            # the dead server too and exit with STATUS_CRITICAL_FAILURE if not been killed earlier.
-            # Caused by heavy load and unfortunate scheduling it can happen that the main process
-            # (RQG runner executing GenTest_e) detects the exited thread before the exited reporter
-            # and than we might end up with the final status STATUS_CRITICAL_FAILURE.
-            # The reporter Backtrace will later confirm the crash and GenTest_e will transform that
-            # status to STATUS_SERVER_CRASHED.
-            # In case the main process would receive the status STATUS_SERVER_KILLED first than
-            # the crash would be confirmed by Backtrace and the status would get transformed
-            # to STATUS_OK.
-            sleep(3);
-         }
-         return GenTest_e::Result->new(
-               query        => $query,
-             # status       => $err2type{$dbh->err()} || STATUS_UNKNOWN_ERROR,
-               status       => $status,
-               err          => $dbh->err(),
-               errstr       => $dbh->errstr(),
-               sqlstate     => $dbh->state(),
-               start_time   => $start_time,
-               end_time     => Time::HiRes::time()
-         );
-      } elsif (not ($execution_flags & EXECUTOR_FLAG_SILENT)) {
-         # Any query harvesting an error where the mapping (see top of this file) to some
-         # error_type was either
-         # - likely forgotten in case new failure messages get introduced.
-         #   Example of what is missing
-         #   use constant  ER_DO_NOT_WANT   => 7777;
-         #   ER_DO_NOT_WANT()               => STATUS_UNSUPPORTED,
-         # or
-         # - intentionally deactivated or not made at all because we want to be made aware of it
-         #   Example:
-         #   1064 You have an error in your SQL syntax ... does not get mapped to
-         #   STATUS_SYNTAX_ERROR
-         # has err_type == 0 in order to "land" here and get printed.
-         my $errstr = $executor->normalizeError($sth->errstr());
-         $executor->[EXECUTOR_ERROR_COUNTS]->{$errstr}++;
-         my $query_for_print= shorten_message($query);
-         say("$who_am_i $executor_role Query: $query_for_print failed: $err , errstr: " . $sth->errstr());
-      }
+            # Lets assume some evil and complicated scenario (lost connection but no real crash)
+            # ----------------------------------------------------------------------------------
+            # Query from generator is a multi statement query like
+            #    update row A; update row B; COMMIT ; update row C column col1 to @aux ;
+            # State of session on server 1:
+            #    no AUTOCOMMIT, @aux = 13, open transaction with a row updated
+            # State of session on server 2:
+            #    no AUTOCOMMIT, @aux = 13, open transaction with a row updated
+            # We got the error when executing the single query "update row B".
+            # Session on server 1:
+            #    loss of connection -> rollback of update
+            # Session on server 2:
+            #    no AUTOCOMMIT, @aux = 13, open transaction with a row updated
+            # So in case we would just reconnect (assume success) to server 1 than we would suffer
+            # compared to server 2 from missing update and @aux = NULL.
+            # There is IMHO only one clean solution:
+            # 1. For any non first server issue ROLLBACK(if not done per disconnect) and disconnect.
+            # 2. After disconnect followed by reconnect do not go on with the remaining queries of
+            #    the multi query.
+            #    There might be some validator running at the end of the multi statement query and
+            #    being not prepared for
+            #    - lose connection/reconnect between
+            #    - @aux is now NULL
+            #    - a single query failed
+            #    etc.
+            # So check first if a connect is possible.
+            # Experiment because of observation 2018-06-22
+            #    Even with mysql_connect_timeout => 20 added the distance between message about
+            #    connection lost and connect attempt failed < 1s seen.
+            # First (because easier to handle) hypothesis:
+            #    The server is for some short timespan so busy especially around managing
+            #    connections so that he simply denies to create a new one.
+            #    2018-07-02 Up till today I have never seen a false alarm from here again.
+            my $status;
+            if (STATUS_OK == $executor->is_connectable()) {
+                $status = STATUS_SKIP_RELOOP;
+                say("INFO: $trace_addition :  The server is connectable. Will return a result " .
+                    "containing the status " . status2text($status) . "($status).");
+            } else {
+                # FIXME:
+                # Check if STATUS_SERVER_CRASHED would be better.
+                # Could it happen that we meet some just initiated server shutdown and what would
+                # happen than?
+                $status = STATUS_CRITICAL_FAILURE;
+                say("INFO: $trace_addition :  The server is not connectable. Will sleep 3s and " .
+                    "than return a result containing the status " . status2text($status) .
+                    "($status).");
+                # The sleep is for preventing the following scenario:
+                # A reporter like CrashRecovery has send SIGKILL/SIGSEGV/SIGABRT to the server and
+                # exited immediate with STATUS_SERVER_KILLED. Of course worker threads will detect
+                # the dead server too and exit with STATUS_CRITICAL_FAILURE if not been killed
+                # earlier. Caused by heavy load and unfortunate scheduling it can happen that the
+                # main process (RQG runner executing GenTest_e) detects the exited thread before the
+                # exited reporter and than we might end up with the final STATUS_CRITICAL_FAILURE.
+                # The reporter Backtrace will later confirm the crash and GenTest_e will transform
+                # that status to STATUS_SERVER_CRASHED.
+                # In case the main process would receive the status STATUS_SERVER_KILLED first than
+                # the crash would be confirmed by Backtrace and the status would get transformed
+                # to STATUS_OK.
+                sleep(3);
+            }
+            return GenTest_e::Result->new(
+                query        => $query,
+              # status       => $err2type{$dbh->err()} || STATUS_UNKNOWN_ERROR,
+                status       => $status,
+                err          => $dbh->err(),
+                errstr       => $dbh->errstr(),
+                sqlstate     => $dbh->state(),
+                start_time   => $start_time,
+                end_time     => Time::HiRes::time()
+            );
+        } elsif (not ($execution_flags & EXECUTOR_FLAG_SILENT)) {
+            # Any query harvesting an error where the mapping (see top of this file) to some
+            # error_type was either
+            # - likely forgotten in case new failure messages get introduced.
+            #   Example of what is missing
+            #   use constant  ER_DO_NOT_WANT   => 7777;
+            #   ER_DO_NOT_WANT()               => STATUS_UNSUPPORTED,
+            # or
+            # - intentionally deactivated or not made at all because we want to be made aware of it
+            #   Example:
+            #   1064 You have an error in your SQL syntax ... does not get mapped to
+            #   STATUS_SYNTAX_ERROR
+            # has err_type == 0 in order to "land" here and get printed.
+            my $errstr = $executor->normalizeError($sth->errstr());
+            $executor->[EXECUTOR_ERROR_COUNTS]->{$errstr}++;
+            my $query_for_print= shorten_message($query);
+            say("$who_am_i $executor_role Query: $query_for_print failed: $err , errstr: " .
+                $sth->errstr());
+        }
 
-      $result = GenTest_e::Result->new(
+        $result = GenTest_e::Result->new(
             query           => $query,
             status          => $err_type || STATUS_UNKNOWN_ERROR,
             err             => $err,
@@ -1517,10 +1524,10 @@ sub execute {
             start_time      => $start_time,
             end_time        => $end_time,
             performance     => $performance
-      );
+        );
 
-   } elsif ((not defined $sth->{NUM_OF_FIELDS}) || ($sth->{NUM_OF_FIELDS} == 0)) {
-      $result = GenTest_e::Result->new(
+    } elsif ((not defined $sth->{NUM_OF_FIELDS}) || ($sth->{NUM_OF_FIELDS} == 0)) {
+        $result = GenTest_e::Result->new(
             query           => $query,
             status          => STATUS_OK,
             affected_rows   => $affected_rows,
@@ -1530,169 +1537,173 @@ sub execute {
             start_time      => $start_time,
             end_time        => $end_time,
             performance     => $performance
-      );
-      $executor->[EXECUTOR_ERROR_COUNTS]->{'(no error)'}++ if not ($execution_flags & EXECUTOR_FLAG_SILENT);
-   } else {
-      my @data;                   #
-      my %data_hash;              # Filled if   $execution_flags & EXECUTOR_FLAG_HASH_DATA
-      my $row_count = 0;
-      my $result_status = STATUS_OK;
+        );
+        $executor->[EXECUTOR_ERROR_COUNTS]->{'(no error)'}++
+            if not ($execution_flags & EXECUTOR_FLAG_SILENT);
+    } else {
+        my @data;                   #
+        my %data_hash;              # Filled if   $execution_flags & EXECUTOR_FLAG_HASH_DATA
+        my $row_count = 0;
+        my $result_status = STATUS_OK;
 
-      # What follows could fail because of real crash or connection killed etc.
-      # The if (defined $sth->err())  a bit later should catch this.
-      while (my @row = $sth->fetchrow_array()) {
-         $row_count++;
-         if ($execution_flags & EXECUTOR_FLAG_HASH_DATA) {
-            $data_hash{substr(Digest::MD5::md5_hex(@row), 0, 3)}++;
-         } else {
-            push @data, \@row;
-         }
+        # What follows could fail because of real crash or connection killed etc.
+        # The if (defined $sth->err())  a bit later should catch this.
+        while (my @row = $sth->fetchrow_array()) {
+            $row_count++;
+            if ($execution_flags & EXECUTOR_FLAG_HASH_DATA) {
+                $data_hash{substr(Digest::MD5::md5_hex(@row), 0, 3)}++;
+            } else {
+                push @data, \@row;
+            }
 
-         last if ($row_count > MAX_ROWS_THRESHOLD and
-                  $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD);
-      }
+            last if ($row_count > MAX_ROWS_THRESHOLD and
+                $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD);
+        }
 
-      # Do one extra check to catch 'query execution was interrupted' error
-      if (defined $sth->err()) {
-         $result_status = $err2type{$sth->err()};
-         @data = ();
-      } elsif ($row_count > MAX_ROWS_THRESHOLD and
-               $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD) {
-         my $query_for_print= shorten_message($query);
-         @data = ();
-         say("Query: $query_for_print returned more than MAX_ROWS_THRESHOLD (" .
-             MAX_ROWS_THRESHOLD() . ") rows. Will kill it ...");
-         $executor->[EXECUTOR_RETURNED_ROW_COUNTS]->{'>MAX_ROWS_THRESHOLD'}++;
+        # Do one extra check to catch 'query execution was interrupted' error
+        if (defined $sth->err()) {
+            $result_status = $err2type{$sth->err()};
+            @data = ();
+        } elsif ($row_count > MAX_ROWS_THRESHOLD and
+                 $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD) {
+            my $query_for_print= shorten_message($query);
+            @data = ();
+            say("Query: $query_for_print returned more than MAX_ROWS_THRESHOLD (" .
+                MAX_ROWS_THRESHOLD() . ") rows. Will kill it ...");
+            $executor->[EXECUTOR_RETURNED_ROW_COUNTS]->{'>MAX_ROWS_THRESHOLD'}++;
 
-         my $kill_dbh = get_dbh($executor->dsn(), 'QueryKiller', undef);
-         if (not defined $kill_dbh) {
-             my $status = STATUS_CRITICAL_FAILURE;
-             my $message_part = "ERROR: $who_am_i QueryKiller:";
-             say("$message_part. Will return status : " . status2text($status) . "($status).");
-             $sth->finish();
-             return GenTest_e::Result->new(
-                 query       => '/* During auxiliary connect */',
-                 status      => $status,
-             );
-         }
-         # Per manual:
-         # Killing queries that repair or create indexes on MyISAM and Aria tables may result
-         # in corrupted tables. Use the SOFT option to avoid this!
-         # We are fortunately on the safe side because even though CHECK/REPAIR ... deliver result
-         # sets too they are smaller than MAX_ROWS_THRESHOLD.
-         my $aux_query = "KILL QUERY " . $executor->connectionId() . '/* ' .
-                         "QueryKiller for $executor_role " . '*/';
-         # exp_server_kill($who_am_i, $aux_query);
-         my $aux_status = GenTest_e::Executor::MySQL::run_do($kill_dbh, 'QueryKiller', $aux_query);
-         # $kill_dbh and $sth are no more needed no matter what $aux_status is.
-         $kill_dbh->disconnect();
-         $sth->finish();
-         if (STATUS_OK != $aux_status) {
-            return GenTest_e::Result->new(
-                query       => '/* During auxiliary query */',
-                status      => $aux_status,
-            );
-         }
+            my $kill_dbh = get_dbh($executor->dsn(), 'QueryKiller', undef);
+            if (not defined $kill_dbh) {
+                my $status = STATUS_CRITICAL_FAILURE;
+                my $message_part = "ERROR: $who_am_i QueryKiller:";
+                say("$message_part. Will return status : " . status2text($status) . "($status).");
+                $sth->finish();
+                return GenTest_e::Result->new(
+                    query       => '/* During auxiliary connect */',
+                    status      => $status,
+                );
+            }
+            # Per manual:
+            # Killing queries that repair or create indexes on MyISAM and Aria tables may result
+            # in corrupted tables. Use the SOFT option to avoid this!
+            # We are fortunately on the safe side because even though CHECK/REPAIR ... deliver
+            # result sets too they are smaller than MAX_ROWS_THRESHOLD.
+            my $aux_query = "KILL QUERY " . $executor->connectionId() . '/* ' .
+                            "QueryKiller for $executor_role " . '*/';
+            # exp_server_kill($who_am_i, $aux_query);
+            my $aux_status = GenTest_e::Executor::MySQL::run_do($kill_dbh, 'QueryKiller',
+                                                                $aux_query);
+            # $kill_dbh and $sth are no more needed no matter what $aux_status is.
+            $kill_dbh->disconnect();
+            $sth->finish();
+            if (STATUS_OK != $aux_status) {
+              return GenTest_e::Result->new(
+                  query       => '/* During auxiliary query */',
+                  status      => $aux_status,
+              );
+            }
 
-         $aux_query = "SELECT 1 FROM DUAL /* Guard query so that the KILL QUERY we just issued " .
-                      "does not affect future queries */;";
-         # exp_server_kill($who_am_i, $aux_query);
-         $aux_status = GenTest_e::Executor::MySQL::run_do($dbh, $executor_role, $aux_query);
-         if (STATUS_OK != $aux_status) {
-            return GenTest_e::Result->new(
-                query       => '/* During auxiliary query */',
-                status      => $aux_status,
-            );
-         }
-         $result_status = STATUS_SKIP;
-      } elsif ($execution_flags & EXECUTOR_FLAG_HASH_DATA) {
-         while (my ($key, $value) = each %data_hash) {
-            push @data, [ $key , $value ];
-         }
-      }
+            $aux_query = "SELECT 1 FROM DUAL /* Guard query so that the KILL QUERY we just " .
+                         "issued does not affect future queries */;";
+            # exp_server_kill($who_am_i, $aux_query);
+            $aux_status = GenTest_e::Executor::MySQL::run_do($dbh, $executor_role, $aux_query);
+            if (STATUS_OK != $aux_status) {
+                return GenTest_e::Result->new(
+                    query       => '/* During auxiliary query */',
+                    status      => $aux_status,
+                );
+            }
+            $result_status = STATUS_SKIP;
+        } elsif ($execution_flags & EXECUTOR_FLAG_HASH_DATA) {
+            while (my ($key, $value) = each %data_hash) {
+                push @data, [ $key , $value ];
+            }
+        }
 
-      # FIXME:
-      # We have @data and %data_hash.
-      # Figure out when what (just one or both) is filled and pick the right.
+        # FIXME:
+        # We have @data and %data_hash.
+        # Figure out when what (just one or both) is filled and pick the right.
 
-      # Check if the query was a CHECK TABLE and if we harvested a result set which points clear
-      # to data corruption in InnoDB. In the moment all other bad cases get ignored.
-      if ($query =~ m{check\s+table\s+}i) {
-         # Experiment for checking if the reporter 'RestartConsistency1.pm' works correct.
-         # if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_REPORTER) {
-         #         $result_status = STATUS_DATABASE_CORRUPTION;
-         # }
-         my $full_result = "Full result of ->$query<-";
-         foreach my $data_elem (@data) {
-             $full_result .= "\n" . join(" ", @{$data_elem});
-             my ($ct_table, $ct_Op, $ct_Msg_type, $ct_Msg_text) = @{$data_elem};
-             # We can have concurrency even if we are not a thread or some reporter.
-             # Example: An event gets executed.
-             # So could get something like
-             # <TS> [118034] test.t3 check Error Query execution was interrupted
-             # <TS> [118034] test.t3 check error Corrupt <=====
-             if (($ct_Msg_text =~ /Table \'$ct_table\' doesn\'t exist/)     or
-                 ($ct_Msg_text =~ /Deadlock found when trying to get lock/) or
-                 ($ct_Msg_text =~ /Lock wait timeout exceeded/)             or
-                 ($ct_Msg_text =~ /Query execution was interrupted/)          ) {
-                 return GenTest_e::Result->new(
-                     query       => $query,
-                     status      => STATUS_SKIP,
-                 );
-             }
-         }
-
-         foreach my $data_elem (@data) {
-             # ->test.t1<->check<->Warning<->InnoDB: Index 'c' contains 1 entries, should be 0.<-
-             my $line = join(" ", @{$data_elem});
-             # say("DEBUG ->" . $line . "<-");
-             my ($ct_table, $ct_Op, $ct_Msg_type, $ct_Msg_text) = @{$data_elem};
-             next if ('status' eq $ct_Msg_type or 'note' eq $ct_Msg_type);
-             if ('Warning' eq $ct_Msg_type and $ct_Msg_text =~ /InnoDB: /i) {
-                 if ($ct_Msg_text =~ /InnoDB: Unpurged clustered index record/          or
-                     $ct_Msg_text =~ /nnoDB: Clustered index record with stale history/ or
-                     $ct_Msg_text =~ /InnoDB: Clustered index record not found for index/ )
-                 {
-                     # Per Marko:
-                     # Only if CHECK ... EXTENDED + harmless/to be expected.
-                     say("DEBUG: Harmless ->$line<- observed.");
-                     next;
-                 } else {
-                     say("ERROR: The query '$query' passed but has a result set line\n" .
-                         "ERROR: ->$line<-.");
-                         $result_status = STATUS_DATABASE_CORRUPTION;
-                 }
-             }
-             if ('Error') {
-                 say("ERROR: The query '$query' passed but has a result set line\n" .
-                     "ERROR: ->$line<-.\n");
-                 $result_status = STATUS_DATABASE_CORRUPTION;
-             }
-             if ($result_status == STATUS_DATABASE_CORRUPTION) {
-                 if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD or
-                     $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_REPORTER) {
-                     # A process which can exit without harm.
-                     # Enforcing some rapid test end might look attractive.
-                     # But without knowing the server process we can only request a SHUTDOWN.
-                     # And during experiments that caused RQG reporting finally a DEADLOCK.
-                     # $dbh->do("SHUTDOWN");
-                     say("ERROR: $full_result");
-                     say("ERROR: Will exit with status STATUS_DATABASE_CORRUPTION.");
-                     exit STATUS_DATABASE_CORRUPTION;
-                 } else {
-                     # A process like rqg.pl which should not exit without cleanup.
-                     say("ERROR: $full_result");
-                     say("ERROR: Will return a result containing status STATUS_DATABASE_CORRUPTION.");
-                     return GenTest_e::Result->new(
+        # Check if the query was a CHECK TABLE and if we harvested a result set which points clear
+        # to data corruption in InnoDB. In the moment all other bad cases get ignored.
+        if ($query =~ m{check\s+table\s+}i) {
+            # Experiment for checking if the reporter 'RestartConsistency*.pm' works correct.
+            # if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_REPORTER) {
+            #         $result_status = STATUS_DATABASE_CORRUPTION;
+            # }
+            my $full_result = "Full result of ->$query<-";
+            foreach my $data_elem (@data) {
+                my $line = join(" ", @{$data_elem});
+                $full_result .= "\n" . join(" ", @{$data_elem});
+                my ($ct_table, $ct_Op, $ct_Msg_type, $ct_Msg_text) = @{$data_elem};
+                # We can have concurrency even if we are not a thread or some reporter.
+                # Example: An event gets executed.
+                # So could get something like
+                # <TS> [118034] test.t3 check Error Query execution was interrupted
+                # <TS> [118034] test.t3 check error Corrupt <=====
+                if (($ct_Msg_text =~ /Table \'$ct_table\' doesn\'t exist/)     or
+                    ($ct_Msg_text =~ /Deadlock found when trying to get lock/) or
+                    ($ct_Msg_text =~ /Lock wait timeout exceeded/)             or
+                    ($ct_Msg_text =~ /Query execution was interrupted/)          ) {
+                    say("DEBUG: For query '" . $query . "' harmless '" . $line . "' observed.");
+                    return GenTest_e::Result->new(
                         query       => $query,
-                        status      => $result_status,
-                     );
-                 }
-             }
-         }
-      }
+                        status      => STATUS_SKIP,
+                    );
+                }
+            }
 
-      $result = GenTest_e::Result->new(
+            foreach my $data_elem (@data) {
+                # ->test.t1<->check<->Warning<->InnoDB: Index 'c' contains 1 entries, should be 0.<-
+                my $line = join(" ", @{$data_elem});
+                # say("DEBUG ->" . $line . "<-");
+                my ($ct_table, $ct_Op, $ct_Msg_type, $ct_Msg_text) = @{$data_elem};
+                next if ('status' eq $ct_Msg_type or 'note' eq $ct_Msg_type);
+                if ('Warning' eq $ct_Msg_type and $ct_Msg_text =~ /InnoDB: /i) {
+                    if ($ct_Msg_text =~ /InnoDB: Unpurged clustered index record/          or
+                        $ct_Msg_text =~ /nnoDB: Clustered index record with stale history/ or
+                        $ct_Msg_text =~ /InnoDB: Clustered index record not found for index/ )
+                    {
+                        # Per Marko:
+                        # Only if CHECK ... EXTENDED + harmless/to be expected.
+                        say("DEBUG: For query '" . $query . "' harmless '" . $line . "' observed.");
+                        next;
+                    } else {
+                        say("ERROR: The query '" . $query . "' passed but has a result set line '" .
+                            $line . "'.");
+                            $result_status = STATUS_DATABASE_CORRUPTION;
+                    }
+                }
+                if ('Error') {
+                    say("ERROR: The query '$query' passed but has a result set line\n" .
+                        "ERROR: ->$line<-.\n");
+                    $result_status = STATUS_DATABASE_CORRUPTION;
+                }
+                if ($result_status == STATUS_DATABASE_CORRUPTION) {
+                    if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD or
+                        $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_REPORTER) {
+                        # A process which can exit without harm.
+                        # Enforcing some rapid test end might look attractive.
+                        # But without knowing the server process we can only request a SHUTDOWN.
+                        # And during experiments that caused RQG reporting finally a DEADLOCK.
+                        # $dbh->do("SHUTDOWN");
+                        say("ERROR: $full_result");
+                        say("ERROR: Will exit with status STATUS_DATABASE_CORRUPTION.");
+                        exit STATUS_DATABASE_CORRUPTION;
+                    } else {
+                        # A process like rqg.pl which should not exit without cleanup.
+                        say("ERROR: $full_result");
+                        say("ERROR: Will return a result containing status STATUS_DATABASE_CORRUPTION.");
+                        return GenTest_e::Result->new(
+                           query       => $query,
+                           status      => $result_status,
+                        );
+                    }
+                }
+            }
+        }
+
+        $result = GenTest_e::Result->new(
             query           => $query,
             status          => $result_status,
             affected_rows   => $affected_rows,
@@ -1702,82 +1713,85 @@ sub execute {
             column_names    => $column_names,
             column_types    => $column_types,
             performance     => $performance
-      );
+        );
 
-      $executor->[EXECUTOR_ERROR_COUNTS]->{'(no error)'}++ if not ($execution_flags & EXECUTOR_FLAG_SILENT);
+        $executor->[EXECUTOR_ERROR_COUNTS]->{'(no error)'}++
+            if not ($execution_flags & EXECUTOR_FLAG_SILENT);
 
-   }
+    }
 
-   $sth->finish();
+    $sth->finish();
 
-   if ($sth->{mysql_warning_count} > 0) {
-      eval {
-          my $aux_query = "SHOW WARNINGS";
-          # exp_server_kill($who_am_i, $aux_query);
-          my $warnings   = $dbh->selectall_arrayref($aux_query);
-          my $error      = $dbh->err();
-          my $error_type = STATUS_OK;
-          if (defined $error) {
-              $error_type = $err2type{$error} || STATUS_OK;
-              my $message_part = "$who_am_i $executor_role. Auxiliary query ->" . $aux_query .
-                                 "<- failed: $error " .  $dbh->errstr();
-              my $status = $error_type;
-              if (($error_type == STATUS_SERVER_CRASHED) || ($error_type == STATUS_SERVER_KILLED)) {
-                 $executor->disconnect(); # FIXME: Would be that good?
-                 if (STATUS_OK == $executor->is_connectable()) {
-                    $status = STATUS_SKIP_RELOOP;
-                    say("INFO: $message_part");
-                    say("INFO: $trace_addition : The server is connectable. Will return a result " .
-                        "containing the status " . status2text($status) . "($status).");
-                 } else {
-                    $status = STATUS_CRITICAL_FAILURE;
-                    say("ERROR: $message_part");
-                    say("INFO: $trace_addition :  The server is not connectable. Will sleep 3s and than " .
-                        "return a result containing the status " . status2text($status) . "($status).");
-                    sleep(3);
-                 }
-              } else {
-                 say("ERROR: $message_part. Will return a result containing the status " .
-                     status2text($status) . "($status).");
-              }
-              return GenTest_e::Result->new(
-                 query       => $query . '/* During additional auxiliary query */',
-                 status      => $status,
-              );
-          }
-          $result->setWarnings($warnings);
-      }
-   }
+    if ($sth->{mysql_warning_count} > 0) {
+        eval {
+            my $aux_query = "SHOW WARNINGS";
+            # exp_server_kill($who_am_i, $aux_query);
+            my $warnings   = $dbh->selectall_arrayref($aux_query);
+            my $error      = $dbh->err();
+            my $error_type = STATUS_OK;
+            if (defined $error) {
+                $error_type = $err2type{$error} || STATUS_OK;
+                my $message_part = "$who_am_i $executor_role. Auxiliary query ->" . $aux_query .
+                                   "<- failed: $error " .  $dbh->errstr();
+                my $status = $error_type;
+                if (($error_type == STATUS_SERVER_CRASHED) ||
+                    ($error_type == STATUS_SERVER_KILLED)) {
+                    $executor->disconnect(); # FIXME: Would be that good?
+                    if (STATUS_OK == $executor->is_connectable()) {
+                        $status = STATUS_SKIP_RELOOP;
+                        say("INFO: $message_part");
+                        say("INFO: $trace_addition : The server is connectable. Will return a " .
+                            "result containing the status " . status2text($status) . "($status).");
+                    } else {
+                        $status = STATUS_CRITICAL_FAILURE;
+                        say("ERROR: $message_part");
+                        say("INFO: $trace_addition :  The server is not connectable. Will sleep " .
+                            "3s and than return a result containing the status " .
+                            status2text($status) . "($status).");
+                        sleep(3);
+                    }
+                } else {
+                     say("ERROR: $message_part. Will return a result containing the status " .
+                         status2text($status) . "($status).");
+                }
+                return GenTest_e::Result->new(
+                    query       => $query . '/* During additional auxiliary query */',
+                    status      => $status,
+                );
+            }
+            $result->setWarnings($warnings);
+        }
+    }
 
-   if ($result->status() == STATUS_OK) {
-      # Now we have excluded certain classes of failing statements where all what follows
-      # makes no sense up till additional trouble with not initialized values etc.
-      #
-      # (mleich)
-      # What follows gets only executed if   rqg_debug() ....  hence it
-      # - runs not often
-      #   I appreciate that because its serious overhead and maybe dangerous(what if KILL QUERY..)
-      #   especially for DDL/DML concurrency crash testing.
-      # - was not seen as very important when it was written.
-      # EXPLAIN on for example DELETE works. But no idea if an explain on that would be valuable
-      # or if the counters collected here are of serious value at all.
-      # SELECT ... INTO @user_variable harvests systematic that the return of
-      # $result->rows() is not defined. So exclude that kind of SELECT.
-      #
-      if ( (rqg_debug()) && (! ($execution_flags & EXECUTOR_FLAG_SILENT)) ) {
-         if (($query =~ m{^\s*select}sio) and (not $query =~ m{^\s*select\s.*into @}sio)) {
-            # exp_server_kill($who_am_i, "executor->explain");
-            $executor->explain($query);
-            my $row_group = $result->rows() > 100 ? '>100' : ($result->rows() > 10 ? ">10" : sprintf("%5d",$sth->rows()) );
-            $executor->[EXECUTOR_RETURNED_ROW_COUNTS]->{$row_group}++;
-         } elsif ($query =~ m{^\s*(update|delete|insert|replace)}sio) {
-            my $row_group = $affected_rows > 100 ? '>100' : ($affected_rows > 10 ? ">10" : sprintf("%5d",$affected_rows) );
-            $executor->[EXECUTOR_AFFECTED_ROW_COUNTS]->{$row_group}++;
-         }
-      }
-   }
+    if ($result->status() == STATUS_OK) {
+        # Now we have excluded certain classes of failing statements where all what follows
+        # makes no sense up till additional trouble with not initialized values etc.
+        #
+        # (mleich)
+        # What follows gets only executed if   rqg_debug() ....  hence it
+        # - runs not often
+        #   I appreciate that because its serious overhead and maybe dangerous(what if KILL QUERY..)
+        #   especially for DDL/DML concurrency crash testing.
+        # - was not seen as very important when it was written.
+        # EXPLAIN on for example DELETE works. But no idea if an explain on that would be valuable
+        # or if the counters collected here are of serious value at all.
+        # SELECT ... INTO @user_variable harvests systematic that the return of
+        # $result->rows() is not defined. So exclude that kind of SELECT.
+        #
+        if ( (rqg_debug()) && (! ($execution_flags & EXECUTOR_FLAG_SILENT)) ) {
+            if (($query =~ m{^\s*select}sio) and (not $query =~ m{^\s*select\s.*into @}sio)) {
+                # exp_server_kill($who_am_i, "executor->explain");
+                $executor->explain($query);
+                my $row_group = $result->rows() > 100 ? '>100' : ($result->rows() > 10 ? ">10" : sprintf("%5d", $sth->rows()) );
+                $executor->[EXECUTOR_RETURNED_ROW_COUNTS]->{$row_group}++;
+            } elsif ($query =~ m{^\s*(update|delete|insert|replace)}sio) {
+                my $row_group = $affected_rows > 100 ? '>100' : ($affected_rows > 10 ? ">10" : sprintf("%5d", $affected_rows) );
+                $executor->[EXECUTOR_AFFECTED_ROW_COUNTS]->{$row_group}++;
+            }
+        }
+    }
 
-   return $result;
+    return $result;
 
 } # End of sub execute
 
