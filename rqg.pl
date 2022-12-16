@@ -19,6 +19,23 @@
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301
 # USA
 
+# FIXME:
+# Unify the handling of array indexes to be used for @basedir, @vardir, @dsns, @ports, @views, ...
+# in order to achieve that for some server n the array index value is n too.
+#
+# State 2022-12
+# -------------
+# The first server ('Master' in case of replication) gets often called server[1] in messages
+# has configuration data in server[0] and uses mysqld_options[1], basedirs[1], vardirs[1], dsns[0] ...
+#
+# basedirs[0], mysqld_options[0], ... have a semantic which is not specific to one server at
+# all get used like
+# if (not defined mysqld_options[1]) {
+#     mysqld_options[1] = mysqld_options[0];
+# } else {
+#     mysqld_options[1] = mysqld_options[0] , mysqld_options[1];
+# }
+#
 
 use Carp;
 use File::Basename;          # We use dirname
@@ -290,7 +307,7 @@ $batch = 0 if not defined $batch;
 if (defined $batch and $batch != 0) {
     say("DEBUG: The RQG run seems to be under control of RQG Batch.");
     if (not defined $major_runid) {
-        say("ERROR: \$batch : $batch but major_runid is undef");
+        say("ERROR: \$batch : $batch but major_runid is not defined.");
         run_end(STATUS_INTERNAL_ERROR);
     }
 } else {
@@ -501,7 +518,7 @@ if (not defined $grammar_file) {
 #    $mask       is defined
 if (not defined $no_mask) {
     if (defined $mask and $mask > 0 and not defined $mask_level) {
-        say("DEBUG: mask is > 0 and mask_level is undef. Therefore setting mask_level=1.");
+        say("DEBUG: mask is > 0 and mask_level is not defined. Therefore setting mask_level=1.");
         $mask_level = 1;
     } elsif (not defined $mask) {
         say("DEBUG: mask is not defined. Therefore setting mask_level = 0 and mask = 0.");
@@ -879,7 +896,7 @@ if ($genconfig) {
 # Otherwise it could happen that we have started some server and the test aborts later with
 # Perl error because some prequisite is missing.
 # Example:
-# $upgrade_test is undef + no replication variant assigned --> $number_of_servers == 1
+# $upgrade_test is not defined + no replication variant assigned --> $number_of_servers == 1
 # basedir1 and basedir2 were assigned. basedir2 was set to undef because $number_of_servers == 1.
 # Finally rqg.pl concludes that is a "simple" test with one server and
 # 1. starts that one + runs gendata + gentest
@@ -888,44 +905,48 @@ if ($genconfig) {
 # 3. this will than fail with Perl error because of basedir2 , .. undef.
 #    The big problem: The already started Server will be than not stopped.
 # FIXME:
-# 1. Maybe replace that splitting with some general routine in Auxiliary
-# 2. Add default reporters, validators, .... already here.
-if ($#validators == 0 and $validators[0] =~ m/,/) {
-    @validators = split(/,/,$validators[0]);
-}
-foreach my $validator (@validators) {
-    next if "None" eq $validator;
-    my $validator_file = $rqg_home . "/lib/GenTest_e/Validator/" . $validator . ".pm";
-    if (not -f $validator_file) {
-        say("ERROR: The validator file '$validator_file' does not exist or is not a plain file.");
+# Add default reporters, validators, .... already here?
+
+my $hash_ref;
+my $element_path;
+
+$hash_ref =   Auxiliary::unify_rvt_array(\@validators);
+@validators = sort keys %{$hash_ref};
+$element_path = $rqg_home . "/lib/GenTest_e/Validator/";
+foreach my $element (@validators) {
+    next if "None" eq $element;
+    my $file = $element_path . $element . ".pm";
+    if (not -f $file) {
+        say("ERROR: The validator file '$file' does not exist or is not a plain file.");
         my $status = STATUS_ENVIRONMENT_FAILURE;
         run_end($status);
     }
 }
-if ($#reporters == 0 and $reporters[0] =~ m/,/) {
-    @reporters = split(/,/,$reporters[0]);
-}
-foreach my $reporter (@reporters) {
-    next if "None" eq $reporter;
-    my $reporter_file = $rqg_home . "/lib/GenTest_e/Reporter/" . $reporter . ".pm";
-    if (not -f $reporter_file) {
-        say("ERROR: The reporter file '$reporter_file' does not exist or is not a plain file.");
+$hash_ref =  Auxiliary::unify_rvt_array(\@reporters);
+@reporters = sort keys %{$hash_ref};
+$element_path = $rqg_home . "/lib/GenTest_e/Reporter/";
+foreach my $element (@reporters) {
+    next if "None" eq $element;
+    my $file = $element_path . $element . ".pm";
+    if (not -f $file) {
+        say("ERROR: The reporter file '$file' does not exist or is not a plain file.");
         my $status = STATUS_ENVIRONMENT_FAILURE;
         run_end($status);
     }
 }
-if ($#transformers == 0 and $transformers[0] =~ m/,/) {
-    @transformers = split(/,/,$transformers[0]);
-}
-foreach my $transformer (@transformers) {
-    next if "None" eq $transformer;
-    my $transformer_file = $rqg_home . "/lib/GenTest_e/Transformer/" . $transformer . ".pm";
-    if (not -f $transformer_file) {
-        say("ERROR: The transformer file '$transformer_file' does not exist or is not a plain file.");
+$hash_ref =     Auxiliary::unify_rvt_array(\@transformers);
+@transformers = sort keys %{$hash_ref};
+$element_path = $rqg_home . "/lib/GenTest_e/Transformer/";
+foreach my $element (@transformers) {
+    next if "None" eq $element;
+    my $file = $element_path . $element . ".pm";
+    if (not -f $file) {
+        say("ERROR: The transformer file '$file' does not exist or is not a plain file.");
         my $status = STATUS_ENVIRONMENT_FAILURE;
         run_end($status);
     }
 }
+
 my $upgrade_rep_found = 0;
 foreach my $rep (@reporters) {
     if (defined $rep and $rep =~ m/Upgrade/) {
@@ -1317,16 +1338,21 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
 #
 if ($wait_debugger) {
     say("Pausing test to allow attaching debuggers etc. to the server process.");
-    my @pids;   # there may be more than one server process
-    foreach my $server_id (0..$#server) {
-        $pids[$server_id] = $server[$server_id]->serverpid;
+    my @pids;   # there may be more than one running server
+    my $server_num = 0;
+    foreach my $srv (@server) {
+        $server_num++;
+        if (not defined $srv) {
+            say("DEBUG: server[$server_num] is not defined.");
+            next;
+        } else {
+            push @pids, $server[$server_num - 1]->serverpid;
+        }
     }
-    say('Number of servers started: ' . ($#server + 1));
-    say('Server PID: ' . join(', ', @pids));
+    say('Server PID: ' . join(' , ', sort @pids));
     say("Press ENTER to continue the test run...");
     my $keypress = <STDIN>;
 }
-
 
 #
 # Run actual queries
@@ -1470,9 +1496,16 @@ $ENV{RQG_THREADS}= $threads;
 # The memorized values
 # - are invalid/undef for not yet started server
 # - become invalid for server shut down or crashed or previous+restarted
-foreach my $server_id (0..$#server) {
-    my $varname = "SERVER_PID" . ($server_id + 1);
-    $ENV{$varname} = $server[$server_id]->serverpid;
+my $server_num;
+$server_num = 0;
+foreach my $srv (@server) {
+    $server_num++;
+    if (not defined $srv) {
+        say("DEBUG: server[$server_num] is not defined.");
+        next;
+    }
+    my $varname = "SERVER_PID" . ($server_num);
+    $ENV{$varname} = $server[$server_num - 1]->serverpid;
 }
 
 my $gentest_result = STATUS_OK;
@@ -1534,42 +1567,17 @@ if (STATUS_INTERNAL_ERROR == $final_result) {
 # system('kill -11 $SERVER_PID1; sleep 10');  # Only the first server is affected.
 # system('kill -11 $SERVER_PID2; sleep 10');  # (for RPL) Only the second server is affected.
 
+my $check_status = STATUS_OK;
+
 # Catch if some server is no more operable.
-# -----------------------------------------
-# In case of $final_result in (STATUS_SERVER_CRASHED, STATUS_CRITICAL_FAILURE) give the
-# corresponding servers more time to finish the crash.
-if (STATUS_SERVER_CRASHED == $final_result or STATUS_CRITICAL_FAILURE == $final_result) {
-    sleep 10;
-}
-foreach my $server_id (0..($number_of_servers - 1)) {
-    my $status = $server[$server_id]->server_is_operable;
-    # Returns:
-    # - STATUS_OK                    (DB process running + server connectable)
-    # - STATUS_SERVER_DEADLOCKED     (DB process running + server not connectable)
-    # - If DB process not running --> make_backtrace returns --> take that return
-    #   - STATUS_SERVER_CRASHED      (no internal problems)
-    #   - STATUS_ENVIRONMENT_FAILURE (internal error)
-    #   - STATUS_INTERNAL_ERROR      (internal error)
-    #   - STATUS_CRITICAL_FAILURE    (waitForServerToStop failed)
-    if (STATUS_OK != $status) {
-        say("ERROR: server_is_operable reported for server[" . ($server_id + 1 ) .
-            "] status $status");
-        if ($status > $final_result) {
-            say("ERROR: Raising final_result from $final_result to $status");
-            $final_result = $status;
-        }
-    }
-}
-if ($final_result >= STATUS_CRITICAL_FAILURE) {
-    exit_test($final_result);
-}
+$check_status = checkServers($final_result); # Exits if status >= STATUS_CRITICAL_FAILURE
+$final_result = $check_status if $check_status > $final_result;
 if ($final_result > STATUS_OK) {
-    say("INFO: The testing will go on even though GenData+Check ended with status " .
+    say("INFO: The testing will go on even though GenData+Servercheck ended with status " .
         status2text($final_result) . "($final_result) because GenData is slightly imperfect.");
     $final_result = STATUS_OK;
     say("INFO: Hence reducing the status to " . status2text($final_result) . "($final_result).");
 }
-
 
 # Dump here the inital content
 if ($gendata_dump) {
@@ -1620,32 +1628,41 @@ if (STATUS_OK != $return) {
 $gentest_result = $gentest->doGenTest();
 say("GenTest returned status " . status2text($gentest_result) . " ($gentest_result)");
 $final_result = $gentest_result;
-$message = "RQG GenTest runtime in s : " . (time() - $gentest_start_time);
-$summary .= "SUMMARY: $message\n";
+$message =      "RQG GenTest runtime in s : " . (time() - $gentest_start_time);
+$summary .=     "SUMMARY: $message\n";
 say("INFO: " . $message);
 if (STATUS_INTERNAL_ERROR == $final_result) {
     # There is nothing which we can do automatic except aborting.
     exit_test($final_result);
 }
 
-# 1. Replacement of the backtracing functionality of the Reporter "Backtrace".
-# 2. Check of database integrity is included.
-if (STATUS_SERVER_CRASHED == $final_result or STATUS_CRITICAL_FAILURE == $final_result) {
-    sleep 10;
+# Catch if some server is no more operable.
+$check_status = checkServers($final_result); # Exits if status >= STATUS_CRITICAL_FAILURE
+$final_result = $check_status if $check_status > $final_result;
+if ($final_result > STATUS_OK) {
+    say("INFO: The testing will go on even though GenTest+Servercheck ended with status " .
+        status2text($final_result) . "($final_result). Need to look for corruptions.");
+    say("DEBUG: No reduction of final status.");
 }
 
-
-
-foreach my $server_id (0..($number_of_servers - 1)) {
-    my $check_status = $server[$server_id]->checkDatabaseIntegrity();
+# For experimenting:
+# killServers();
+# system('kill -11 $SERVER_PID1; sleep 10'); # Not suitable for crash recovery tests
+$server_num = 0;
+foreach my $srv (@server) {
+    $server_num++;
+    if (not defined $srv) {
+        say("DEBUG: server[$server_num] is not defined.");
+        next;
+    }
+    my $check_status = $server[$server_num - 1]->checkDatabaseIntegrity();
     if ($check_status != STATUS_OK) {
-        say("ERROR: Database Integrity check for Server[" . ($server_id + 1) . "] failed " .
+        say("ERROR: Database Integrity check for server[$server_num] failed " .
             "with status $check_status.");
         # Maybe we crashed just now.
-        my $is_operable = $server[$server_id]->server_is_operable;
+        my $is_operable = $server[$server_num - 1]->server_is_operable;
         if (STATUS_OK != $is_operable) {
-            say("ERROR: server_is_operable Server[" . ($server_id + 1) . "] reported status " .
-                "$is_operable.");
+            say("ERROR: server_is_operable server[$server_num] reported status $is_operable.");
             if ($is_operable > $check_status) {
                 say("ERROR: Raising check_status from $check_status to $is_operable.");
                 $check_status = $is_operable;
@@ -1739,79 +1756,95 @@ if (($final_result == STATUS_OK)                         and
         my @dump_files;
         # For testing:
         # system("killall -9 mysqld mariadbd; sleep 3");
-        foreach my $i (0..$#server) {
-            # The numbering of servers -> name of subdir for data etc. starts with 1!
-            # Example:
-            # Workdir of RQG run: /data/results/<TS>/<No of RQG runner>
-            # Vardir of first DB server: /data/results/<TS>/<No of RQG runner>/1
-            # /data/results/<TS>/1 points to /dev/shm/rqg/<No of RQG runner>/1
-            # So the dump file is on tmpfs.
-            $dump_files[$i] = $vardirs[$i + 1] . "/DB.dump";
-            # Experiment
-            # $dump_files[$i] = $vardirs[$i + 1] . "/Data";
-            # say("DEBUG: Dumpfile(abs_path) ->" . Cwd::abs_path($dump_files[$i]) . "<-");
-            my $result = $server[$i]->nonSystemDatabases1;
-            my $server_name = "server[" . ($i + 1) . "]";
-            if (not defined $result) {
-                say("ERROR: Trouble running SQL on $server_name. Will exit with STATUS_ALARM");
-                exit_test(STATUS_ALARM);
+        my $server_num = 0;
+        my $first_server_num;
+        foreach my $srv (@server) {
+            $server_num++;
+            if (not defined $srv) {
+                say("DEBUG: Comparison of servers: server[$server_num] is not defined.");
+                next;
             } else {
-                my @schema_list = @{$result};
-                if (0 == scalar @schema_list) {
-                    say("WARN: $server_name does not contain non system SCHEMAs. " .
-                        "Will create a dummy dump file.");
-                    if (STATUS_OK != Basics::make_file($dump_files[$i], 'Dummy')) {
-                        say("ERROR: Will exit with STATUS_ALARM because of previous failure.");
-                        exit_test(STATUS_ALARM);
-                    }
+                $first_server_num = $server_num if not defined $first_server_num;
+                # The numbering of servers -> name of subdir for data etc. starts with 1!
+                # Example:
+                # Workdir of RQG run: /data/results/<TS>/<No of RQG runner>
+                # Vardir of first DB server: /data/results/<TS>/<No of RQG runner>/1
+                # /data/results/<TS>/1 points to /dev/shm/rqg/<No of RQG runner>/1
+                # So the dump file is on tmpfs.
+                $dump_files[$server_num] = $vardirs[$server_num] . "/DB.dump";
+                # Experiment
+                # $dump_files[$server_num] = $vardirs[$server_num] . "/Data";
+                my $result = $server[$server_num - 1]->nonSystemDatabases1;
+                my $server_name = "server[$server_num]";
+                if (not defined $result) {
+                    say("ERROR: Trouble running SQL on $server_name. Will exit with STATUS_ALARM");
+                    exit_test(STATUS_ALARM);
                 } else {
-                    my $schema_listing = join (' ', @schema_list);
-                    say("DEBUG: $server_name schema_listing for mysqldump ->$schema_listing<-");
-                    if ($schema_listing eq '') {
-                        say("ERROR: Schemalisting for $server_name is empty. " .
-                            "Will exit with STATUS_ALARM");
-                        exit_test(STATUS_ALARM);
+                    my @schema_list = @{$result};
+                    if (0 == scalar @schema_list) {
+                        say("WARN: $server_name does not contain non system SCHEMAs. " .
+                            "Will create a dummy dump file.");
+                        if (STATUS_OK != Basics::make_file($dump_files[$server_num], 'Dummy')) {
+                            say("ERROR: Will exit with STATUS_ALARM because of previous failure.");
+                            exit_test(STATUS_ALARM);
+                        }
                     } else {
-                        my $dump_result = $server[$i]->dumpdb("--databases $schema_listing",
-                        # my $dump_result = $server[$i]->dumpdb1("--databases $schema_listing",
-                                                              $dump_files[$i]);
-                        if ( $dump_result > 0 ) {
-                            $final_result = $dump_result >> 8;
-                            last;
+                        my $schema_listing = join (' ', @schema_list);
+                        say("DEBUG: $server_name schema_listing for mysqldump ->$schema_listing<-");
+                        if ($schema_listing eq '') {
+                            say("ERROR: Schemalisting for $server_name is empty. " .
+                                "Will exit with STATUS_ALARM");
+                            exit_test(STATUS_ALARM);
+                        } else {
+                            my $dump_result = $server[$server_num - 1]->dumpdb("--databases $schema_listing",
+                                                                        $dump_files[$server_num]);
+                            if ( $dump_result > 0 ) {
+                                $final_result = $dump_result >> 8;
+                                last;
+                            }
                         }
                     }
                 }
             }
         }
-        my $first_server = "server[1]";
         if ($final_result == STATUS_OK) {
             say("INFO: Comparing SQL dumps...");
-            foreach my $i (1..$#server) {
-                ### 1 vs. 2 , 1 vs. 3 ...
-                my $other_server = "server[" . ($i + 1) . "]";
-                my $diff = system("diff -u $dump_files[0] $dump_files[$i]");
-                if ($diff == STATUS_OK) {
-                    say("INFO: No differences were found between $first_server and $other_server.");
-                    # Make free space as soon ass possible.
-                    say("DEBUG: Deleting the dump file of $other_server.");
-                    unlink($dump_files[$i]);
+            my $server_num = 0;
+            my $first_server = "server[$first_server_num]";
+            foreach my $srv (@server) {
+                $server_num++;
+                if (not defined $srv) {
+                    say("DEBUG: Comparison of servers: server[$server_num] is not defined.");
+                    next;
+                } elsif ($first_server_num == $server_num) {
+                    next;
                 } else {
-                    say("ERROR: Found differences between $first_server and $other_server. " .
-                        "Setting final_result to STATUS_CONTENT_MISMATCH.");
-                    $diff_result  = STATUS_CONTENT_MISMATCH;
-                    $final_result = $diff_result;
+                    ### 1 vs. 2 , 1 vs. 3 ...
+                    my $other_server = "server[$server_num]";
+                    my $diff = system("diff -u $dump_files[$first_server_num] $dump_files[$server_num]");
+                    if ($diff == STATUS_OK) {
+                        say("INFO: No differences were found between $first_server and $other_server.");
+                        # Make free space as soon ass possible.
+                        say("DEBUG: Deleting the dump file of $other_server.");
+                        unlink($dump_files[$server_num]);
+                    } else {
+                        say("ERROR: Found differences between $first_server and $other_server. " .
+                            "Setting final_result to STATUS_CONTENT_MISMATCH.");
+                        $diff_result  = STATUS_CONTENT_MISMATCH;
+                        $final_result = $diff_result;
+                    }
                 }
             }
-        }
-        if ($final_result == STATUS_OK) {
-            # In case we have no diffs than even the dump of the first server is no more needed.
-            say("INFO: No differences between the SQL dumps of the servers detected.");
-            say("DEBUG: Deleting the dump file of $first_server.");
-            unlink($dump_files[0]);
-        } else {
-            # FIXME maybe:
-            # ok we have a diff. But maybe the dumps of the second and third server are equal
-            # and than we could remove one.
+            if ($final_result == STATUS_OK) {
+                # In case we have no diffs than even the dump of the first server is no more needed.
+                say("INFO: No differences between the SQL dumps of the servers detected.");
+                say("DEBUG: Deleting the dump file of $first_server.");
+                unlink($dump_files[$first_server_num]);
+            } else {
+                # FIXME maybe:
+                # ok we have a diff. But maybe the dumps of the second and third server are equal
+                # and than we could remove one.
+            }
         }
     }
 }
@@ -1876,6 +1909,55 @@ exit_test($final_result);
 
 exit;
 
+sub checkServers {
+    my $current_status = shift;
+    my $who_am_i =       Basics::who_am_i;
+
+    Carp::cluck("ERROR: \$current_status is not defined.") if not defined $current_status;
+
+    # Catch if some server is no more operable.
+    # -----------------------------------------
+    # In case of $current_status in (STATUS_SERVER_CRASHED, STATUS_CRITICAL_FAILURE) give the
+    # corresponding servers more time to finish the crash.
+    if (STATUS_SERVER_CRASHED == $current_status or STATUS_CRITICAL_FAILURE == $current_status) {
+        sleep 10;
+    }
+    my $server_num = 0;
+    foreach my $srv (@server) {
+        $server_num++;
+        if (not defined $srv) {
+            say("DEBUG: $who_am_i server[$server_num] is not defined.");
+            next;
+        }
+        my $status = $srv->server_is_operable;
+        # Returns:
+        # - STATUS_OK                    (DB process running + server connectable)
+        # - STATUS_SERVER_DEADLOCKED     (DB process running + server not connectable)
+        # - If DB process not running --> make_backtrace returns --> take that return
+        #   - STATUS_SERVER_CRASHED      (no internal problems)
+        #   - STATUS_ENVIRONMENT_FAILURE (internal error)
+        #   - STATUS_INTERNAL_ERROR      (internal error)
+        #   - STATUS_CRITICAL_FAILURE    (waitForServerToStop failed)
+        if (STATUS_OK != $status) {
+            say("ERROR: $who_am_i server_is_operable reported for server[$server_num] " .
+                "status $status");
+            if ($status > $current_status) {
+                say("ERROR: $who_am_i Raising current_status from $current_status to $status");
+                $current_status = $status;
+            }
+        }
+    }
+    if ($current_status >= STATUS_CRITICAL_FAILURE) {
+        exit_test($current_status);
+    }
+    if ($current_status > STATUS_OK) {
+        say("ERROR: $who_am_i Will return status " . status2text($final_result) .
+            "($final_result) because of previous errors.");
+    }
+    return $current_status;
+
+} # End of sub checkServers
+
 
 
 sub stopServers {
@@ -1885,18 +1967,19 @@ sub stopServers {
     # STATUS_OK     | DBServer_e::MySQL::ReplMySQLd::stopServer will call waitForSlaveSync
     # != STATUS_OK  | no call of waitForSlaveSync
     #
-    my $status = shift;
+    my $status =   shift;
+    my $who_am_i = Basics::who_am_i;
 
-    say("DEBUG: rqg.pl: Entering stopServers with assigned status $status");
+    say("DEBUG: $who_am_i Entering stopServers with assigned status $status");
 
     if ($skip_shutdown) {
-        say("Server shutdown is skipped upon request");
+        say("INFO: $who_am_i Server shutdown is skipped upon request");
         return STATUS_OK;
     }
     # For experimenting
     # system("killall -11 mysqld mariadbd");
     my $ret = STATUS_OK;
-    say("Stopping server(s)...");
+    say("INFO: $who_am_i Stopping server(s)...");
     if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
         ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
         ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)            or
@@ -1911,11 +1994,17 @@ sub stopServers {
             $ret = STATUS_OK;
         }
     } else {
+        my $server_num = 0;
         foreach my $srv (@server) {
-            if ($srv) {
+            $server_num++;
+            if (not defined $srv) {
+                say("DEBUG: $who_am_i server[$server_num] is not defined.");
+                next;
+            } else {
                 my $single_ret = $srv->stopServer;
                 if (not defined $single_ret) {
-                    say("ALARM: \$single_ret is not defined.");
+                    say("ALARM: $who_am_i The return for stopping server[$server_num] " .
+                        "is not defined.");
                 } else {
                     $ret = $single_ret if $single_ret != STATUS_OK;
                 }
@@ -1923,7 +2012,7 @@ sub stopServers {
         }
     }
     if ($ret != STATUS_OK) {
-        say("DEBUG: stopServers(rqg.pl) returned status $ret");
+        say("DEBUG: $who_am_i returned status $ret");
     }
     return $ret;
 }
@@ -1939,8 +2028,9 @@ sub killServers {
 #     Negative example:
 #     We run under "rr", found a data corruption, emit SIGKILL and get a rotten trace.
     my ($silent) = @_;
+    my $who_am_i = Basics::who_am_i;
 
-    say("Killing server(s)...");
+    say("INFO: $who_am_i Killing server(s)...");
     my $ret;
     if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
         ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
@@ -1966,8 +2056,13 @@ sub killServers {
         }
     } else {
         $ret = STATUS_OK;
+        my $server_num = 0;
         foreach my $srv (@server) {
-            if ($srv) {
+            $server_num++;
+            if (not defined $srv) {
+                say("DEBUG: $who_am_i server[$server_num] is not defined.");
+                next;
+            } else {
                 my $single_ret = STATUS_OK;
                 if ($rr_rules) {
                     $single_ret = $srv->killServer($silent);
@@ -1976,7 +2071,8 @@ sub killServers {
                     $single_ret = $srv->killServer($silent);
                 }
                 if (not defined $single_ret) {
-                    say("ALARM: \$single_ret is not defined.");
+                    say("ALARM: $who_am_i The return for stopping server[$server_num] " .
+                        "is not defined.");
                     $ret = STATUS_FAILURE;
                 } else {
                     $ret = $single_ret if $single_ret != STATUS_OK;
@@ -1985,7 +2081,7 @@ sub killServers {
         }
     }
     if ($ret != STATUS_OK) {
-        say("DEBUG: killServers in rqg.pl failed with : ret : $ret");
+        say("DEBUG: $who_am_i failed with : ret : $ret");
     }
 }
 
@@ -2016,17 +2112,17 @@ sub help1 {
                      rqg.pl and components used calculate such paths and names.
                      They either win or the RQG run ends in a disaster.
 
-    basedir<m> : Specifies the base directory (== directory with binaries) for the m'th server.
-                 If (not defined basedir<m>) then
-                     basedir<m> = basedir
-                 fi
-    basedir    : Base directory for any server n if basedir<n> is not specified..
+    basedir    : Base directory (== directory with binaries) for any server n if basedir<n> is not specified..
                  If (not defined basedir) then
                      If (defined basedir1) then
                          basedir = basedir1
                      else
                          abort
                      fi
+                 fi
+    basedir<m> : Specifies the base directory for the m'th server.
+                 If (not defined basedir<m>) then
+                     basedir<m> = basedir
                  fi
 
 EOF
