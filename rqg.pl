@@ -29,7 +29,7 @@
 # has configuration data in server[0] and uses mysqld_options[1], basedirs[1], vardirs[1], dsns[0] ...
 #
 # basedirs[0], mysqld_options[0], ... have a semantic which is not specific to one server at
-# all get used like
+# all and get used like
 # if (not defined mysqld_options[1]) {
 #     mysqld_options[1] = mysqld_options[0];
 # } else {
@@ -121,19 +121,23 @@ my $user     = 'root';
 my @dsns;    # To be filled around starting the servers.
 my @server;  # To be filled around starting the servers
 
-my (@basedirs, @mysqld_options, @vardirs, $dbdir_type, $vardir_type, $rpl_mode, $major_runid, $minor_runid,
-    $batch,
-    @engine, $help, $help_dbdir_type, $help_sqltrace, $help_rr, $debug, @validators, @reporters, @transformers,
-    $grammar_file, $skip_recursive_rules,
-    @redefine_files, $seed, $mask, $mask_level, $rows,
-    $varchar_len, $valgrind, $valgrind_options, @vcols, @views,
-    $start_dirty, $filter, $build_thread, $sqltrace,
-    $notnull, $logfile, $querytimeout, $no_mask,
-    $short_column_names, $strict_fields, $freeze_time, $wait_debugger,
-    $skip_gendata, $skip_shutdown, $galera, $use_gtid, $annotate_rules,
-    $restart_timeout, $gendata_advanced, $scenario, $upgrade_test,
-    $ps_protocol, @gendata_sql_files, $gendata_dump, $config_file,
-    $workdir, $queries, $script_debug_value, $rr, $rr_options, $max_gd_duration,
+my (@basedirs, @mysqld_options, @vardirs, @engine, @vcols, @views,
+    $dbdir_type, $vardir_type, $rpl_mode, $major_runid, $minor_runid, $batch,
+    $help, $help_dbdir_type, $help_sqltrace, $help_rr, $debug,
+    @validators, @reporters, @transformers, $filter,
+    $gendata_advanced, $skip_gendata, @gendata_sql_files, $grammar_file, @redefine_files,
+    $seed, $mask, $mask_level, $no_mask, $skip_recursive_rules,
+    $rows, $queries, $ps_protocol, $sqltrace,
+    $varchar_len, $notnull, $short_column_names, $strict_fields,
+    $max_gd_duration,
+    $valgrind, $valgrind_options, $rr, $rr_options, $wait_debugger,
+    $start_dirty, $build_thread,
+    $logfile, $querytimeout,
+    $freeze_time,
+    $skip_shutdown, $galera, $use_gtid, $annotate_rules,
+    $restart_timeout, $scenario, $upgrade_test,
+    $gendata_dump, $config_file,
+    $workdir, $script_debug_value,
     $options);
 
 my $gendata   = ''; ## default simple gendata
@@ -169,7 +173,7 @@ my $opt_result = {};
 
 if (not GetOptions(
     $opt_result,
-#   'workdir:s'                   => \$workdir,
+#   'workdir:s'                   => \$workdir,    # Computed by lib/Local.pm etc.
     'major_runid:s'               => \$major_runid,
     'minor_runid:s'               => \$minor_runid,
     'batch'                       => \$batch,
@@ -910,8 +914,8 @@ if ($genconfig) {
 my $hash_ref;
 my $element_path;
 
-$hash_ref =   Auxiliary::unify_rvt_array(\@validators);
-@validators = sort keys %{$hash_ref};
+$hash_ref =     Auxiliary::unify_rvt_array(\@validators);
+@validators =   sort keys %{$hash_ref};
 $element_path = $rqg_home . "/lib/GenTest_e/Validator/";
 foreach my $element (@validators) {
     next if "None" eq $element;
@@ -922,8 +926,8 @@ foreach my $element (@validators) {
         run_end($status);
     }
 }
-$hash_ref =  Auxiliary::unify_rvt_array(\@reporters);
-@reporters = sort keys %{$hash_ref};
+$hash_ref =     Auxiliary::unify_rvt_array(\@reporters);
+@reporters =    sort keys %{$hash_ref};
 $element_path = $rqg_home . "/lib/GenTest_e/Reporter/";
 foreach my $element (@reporters) {
     next if "None" eq $element;
@@ -2096,9 +2100,9 @@ sub help1 {
                 fi
     mysqld<m> : Options to be set for the m'th server in addition to what is in mysqld.
                 If (not defined mysqld<m>) then
-                    mysqld<m> = mysqld
+                    (effective) mysqld<m> = mysqld
                 else
-                    mysqld<m> = mysqld , mysqld<m>
+                    (effective) mysqld<m> = mysqld , mysqld<m>
                 fi
                 In case of multiple settings of one option than the last wins.
                 Example:
@@ -2122,7 +2126,7 @@ sub help1 {
                  fi
     basedir<m> : Specifies the base directory for the m'th server.
                  If (not defined basedir<m>) then
-                     basedir<m> = basedir
+                     (effective) basedir<m> = basedir
                  fi
 
 EOF
@@ -2282,7 +2286,7 @@ sub run_end {
     say($summary);
     # $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_COMPLETE);
     # There might be failures in the process handling of the RQG mechanics.
-    # So better try to kill all left over processes having the same process group
+    # So better try to kill all left over processes being in the same process group
     # but not the current process.
     kill '-9', $$;
     Auxiliary::reapChildren;
