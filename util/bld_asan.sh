@@ -84,9 +84,9 @@ START_TS=`date '+%s'`
 # immediately saw some PFS code.
 cmake -DCONC_WITH_{UNITTEST,SSL}=OFF -DWITH_EMBEDDED_SERVER=OFF -DWITH_UNIT_TESTS=OFF              \
 -DWITH_WSREP=ON                                                                                    \
--DUNIV_ZIP_DEBUG=ON                                                                                \
--DPLUGIN_{ARCHIVE,TOKUDB,MROONGA,OQGRAPH,ROCKSDB,CONNECT,SPIDER,SPHINX,COLUMNSTORE,PERFSCHEMA}=NO  \
+-DPLUGIN_{ARCHIVE,TOKUDB,MROONGA,OQGRAPH,ROCKSDB,CONNECT,SPIDER,SPHINX,COLUMNSTORE,PERFSCHEMA,XPAND}=NO  \
 -DWITH_SAFEMALLOC=OFF -DWITH_SSL=system                                                            \
+-DUNIV_ZIP_DEBUG=ON                                                                                \
 -DWITH_DBUG_TRACE=OFF                                                                              \
 -DCMAKE_BUILD_TYPE=Debug                                                                           \
 -DWITH_ASAN=ON                                                                                     \
