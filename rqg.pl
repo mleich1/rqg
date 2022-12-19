@@ -1829,7 +1829,7 @@ if (($final_result == STATUS_OK)                         and
                     if ($diff == STATUS_OK) {
                         say("INFO: No differences were found between $first_server and $other_server.");
                         # Make free space as soon ass possible.
-                        say("DEBUG: Deleting the dump file of $other_server.");
+                        # say("DEBUG: Deleting the dump file of $other_server.");
                         unlink($dump_files[$server_num]);
                     } else {
                         say("ERROR: Found differences between $first_server and $other_server. " .
@@ -1842,7 +1842,7 @@ if (($final_result == STATUS_OK)                         and
             if ($final_result == STATUS_OK) {
                 # In case we have no diffs than even the dump of the first server is no more needed.
                 say("INFO: No differences between the SQL dumps of the servers detected.");
-                say("DEBUG: Deleting the dump file of $first_server.");
+                # say("DEBUG: Deleting the dump file of $first_server.");
                 unlink($dump_files[$first_server_num]);
             } else {
                 # FIXME maybe:

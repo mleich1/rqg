@@ -85,43 +85,8 @@ sub new {
     my $self = $class->SUPER::new({
         'config' => GT_CONFIG}, @_);
 
-    # Reporters get used
-    # - immediate after gendata steps if needed (server not reponding or similar)
-    # - during gentest if assigned or after gentest if needed (server not reponding or similar)
-    if ($self->config->reporters and not ref $self->config->reporters eq 'ARRAY') {
-        $self->config->reporters([ split /,/, $self->config->reporters ]);
-    }
-    # Validators get used during gentest if assigned
-    if ($self->config->validators and not ref $self->config->validators eq 'ARRAY') {
-        $self->config->validators([ split /,/, $self->config->validators ]);
-    }
-    # Transformers get used during gentest if assigned
-    if ($self->config->transformers and not ref $self->config->transformers eq 'ARRAY') {
-        $self->config->transformers([ split /,/, $self->config->transformers ]);
-    }
-    if ($self->config->redefine and not ref $self->config->redefine eq 'ARRAY') {
-        $self->config->redefine([ split /,/, $self->config->redefine ]);
-    }
-    if ($self->config->engine and not ref $self->config->engine eq 'ARRAY') {
-        $self->config->engine([ split /,/, $self->config->engine ]);
-    }
-    if ($self->config->dsn and not ref $self->config->dsn eq 'ARRAY') {
-        $self->config->dsn([ split /,/, $self->config->dsn ]);
-    }
-    if ($self->config->vcols and not ref $self->config->vcols eq 'ARRAY') {
-        $self->config->vcols([ split /,/, $self->config->vcols ]);
-    }
-    if ($self->config->views and not ref $self->config->views eq 'ARRAY') {
-        $self->config->views([ split /,/, $self->config->views ]);
-    }
-    if ($self->config->servers and not ref $self->config->servers eq 'ARRAY') {
-        $self->config->servers([ split /,/, $self->config->servers ]);
-    }
-
-    # Initialize the reporters now because
-    # - running parts of Gendata/GenTest_e with success but failing later because of defect or missing
-    #   reporters is wasting of resources at runtime
-    # - at least the reporter Backtrace is useful when hitting trouble in Gendata
+    # Initialize the reporters now because running Gendata and a bit of GenTest_e before failing
+    # because of defect or missing reporters is wasting of resources at runtime
     my $status = $self->initReporters;
     if (STATUS_OK != $status) {
         say("ERROR: GenTest_e: initReporters returned status $status. Will return undef.");
@@ -197,12 +162,12 @@ sub do_init {
         $SIG{CHLD} = "IGNORE" if osWindows();
         $SIG{INT}  = "IGNORE";
 
-        # FIXME:
-        # Why do we fiddle here again with RQG_HOME?
-        # Is there a risk to pull RQG components out of the wrong RQG universe?
-        if (defined $ENV{RQG_HOME}) {
-            $ENV{RQG_HOME} = osWindows() ? $ENV{RQG_HOME}.'\\' : $ENV{RQG_HOME}.'/';
-        }
+#       # FIXME:
+#       # Why do we fiddle here again with RQG_HOME?
+#       # Is there a risk to pull RQG components out of the wrong RQG universe?
+#       if (defined $ENV{RQG_HOME}) {
+#           $ENV{RQG_HOME} = osWindows() ? $ENV{RQG_HOME}.'\\' : $ENV{RQG_HOME}.'/';
+#       }
 
         $ENV{RQG_DEBUG} = 1 if $self->config->debug;
 
@@ -259,7 +224,7 @@ sub doGenTest {
     # Observation 2020-07:
     # This might last quite long on some heavy loaded box.
     # Hence we do it now before computing when worker threads should start their activity.
-    my @log_files_to_report;
+#   my @log_files_to_report;
     foreach my $i (0..2) {
         # FIXME:
         # IMHO MetaDataCaching for different servers is questionable.
@@ -277,7 +242,7 @@ sub doGenTest {
         }
         next if $self->config->dsn->[$i] !~ m{mysql}sio;
         my $metadata_executor = GenTest_e::Executor->newFromDSN($self->config->dsn->[$i],
-                                                              osWindows() ? undef : $self->channel());
+                                                            osWindows() ? undef : $self->channel());
         $metadata_executor->setId($i + 1);
         $metadata_executor->setRole("MetaDataCacher");
         $metadata_executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_CACHER);
@@ -310,27 +275,13 @@ sub doGenTest {
         # - also write the sql trace.
 
         # For experimenting:
-        # system ("killall -9 mysqld mariadbd");
-        # sleep 5;
+        # system ("killall -9 mysqld mariadbd; sleep 5");
         my $datadir_result = $metadata_executor->execute($query);
         $status = $datadir_result->status;
         last if $status != STATUS_OK;
 
-#       # Guessing the error log file name relative to datadir (lacking safer methods).
         my $errorlog = $datadir_result->data()->[0]->[1] . "/mysql.err";
-#       foreach my $errorlog_path (
-#           "../log/master.err",  # MTRv1 regular layout
-#           "../log/mysqld1.err", # MTRv2 regular layout
-#           "../mysql.err"        # DBServer::MySQL layout
-#       ) {
-#           my $possible_path = File::Spec->catfile($datadir_result->data()->[0]->[1],
-#                                                   $errorlog_path);
-#           if (-e $possible_path) {
-#               $errorlog = $possible_path;
-#               last;
-#           }
-#       }
-        push(@log_files_to_report, $errorlog) if defined $errorlog;
+#       push(@log_files_to_report, $errorlog);
 
         $metadata_executor->disconnect();
         undef $metadata_executor;
@@ -390,7 +341,7 @@ sub doGenTest {
             join("<->", @{$self->config->transformers}) . "<-");
     }
 
-    $self->[GT_LOG_FILES_TO_REPORT] = \@log_files_to_report;
+#   $self->[GT_LOG_FILES_TO_REPORT] = \@log_files_to_report;
 
     # FIXME: Support multiple filter files.
     if (defined $self->config->filter) {
@@ -416,8 +367,7 @@ sub doGenTest {
     }
 
     # For experimenting:
-    # system ("killall -9 mysqld mariadbd");
-    # sleep 5;
+    # system ("killall -9 mysqld mariadbd; sleep 5");
     my $reporter_pid = $self->reportingProcess();
 
     ### Start worker children ###
@@ -874,8 +824,8 @@ sub workerProcess {
     );
 
     if (not defined $mixer) {
-        sayError("GenTest_e failed to create a Mixer for $worker_role. " .
-                 "Status will be set to ENVIRONMENT_FAILURE");
+        say("ERROR: GenTest_e failed to create a Mixer for $worker_role. " .
+            "Status will be set to ENVIRONMENT_FAILURE");
         # Hint: stopChild exits
         $self->stopChild(STATUS_ENVIRONMENT_FAILURE);
     }
@@ -891,7 +841,7 @@ sub workerProcess {
       $worker_result = $query_result if $query_result > $worker_result && $query_result > STATUS_TEST_FAILURE;
 
       if ($query_result >= STATUS_CRITICAL_FAILURE) {
-         say("GenTest_e: Server crash or critical failure (" . status2text($query_result) .
+         say("ERROR: GenTest_e: Server crash or critical failure (" . status2text($query_result) .
              ") was reported.\n" .
              "         The child process for $worker_role will be stopped.");
          undef $mixer;   # so that destructors are called
@@ -1185,9 +1135,9 @@ sub initReporters {
     my $self = shift;
 
     # Initialize the array to avoid further checks on its existence
-    if (not defined $self->config->reporters or $#{$self->config->reporters} < 0) {
-        $self->config->reporters([]);
-    }
+#   if (not defined $self->config->reporters or $#{$self->config->reporters} < 0) {
+#       $self->config->reporters([]);
+#   }
     my $hash_ref =       Auxiliary::unify_rvt_array($self->config->reporters);
     my %reporter_hash  = %{$hash_ref};
 
@@ -1208,22 +1158,26 @@ sub initReporters {
         if ($self->isMySQLCompatible()) {
             $reporter_hash{'ErrorLog'}   = 1;
             $reporter_hash{'Backtrace'}  = 1;
-            my $rpl_mode = $self->config->rpl_mode;
-            if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
-                ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
-                ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)            or
-                ($rpl_mode eq Auxiliary::RQG_RPL_MIXED_NOSYNC)     or
-                ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
-                ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         ) {
-                # We run MariaDB/MySQL replication.
-                $reporter_hash{'ReplicationSlaveStatus'} = 1;
-                if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT) or
-                    ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)     or
-                    ($rpl_mode eq Auxiliary::RQG_RPL_ROW)         ) {
-                    # Its synchronous replication.
-                    $reporter_hash{'ReplicationConsistency'} = 1;
-                }
-            }
+        # The rqg runner rqg.pl performs after GenTest some corresponding comparison.
+        # So there is no need to use the reporter 'ReplicationConsistency' at all.
+        # In addition that reporter is quite weak regarding failures.
+        #
+        #   my $rpl_mode = $self->config->rpl_mode;
+        #   if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
+        #       ($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT_NOSYNC) or
+        #       ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)            or
+        #       ($rpl_mode eq Auxiliary::RQG_RPL_MIXED_NOSYNC)     or
+        #       ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
+        #       ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         ) {
+        #       # We run MariaDB/MySQL replication.
+        #       $reporter_hash{'ReplicationSlaveStatus'} = 1;
+        #       if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT) or
+        #           ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)     or
+        #           ($rpl_mode eq Auxiliary::RQG_RPL_ROW)         ) {
+        #           # Its synchronous replication.
+        #           $reporter_hash{'ReplicationConsistency'} = 1;
+        #       }
+        #   }
         }
         if ($self->config->property('upgrade-test') and
             $self->config->property('upgrade-test') =~ /undo/) {

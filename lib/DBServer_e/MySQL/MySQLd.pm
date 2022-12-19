@@ -2707,7 +2707,6 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
     my $server_name =   "server[" . $server_id . "]";
     $who_am_i .=        " $server_name ";
 
-
     if (not $self->running) {
         my $pid = $self->serverpid;
         $pid = "<unknown>" if not defined $pid;
