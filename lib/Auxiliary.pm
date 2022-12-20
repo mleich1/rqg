@@ -1568,7 +1568,7 @@ sub measure_space_consumption {
         say("WARNING: '$cmd' exited with value " . ($? >> 8));
         return -1;
     } else {
-        say("DEBUG: '$cmd' exited with value " . ($? >> 8));
+        # say("DEBUG: '$cmd' exited with value " . ($? >> 8));
         chomp $return; # Remove the '\n' at end.
         return $return;
     }

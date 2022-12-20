@@ -44,7 +44,7 @@ fi
 
 SQL_GRAMMAR="conf/mariadb/table_stress.sql"
 ZZ_GRAMMAR="conf/mariadb/table_stress.zz"
-YY_GRAMMAR="conf/mariadb/table_stress.yy"
+YY_GRAMMAR="conf/mariadb/table_stress_innodb_basic.yy"
 
 export ASAN_OPTIONS=abort_on_error=1,disable_coredump=0
 
@@ -77,6 +77,7 @@ then
    exit
 fi
 
+echo -e "$0: End of preparations. Will now start the test.\n\n"
 perl -w ./rqg.pl                                                                              \
 --minor_runid=SINGLE_RUN                                                                      \
 --seed=random                                                                                 \
