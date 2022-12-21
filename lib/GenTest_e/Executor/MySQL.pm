@@ -125,16 +125,16 @@ use constant SLAVE_INFO_HOST => 1;
 use constant SLAVE_INFO_PORT => 2;
 
 #
-# MySQL error codes
+# Error codes
 #
 
 use constant  ER_OUTOFMEMORY2                                   => 5;    # returned by some storage engines
-use constant  ER_CRASHED1                                       => 126;
-use constant  ER_CRASHED2                                       => 145;
-use constant  ER_AUTOINCREMENT                                  => 167;
-use constant  ER_INCOMPATIBLE_FRM                               => 190;
+use constant  ER_CRASHED1                                       => 126;  # Index is corrupted
+use constant  ER_CRASHED2                                       => 145;  # Table was marked as crashed and should be repaired
+use constant  ER_AUTOINCREMENT                                  => 167;  # Failed to set row auto increment value
+use constant  ER_INCOMPATIBLE_FRM                               => 190;  # Incompatible key or row definition between the MariaDB .frm file and the information in the storage engine
 
-use constant  ER_CANT_CREATE_TABLE                              => 1005;
+use constant  ER_CANT_CREATE_TABLE                              => 1005; # Can't create table %`s.%`s (errno: %M)
 use constant  ER_DB_CREATE_EXISTS                               => 1007;
 use constant  ER_DB_DROP_EXISTS                                 => 1008;
 use constant  ER_CANT_LOCK                                      => 1015;
@@ -861,8 +861,6 @@ my $first_connect = 1;
 sub get_connection {
     my $executor = shift;
 
-    # init_sqltracing($executor->sqltrace);
-
     my $who_am_i = "GenTest_e::Executor::MySQL::get_connection:";
     my $status =   STATUS_OK;
     # We need the $executor->role as important detail for messages.
@@ -1318,7 +1316,8 @@ sub execute {
 
     if (not defined $sth) {            # Error on PREPARE
         my $errstr_prepare = $executor->normalizeError($dbh->errstr());
-        $executor->[EXECUTOR_ERROR_COUNTS]->{$errstr_prepare}++ if not ($execution_flags & EXECUTOR_FLAG_SILENT);
+        $executor->[EXECUTOR_ERROR_COUNTS]->{$errstr_prepare}++
+            if not ($execution_flags & EXECUTOR_FLAG_SILENT);
         return GenTest_e::Result->new(
             query       => $query,
             status      => $err2type{$dbh->err()} || STATUS_UNKNOWN_ERROR,
@@ -1334,9 +1333,9 @@ sub execute {
 
     ######## HERE THE QUERY GETS SENT TO THE SERVER ?? ########
     my $affected_rows =  $sth->execute();
-       # In case the RQG log contains a
-       # DBD::mysql::st execute warning:  at /data/RQG_mleich1/lib/GenTest_e/Executor/MySQL.pm line 1321, <CONF> line 72
-       # than we have lost the connection and tried to execute a statement.
+    # In case the RQG log contains a
+    # DBD::mysql::st execute warning:  at /data/RQG_mleich1/lib/GenTest_e/Executor/MySQL.pm line 1321, <CONF> line 72
+    # than we have lost the connection and tried to execute a statement.
     my $end_time =       Time::HiRes::time();
     my $execution_time = $end_time - $start_time;
 
@@ -1854,9 +1853,7 @@ sub explain {
 
    while (my $explain_row = $sth_output->fetchrow_hashref()) {
       push @explain_fragments, "select_type: " . ($explain_row->{select_type} || '(empty)');
-
       push @explain_fragments, "type: " . ($explain_row->{type} || '(empty)');
-
       push @explain_fragments, "partitions: " . $explain_row->{table} . ":" . $explain_row->{partitions} if defined $explain_row->{partitions};
 
       push @explain_fragments, "ref: " . ($explain_row->{ref} || '(empty)');
