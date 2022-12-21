@@ -30,6 +30,7 @@ require Exporter;
 
    STATUS_OK
    STATUS_FAILURE
+   STATUS_CONFIGURATION_ERROR
    STATUS_INTERNAL_ERROR
    STATUS_UNKNOWN_ERROR
    STATUS_ANY_ERROR
@@ -102,8 +103,6 @@ use constant STATUS_PREFIX                     => 'RESULT: The RQG run ended wit
 
 use constant STATUS_OK                         => 0;    # Suitable for exit code
 use constant STATUS_FAILURE                    => 1;    # Used as opposite of STATUS_OK by certain routines
-use constant STATUS_INTERNAL_ERROR             => 200;  # Apparently seen with certain Perl coding errors; check RQG log carefully for exact error
-                                                        # This was in history '1'. But its a very critical failure and must serious attention.
 use constant STATUS_UNKNOWN_ERROR              => 2;
 
 use constant STATUS_ANY_ERROR                  => 3;    # Used in util/simplify* to not differentiate based on error code
@@ -134,16 +133,25 @@ use constant STATUS_ERROR_MISMATCH             => 31;   # A DML statement caused
 use constant STATUS_LENGTH_MISMATCH            => 32;   # because the databases are in an unknown inconsistent state
 use constant STATUS_CONTENT_MISMATCH           => 33;   #
 
+use constant STATUS_CUSTOM_OUTCOME             => 36;   # Used for things such as signaling an EXPLAIN hit from the ExplainMatch Validator
+
 use constant STATUS_POSSIBLE_FAILURE           => 60;
 
-# Higher-priority errors
+# Higher-priority errors --------------------------------------------------------------------------#
 
-use constant STATUS_CRITICAL_FAILURE           => 100;  # Boundary between critical and non-critical errors
+# STATUS_CRITICAL_FAILURE(100) is the Boundary between critical and non-critical errors.
+# Setting STATUS_CRITICAL_FAILURE in some RQG component
+# - "means"
+#   The situation met is critical but the component does not feel capable to give some sufficient
+#   detailed or sufficient reliable status. like for example STATUS_SERVER_CRASHED.
+#   Example: Getting no connection does not imply that the server must have crashed.
+# - should lead to calling other RQG components which might "feel" more capable to deliver some
+#   more detailed and reliable status.
+#   Possible outcomes:
+#   - downsizing of the status to non critical --> in most cases the test goes on
+#   - change to some other critical status or not --> in nearly most cases the test aborts
+use constant STATUS_CRITICAL_FAILURE           => 100;
 
-use constant STATUS_ENVIRONMENT_FAILURE        => 110;  # A failure in the environment or the grammar file
-use constant STATUS_PERL_FAILURE               => 255;  # Perl died for some reason
-
-use constant STATUS_CUSTOM_OUTCOME             => 36;   # Used for things such as signaling an EXPLAIN hit from the ExplainMatch Validator
 
 use constant STATUS_SERVER_CRASHED             => 101;
 
@@ -156,11 +164,24 @@ use constant STATUS_DATABASE_CORRUPTION        => 106;
 use constant STATUS_SERVER_DEADLOCKED          => 107;
 use constant STATUS_BACKUP_FAILURE             => 108;
 use constant STATUS_VALGRIND_FAILURE           => 109;
-use constant STATUS_ALARM                      => 110; # A module, e.g. a Reporter, raises an alarm with critical severity
+use constant STATUS_ENVIRONMENT_FAILURE        => 110; # A failure in the environment or the grammar file
+use constant STATUS_ALARM                      => 111; # A module, e.g. a Reporter, raises an alarm with critical severity
 
 use constant STATUS_RSS_DOUBLED                => 120; # Reporter ServerMem raises an alarm with critical severity
                                                        # The existence and also the name of this status is not yet decided.
                                                        # So it might get renamed or disappear in some later RQG version.
+
+# Use STATUS_CONFIGURATION_ERROR in case the configuration is obvious wrong.
+# Please do not use it in case the situation became bad during test runtime.
+use constant STATUS_CONFIGURATION_ERROR        => 199;
+
+# Use STATUS_INTERNAL_ERROR in case you assume that RQG code is obvious wrong like a sub gets
+# called with less or more parameters than needed or a value is undef though it shouldn't.
+# Please do not use it in case some configuration is obvious wrong.
+# This was in history '1'.
+use constant STATUS_INTERNAL_ERROR             => 200;
+
+use constant STATUS_PERL_FAILURE               => 255;  # Perl died for some reason
 
 use constant ORACLE_ISSUE_STILL_REPEATABLE     => 2;
 use constant ORACLE_ISSUE_NO_LONGER_REPEATABLE => 3;
@@ -175,11 +196,10 @@ use constant DB_DRIZZLE                        => 5;
 
 # Original code
 # use constant DEFAULT_MTR_BUILD_THREAD          => 930; ## Legacy...
-# On extreme testing boxes (temporary more than 200 RQG runner) than ports > 32000 get computed.
+# On extreme testing boxes (temporary more than 200 RQG runner) ports > 32000 might get computed.
 # And they tend to be sometimes already occupied by whatever.
 # The critical ones start around build_thread > ~ 1140
 use constant DEFAULT_MTR_BUILD_THREAD          => 730;
-
 
 #
 # The part below deals with constant value to constant name conversions
