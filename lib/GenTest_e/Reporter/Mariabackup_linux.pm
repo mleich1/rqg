@@ -205,7 +205,7 @@ sub monitor {
 
     # FIXME: Do we really need all this?
     my $dsn             = $reporter->dsn();
-    my $binary          = $reporter->serverInfo('binary');
+#   my $binary          = $reporter->serverInfo('binary');
 
     my $lc_messages_dir = $reporter->serverVariable('lc_messages_dir');
     my $datadir         = $reporter->serverVariable('datadir');
