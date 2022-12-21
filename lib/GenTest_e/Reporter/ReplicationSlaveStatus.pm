@@ -87,12 +87,14 @@ use DBServer_e::MySQL::MySQLd;
 # Slave_Non_Transactional_Groups       1
 # Slave_Transactional_Groups       0
 
+use constant MASTER_LOG_FILE                =>  5;
 use constant SLAVE_STATUS_LAST_ERRNO        => 19;
 use constant SLAVE_STATUS_LAST_ERROR        => 20;
 use constant SLAVE_STATUS_LAST_IO_ERRNO     => 34;
 use constant SLAVE_STATUS_LAST_IO_ERROR     => 35;
 use constant SLAVE_STATUS_LAST_SQL_ERRNO    => 36;
 use constant SLAVE_STATUS_LAST_SQL_ERROR    => 37;
+use constant MASTER_SERVER_ID               => 39;
 
 my $first_reporter;
 
@@ -130,7 +132,6 @@ sub status {
     $executor->setId(2);
     $executor->setRole("ReplicationSlaveStatus");
     $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_REPORTER);
-    $executor->sqltrace('MarkErrors');
     my $status = $executor->init();
     if ($status != STATUS_OK) {
         $executor->disconnect();
@@ -148,7 +149,7 @@ sub status {
         return $status;
     }
 
-    # system("kill -9 $pid; sleep 1") if not $first_connect;
+    # system("kill -9 $pid; sleep 5") if not $first_connect;
     my $query = "SHOW SLAVE STATUS";
     my $res = $executor->execute($query);
     $status = $res->status;
@@ -170,19 +171,23 @@ sub status {
         return $status;
     }
     $first_connect = 0;
-    # system("kill -9 $pid; sleep 1") if not $first_connect;
+    # system("kill -9 $pid; sleep 5") if not $first_connect;
     my $slave_status = $res->data;
 
     my @result_row_ref_array = @{$res->data};
     # system("kill -9 $pid; sleep 1") if not $first_connect;
     my @status_row = @{$result_row_ref_array[0]};
-    my $last_io_error  = $status_row[SLAVE_STATUS_LAST_IO_ERROR];
-    my $last_sql_error = $status_row[SLAVE_STATUS_LAST_SQL_ERROR];
-    my $last_error     = $status_row[SLAVE_STATUS_LAST_ERROR];
+
+    my $master_log_file = $status_row[MASTER_LOG_FILE];
+    my $last_io_error   = $status_row[SLAVE_STATUS_LAST_IO_ERROR];
+    my $last_sql_error  = $status_row[SLAVE_STATUS_LAST_SQL_ERROR];
+    my $last_error      = $status_row[SLAVE_STATUS_LAST_ERROR];
+    my $master_server_id= $status_row[MASTER_SERVER_ID];
     $executor->disconnect();
 
-    say("DEBUG: $who_am_i last_io_error ->" . $last_io_error . "<-, last_sql_error ->" .
-        $last_sql_error . "<-, last_error ->" . $last_error . "<-");
+#   say("DEBUG: $who_am_i master_log_file ->" . $master_log_file . "<-, last_io_error ->" .
+#       $last_io_error . "<-, last_sql_error ->" .  $last_sql_error . "<-, last_error ->" .
+#       $last_error . "<-, master_server_id ->" . $master_server_id . "<-");
 
     # Corrected for
     # 10.11 2022-12 $last_error is a string if defined
