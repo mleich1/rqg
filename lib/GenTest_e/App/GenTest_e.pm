@@ -211,9 +211,8 @@ sub run {
 
 sub doGenTest {
 
-    my $self = shift;
-
-    my $who_am_i = "doGenTest:";
+    my $self =     shift;
+    my $who_am_i = Basics::who_am_i;
 
     my $status;
 
@@ -873,9 +872,8 @@ sub workerProcess {
 } # End of sub workerProcess
 
 sub doGenData {
-    my $self = shift;
-
-    my $who_am_i = "GenTest_e::App::GenTest_e::doGenData:";
+    my $self =     shift;
+    my $who_am_i = Basics::who_am_i;
 
     $self->do_init();
     # Hint:
@@ -942,8 +940,7 @@ sub doGenData {
             # Do nothing
         } elsif ($self->config->gendata()) {
             # For experimenting:
-            # system("killall -9 mysqld mariadbd");
-            # sleep 5;
+            # system("killall -9 mysqld mariadbd; sleep 5");
             $gendata_result = GenTest_e::App::Gendata->new(
                spec_file            => $self->config->gendata,
                dsn                  => $dsn,
@@ -965,8 +962,7 @@ sub doGenData {
         last if STATUS_OK != $gendata_result;
 
         # For experimenting:
-        # system("killall -9 mysqld mariadbd");
-        # sleep 5;
+        # system("killall -9 mysqld mariadbd; sleep 5");
 
         if ( $self->config->gendata_sql ) {
             # $self->config->gendata_sql might be just a string containing one file name
@@ -983,7 +979,7 @@ sub doGenData {
             {
                if ( not -e $file ) {
                    $gendata_result = STATUS_ENVIRONMENT_FAILURE;
-                   say("ERROR: lib::GenTest_e::App::GenTest_e::doGenData : The SQL file '$file' " .
+                   say("ERROR: $who_am_i The SQL file '$file' " .
                        "does not exist.");
                    say("ERROR: " . Auxiliary::build_wrs($gendata_result));
                    last;
@@ -1013,7 +1009,7 @@ sub doGenData {
 
     $gendata_result = $self->check_for_crash($gendata_result);
 
-    say("DEBUG: End of GenData activity. Will return $gendata_result");
+    say("INFO: End of GenData activity. Will return $gendata_result");
     return $gendata_result;
 
 } # End of sub doGenData
@@ -1043,15 +1039,16 @@ sub initSeed {
 }
 
 sub initGenerator {
-    my $self = shift;
+    my $self =     shift;
+    my $who_am_i = Basics::who_am_i;
 
-    my $generator_name = "GenTest_e::Generator::".$self->config->generator;
-    say("Loading Generator '$generator_name'.") if rqg_debug();
+    my $generator_name = "GenTest_e::Generator::" . $self->config->generator;
+    say("INFO: $who_am_i Loading Generator '$generator_name'.") if rqg_debug();
     # For testing:
     # $generator_name = "Monkey";
     eval("use $generator_name");
     if ('' ne $@) {
-        say("ERROR: initGenerator : Loading Generator '$generator_name' failed : $@. Status will " .
+        say("ERROR: $who_am_i Loading Generator '$generator_name' failed : $@. Status will " .
             "be set to ENVIRONMENT_FAILURE");
         return STATUS_ENVIRONMENT_FAILURE;
     }
@@ -1063,8 +1060,8 @@ sub initGenerator {
 
     if ($generator_name eq 'GenTest_e::Generator::FromGrammar') {
         if (not defined $self->config->grammar) {
-            sayError("Grammar not specified but Generator is $generator_name, status will be " .
-                     "set to ENVIRONMENT_FAILURE");
+            say("ERROR: $who_am_i Grammar not specified but Generator is $generator_name, " .
+                "status will be set to ENVIRONMENT_FAILURE");
             return STATUS_ENVIRONMENT_FAILURE;
         }
 
@@ -1076,26 +1073,24 @@ sub initGenerator {
         ) if defined $self->config->grammar;
 
         if (not defined $self->grammar()) {
-            sayError("Could not initialize the grammar, status will be set to ENVIRONMENT_FAILURE");
+            say("ERROR: $who_am_i Could not initialize the grammar, status will be set to " .
+                "ENVIRONMENT_FAILURE");
             return STATUS_ENVIRONMENT_FAILURE;
         }
 
-        if (not defined $self->grammar()) {
-            sayError("Could not redefine the grammar, status will be set to ENVIRONMENT_FAILURE");
-            return STATUS_ENVIRONMENT_FAILURE;
-        }
     }
 
     $self->[GT_GENERATOR] = $generator_name->new(
-        grammar => $self->grammar(),
-        varchar_length => $self->config->property('varchar-length'),
-        mask => $self->config->mask,
-        mask_level => $self->config->property('mask-level'),
-        annotate_rules => $self->config->property('annotate-rules')
+        grammar         => $self->grammar(),
+        varchar_length  => $self->config->property('varchar-length'),
+        mask            => $self->config->mask,
+        mask_level      => $self->config->property('mask-level'),
+        annotate_rules  => $self->config->property('annotate-rules')
     );
 
     if (not defined $self->generator()) {
-        sayError("Could not initialize the generator, status will be set to ENVIRONMENT_FAILURE");
+        say("ERROR: $who_am_i Could not initialize the generator, status will be set to " .
+            "ENVIRONMENT_FAILURE");
         return STATUS_ENVIRONMENT_FAILURE;
     }
 }
@@ -1132,17 +1127,18 @@ sub initReporters {
 # I am looking for some better solution than the multiple inits.
 #
 
-    my $self = shift;
+    my $self =     shift;
+    my $who_am_i = Basics::who_am_i;
 
     # Initialize the array to avoid further checks on its existence
-#   if (not defined $self->config->reporters or $#{$self->config->reporters} < 0) {
-#       $self->config->reporters([]);
-#   }
+    if (not defined $self->config->reporters or $#{$self->config->reporters} < 0) {
+        $self->config->reporters([]);
+    }
     my $hash_ref =       Auxiliary::unify_rvt_array($self->config->reporters);
     my %reporter_hash  = %{$hash_ref};
 
     my @reporter_array = sort keys %reporter_hash;
-    say("DEBUG: GenTest_e::App::GenTest_e::initReporters: Reporters (before check_and_set): ->" .
+    say("DEBUG: $who_am_i Reporters (before check_and_set): ->" .
         join("<->", @reporter_array) . "<-") if $debug_here;
 
     # If one of the reporters is 'None' than don't add any reporters automatically.
@@ -1152,7 +1148,7 @@ sub initReporters {
     } else {
         $no_reporters = 0;
     }
-    say("DEBUG: GenTest_e::App::GenTest_e::initReporters: no_reporters : $no_reporters") if $debug_here;
+    say("DEBUG: $who_am_i no_reporters : $no_reporters") if $debug_here;
 
     if (not $no_reporters) {
         if ($self->isMySQLCompatible()) {
@@ -1186,15 +1182,16 @@ sub initReporters {
             $reporter_hash{'Upgrade'} = 1;
         } else {
             if (exists $reporter_hash{'Upgrade'}) {
-                say("WARNING: Upgrade reporter is requested, but --upgrade-test option is " .
-                        "not set, the behavior is undefined");
+                say("WARNING: $who_am_i Upgrade reporter is requested, but --upgrade-test option " .
+                    "is not set, the behavior is undefined");
             }
         }
         $reporter_hash{'None'} = 1;
     }
-    say("Reporters (for Simplifier): ->" . join("<->", sort keys %reporter_hash) . "<-");
+    say("INFO: $who_am_i Reporters (for Simplifier): ->" . join("<->", sort keys %reporter_hash) .
+        "<-");
     @{$self->config->reporters} = sort keys %reporter_hash;
-    say("DEBUG: GenTest_e::App::GenTest_e::initReporters: Reporters (after check_and_set): ->" .
+    say("DEBUG: $who_am_i Reporters (after check_and_set): ->" .
         join("<->", @{$self->config->reporters}) . "<-") if $debug_here;
 
     my $reporter_manager = GenTest_e::ReporterManager->new();
@@ -1223,15 +1220,17 @@ sub initReporters {
 }
 
 sub initValidators {
-    my $self = shift;
+    my $self =     shift;
+    my $who_am_i = Basics::who_am_i;
 
+    # Initialize the array to avoid further checks on its existence
     if (not defined $self->config->validators or $#{$self->config->validators} < 0) {
         $self->config->validators([]);
     }
     my $hash_ref =        Auxiliary::unify_rvt_array($self->config->validators);
     my %validator_hash  = %{$hash_ref};
     my @validator_array = sort keys %validator_hash;
-    say("DEBUG: GenTest_e::App::GenTest_e::initValidators: Validators (before check_and_set): ->" .
+    say("DEBUG: $who_am_i Validators (before check_and_set): ->" .
         join("<->", @validator_array) . "<-") if $debug_here;
 
     # If one of the validators is 'None' than don't add any validators automatically.
@@ -1241,7 +1240,7 @@ sub initValidators {
     } else {
         $no_validators = 0;
     }
-    say("DEBUG: GenTest_e::App::GenTest_e::initValidators: no_validators : $no_validators")
+    say("DEBUG: $who_am_i no_validators : $no_validators")
         if $debug_here;
 
     if (not $no_validators) {
@@ -1271,11 +1270,11 @@ sub initValidators {
     $hash_ref =             Auxiliary::unify_rvt_array($self->config->transformers);
     my %transformer_hash  = %{$hash_ref};
     my @transformer_array = sort keys %transformer_hash;
-    say("DEBUG: GenTest_e::App::GenTest_e::initValidators: Transformers (before check_and_set): ->" .
+    say("DEBUG: $who_am_i Transformers (before check_and_set): ->" .
         join("<->", @transformer_array) . "<-") if $debug_here;
 
     if (exists $transformer_hash{'None'}) {
-        say("ERROR: The Transformer 'None' is not supported in the current RQG core. Abort");
+        say("ERROR: $who_am_i The Transformer 'None' is not supported in the current RQG core. Abort");
         return STATUS_ENVIRONMENT_FAILURE;
     }
 
@@ -1293,10 +1292,10 @@ sub initValidators {
     }
 
     $validator_hash{'None'} = 1;
-    say("Validators (for Simplifier): ->" . join("<->", sort keys %validator_hash) . "<-");
+    say("INFO: $who_am_i Validators (for Simplifier): ->" . join("<->", sort keys %validator_hash) . "<-");
     delete $validator_hash{'None'};
     @{$self->config->validators} = sort keys %validator_hash;
-    say("DEBUG: GenTest_e::App::GenTest_e::initValidators: Validators (after check_and_set): ->" .
+    say("DEBUG: $who_am_i Validators (after check_and_set): ->" .
         join("<->", @{$self->config->validators}) . "<-") if $debug_here;
 
     # For testing/debugging
@@ -1333,8 +1332,8 @@ sub check_for_crash {
 # We just use for that existing and future reporters.
 #
     my ($self, $status) = @_;
+    my $who_am_i =        Basics::who_am_i;
 
-    my $who_am_i = "GenTest_e::GenTest_e::check_for_crash:";
     my $final_status =  STATUS_INTERNAL_ERROR;
     my $reporter_manager = $self->reporterManager();
     my @report_results;
