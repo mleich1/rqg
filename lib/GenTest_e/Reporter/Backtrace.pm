@@ -64,7 +64,6 @@ sub report {
 sub nativeReport {
     my $reporter = shift;
 
-
     say("INFO: $who_am_i ----- nativeReport ----------- Begin");
 
     my $datadir = $reporter->serverVariable('datadir');
