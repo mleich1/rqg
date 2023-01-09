@@ -1,4 +1,5 @@
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
+# Copyright (c) 2023 MariaDB PLC
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -1405,7 +1406,8 @@ sub get_job {
                         } elsif ($extra_order > $order_id) {
                             push @oid_list, $extra_order;
                         } else {
-                            # Do nothing.
+                            # 1. Do not pick that extra_order.
+                            # 2. No "next" -> get more variations
                         }
                         $oids_to_add--;
                     }
