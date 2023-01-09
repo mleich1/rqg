@@ -1,5 +1,6 @@
 # Copyright (c) 2008,2010 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2020,2022 MariaDB Corporation Ab.
+# Copyright (c) 2023 MariaDB PLC
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -308,10 +309,15 @@ sub uint16 {
     update_generator($_[0]);
     # When being called from somewhere like GendataAdvanced.pm I get masses of
     # Use of uninitialized value $_[*].
-    if (not defined $_[1] or not defined $_[2]) {
-        # Carp::cluck("WARN: Call of 'uint16' with not defined parameters. " .
-        #             "Will return 0.");
-        return 0;
+    if (not defined $_[1]) {
+        Carp::cluck('WARN: Call of \'uint16\' with not defined parameter $_[1]. ' .
+                    'Will set it to 0.');
+        $_[1] = 0;
+    }
+    if (not defined $_[2]) {
+        Carp::cluck('WARN: Call of \'uint16\' with not defined parameter $_[2]. ' .
+                    'Will set it to 0.');
+        $_[2] = 0;
     }
     return $_[1] +
         ((($_[0]->[RANDOM_GENERATOR] >> 15) & 0xFFFF) % ($_[2] - $_[1] + 1));
@@ -329,11 +335,15 @@ sub int {
         # to ensure the division below becomes correct.
         $rand = ($_[0]->[RANDOM_GENERATOR] >> 15) & 0xFFFF;
     }
-    if (not defined $_[1] or not defined $_[2]) {
-        Carp::cluck("WARN: Call of 'int' with not defined parameters. " .
-                    "Will return 0.");
-        return 0;
-        # ($_[1], $_[2]) = @{$name2range{'int'}}; ???
+    if (not defined $_[1]) {
+        Carp::cluck('WARN: Call of \'int\' with not defined parameter $_[1]. ' .
+                    'Will set it to 0.');
+        $_[1] = 0;
+    }
+    if (not defined $_[2]) {
+        Carp::cluck('WARN: Call of \'int\' with not defined parameter $_[2]. ' .
+                    'Will set it to 0.');
+        $_[2] = 0;
     }
     return int($_[1] + (($rand / 0x10000) * ($_[2] - $_[1] + 1)));
 }
@@ -346,10 +356,15 @@ sub float {
     # Since this may be a 64-bit platform, we mask down to 16 bit
     # to ensure the division below becomes correct.
     $rand = ($_[0]->[RANDOM_GENERATOR] >> 15) & 0xFFFF;
-    if (not defined $_[1] or not defined $_[2]) {
-        # Carp::cluck("WARN: Call of 'float' with not defined parameters. " .
-        #             "Will preload the border values.");
-        ($_[1], $_[2]) = @{$name2range{'float'}};
+    if (not defined $_[1]) {
+        Carp::cluck('WARN: Call of \'float\' with not defined parameter $_[1]. ' .
+                    'Will set it to 0.');
+        $_[1] = 0;
+    }
+    if (not defined $_[2]) {
+        Carp::cluck('WARN: Call of \'float\' with not defined parameter $_[2]. ' .
+                    'Will set it to 0.');
+        $_[2] = 0;
     }
     return $_[1] + (($rand / 0x10000) * ($_[2] - $_[1] + 1));
 }
