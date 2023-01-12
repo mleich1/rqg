@@ -100,7 +100,20 @@ then
    PARALLEL=270
 fi
 
-TRIALS=128
+# The value computed for TRIALS is a compromise of the contradicting goals
+# - reach at least a fair likelihood to replay the problem
+# - give up early enough in case its most probably some mistake in test setup
+# - try to avoid some "overuse" of a small box
+# In case of
+# - no replay at all
+#   There is either
+#   - a mistake in the setup of the test
+#   or
+#   - you need more TRIALs. Recommended: A box with doubled (or more) number of CPU cores.
+# - a few replays but the simplifier starts too early with cloning and you end up with
+#   some far way bigger 'simplified' grammar
+#   You need more TRIALs. Recommended: A box with doubled (or more) number of CPU cores.
+TRIALS=$(($NPROC * 12))
 
 # MAX_RUNTIME is a limit for defining the size of a simplification campaign.
 # RQG batch run elapsed runtime =

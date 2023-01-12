@@ -1137,10 +1137,15 @@ sub startServer {
             "Will return STATUS_FAILURE" . "($status)");
         return STATUS_FAILURE;
     } else {
-        # Scenario: start server, have load, shutdown, restart with modified system variables.
+        # Rare occuring scenario:
+        # Start server, have load, shutdown, restart with modified system variables without
+        # using the current sub.
         # So reset the hash with server variables now because we want actual data later.
         %{$self->[MYSQLD_SERVER_VARIABLES]} = ();
         $self->serverVariablesDump();
+        # What is ensured:
+        # The server is running, connectable, SQL pulling variables worked.
+        # Hence other SQL with correct syntax should work too.
         return STATUS_OK;
     }
 }
