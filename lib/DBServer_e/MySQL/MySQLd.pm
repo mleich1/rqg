@@ -1,5 +1,6 @@
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, 2022, MariaDB Corporation Ab
+# Copyright (c) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -924,9 +925,27 @@ sub startServer {
             my $wait_end =   $start_time + $tool_startup + $pid_seen_timeout;
             while (1) {
                 Time::HiRes::sleep($wait_time);
-
+                # Style till mid 2023-01
+                # [Note] /data/Server_bin/bb-10.6-MDEV-29181C_asan_Og/bin/mysqld (server 10.6.12-MariaDB-debug-log) starting as process 1794271 ...
+                # Style since mid 2023-01
+                # [Note] Starting MariaDB 10.7.8-MariaDB-debug-log source revision 666149485fef2f51cd5685cc2172f561b2679209 as process 3283580
                 $pid = Auxiliary::get_string_after_pattern($errorlog,
+                           "Starting MariaDB .{1,300} as process ");
+                if (not defined $pid) {
+                    my $status = STATUS_ENVIRONMENT_FAILURE;
+                    say("ERROR: $who_am_i Trouble with '$errorlog'. " .
+                        Auxiliary::build_wrs($status));
+                    return $status;
+                } elsif ('' eq $pid) {
+                    $pid = Auxiliary::get_string_after_pattern($errorlog,
                            "mysqld .{1,100} starting as process ");
+                    if (not defined $pid) {
+                        my $status = STATUS_ENVIRONMENT_FAILURE;
+                        say("ERROR: $who_am_i Trouble with '$errorlog'. " .
+                            Auxiliary::build_wrs($status));
+                        return $status;
+                    }
+                }
                 $pid = Auxiliary::check_if_reasonable_pid($pid);
                 if (defined $pid) {
                     $self->[MYSQLD_SERVERPID] = $pid;
