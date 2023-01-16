@@ -932,18 +932,23 @@ sub startServer {
                 $pid = Auxiliary::get_string_after_pattern($errorlog,
                            "Starting MariaDB .{1,300} as process ");
                 if (not defined $pid) {
-                    my $status = STATUS_ENVIRONMENT_FAILURE;
-                    say("ERROR: $who_am_i Trouble with '$errorlog'. " .
-                        Auxiliary::build_wrs($status));
-                    return $status;
-                } elsif ('' eq $pid) {
-                    $pid = Auxiliary::get_string_after_pattern($errorlog,
-                           "mysqld .{1,100} starting as process ");
-                    if (not defined $pid) {
+                    # It is not guaranteed that $errorlog exists immediate.
+                    if (time() > $start_time + $tool_startup + 5) {
                         my $status = STATUS_ENVIRONMENT_FAILURE;
                         say("ERROR: $who_am_i Trouble with '$errorlog'. " .
                             Auxiliary::build_wrs($status));
                         return $status;
+                    }
+                } elsif ('' eq $pid) {
+                    $pid = Auxiliary::get_string_after_pattern($errorlog,
+                           "mysqld .{1,100} starting as process ");
+                    if (time() > $start_time + $tool_startup + 5) {
+                         if (not defined $pid) {
+                             my $status = STATUS_ENVIRONMENT_FAILURE;
+                             say("ERROR: $who_am_i Trouble with '$errorlog'. " .
+                                 Auxiliary::build_wrs($status));
+                             return $status;
+                         }
                     }
                 }
                 $pid = Auxiliary::check_if_reasonable_pid($pid);
