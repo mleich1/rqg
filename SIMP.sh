@@ -100,8 +100,8 @@ then
    PARALLEL=270
 fi
 
-# The value computed for TRIALS is a compromise of the contradicting goals
-# - reach at least a fair likelihood to replay the problem
+# The value computed for TRIALS tries to be a good compromise for the contradicting goals
+# - reach at least a fair likelihood to replay some concurrency problem
 # - give up early enough in case its most probably some mistake in test setup
 # - try to avoid some "overuse" of a small box
 # In case of
