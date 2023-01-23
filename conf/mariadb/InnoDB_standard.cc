@@ -89,7 +89,7 @@ our $grammars =
   # DDL-DDL, DDL-DML, DML-DML
   '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy',
   # Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
-    '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --max_gd_duration=450 --grammar=conf/percona_qa/BT-16274/BT-16274.yy ' .
+    '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --max_gd_duration=900 --grammar=conf/percona_qa/BT-16274/BT-16274.yy ' .
         '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
   # Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
     '--gendata=conf/percona_qa/percona_qa.zz --max_gd_duration=900 --grammar=conf/percona_qa/percona_qa.yy ' .
