@@ -1,5 +1,6 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2018,2022 MariaDB Coporation Ab.
+# Copyright (c) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -75,6 +76,8 @@ use Runtime;
 use DBI;
 use Data::Dumper;
 use POSIX;
+
+my $script_debug = 0;
 
 # Example of a SHOW PROCESSLIST result set.
 # 0   1     2          3     4        5     6      7                 8
@@ -156,6 +159,8 @@ sub init {
 sub monitor {
     my $reporter = shift;
 
+    say("DEBUG: $who_am_i Start a monitoring round") if $script_debug;
+
     if (STATUS_OK != server_dead($reporter)) {
         exit STATUS_SERVER_CRASHED;
     }
@@ -191,7 +196,7 @@ sub monitor {
     my $actual_test_duration = time() - $reporter->testStart();
     if ($actual_test_duration > $actual_test_duration_exceed + $reporter->testDuration()) {
         say("ERROR: $who_am_i Actual test duration($actual_test_duration" . "s) is more than "     .
-            "$actual_test_duration_exceed(" . $actual_test_duration_exceed  . "s) + the desired "    .
+            "$actual_test_duration_exceed(" . $actual_test_duration_exceed  . "s) + the desired "  .
             "duration (" . $reporter->testDuration() . "s). Will kill the server later so that "   .
             "we get a core and exit with STATUS_SERVER_DEADLOCKED.");
         my $status;
@@ -246,9 +251,10 @@ sub monitor_nonthreaded {
         exit STATUS_SERVER_DEADLOCKED;
     } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
 
-    $alarm_timeout = $connect_timeout_threshold + OVERLOAD_ADD;
-    $exit_msg      = "Got no connect to server within " . $alarm_timeout . "s. ";
+    $alarm_timeout =    $connect_timeout_threshold + OVERLOAD_ADD;
+    $exit_msg      =    "Got no connect to server within " . $alarm_timeout . "s. ";
     my $connect_start = time();
+    say("DEBUG: $who_am_i Try to get a connection") if $script_debug;
     alarm ($alarm_timeout);
     $dbh = DBI->connect($dsn, undef, undef,
                         { mysql_connect_timeout => $connect_timeout_threshold,
@@ -278,41 +284,80 @@ sub monitor_nonthreaded {
             exit STATUS_SERVER_DEADLOCKED;
         }
     }
+    say("DEBUG: $who_am_i Some connection got. Runtime was " . (time() - $connect_start) . "s.")
+        if $script_debug;
 
-    # We should have now a connection.
     $alarm_timeout = $reporter_query_threshold + OVERLOAD_ADD;
-
-    # FIXME: Make the next query more safe.
+    my $query_start = time();
     $query    = '/*!100108 SET @@max_statement_time = 0 */';
-    $dbh->do($query);
-
-    $query    = "SHOW FULL PROCESSLIST";
-    # For testing: Syntax error -> STATUS_UNKNOWN_ERROR
-    # $query    = "SHOW FULL OMO";
+    say("DEBUG: $who_am_i Try to run '" . $query . "'") if $script_debug;
     $exit_msg = "Got no response from server to query '$query' within " . $alarm_timeout . "s.";
     alarm ($alarm_timeout);
-    my $processlist = $dbh->selectall_arrayref($query);
+    # For testing: Syntax error -> STATUS_UNKNOWN_ERROR
+    # $query    = "SHOW FULL OMO";          # Syntax error -> STATUS_SYNTAX_ERROR(21)
+    # system("killall -9 mysqld; sleep 1"); # Dead server  -> STATUS_SERVER_CRASHED(101)
+    #
+    # alarm (3);                            # Exceed $alarm_timeout -> STATUS_SERVER_DEADLOCKED
+    # $query = "SELECT SLEEP(4)";
+    $dbh->do($query);
     alarm (0);
-    # The query could have failed.
-    if (not defined $processlist) {
+    my $err = $dbh->err();
+    if (defined $err) {
+        say("ERROR: $who_am_i The query '$query' failed with $err: " . $dbh->errstr());
+        $dbh->disconnect;
         if (STATUS_OK != server_dead($reporter)) {
-            $dbh->disconnect;
+            say("ERROR: $who_am_i Will exit with STATUS_SERVER_CRASHED.");
             exit STATUS_SERVER_CRASHED;
         }
-        say("ERROR: $who_am_i The query '$query' failed with " . $DBI::err);
-        my $return = GenTest_e::Executor::MySQL::errorType($DBI::err);
+        my $return = GenTest_e::Executor::MySQL::errorType($err);
         if (not defined $return) {
             say("ERROR: $who_am_i The type of the error got is unknown. " .
                 "Will exit with STATUS_INTERNAL_ERROR");
-            $dbh->disconnect;
             exit STATUS_INTERNAL_ERROR;
             # return STATUS_UNKNOWN_ERROR;
         } else {
             say("ERROR: $who_am_i Will return status $return" . ".");
-            $dbh->disconnect;
             return $return;
         }
     }
+    say("DEBUG: $who_am_i '" . $query . "' runtime was " . (time() - $query_start) . "s.")
+        if $script_debug;
+
+    $query    = "SHOW FULL PROCESSLIST";
+    # For testing:
+    # $query    = "SHOW FULL OMO";  # Syntax error -> STATUS_INTERNAL_ERROR
+    $exit_msg = "Got no response from server to query '$query' within " . $alarm_timeout . "s.";
+    $query_start = time();
+    alarm ($alarm_timeout);
+    my $processlist = $dbh->selectall_arrayref($query);
+    alarm (0);
+    $err = $dbh->err();
+    if (defined $err) {
+        say("ERROR: $who_am_i The query '$query' failed with $err: " . $dbh->errstr());
+        $dbh->disconnect;
+        if (STATUS_OK != server_dead($reporter)) {
+            say("ERROR: $who_am_i Will exit with STATUS_SERVER_CRASHED.");
+            exit STATUS_SERVER_CRASHED;
+        }
+        my $return = GenTest_e::Executor::MySQL::errorType($err);
+        if (not defined $return) {
+            say("ERROR: $who_am_i The type of the error got is unknown. " .
+                "Will exit with STATUS_INTERNAL_ERROR");
+            exit STATUS_INTERNAL_ERROR;
+            # return STATUS_UNKNOWN_ERROR;
+        } else {
+            say("ERROR: $who_am_i Will return status $return" . ".");
+            return $return;
+        }
+    }
+    if (not defined $processlist) {
+        say("ERROR: $who_am_i The processlist content is undef. " .
+            "Will exit with STATUS_INTERNAL_ERROR");
+        $dbh->disconnect;
+        exit STATUS_INTERNAL_ERROR;
+    }
+    say("DEBUG: $who_am_i '" . $query . "' runtime was " . (time() - $query_start) . "s.")
+        if $script_debug;
 
     my $stalled_queries = 0;
 
@@ -358,6 +403,7 @@ sub monitor_nonthreaded {
             say("INFO: $who_am_i Executing query '$query'");
             $exit_msg = "Got no response from server to query '$query' within " .
                         $alarm_timeout . "s.";
+            $query_start = time();
             alarm ($alarm_timeout);
             my $status_result = $dbh->selectall_arrayref($query);
             alarm (0);
