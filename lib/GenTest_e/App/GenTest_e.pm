@@ -443,9 +443,9 @@ sub doGenTest {
             # Observations 2023-01:
             # 1. Without time() >= $self->[GT_TEST_END] ... RQG maxruntime exceeded, reason unknown
             # 2. With time() >= $self->[GT_TEST_END] + 30s  Deadlock reportet but no problem at all
-            $total_status = STATUS_SERVER_CRASHED;
+            $total_status = STATUS_CRITICAL_FAILURE;
             say("ERROR: The GenTest runtime was serious exceeded. Leaving the 'OUTER' loop " .
-                "with total_status STATUS_SERVER_CRASHED");
+                "with total_status STATUS_CRITICAL_FAILURE.");
             last;
         }
         sleep 5;
