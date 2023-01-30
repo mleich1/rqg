@@ -432,6 +432,22 @@ sub doGenTest {
                 last OUTER if 0 == scalar (keys %worker_pids);
             }
         }
+        if (time() >= $self->[GT_TEST_END] + 60) {
+            # (mleich) What follows is experimental
+            # In case we are here than there was no obvious reason (see code above) to stop
+            # the looping.
+            # But we might never leave the loop 'OUTER' because of
+            # - DB server freezes which let worker/reporters hang
+            # and/or
+            # - RQG components (worker/reporters) which do not care about test runtime
+            # Observations 2023-01:
+            # 1. Without time() >= $self->[GT_TEST_END] ... RQG maxruntime exceeded, reason unknown
+            # 2. With time() >= $self->[GT_TEST_END] + 30s  Deadlock reportet but no problem at all
+            $total_status = STATUS_SERVER_CRASHED;
+            say("ERROR: The GenTest runtime was serious exceeded. Leaving the 'OUTER' loop " .
+                "with total_status STATUS_SERVER_CRASHED");
+            last;
+        }
         sleep 5;
     }
 
@@ -619,7 +635,9 @@ sub reportResults {
         # "Its very bad but I do not know why" which is often a real crash too.
         say("total_status " . status2text($total_status) . " was reported, but often the reason " .
             "is a crash. So trying post-crash analysis...");
-        @report_results = $reporter_manager->report(REPORTER_TYPE_CRASH | REPORTER_TYPE_ALWAYS | REPORTER_TYPE_END);
+        # Experimental
+        # @report_results = $reporter_manager->report(REPORTER_TYPE_CRASH | REPORTER_TYPE_ALWAYS | REPORTER_TYPE_END);
+        @report_results = $reporter_manager->report(REPORTER_TYPE_CRASH | REPORTER_TYPE_ALWAYS | REPORTER_TYPE_DEADLOCK | REPORTER_TYPE_END);
     } else {
         @report_results = $reporter_manager->report(REPORTER_TYPE_ALWAYS | REPORTER_TYPE_END);
     }
@@ -812,12 +830,12 @@ sub workerProcess {
     }
 
     my $mixer = GenTest_e::Mixer->new(
-        generator => $self->generator(),
-        executors => \@executors,
-        validators => $self->config->validators,
-        properties =>  $self->config,
-        filters => $self->queryFilters(),
-        end_time => $self->[GT_TEST_END],
+        generator       => $self->generator(),
+        executors       => \@executors,
+        validators      => $self->config->validators,
+        properties      =>  $self->config,
+        filters         => $self->queryFilters(),
+        end_time        => $self->[GT_TEST_END],
         restart_timeout => $self->config->property('restart-timeout'),
         role => $worker_role
     );

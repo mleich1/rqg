@@ -385,7 +385,7 @@ sub monitor_nonthreaded {
         }
     }
     # In case we have a stalled query at all than we already print the content of the processlist.
-    if ($stalled_queries) {
+    if ($stalled_queries or $script_debug) {
         $processlist_report .= "$who_am_i Content of processlist ---------- end";
         say($processlist_report);
     }
