@@ -3,6 +3,7 @@
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab
 # Copyright (C) 2016, 2022 MariaDB Corporation Ab
+# Copyright (C) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -19,7 +20,7 @@
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301
 # USA
 
-# FIXME:
+# FIXME maybe:
 # Unify the handling of array indexes to be used for @basedir, @vardir, @dsns, @ports, @views, ...
 # in order to achieve that for some server n the array index value is n too.
 #
@@ -135,7 +136,7 @@ my (@basedirs, @mysqld_options, @vardirs, @engine, @vcols, @views,
     $logfile, $querytimeout,
     $freeze_time,
     $skip_shutdown, $galera, $use_gtid, $annotate_rules,
-    $restart_timeout, $scenario, $upgrade_test,
+    $restart_timeout, $scenario, $upgrade_test, $variant,
     $gendata_dump, $config_file,
     $workdir, $script_debug_value,
     $options);
@@ -1606,7 +1607,7 @@ if ($gendata_dump) {
             my $dump_prefix =  $vardirs[$i + 1] . "/rqg_after_gendata";
             my $dump_options = "--force --hex-blob --no-tablespaces --compact --order-by-primary ".
                                "--skip-extended-insert --databases $databases_string";
-            my $dump_result = $server[$i]->dumpSomething("$dump_options", $dump_prefix);
+            my $dump_result =  $server[$i]->dumpSomething("$dump_options", $dump_prefix);
             if ( $dump_result > 0 ) {
                 my $status = STATUS_CRITICAL_FAILURE;
                 say("ERROR: 'mysqldump' failed. Will exit with status : " .
@@ -1629,6 +1630,15 @@ if (STATUS_OK != $return) {
     my $status = STATUS_ENVIRONMENT_FAILURE;
     exit_test($status);
 }
+#FIXME:
+# Set an alarm for exceeding the RQG runtime
+# If exceeding
+# 1. SIGSEGV the first DB server
+#    SIGKILL the other DB server
+#    declare STATUS_SERVER_DEADLOCKED
+# 2. Reap the processes now or already in 1.
+# 3. Initiate making a backtrace
+# 4. Exit with STATUS_SERVER_DEADLOCKED
 $gentest_result = $gentest->doGenTest();
 say("GenTest returned status " . status2text($gentest_result) . " ($gentest_result)");
 $final_result = $gentest_result;
