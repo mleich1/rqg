@@ -3,6 +3,7 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2016, 2022 MariaDB Corporation Ab
+# Copyright (c) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -32,6 +33,7 @@ use File::Copy;
 use File::Spec;
 
 use Auxiliary;
+use Runtime;
 
 use GenTest_e;
 use GenTest_e::Properties;
@@ -432,9 +434,9 @@ sub doGenTest {
                 last OUTER if 0 == scalar (keys %worker_pids);
             }
         }
-        if (time() >= $self->[GT_TEST_END] + 60) {
+        if (time() >= $self->[GT_TEST_END] + Runtime::get_runtime_factor() * 120) {
             # (mleich) What follows is experimental
-            # In case we are here than there was no obvious reason (see code above) to stop
+            # In case we are here than there was no obvious problem (see code above) to stop
             # the looping.
             # But we might never leave the loop 'OUTER' because of
             # - DB server freezes which let worker/reporters hang
@@ -444,8 +446,8 @@ sub doGenTest {
             # 1. Without time() >= $self->[GT_TEST_END] ... RQG maxruntime exceeded, reason unknown
             # 2. With time() >= $self->[GT_TEST_END] + 30s  Deadlock reportet but no problem at all
             $total_status = STATUS_CRITICAL_FAILURE;
-            say("ERROR: The GenTest runtime was serious exceeded. Leaving the 'OUTER' loop " .
-                "with total_status STATUS_CRITICAL_FAILURE.");
+            say("ERROR: GenTest_e: The GenTest runtime was serious exceeded. Leaving the 'OUTER' " .
+                "loop with total_status STATUS_CRITICAL_FAILURE.");
             last;
         }
         sleep 5;
@@ -833,11 +835,11 @@ sub workerProcess {
         generator       => $self->generator(),
         executors       => \@executors,
         validators      => $self->config->validators,
-        properties      =>  $self->config,
+        properties      => $self->config,
         filters         => $self->queryFilters(),
         end_time        => $self->[GT_TEST_END],
         restart_timeout => $self->config->property('restart-timeout'),
-        role => $worker_role
+        role            => $worker_role
     );
 
     if (not defined $mixer) {
@@ -847,11 +849,11 @@ sub workerProcess {
         $self->stopChild(STATUS_ENVIRONMENT_FAILURE);
     }
 
-   while (time() < $self->[GT_TEST_START]) {
-      sleep 1;
-   }
+    while (time() < $self->[GT_TEST_START]) {
+       sleep 1;
+    }
 
-   my $worker_result = 0;
+    my $worker_result = 0;
 
    foreach my $i (1..$self->config->queries) {
       my $query_result = $mixer->next();
@@ -867,26 +869,29 @@ sub workerProcess {
 
       last if $query_result == STATUS_EOF;
       last if $ctrl_c == 1;
-      last if time() > $self->[GT_TEST_END];
+      if (time() > $self->[GT_TEST_END]) {
+          say("DEBUG: GenTest_e: $worker_role Endtime exceeded. Will stop soon.") if $debug_here;
+          last;
+      }
    }
 
-   foreach my $executor (@executors) {
-      $executor->disconnect;
-      undef $executor;
-   }
+    foreach my $executor (@executors) {
+       $executor->disconnect;
+       undef $executor;
+    }
 
-   # Forcefully deallocate the Mixer so that Validator destructors are called
-   undef $mixer;
-   undef $self->[GT_QUERY_FILTERS];
+    # Forcefully deallocate the Mixer so that Validator destructors are called
+    undef $mixer;
+    undef $self->[GT_QUERY_FILTERS];
 
-   my $message_part= "INFO: GenTest_e: Child process for $worker_role completed";
-   if ($worker_result > 0) {
-      say("$message_part with status " . status2text($worker_result) . "($worker_result).");
-      $self->stopChild($worker_result);
-   } else {
-      say("$message_part successfully.");
-      $self->stopChild(STATUS_OK);
-   }
+    my $message_part= "INFO: GenTest_e: Child process for $worker_role completed";
+    if ($worker_result > 0) {
+        say("$message_part with status " . status2text($worker_result) . "($worker_result).");
+        $self->stopChild($worker_result);
+    } else {
+        say("$message_part successfully.");
+        $self->stopChild(STATUS_OK);
+    }
 } # End of sub workerProcess
 
 sub doGenData {
