@@ -116,7 +116,7 @@ use constant CONNECT_TIMEOUT_THRESHOLD       => 60;   # Seconds
 # FIXME if possible/time permits:
 # $query_lifetime_threshold should be <= assigned duration
 # $query_lifetime_threshold should be ~ QueryTimeout + ...
-use constant QUERY_LIFETIME_THRESHOLD        => 240;  # Seconds
+use constant QUERY_LIFETIME_THRESHOLD        => 120;  # Seconds
 
 # Number of suspicious queries required before a deadlock is declared.
 # use constant STALLED_QUERY_COUNT_THRESHOLD   => 5;
