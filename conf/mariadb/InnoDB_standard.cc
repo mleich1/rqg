@@ -1,4 +1,5 @@
 # Copyright (C) 2019, 2022 MariaDB corporation Ab. All rights reserved.
+# Copyright (C) 2023 MariaDB plc All rights reserved.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -89,11 +90,11 @@ our $grammars =
   # DDL-DDL, DDL-DML, DML-DML
   '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy',
   # Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
-    '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --max_gd_duration=900 --grammar=conf/percona_qa/BT-16274/BT-16274.yy ' .
-        '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
+  '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --max_gd_duration=900 --grammar=conf/percona_qa/BT-16274/BT-16274.yy ' .
+      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
   # Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
-    '--gendata=conf/percona_qa/percona_qa.zz --max_gd_duration=900 --grammar=conf/percona_qa/percona_qa.yy ' .
-        '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
+  '--gendata=conf/percona_qa/percona_qa.zz --max_gd_duration=900 --grammar=conf/percona_qa/percona_qa.yy ' .
+      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
   '--views --grammar=conf/mariadb/partitions_innodb.yy ' .
       '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy',
   '--gendata=conf/engines/innodb/full_text_search.zz --max_gd_duration=1200 --short_column_names --grammar=conf/engines/innodb/full_text_search.yy ' .
@@ -128,7 +129,7 @@ our $grammars =
   # Derivate of above which tries to avoid any DDL rebuilding the table, also without BACKUP STAGE
   #     IMHO this fits more likely to the average fate of production applications.
   #     No change of PK, get default ALGORITHM which is NOCOPY if doable, no BACKUP STAGE because too new or rare and RPL used instead.
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy  --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy  --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --redefine=conf/mariadb/redefine_innodb_sys_ddl.yy',
   '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
   '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=RestartConsistency',
   '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup_linux',
@@ -390,13 +391,11 @@ $combinations = [ $grammars,
     # So rather set this in local.cfg variable $rqg_slow_dbdir_rr_add.
   ],
   [
-    '',
-    '',
-    '',
-    '',
-    # Next line suffered in history much of MDEV-26450.
-    # innodb_undo_log_truncate=ON is not default. So it should run less frequent.
-    ' --mysqld=--innodb_undo_tablespaces=3 --mysqld=--innodb_undo_log_truncate=ON ',
+    # Default Value: OFF
+    ' --mysqld=--innodb_undo_log_truncate=OFF ',
+    ' --mysqld=--innodb_undo_log_truncate=OFF ',
+    ' --mysqld=--innodb_undo_log_truncate=OFF ',
+    ' --mysqld=--innodb_undo_log_truncate=ON ',
   ],
   [
     # innodb_change_buffering
@@ -416,6 +415,16 @@ $combinations = [ $grammars,
     ' --mysqld=--loose_innodb_change_buffering=purges ',
     ' --mysqld=--loose_innodb_change_buffering=changes ',
     ' --mysqld=--loose_innodb_change_buffering=all ',
+  ],
+  [
+    # Global, not dynamic
+    # Default Value: 3 (>= MariaDB 11.0), 0 (<= MariaDB 10.11)
+    # Range: 0, or 2 to 95 (>= MariaDB 10.2.2), 0, or 2 to 126 (<= MariaDB 10.2.1)
+    '',
+    '',
+    ' --mysqld=--innodb_undo_tablespaces=0 ',
+    ' --mysqld=--innodb_undo_tablespaces=3 ',
+    ' --mysqld=--innodb_undo_tablespaces=16 ',
   ],
   [
     # The default is off.
