@@ -44,15 +44,23 @@ sub new {
 sub monitor {
     my ($manager, $desired_type) = @_;
 
-    my $who_am_i = "GenTest_e::ReporterManager::monitor:";
+    my $who_am_i =   Basics::who_am_i();
     my $max_result = STATUS_OK;
 
     foreach my $reporter (@{$manager->reporters()}) {
         if ($reporter->type() & $desired_type) {
-            # In case we have already exceeded $reporter->testEnd() abort running the current
-            # sequence of reporters.
-            my $test_end = $reporter->testEnd();
-            last if defined $test_end and $test_end <= time();
+            # In case we have already exceeded $reporter->testEnd() than it might look good to
+            # abort running the current sequence of reporters.
+            # But this leads to serious problems (2023-02) like
+            # 1. The periodic reporting process stops with STATUS_OK.
+            # 2. The server hangs somehow but the reporter "Deadlock" is no more running.
+            #    Hence we do not get further information if connects are possible or connections
+            #    are stalled.
+            # 3. Depending on the situation we harvest quite unspecific exit statuses or statuses
+            #    which do not point to the real reason of the problem.
+            # Please keep the disabled code.
+            # my $test_end = $reporter->testEnd();
+            # last if defined $test_end and $test_end <= time();
             my $reporter_result = $reporter->monitor();
             $max_result = $reporter_result if $reporter_result > $max_result;
             if ($reporter_result != STATUS_OK) {
