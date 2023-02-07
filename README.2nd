@@ -143,8 +143,7 @@ Please excuse
     - I do not need them for my work.
     - These files lack adjustments to the current MariaDB properties.
     - I use some replacement anyway.
-  - "experimental" might be broken from time to time
-    I use that branch including some not yet pushed changes frequent for InnoDB QA.
+  - "experimental" is currently outdated
 - that certain validators, transformers or reporters below lib/GenTest_e might not work well
   They lack most probably adjustments to the now roughly stable properties of my RQG.
   As long as I do not know of trouble I will not touch them.
@@ -957,5 +956,5 @@ Hints
 
 
 
-Matthias 2022-11
+Matthias 2023-02
 
