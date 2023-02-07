@@ -2161,7 +2161,7 @@ sub dbh {
                                       mysql_auto_reconnect  => 1});
    }
    if(!defined $self->[MYSQLD_DBH]) {
-      sayError("(Re)connect to " . $self->[MYSQLD_PORT] . " failed due to " .
+      say("ERROR: (Re)connect to " . $self->[MYSQLD_PORT] . " failed due to " .
                $DBI::err . ": " . $DBI::errstr);
    }
    return $self->[MYSQLD_DBH];
@@ -2734,11 +2734,17 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
     my $who_am_i =      Basics::who_am_i;
     my $server_id =     $self->server_id();
     my $server_name =   "server[" . $server_id . "]";
+    if (not defined $server_id) {
+        Carp::cluck("ERROR: server_id is undef");
+        $status = STATUS_INTERNAL_ERROR;
+        say("ERROR: $who_am_i Will return STATUS_INTERNAL_ERROR" .
+            "($status) because of previous error.");
+    }
     $who_am_i .=        " $server_name ";
 
+    my $pid = $self->serverpid;
+    $pid = "<unknown>" if not defined $pid;
     if (not $self->running) {
-        my $pid = $self->serverpid;
-        $pid = "<unknown>" if not defined $pid;
         say("ERROR: $who_am_i with process [" . $pid . "] is no more running.");
         $status = $self->make_backtrace();
         say("INFO: $who_am_i make_backtrace reported status $status. Will return that.");
@@ -2747,21 +2753,52 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
         # say("DEBUG: port is " . $self->port );
         if (not defined $self->dbh) {
             # $self->dbh is a function which tries to make a connect(with timeout).
-            say("ERROR: $who_am_i Did not get a connection to the running server[" .
-                $server_id . "].");
-            say("INFO: $who_am_i Will kill the server and generate a backtrace.");
-            $status = $self->make_backtrace();
-            say("INFO: $who_am_i make_backtrace reported status $status.");
-            $status = STATUS_SERVER_DEADLOCKED;
-            say("ERROR: $who_am_i Will return STATUS_SERVER_DEADLOCKED" .
-                "($status) because of previous error.");
+            say("ERROR: $who_am_i Getting a connection to the running server[" .
+                $server_id . "] failed with " . $DBI::errstr);
+            # Experimental code based on the rare observation 2023-01:
+            # The server process was running but is around dying. Hence the connect attempt failed.
+            # make_backtrace gets called and detects again that the server process is running,
+            # kills that process and reports STATUS_SERVER_CRASHED.
+            # I want that
+            # - make_backtrace does not need to kill
+            # - the content of the RQG log makes easier clear what happened
+            $status = GenTest_e::Executor::MySQL::errorType($DBI::err);
+            if (STATUS_SERVER_CRASHED == $status) {
+                say("INFO: $who_am_i Setting the status to STATUS_SERVER_CRASHED.");
+                say("INFO: $who_am_i Will poll 30s if the server process finishes before " .
+                    "calling 'make_backtrace'.");
+                my $end_time = time() + 30;
+                while (time() < $end_time) {
+                    if (not $self->running) {
+                        last;
+                    } else {
+                        sleep 1;
+                    }
+                }
+                if (not $self->running) {
+                    say("ERROR: $who_am_i with process [" . $pid . "] is no more running.");
+                    say("DEBUG: $who_am_i Will call 'make_backtrace'");
+                } else {
+                    say("ERROR: $who_am_i with process [" . $pid . "] stays running.");
+                    say("DEBUG: $who_am_i Will call 'make_backtrace' which will kill the server " .
+                        "process if running.");
+                    $status = STATUS_SERVER_DEADLOCKED;
+                }
+            } else {
+                say("INFO: $who_am_i Will call 'make_backtrace' which will kill the server " .
+                    "process if running.");
+            }
+            my $mbt_status = $self->make_backtrace();
+            say("INFO: $who_am_i make_backtrace reported status $mbt_status.");
+            say("ERROR: $who_am_i Will stick to status $status and return that because of " .
+                "previous errors.");
         } else {
-            # FIXME:
+            # FIXME maybe:
             # We need some reasonable timeout for any query like Deadlock already has.
-            my $query = '/*!100108 SET @@max_statement_time = 0 */';
-            my $dbh =   $self->dbh;
+            my $query =       '/*!100108 SET @@max_statement_time = 0 */';
+            my $dbh =         $self->dbh;
             $dbh->do($query);
-            $query =    "SHOW FULL PROCESSLIST";
+            $query =          "SHOW FULL PROCESSLIST";
             my $processlist = $dbh->selectall_arrayref($query);
             # The query could have failed.
             if (not defined $processlist) {
@@ -2811,6 +2848,5 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
     say("DEBUG: $who_am_i Will return $status.");
     return $status;
 } # End of sub server_is_operable
-
 
 1;
