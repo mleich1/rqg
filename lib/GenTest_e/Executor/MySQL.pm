@@ -1,6 +1,7 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2018,2022 MariaDB Corporation Ab.
+# Copyright (c) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -1658,10 +1659,24 @@ sub execute {
                 # say("DEBUG ->" . $line . "<-");
                 my ($ct_table, $ct_Op, $ct_Msg_type, $ct_Msg_text) = @{$data_elem};
                 next if ('status' eq $ct_Msg_type or 'note' eq $ct_Msg_type);
-                if ('Warning' eq $ct_Msg_type and $ct_Msg_text =~ /InnoDB: /i) {
-                    if ($ct_Msg_text =~ /InnoDB: Unpurged clustered index record/          or
-                        $ct_Msg_text =~ /nnoDB: Clustered index record with stale history/ or
-                        $ct_Msg_text =~ /InnoDB: Clustered index record not found for index/ )
+                if ('Warning' eq $ct_Msg_type) {
+                    # Regarding the "cannot be used in the GENERATED ALWAYS":
+                    # CREATE TABLE t1 (
+                    #    col1 INT PRIMARY KEY, col_string CHAR(20),
+                    #    col_string_g VARCHAR(13) GENERATED ALWAYS AS (SUBSTR(col_string,4,13)) PERSISTENT
+                    # ) ENGINE = InnoDB ROW_FORMAT = Dynamic ;
+                    # harvests in 10.4
+                    # Warnings:
+                    # Warning 1901    Function or expression 'substr(`col_string`,4,13)' cannot be used in the GENERATED ALWAYS AS clause of `col_string_g`
+                    # Warning 1105    Expression depends on the @@sql_mode value PAD_CHAR_TO_FULL_LENGTH
+                    # + that warning during CHECK TABLE.
+                    # In 10.6 already the CREATE TABLE fails with
+                    # ERROR HY000: Function or expression 'substr(`col_string`,4,13)' cannot be used in the GENERATED ALWAYS AS clause of `col_string_g`
+                    if ($ct_Msg_text =~ /InnoDB: Unpurged clustered index record/            or
+                        $ct_Msg_text =~ /nnoDB: Clustered index record with stale history/   or
+                        $ct_Msg_text =~ /InnoDB: Clustered index record not found for index/ or
+                        $ct_Msg_text =~ /Function or expression .{1,200} cannot be used in the GENERATED ALWAYS .{1,200}/ or
+                        $ct_Msg_text =~ /Expression depends on the \@\@sql_mode .{1,30}/       )
                     {
                         # Per Marko:
                         # Only if CHECK ... EXTENDED + harmless/to be expected.
