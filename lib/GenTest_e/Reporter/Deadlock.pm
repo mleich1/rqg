@@ -110,13 +110,13 @@ use constant CONNECT_TIMEOUT_THRESHOLD       => 60;   # Seconds
 #    or
 #    - increase $query_lifetime_threshold
 #    in order to see if the fraction of fails with STATUS_SERVER_DEADLOCKED goes drastic down.
-# 3. The default value of 240s for $query_lifetime_threshold might look unfortunate small but
+# 3. The default value of 180 for $query_lifetime_threshold might look unfortunate small but
 #    its quite good for RQG test simplification.
 #
 # FIXME if possible/time permits:
 # $query_lifetime_threshold should be <= assigned duration
 # $query_lifetime_threshold should be ~ QueryTimeout + ...
-use constant QUERY_LIFETIME_THRESHOLD        => 120;  # Seconds
+use constant QUERY_LIFETIME_THRESHOLD        => 180;  # Seconds
 
 # Number of suspicious queries required before a deadlock is declared.
 # use constant STALLED_QUERY_COUNT_THRESHOLD   => 5;
@@ -130,7 +130,7 @@ use constant ACTUAL_TEST_DURATION_EXCEED     => 300;  # Seconds
 
 # The time, in seconds, we will wait for some query issued by the reporter (i.e. SHOW PROCESSLIST)
 # before we declare the server hanged.
-use constant REPORTER_QUERY_THRESHOLD        => 60;   # Seconds
+use constant REPORTER_QUERY_THRESHOLD        => 90;   # Seconds
 
 # FIXME: Add a dependency from the number of threads.
 # The time, in seconds, we will wait in addition for connect or a some query response in order
