@@ -2769,9 +2769,15 @@ sub check_if_reasonable_pid {
 sub print_ps_tree {
     my ($start_pid) = @_;
     Carp::cluck if not defined $start_pid;
+    my $pstree = get_ps_tree($start_pid);
+    say($pstree);
+}
+
+sub get_ps_tree {
+    my ($start_pid) = @_;
+    Carp::cluck("INTERNAL ERROR: \$start_pid is not defined.") if not defined $start_pid;
     if (STATUS_OK == find_external_command('pstree')) {
         my $pstree = `pstree --show-pids $start_pid`;
-        say($pstree);
     }
 }
 

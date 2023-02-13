@@ -1598,23 +1598,20 @@ sub stopServer {
     my $server_name = "server[$server_id]";
     $who_am_i .=      " $server_name:";
 
-    # For innodb_fast_shutdown = 1 (default)
-    my $innodb_fast_shutdown_factor = 1;
+    my $innodb_fast_shutdown_factor = 1; # For innodb_fast_shutdown = 1 (default)
     $innodb_fast_shutdown_factor = 4 if 0 == $self->serverVariable('innodb_fast_shutdown');
 
-    $shutdown_timeout = DEFAULT_SHUTDOWN_TIMEOUT unless defined $shutdown_timeout;
-    $shutdown_timeout = $shutdown_timeout * Runtime::get_runtime_factor()
-                        * $innodb_fast_shutdown_factor;
+    $shutdown_timeout =  DEFAULT_SHUTDOWN_TIMEOUT unless defined $shutdown_timeout;
+    $shutdown_timeout =  $shutdown_timeout * Runtime::get_runtime_factor()
+                         * $innodb_fast_shutdown_factor;
     say("DEBUG: $who_am_i Effective shutdown_timeout: $shutdown_timeout" . "s.");
-    my $errorlog      =  $self->errorlog;
+    my $errorlog =       $self->errorlog;
     my $check_shutdown = 0;
     my $res;
 
     if (not $self->running) {
-        # Observation 2020-01 after replacing croak/exit in startServer by return STATUS_FAILURE
-        # Use of uninitialized value in concatenation (.) or string at lib/DBServer_e/MySQL/MySQLd.pm
         my $message_part = $self->serverpid;
-        $message_part = '<never known or now already unknown pid>' if not defined $message_part;
+        $message_part =    '<never known or now already unknown pid>' if not defined $message_part;
         say("DEBUG: $who_am_i with process [" . $message_part . "] is already no more running.");
         $self->make_backtrace;
         say("DEBUG: $who_am_i Omitting shutdown attempt. Will clean up and return STATUS_OK.");
@@ -1645,14 +1642,18 @@ sub stopServer {
             if (!$res) {
                 ## If shutdown fails, we want to know why:
                 say("ERROR: $who_am_i Shutdown failed due to " . $dbh->err . ": " . $dbh->errstr);
-                $res= STATUS_FAILURE;
+                $res = STATUS_FAILURE;
             } else {
+                # FIXME:
+                # waitForServerToStop could return STATUS_INTERNAL_ERROR
+                # But return STATUS_INTERNAL_ERROR from here would probably not take care
+                # that the DB Server gets stopped.
                 if ($self->waitForServerToStop($shutdown_timeout) != STATUS_OK) {
                     # The server process has not disappeared.
                     # So try to terminate that process.
                     say("ERROR: $who_am_i Did not shut down properly. Terminate it");
                     sayFile($errorlog);
-                    $res= $self->term;
+                    $res = $self->term;
                     # If SIGTERM does not work properly then SIGKILL is used.
                     if ($res == STATUS_OK) {
                         $check_shutdown = 1;
@@ -1662,15 +1663,15 @@ sub stopServer {
                         " in s : " . (time() - $start_time));
                     $check_shutdown = 1;
                     # Observation 2020-12
-                    # 2020-12-13T18:26:31 [528945] Stopping server(s)...
-                    # 2020-12-13T18:26:31 [528945] Stopping server on port 25680
-                    #                              == RQG has told what he wants to do
-                    # 2020-12-13T18:26:49 [528945] WARN: Auxpid 530419 exited with exit status 139.
-                    #                              == Disappearing Auxpid was observed
-                    # 2020-12-13T18:26:49 [528945] INFO: Time for shutting down the server on port 25680 in s : 18
-                    #                              == return of waitForServerToStops was STATUS_OK
-                    # 2020-12-13T18:26:49 [528945] Server has been stopped
-                    # 2020-12-13T18:26:49 [528945] WARN: No regular shutdown achieved. Will return 1 later.
+                    # 18:26:31 [528945] Stopping server(s)...
+                    # 18:26:31 [528945] Stopping server on port 25680
+                    #                   == RQG has told what he wants to do
+                    # 18:26:49 [528945] WARN: Auxpid 530419 exited with exit status 139.
+                    #                   == Disappearing Auxpid was observed
+                    # 18:26:49 [528945] INFO: Time for shutting down the server on port 25680 in s : 18
+                    #                   == return of waitForServerToStops was STATUS_OK
+                    # 18:26:49 [528945] Server has been stopped
+                    # 18:26:49 [528945] WARN: No regular shutdown achieved. Will return 1 later.
                     # Server error log
                     # 2020-12-13 18:24:36 19 [Note] InnoDB: Deferring DROP TABLE `test`.`FTS_000000000000101e_CONFIG`; renaming to test/#sql-ib4129
                     # 2020-12-13 18:26:31 0 [Note] /Server_bin/bb-10.6-MDEV-21452A_asan_Og/bin/mysqld (initiated by: root[root] @ localhost [127.0.0.1]): Normal shutdown
@@ -1682,7 +1683,7 @@ sub stopServer {
                     # Even if that fails a cleanup is made and corresponding status is returned.
                     # But that status is not useful here.
                     $self->cleanup_dead_server;
-                    $res= STATUS_OK;
+                    $res = STATUS_OK;
                     say("$server_name has been stopped");
                 }
             }
@@ -1716,7 +1717,7 @@ sub stopServer {
         # <Timestamp> 0 [Note] /home/mleich/Server/10.4/bld_debug//sql/mysqld: Shutdown complete
         my $file_handle;
         if (not open ($file_handle, '<', $file_to_read)) {
-            $res= STATUS_FAILURE;
+            $res = STATUS_FAILURE;
             say("ERROR: $who_am_i Open '$file_to_read' failed : $!. Will return $res.");
             return $res;
         }
@@ -1729,7 +1730,7 @@ sub stopServer {
         my $pattern = 'mysqld: Shutdown complete';
         $match = $content_slice =~ m{$pattern}s;
         if (not $match) {
-            $res= STATUS_FAILURE;
+            $res = STATUS_FAILURE;
             # Typical text in server error log in case   shutdown/term  fails with crash
             # --------------------------------------------------------------------------
             # <TimeStamp> [ERROR] mysqld got signal <SignalNumber> ;
@@ -1747,7 +1748,7 @@ sub stopServer {
             # Killed
             say("WARN: $who_am_i No regular shutdown achieved. Will return $res later.");
             $pattern = '\[ERROR\] mysqld got signal ';
-            $match = $content_slice =~ m{$pattern}s;
+            $match =   $content_slice =~ m{$pattern}s;
             if ($match) {
                 say("INFO: $who_am_i The shutdown finished with server crash.");
                 $self->make_backtrace;
@@ -1888,17 +1889,58 @@ sub waitForServerToStop {
 # We return either STATUS_OK(0) or STATUS_FAILURE(1);
 # 2021-12 Only routines located here (lib/DBServer_e/MySQL/MySQLd.pm) call waitForServerToStop.
     my $self      = shift;
-    my $timeout   = shift;
-    $timeout = 180 if not defined $timeout;
-    $timeout = $timeout * Runtime::get_runtime_factor();
-    my $wait_end  = Time::HiRes::time() + $timeout;
-    my $wait_unit = 0.3;
+    my $timeout   = shift;   # The caller has already multiplied if using rr or valgrind.
+    my $who_am_i = Basics::who_am_i;
+    if (not defined $timeout) {
+        Carp::cluck("INTERNAL ERROR: $who_am_i \$timeout is undef.");
+        return STATUS_INTERNAL_ERROR;
+    }
+    my $wait_start = Time::HiRes::time() + $timeout;
+    my $wait_end  =  $wait_start + $timeout;
+    my $wait_unit =  0.3;
     while ($self->running && Time::HiRes::time() < $wait_end) {
         Time::HiRes::sleep($wait_unit);
     }
+
+    # Give some grace period in case there seems to be activity in the DB server.
+    # ---------------------------------------------------------------------------
+    # Reasons:
+    # The elapsed time for some shutdown/a DB server disappearing depends on
+    # - how/why the server disappears
+    #   shutdown/SIGTERM, SIGABRT, SIGSEGV, SIGKILL
+    # - the setting of innodb_fast_shutdown und if 'rr' or 'valgrind' is invoked
+    #   We already multiplied $timeout with factors for compensation.
+    # - the hardware and the parallel load on the box
+    #   There will be frequent extreme load on the box.
+    # - The DB Server setup and the test.
+    # Observed on shutdown via pstree for the main server process:
+    #    n'th call  child processes/threads <A>, <B>
+    #    (n + 1)'th call  child processes/threads <A>, <C>, <D>
+    #               == Childprocesses/threads exit but new ones can show up
     if ($self->running) {
-        say("ERROR: The server process has not disappeared after " . $timeout . "s waiting. " .
-            "Will return STATUS_FAILURE later.");
+        say("INFO: $who_am_i Being forced to give a grace period.");
+        $wait_end  =        Time::HiRes::time() + 60 * Runtime::get_runtime_factor();
+        my $old_ps_tree =   Auxiliary::get_ps_tree($self->pid);
+        my $next_ps_check = Time::HiRes::time() + 3;
+        while ($self->running && Time::HiRes::time() < $wait_end) {
+            if (Time::HiRes::time() > $next_ps_check) {
+                my $new_ps_tree = Auxiliary::get_ps_tree($self->pid);
+                if ($new_ps_tree == $old_ps_tree) {
+                    say("DEBUG: $who_am_i \$new_ps_tree == \$old_ps_tree == '$new_ps_tree'." .
+                        "Aborting the grace period.");
+                    last;
+                } else {
+                    say("DEBUG: $who_am_i Current ps_tree: '$new_ps_tree'.");
+                    $next_ps_check = Time::HiRes::time() + 3;
+                    $new_ps_tree =   $old_ps_tree;
+                }
+            }
+            Time::HiRes::sleep($wait_unit);
+        }
+    }
+    if ($self->running) {
+        say("ERROR: The server process has not disappeared after " . (time() - $wait_start) .
+            "s waiting. Will return STATUS_FAILURE later.");
         Auxiliary::print_ps_tree($$);
         return STATUS_FAILURE;
     } else {
@@ -2003,6 +2045,8 @@ sub serverVariables {
        return undef if not defined $dbh;
        my $sth = $dbh->prepare("SHOW VARIABLES");
        $sth->execute();
+       # FIXME maybe:
+       # This execute can fail.
        my %vars = ();
        while (my $array_ref = $sth->fetchrow_arrayref()) {
           $vars{$array_ref->[0]} = $array_ref->[1];
@@ -2023,7 +2067,7 @@ sub serverVariablesDump {
     my $self = shift;
     my $pvar = $self->serverVariables;
     if (not defined $pvar) {
-        say("WARNING: No connection to server or SHOW VARIABLES failed.");
+        say("WARNING: No connection to server got or SHOW VARIABLES failed.");
     } else {
         my %vars = %{$pvar};
         foreach my $variable (sort keys %vars) {
@@ -2037,6 +2081,8 @@ sub serverVariablesDump {
                "WHERE PLUGIN_LIBRARY IS NOT NULL ORDER BY PLUGIN_NAME";
     my $sth = $dbh->prepare($stmt);
     $sth->execute();
+    # FIXME maybe:
+    # This execute can fail.
     my %result = ();
     while (my $array_ref = $sth->fetchrow_arrayref()) {
        $result{$array_ref->[0]} = $array_ref->[1];
