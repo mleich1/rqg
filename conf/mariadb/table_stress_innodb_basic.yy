@@ -1,4 +1,5 @@
 # Copyright (c) 2018, 2020 MariaDB Corporation
+# Copyright (c) 2023       MariaDB plc
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -165,7 +166,6 @@ kill_age_cond:
    UNIX_TIMESTAMP() - connect_time > 10;
 
 correct_rqg_sessions_table:
-   # UPDATE rqg . rqg_sessions SET processlist_id = NULL, connect_time = NULL WHERE processlist_id NOT IN (SELECT id FROM information_schema. processlist);
    UPDATE rqg . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 create_table:
@@ -254,6 +254,7 @@ my_int:
 
 commit_rollback:
    COMMIT   |
+   COMMIT   |
    ROLLBACK ;
 
 # FIXME:
@@ -287,19 +288,19 @@ ddl:
    kill_query_or_session_or_release                                                      ;
 
 chaos_column:
-   # Basic idea
-   # - have a length in bytes = 3 which is not the usual 2, 4 or more
-   # - let the column stray like it exists/does not exist/gets moved to other position
-   ALTER TABLE table_names ADD COLUMN IF NOT EXISTS col_date DATE DEFAULT CUR_DATE() |
-   ALTER TABLE table_names DROP COLUMN IF EXISTS col_date                            |
-   ALTER TABLE table_names MODIFY COLUMN IF EXISTS col_date DATE column_position     ;
+# Basic idea
+# - have a length in bytes = 3 which is not the usual 2, 4 or more
+# - let the column stray like it exists/does not exist/gets moved to other position
+   ALTER TABLE table_names ADD COLUMN IF NOT EXISTS col_date DATE DEFAULT CURDATE() |
+   ALTER TABLE table_names DROP COLUMN IF EXISTS col_date                           |
+   ALTER TABLE table_names MODIFY COLUMN IF EXISTS col_date DATE column_position    ;
 
 move_column:
-   # Unfortunately I cannot prevent that the column type gets maybe changed.
+# Unfortunately I cannot prevent that the column type gets maybe changed.
    random_column_properties ALTER TABLE table_names MODIFY COLUMN $col_name $col_type column_position ;
 
 null_notnull_column:
-   # Unfortunately I cannot prevent that the column type gets maybe changed.
+# Unfortunately I cannot prevent that the column type gets maybe changed.
    random_column_properties ALTER TABLE table_names MODIFY COLUMN $col_name $col_type null_not_null ;
 null_not_null:
    NULL     |
@@ -638,7 +639,9 @@ col_string_g_properties:
 string_g_col_name:
    { $col_name= "col_string_g" ; return undef } ;
 string_g_col_type:
-   char_or_varchar size12_or_size13 gcol_prop { $col_type .= " GENERATED ALWAYS AS (SUBSTR(col_string,4,$col_size)) $gcol_prop" ; return undef } ;
+   # RTRIM is required for preventing that the DDL fails with
+   # ER_GENERATED_COLUMN_FUNCTION_IS_NOT_ALLOWED (1901) if col_string has type CHAR
+   char_or_varchar size12_or_size13 gcol_prop { $col_type .= " GENERATED ALWAYS AS (SUBSTR(RTRIM(col_string),4,$col_size)) $gcol_prop" ; return undef } ;
 size12_or_size13:
    { $col_size = 12 ; $col_type .= "($col_size)" ; return undef } |
    { $col_size = 13 ; $col_type .= "($col_size)" ; return undef } ;
