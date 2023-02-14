@@ -48,7 +48,9 @@ then
     echo echo "ERROR: Determine the free space in '$BASE_FS' failed."
     exit 4
 fi
-SPACE_PLANNED=$(($SPACE_AVAIL / 3))"K"
+# $SPACE_AVAIL / 3 -> very rare no more space on device for vardir_type=slow observed
+SPACE_PLANNED=$(($SPACE_AVAIL * 10))
+SPACE_PLANNED=$(($SPACE_PLANNED / 25))"K"
 echo "SPACE_AVAIL ->$SPACE_AVAIL<- SPACE_PLANNED ->$SPACE_PLANNED<- (all in KB)"
 
 fallocate -l $SPACE_PLANNED "$CONTAINER"
