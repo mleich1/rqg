@@ -1,4 +1,5 @@
 # Copyright (c) 2018, 2022 MariaDB Corporation
+# Copyright (c) 2023       MariaDB plc
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -195,7 +196,6 @@ fail_004:
    { $fail = 'my_fail_004' ; return undef }; SELECT * FROM $fail ;
 
 correct_rqg_sessions_table:
-   # UPDATE rqg . rqg_sessions SET processlist_id = NULL, connect_time = NULL WHERE processlist_id NOT IN (SELECT id FROM information_schema. processlist);
    UPDATE rqg . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 create_table:
@@ -346,9 +346,9 @@ chaos_column:
 # Basic idea
 # - have a length in bytes = 3 which is not the usual 2, 4 or more
 # - let the column stray like it exists/does not exist/gets moved to other position
-   alter_table_part ADD    COLUMN IF NOT EXISTS col_date DATE DEFAULT CUR_DATE() |
-   alter_table_part DROP   COLUMN IF EXISTS col_date                             |
-   alter_table_part MODIFY COLUMN IF EXISTS col_date DATE column_position        ;
+   alter_table_part ADD    COLUMN IF NOT EXISTS col_date DATE DEFAULT CURDATE() |
+   alter_table_part DROP   COLUMN IF EXISTS col_date                            |
+   alter_table_part MODIFY COLUMN IF EXISTS col_date DATE column_position       ;
 
 move_column:
 # Unfortunately I cannot prevent that the column type gets maybe changed.
@@ -706,7 +706,9 @@ col_string_g_properties:
 string_g_col_name:
    { $col_name= "col_string_g" ; return undef } ;
 string_g_col_type:
-   char_or_varchar size12_or_size13 gcol_prop { $col_type .= " GENERATED ALWAYS AS (SUBSTR(col_string,4,$col_size)) $gcol_prop" ; return undef } ;
+   # RTRIM is required for preventing that the DDL fails with
+   # ER_GENERATED_COLUMN_FUNCTION_IS_NOT_ALLOWED (1901) if col_string has type CHAR
+   char_or_varchar size12_or_size13 gcol_prop { $col_type .= " GENERATED ALWAYS AS (SUBSTR(RTRIM(col_string),4,$col_size)) $gcol_prop" ; return undef } ;
 size12_or_size13:
    { $col_size = 12 ; $col_type .= "($col_size)" ; return undef } |
    { $col_size = 13 ; $col_type .= "($col_size)" ; return undef } ;
@@ -747,7 +749,7 @@ gcol_prop:
 # For playing around with
 #   SET DEBUG_DBUG='+d,ib_build_indexes_too_many_concurrent_trxs, ib_rename_indexes_too_many_concurrent_trxs, ib_drop_index_too_many_concurrent_trxs';
 #   SET DEBUG_DBUG='+d,create_index_fail';
-# and similar add a redefine like
+# and similar add a redefine file like
 #   conf/mariadb/ts_dbug_innodb.yy
 #
 set_dbug:
@@ -779,16 +781,19 @@ alt_collation_latin1:
    latin1_bin  | latin1_general_cs | latin1_general_ci ;
 alt_collation_utf8:
    utf8_bin    | utf8_nopad_bin    | utf8_general_ci ;
+alt_collation_utf8mb3:
+   utf8mb3_bin | utf8mb3_nopad_bin | utf8mb3_general_nopad_ci | utf8mb3_general_ci ;
 alt_collation_utf8mb4:
    utf8mb4_bin | utf8mb4_nopad_bin | utf8mb4_general_nopad_ci | utf8mb4_general_ci ;
 alt_collation_all:
    alt_collation_latin1  |
    alt_collation_utf8    |
+   alt_collation_utf8mb3 |
    alt_collation_utf8mb4 ;
 
 alt_character_set_all:
    latin1  |
    utf8    |
+   utf8mb3 |
    utf8mb4 ;
-
 
