@@ -56,15 +56,19 @@ our $encryption_setup =
   '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
 
 our $compression_setup =
-  # The availability of the plugins depends on 1. build mechanics 2. Content of OS
+  # The availability of the plugins depends on 1. build mechanics 2. Content of OS install
   # The server startup will not fail if some plugin is missing except its very important
   # like for some storage engine. Of course some error message will be emitted.
   # Without this setting
   # - innodb page compression will be less till not covered by MariaDB versions >= 10.7
   # - upgrade tests starting with version < 10.7 and going up to version >= 10.7 will
   #   suffer from TBR-1313 effects.
+  # In case the compression algorithm used is in ('zlib','lzma') than we can assign some compression level.
+  # Use the smallest which is 1 instead of 6 (default).
+  # The hope is that it raises the throughput and/or reduces the fraction of max_gd_timeout exceeded
+  # and/or false alarms when running a test with compression.
   '--mysqld=--plugin-load-add=provider_lzo.so --mysqld=--plugin-load-add=provider_bzip2.so --mysqld=--plugin-load-add=provider_lzma.so ' .
-  '--mysqld=--plugin-load-add=provider_snappy.so --mysqld=--plugin-load-add=provider_lz4.so ';
+  '--mysqld=--plugin-load-add=provider_snappy.so --mysqld=--plugin-load-add=provider_lz4.so --mysqld=--loose-innodb_compression_level=1';
 
 our $duration = 300;
 our $grammars =
