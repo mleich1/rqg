@@ -364,6 +364,7 @@ sub doGenTest {
     my $errorfilter   = GenTest_e::ErrorFilter->new(channel => $self->channel());
     my $errorfilter_p = GenTest_e::IPC::Process->new(object => $errorfilter);
     if (!osWindows()) {
+        # Attention: The errorfilter makes around here a connection to every DB server.
         $errorfilter_p->start($self->config->property('upgrade-test') ? [$self->config->servers->[0]] : $self->config->servers);
     }
 
