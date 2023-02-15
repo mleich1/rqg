@@ -1955,15 +1955,31 @@ sub checkServers {
         if (STATUS_OK != $status) {
             say("ERROR: $who_am_i server_is_operable reported for server[$server_num] " .
                 "status $status");
-            if ($status > $current_status) {
+            # Observation 2023-01:
+            # Start, make load, kill the server during that, restart with success.
+            # During the checking of tables happens a server crash (-> STATUS_RECOVERY_FAILURE)
+            # but is not finished yet. server_is_operable gets no connection, calls making a
+            # backtrace which detects that the server process is not yet dead
+            # (-> STATUS_SERVER_DEADLOCKED). And than we raise here the status to
+            # STATUS_SERVER_DEADLOCKED which is misleading.
+            if ($status > $current_status and $current_status != STATUS_RECOVERY_FAILURE) {
                 say("ERROR: $who_am_i Raising current_status from $current_status to $status");
                 $current_status = $status;
             }
         }
     }
-    if ($current_status >= STATUS_CRITICAL_FAILURE) {
+    if ($current_status > STATUS_CRITICAL_FAILURE) {
+        exit_test($current_status);
+    } elsif ($current_status == STATUS_CRITICAL_FAILURE) {
+        # Experimental:
+        # I assume that the first server is "ill". Most probably a freeze.
+        say("ERROR: $who_am_i status is STATUS_CRITICAL_FAILURE. Assuming that the first server " .
+            "is somehow ill. Will kill it and initiate making a backtrace.");
+        $server[0]->crashServer;
+        $server[0]->make_backtrace();
         exit_test($current_status);
     }
+
     if ($current_status > STATUS_OK) {
         say("ERROR: $who_am_i Will return status " . status2text($final_result) .
             "($final_result) because of previous errors.");
@@ -1971,8 +1987,6 @@ sub checkServers {
     return $current_status;
 
 } # End of sub checkServers
-
-
 
 sub stopServers {
     # $status is relevant for replication only.
