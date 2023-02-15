@@ -39,6 +39,7 @@ set -u
 #
 set +e
 NUM_LOGS=`ls -d "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9]/rqg.log \
+"$WRK_DIR"/[A-Za-z]*/rqg.log \
 "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9].log 2> /dev/null | wc -l `
 set -e
 if [ $NUM_LOGS -eq 0 ]
@@ -130,7 +131,8 @@ function process_log()
 RUNNING=0
 # ~ 1s elapsed time per rqg log
 for LOG_FILE in `ls -d "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9]/rqg.log \
-                       "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9].log 2>/dev/null`
+"$WRK_DIR"/[A-Za-z]*/rqg.log \
+"$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9].log 2>/dev/null`
 do
     if [ $RUNNING -ge 10 ]
     then
