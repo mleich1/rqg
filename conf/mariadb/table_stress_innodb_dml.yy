@@ -32,12 +32,14 @@
 fail_001:
    { $fail = 'my_fail_001' ; return undef }; SELECT * FROM $fail ;
 
-# thread1 manages CREATE/DROP of the tables.
-# Doing that by one thread only avoids clashes compared to trying it by every thread.
-# In addition thread1 goes with big timeouts. This makes the success of CREATES and DROPS more
-# likely and gives also some variation for the statements taken from the rule "query".
+
+# thread1 manages CREATE/DROP of the tables within the init phase.
+# The concurrent sessions go with some sleep which should minimize friction between their DML
+# and the DDL run by thread1.
+# thread1 goes with big timeouts. This gives also some variation for the statements taken
+# from the rule "query".
 thread1_init:
-   create_table { $c_refresh = time(); $b_refresh = time() + 30; $m1 = ''; $m2 = '' ; $m3 = ''; $m4 = '' ; return undef }; SET GLOBAL innodb_disable_resize_buffer_pool_debug = OFF;
+   create_table ;
 
 thread1:
    kill_query_or_session_or_release                                                                                                                                                           |
@@ -50,15 +52,7 @@ thread1:
    query                                                                                                                                                                                      |
    query                                                                                                                                                                                      |
    query                                                                                                                                                                                      |
-   query                                                                                                                                                                                      |
-   { if ($c_refresh + 90 < time()) { $c_refresh = time(); $m1 = ''; $m2 = '' } else { $m1 = '/*'; $m2 = '*/' } ; return undef } recreate_cool_down ; move_to_cool_down ; create_table         |
-   { if ($b_refresh + 60 < time()) { $b_refresh = time(); $m3 = ''; $m4 = '' } else { $m3 = '/*'; $m4 = '*/' } ; return undef } $m3 SET GLOBAL innodb_buffer_pool_size = buffer_pool_size $m4 ;
-
-buffer_pool_size:
-   8388608   |
-   33554432  |
-   134217728 |
-   268435456 ;
+   query                                                                                                                                                                                      ;
 
 fail_002:
    { $fail = 'my_fail_002' ; return undef }; SELECT * FROM $fail ;
@@ -68,14 +62,6 @@ thread1_connect:
 
 thread_connect:
    maintain_session_entry ; SET AUTOCOMMIT = 0; SET @fill_amount = (@@innodb_page_size / 2 ) + 1 ; set_small_timeouts ;
-
-recreate_cool_down:
-   $m1 DROP SCHEMA cool_down $m2 ; $m1 CREATE SCHEMA cool_down $m2 ;
-move_to_cool_down:
-   $m1 RENAME TABLE t1 TO cool_down . t1 $m2 ;
-   $m1 RENAME TABLE t2 TO cool_down . t2 $m2 ;
-   $m1 RENAME TABLE t3 TO cool_down . t3 $m2 ;
-   $m1 RENAME TABLE t4 TO cool_down . t4 $m2 ;
 
 set_small_timeouts:
    SET SESSION lock_wait_timeout = 2 ; SET SESSION innodb_lock_wait_timeout = 1 ;
@@ -165,7 +151,7 @@ create_table:
    ddl ; ddl ; ddl ; ddl ; ddl ; ddl ; ddl ; ddl ;
 
 c_t_begin:
-   $m1 CREATE TABLE IF NOT EXISTS ;
+   CREATE TABLE IF NOT EXISTS ;
 c_t_mid:
    ( non_generated_cols generated_cols ) ;
 
@@ -201,10 +187,14 @@ query:
    set_dbug ; dml ;         set_dbug_null |
    set_dbug ; dml ;         set_dbug_null ;
 
+query_init:
+   # Give thread1 some time for DDL.
+   { sleep 5 } ;
+
 dml:
    # Ensure that the table does not grow endless.                                                                   |
    delete ; COMMIT                                                                                                  |
-   # Make likely: Get duplicate key based on the two row INSERT only.                                               |
+   # Make likely: Get duplicate key based on the two row INSERT/REPLACE only.                                       |
    enforce_duplicate1 ;                                                                             commit_rollback |
    # Make likely: Get duplicate key based on two row UPDATE only.                                                   |
    enforce_duplicate2 ;                                                                             commit_rollback |
@@ -228,7 +218,8 @@ fill_end:
    AS CHAR),1,1), @fill_amount) ;
 
 enforce_duplicate1:
-   delete ; insert_part /* my_int */ some_record , some_record ;
+   delete ; insert_part  /* my_int */ some_record , some_record |
+   delete ; replace_part /* my_int */ some_record , some_record ;
 
 enforce_duplicate2:
    UPDATE table_names SET column_name_int = my_int ORDER BY col1 DESC LIMIT 2 ;
@@ -236,12 +227,14 @@ enforce_duplicate2:
 insert_part:
    INSERT INTO table_names (col1,col2,col_int_properties $col_name, col_string_properties $col_name, col_text_properties $col_name) VALUES ;
 
+replace_part:
+   REPLACE INTO table_names (col1,col2,col_int_properties $col_name, col_string_properties $col_name, col_text_properties $col_name) VALUES ;
+
 some_record:
    ($my_int,$my_int,$my_int,string_fill,fill_begin $my_int fill_end ) ;
 
 delete:
    DELETE FROM table_names WHERE column_name_int = my_int OR $column_name_int IS NULL                              ;
-#   DELETE FROM table_names WHERE MATCH(col_text_properties $col_name) AGAINST (TRIM(' my_int ') IN BOOLEAN MODE) OR column_name_int IS NULL ;
 
 my_int:
    # Maybe having some uneven distribution is of some value.
@@ -307,7 +300,7 @@ add_accelerator:
    ADD  UNIQUE   key_or_index if_not_exists_mostly  uidx_name ( column_name_list_for_key ) |
    ADD           key_or_index if_not_exists_mostly   idx_name ( column_name_list_for_key ) |
    ADD  PRIMARY  KEY          if_not_exists_mostly            ( column_name_list_for_key ) |
-   ADD  FULLTEXT key_or_index if_not_exists_mostly ftidx_name ( col_text                 ) ;
+   ADD  FULLTEXT key_or_index if_not_exists_mostly ftidx_name ( column_name_list_for_fts ) ;
 
 key_or_index:
    INDEX |
@@ -329,6 +322,15 @@ column_name_int:
 column_name_list_for_key:
    random_column_properties $col_idx direction                                              |
    random_column_properties $col_idx direction, random_column_properties $col_idx direction ;
+
+column_name_list_for_fts:
+   column_name_fts                   |
+   column_name_fts , column_name_fts ;
+
+column_name_fts:
+   string_col_name $col_name |
+   col_varchar               |
+   col_text                  ;
 
 direction:
    /*!100800 ASC */  |
