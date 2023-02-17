@@ -15,15 +15,6 @@
 # USA
 #
 
-# The grammar is a derivate of conf/mariadb/table_stress_innodb.yy.
-# The latter was picked as base because it revealed some problem better than the
-# other existing grammars.
-# The differences to conf/mariadb/table_stress_innodb.yy
-# - any DDL is performed by thread1
-# - DDL on some table happens direct after CREATE TABLE and affects KEYs, column positions, NULL
-# - DDL algorithm and lock option are not in scope == Let the system take the defaults.
-# - (Re)CREATE TABLE happens roughly all 90s
-#
 # The grammar is dedicated to stress tables with mostly DML and very rare with DDL.
 #
 # _digit --> Range 0 till 9
@@ -34,7 +25,7 @@ fail_001:
 
 # thread1 manages CREATE/DROP of the tables within the init phase.
 # The concurrent sessions go with some sleep which should minimize friction between their DML
-# and the DDL run by thread1. 
+# and the DDL run by thread1.
 # thread1 goes with big timeouts. This gives also some variation for the statements taken
 # from the rule "query".
 thread1_init:
