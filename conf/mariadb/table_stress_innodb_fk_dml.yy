@@ -191,7 +191,7 @@ query:
 
 query_init:
    # Give thread1 some time for DDL.
-   { sleep 5 } ;
+   { sleep 5 ; return undef } ;
 
 dml:
    # Ensure that the table does not grow endless.                                                                   |
