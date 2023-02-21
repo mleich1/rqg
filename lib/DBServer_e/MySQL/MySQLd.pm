@@ -2420,7 +2420,8 @@ sub waitForAuxpidGone {
     # For debugging:
     # Auxiliary::print_ps_tree($self->forkpid);
     # Auxiliary::print_ps_tree($$);
-    if (not defined $self->forkpid) {
+    my $pid = $self->forkpid;
+    if (not defined $pid) {
         my $status = STATUS_FAILURE;
         say("INTERNAL ERROR: $who_am_i The auxiliary process is undef/unknown. " .
             "Will return status STATUS_FAILURE($status).");
@@ -2429,7 +2430,6 @@ sub waitForAuxpidGone {
     # say("DEBUG: Start waiting for aux_pids gone.");
     while (1) {
         Time::HiRes::sleep($wait_time);
-        my $pid = $self->forkpid;
         if (exists $aux_pids{$pid} and $$ == $aux_pids{$pid}) {
             # The current process is the parent of the auxiliary process.
             # I fear that the sigalarm in startServer is not sufficient for ensuring that
@@ -2456,13 +2456,20 @@ sub waitForAuxpidGone {
                     say("WARN: $who_am_i The child process auxpid $pid exited with exit status " .
                         "$status $msg_snip");
                 }
-            }
-            if (0 == $reaped and STATUS_OK != $status) {
-                say("ERROR: $who_am_i The attempt to reap the child process auxpid $pid failed " .
-                    "with status $status $msg_snip");
+            } else {
+                # We have not reaped.
+                if (STATUS_OK != $status) {
+                    say("ERROR: $who_am_i The attempt to reap the child process auxpid $pid " .
+                        "failed with status $status $msg_snip");
+                }
             }
         } else {
-            # The current process is not the parent of $pid. Hence delete the entry.
+            # The auxiliary process
+            # - is not in our hash for such processes
+            #   --> Poll that it finishes.
+            # or
+            # - is in our hash for such processes but we are not the parent.
+            #   --> Delete it from our hash for such processes. And poll that it finishes.
             delete $aux_pids{$pid};
             # Maybe the auxiliary process has already finished and was reaped.
             if (not kill(0, $pid)) {
@@ -2484,12 +2491,20 @@ sub waitForAuxpidGone {
             say("ERROR: $who_am_i The auxiliary process has not disappeared within $wait_timeout" .
                 "s waiting. Will send SIGKILL and return status STATUS_FAILURE($status) later.");
             kill KILL => $pid;
-            # FIXME MAYBE:   Provisoric solution
-            sleep 30;
-            return $status if not exists $aux_pids{$pid};
-            my $reaped;
-            ($reaped, $status) = Auxiliary::reapChild($pid,
-                                                      "waitForAuxpidGone");
+            # Variants:
+            # 1. The auxiliary process is not in our hash for such processes.
+            #    SIGKILL + wait a bit.
+            # 2. The auxiliary process is in our hash for such processes and we are the parent.
+            #    SIGKILL + wait a bit.
+            # 3. The auxiliary process is in our hash for such processes and we are not the parent.
+            #    SIGKILL + wait a bit.
+            delete $aux_pids{$pid};
+            # FIXME : Provisoric solution.
+            sleep 10;
+            if (exists $aux_pids{$pid} and $$ == $aux_pids{$pid}) {
+                my $reaped;
+                ($reaped, $status) = Auxiliary::reapChild($pid, "waitForAuxpidGone");
+            }
             return $status;
         }
     }
@@ -2556,9 +2571,6 @@ sub make_backtrace {
             say("INFO: The server process " . $self->serverpid . " is no more running.");
             $status = STATUS_SERVER_CRASHED;
         }
-        # cleanup_dead_server waits till the aux/fork pis is gone.
-        # FIXME maybe: cleanup_dead_server could fail (report status of waitForAuxpidGone)
-        $self->cleanup_dead_server;
     }
     # cleanup_dead_server waits till the aux/fork pis is gone.
     $self->cleanup_dead_server;
