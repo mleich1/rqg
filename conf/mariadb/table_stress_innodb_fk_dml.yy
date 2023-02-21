@@ -20,7 +20,7 @@
 # _digit --> Range 0 till 9
 
 fail_001:
-   { $fail = 'my_fail_001' ; return undef }; SELECT * FROM $fail ;
+   { $fail = 'my_fail_001' ; return undef } SELECT * FROM $fail ;
 
 
 # thread1 manages CREATE/DROP of the tables within the init phase.
@@ -29,8 +29,12 @@ fail_001:
 # thread1 goes with big timeouts. This gives also some variation for the statements taken
 # from the rule "query".
 thread1_init:
-   INSTALL SONAME 'file_key_management' ; CREATE SCHEMA birth ; create_table ; create_table ; create_table ; create_table ; create_table ; create_table ; create_table ;
+   INSTALL SONAME 'file_key_management' ; CREATE SCHEMA birth ; create_many_tables ;
    SET GLOBAL innodb_disable_resize_buffer_pool_debug = OFF;
+
+create_many_tables:
+   create_table ; create_table ; create_table ; create_table ; create_table ; create_table ; create_table ; create_table ;
+   create_table ; create_table ; create_table ; create_table ; create_table ; create_table ; create_table ; create_table ;
 
 thread1:
    kill_query_or_session_or_release                                                                                                                                                           |
@@ -46,7 +50,7 @@ thread1:
    query                                                                                                                                                                                      ;
 
 fail_002:
-   { $fail = 'my_fail_002' ; return undef }; SELECT * FROM $fail ;
+   { $fail = 'my_fail_002' ; return undef } SELECT * FROM $fail ;
 
 thread1_connect:
    SET AUTOCOMMIT = 0; SET @fill_amount = (@@innodb_page_size / 2 ) + 1 ; set_big_timeouts ;
@@ -63,7 +67,7 @@ maintain_session_entry:
    REPLACE INTO rqg . rqg_sessions SET rqg_id = _thread_id , processlist_id = CONNECTION_ID(), pid = { my $x = $$ } , connect_time = UNIX_TIMESTAMP();  COMMIT ;
 
 fail_003:
-   { $fail = 'my_fail_003' ; return undef }; SELECT * FROM $fail ;
+   { $fail = 'my_fail_003' ; return undef } SELECT * FROM $fail ;
 
 kill_query_or_session_or_release:
 # We are here interested on the impact of
@@ -128,7 +132,7 @@ kill_age_cond:
    UNIX_TIMESTAMP() - connect_time > 10;
 
 fail_004:
-   { $fail = 'my_fail_004' ; return undef }; SELECT * FROM $fail ;
+   { $fail = 'my_fail_004' ; return undef } SELECT * FROM $fail ;
 
 correct_rqg_sessions_table:
    UPDATE rqg . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
@@ -180,7 +184,7 @@ generated_cols:
    , col_int_g_properties $col_name $col_type, col_string_g_properties $col_name $col_type , col_text_g_properties $col_name $col_type ;
 
 fail_005:
-   { $fail = 'my_fail_005' ; return undef }; SELECT * FROM $fail ;
+   { $fail = 'my_fail_005' ; return undef } SELECT * FROM $fail ;
 
 query:
    set_dbug ; check_table ; set_dbug_null |
@@ -253,7 +257,7 @@ commit_rollback:
    ROLLBACK ;
 
 fail_006:
-   { $fail = 'my_fail_006' ; return undef }; SELECT * FROM $fail ;
+   { $fail = 'my_fail_006' ; return undef } SELECT * FROM $fail ;
 
 # FIXME:
 # https://mariadb.com/kb/en/library/wait-and-nowait/
@@ -306,6 +310,9 @@ add_accelerator:
    ADD           key_or_index if_not_exists_mostly   idx_name ( column_name_list_for_key ) |
 #  ADD  PRIMARY  KEY          if_not_exists_mostly            ( column_name_list_for_key ) |
    ADD  FULLTEXT key_or_index if_not_exists_mostly ftidx_name ( column_name_list_for_fts ) ;
+
+fail_007:
+   { $fail = 'my_fail_007' ; return undef } SELECT * FROM $fail ;
 
 key_or_index:
    INDEX |
@@ -376,7 +383,7 @@ random_column_name:
    col_text_g    ;
 
 fail_008:
-   { $fail = 'my_fail_008' ; return undef }; SELECT * FROM $fail ;
+   { $fail = 'my_fail_008' ; return undef } SELECT * FROM $fail ;
 
 #===========================================================
 # Concept of "replace_column"
@@ -528,7 +535,7 @@ small_sleep:
    { sleep 2.5 ; return undef } ;
 
 fail_009:
-   { $fail = 'my_fail_009' ; return undef }; SELECT * FROM $fail ;
+   { $fail = 'my_fail_009' ; return undef } SELECT * FROM $fail ;
 
 #######################
 # 1. Have the alternatives
@@ -637,7 +644,7 @@ col9_to_idx:
    { $col_idx= $col_name . "(9)" ; return undef } ;
 
 fail_010:
-   { $fail = 'my_fail_010' ; return undef }; SELECT * FROM $fail ;
+   { $fail = 'my_fail_010' ; return undef } SELECT * FROM $fail ;
 
 
 
@@ -673,6 +680,6 @@ set_dbug_null:
    ;
 
 fail_011:
-   { $fail = 'my_fail_011' ; return undef }; SELECT * FROM $fail ;
+   { $fail = 'my_fail_011' ; return undef } SELECT * FROM $fail ;
 
 
