@@ -123,7 +123,7 @@ use constant DEFAULT_STARTUP_TIMEOUT             => 600;
 # Maximum timespan between time of server process disappeared or KILL or similar for server
 # the process and the auxiliary process reaped.
 # Main task: Give sufficient time for finishing write of rr trace or core file or ...
-use constant DEFAULT_AUXPID_GONE_TIMEOUT         => 60;
+use constant DEFAULT_AUXPID_GONE_TIMEOUT         => 90;
 # Maximum timespan between sending a SIGKILL to the server process and it disappearing
 # Maybe the time required for rr writing the rr trace till end is in that timespan.
 use constant DEFAULT_SERVER_KILL_TIMEOUT         => 30;
@@ -826,7 +826,7 @@ sub startServer {
         if (defined $rr) {
             # The rqg runner has to check in advance that 'rr' is installed on the current box.
             my $rr_options = Runtime::get_rr_options();
-            $rr_options = '' if not defined $rr_options;
+            $rr_options =   '' if not defined $rr_options;
             $tool_startup = 10;
             $rr_trace_dir = $self->vardir . '/rr';
             if (not -d $rr_trace_dir) {
@@ -1785,7 +1785,7 @@ sub checkDatabaseIntegrity {
     # $self->killServer;
     # SELECT 'test' WHERE 1 IS NULL --> not undef
     # GARBAGE                       --> undef and 1064
-    my $aux_query = "SHOW DATABASES";
+    my $aux_query =     "SHOW DATABASES";
     my $res_databases = $executor->execute($aux_query);
     $status = $res_databases->status;
     if (STATUS_OK != $status) {
@@ -1925,7 +1925,7 @@ sub waitForServerToStop {
         while ($self->running && Time::HiRes::time() < $wait_end) {
             if (Time::HiRes::time() > $next_ps_check) {
                 my $new_ps_tree = Auxiliary::get_ps_tree($self->pid);
-                if ($new_ps_tree == $old_ps_tree) {
+                if ($new_ps_tree eq $old_ps_tree) {
                     say("DEBUG: $who_am_i \$new_ps_tree == \$old_ps_tree == '$new_ps_tree'." .
                         "Aborting the grace period.");
                     last;
@@ -2560,6 +2560,8 @@ sub make_backtrace {
         # FIXME maybe: cleanup_dead_server could fail (report status of waitForAuxpidGone)
         $self->cleanup_dead_server;
     }
+    # cleanup_dead_server waits till the aux/fork pis is gone.
+    $self->cleanup_dead_server;
 
     my $rqg_homedir = Local::get_rqg_home();
     # For testing:
