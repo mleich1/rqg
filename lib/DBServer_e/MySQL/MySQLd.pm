@@ -1777,7 +1777,7 @@ sub checkDatabaseIntegrity {
     $executor->setRole("checkDatabaseIntegrity");
     # EXECUTOR_TASK_REPORTER ensures that max_statement_time is set to 0 for the current executor.
     # But this is not valid for the connection established by mysqldump!
-    $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_UNKNOWN);
+    $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_CHECKER);
     $status = $executor->init();
     return $status if $status != STATUS_OK;
 
@@ -1926,7 +1926,7 @@ sub waitForServerToStop {
             if (Time::HiRes::time() > $next_ps_check) {
                 my $new_ps_tree = Auxiliary::get_ps_tree($self->pid);
                 if ($new_ps_tree eq $old_ps_tree) {
-                    say("DEBUG: $who_am_i \$new_ps_tree == \$old_ps_tree == '$new_ps_tree'." .
+                    say("DEBUG: $who_am_i \$new_ps_tree == \$old_ps_tree == '$new_ps_tree'" .
                         "Aborting the grace period.");
                     last;
                 } else {
@@ -2498,13 +2498,13 @@ sub waitForAuxpidGone {
             #    SIGKILL + wait a bit.
             # 3. The auxiliary process is in our hash for such processes and we are not the parent.
             #    SIGKILL + wait a bit.
-            delete $aux_pids{$pid};
             # FIXME : Provisoric solution.
             sleep 10;
             if (exists $aux_pids{$pid} and $$ == $aux_pids{$pid}) {
                 my $reaped;
                 ($reaped, $status) = Auxiliary::reapChild($pid, "waitForAuxpidGone");
             }
+            delete $aux_pids{$pid};
             return $status;
         }
     }
@@ -2620,8 +2620,8 @@ sub make_backtrace {
                           "< $backtrace_cfg";
             system('bash -c "set -o pipefail; '. $command .'"');
             sayFile($backtrace);
-            sayFile($error_log);
         }
+        sayFile($error_log);
         $status = STATUS_SERVER_CRASHED;
         say("INFO: $who_am_i No core file to be expected. " . Auxiliary::build_wrs($status));
         say("INFO: $who_am_i ------------------------------ End");

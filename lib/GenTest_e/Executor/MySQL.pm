@@ -1110,7 +1110,7 @@ sub init {
         if ($executor->task() != GenTest_e::Executor::EXECUTOR_TASK_THREAD) {
             # The remaining 'tasks':
             #     EXECUTOR_TASK_GENDATA, EXECUTOR_TASK_CACHER, EXECUTOR_TASK_REPORTER,
-            #     EXECUTOR_TASK_UNKNOWN
+            #     EXECUTOR_TASK_UNKNOWN, EXECUTOR_TASK_CHECKER
             # are all vulnerable to max_statement_time but must not suffer from that.
             $status = $executor->set_safe_max_statement_time ;
             return $status if $status != STATUS_OK;
@@ -1388,7 +1388,8 @@ sub execute {
     if (defined $err) {            # Error on EXECUTE
         # say("DEBUG: $trace_addition At begin of Error '$err' processing");
 
-        if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_REPORTER) {
+        if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_REPORTER or
+            $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_CHECKER) {
             # FIXME:
             # Check for some Reporter using an executor from here if he needs anything of the
             # stuff which follows.
@@ -1645,7 +1646,8 @@ sub execute {
                     ($ct_Msg_text =~ /Deadlock found when trying to get lock/) or
                     ($ct_Msg_text =~ /Lock wait timeout exceeded/)             or
                     ($ct_Msg_text =~ /Query execution was interrupted/)          ) {
-                    say("DEBUG: For query '" . $query . "' harmless '" . $line . "' observed.");
+                    say("DEBUG: For query '" . $query . "' harmless '" . $line . "' observed.")
+                        if $debug_here;
                     return GenTest_e::Result->new(
                         query       => $query,
                         status      => STATUS_SKIP,
@@ -1680,7 +1682,8 @@ sub execute {
                     {
                         # Per Marko:
                         # Only if CHECK ... EXTENDED + harmless/to be expected.
-                        say("DEBUG: For query '" . $query . "' harmless '" . $line . "' observed.");
+                        say("DEBUG: For query '" . $query . "' harmless '" . $line . "' observed.")
+                            if $debug_here;
                         next;
                     } else {
                         say("ERROR: The query '" . $query . "' passed but has a result set line '" .
@@ -1952,6 +1955,7 @@ sub DESTROY {
     # Exclude executors with tasks where the statistics makes no sense.
     return STATUS_OK if $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_REPORTER;
     return STATUS_OK if $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_GENDATA;
+    return STATUS_OK if $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_CHECKER;
 
     if ((rqg_debug()) && (defined $executor->[EXECUTOR_STATUS_COUNTS])) {
         # FIXME: Are there "roles" where the statistics makes no sense? Gendata*?

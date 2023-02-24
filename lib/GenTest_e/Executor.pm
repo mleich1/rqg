@@ -1,6 +1,7 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
+# Copyright (c) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -88,11 +89,21 @@ use constant EXECUTOR_FLAG_PERFORMANCE       => 2;
 use constant EXECUTOR_FLAG_HASH_DATA         => 4;
 
 # We go with some fine grained differentiation.
-use constant EXECUTOR_TASK_GENDATA           => 0;
+# (1) Raise SESSION max_statement_time and other timeouts whenever small values could cause a fail
+#     of queries.
+# (2) If losing the connection assume its STATUS_SERVER_CRASHED.
+#     This implies to not
+#     - try to reconnect
+#     - run COMMIT/ROLLBACK RELEASE except maybe before finishing.
+# (3) Do not maintain EXECUTOR_ERROR_COUNTS.
+# (4) Do not fiddle with duration here.
+# (5) Assume to be the main process of the RQG runner which implies to avoid exiting here.
+use constant EXECUTOR_TASK_GENDATA           => 0; # (1), (2), (3), (4)
 use constant EXECUTOR_TASK_CACHER            => 0; # Same handling like EXECUTOR_TASK_GENDATA!
-use constant EXECUTOR_TASK_THREAD            => 1;
-use constant EXECUTOR_TASK_REPORTER          => 2;
-use constant EXECUTOR_TASK_UNKNOWN           => 3;
+use constant EXECUTOR_TASK_THREAD            => 1; # --
+use constant EXECUTOR_TASK_REPORTER          => 2; # (1), (2), (3), (4)
+use constant EXECUTOR_TASK_CHECKER           => 3; # (1), (2), (3), (4), (5)
+use constant EXECUTOR_TASK_UNKNOWN           => 4;
 
 my %global_schema_cache;
 
