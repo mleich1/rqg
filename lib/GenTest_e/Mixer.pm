@@ -1,5 +1,6 @@
 # Copyright (c) 2008,2011 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2018, 2021 MariaDB Corporation Ab.
+# Copyright (c) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -209,9 +210,6 @@ sub next {
    my $max_status = STATUS_OK;
 
    query: foreach my $query (@$queries) {
-      # Omit to execute queries consisting of white spaces only.
-      next if $query =~ m{^\s*$}o;
-
       # The check which follows here cannot prevent 100% that the reporter Deadlock could
       # mean to have detected a problem based on  The duration was far way exceeded.
       # Reasons:
@@ -220,8 +218,11 @@ sub next {
       if ($mixer->end_time() && (time() > $mixer->end_time())) {
          say("INFO: $mixer_role in Mixer : We have already exceeded time specified by " .
              "--duration=x; Will leave Mixer soon.");
-         last;
+         last query;
       }
+
+      # Omit to execute queries consisting of white spaces only.
+      next if $query =~ m{^\s*$}o;
 
       say("DEBUG: Mixer::next: $mixer_role before processing '" . $query .
           "' of the query sequence") if $debug_here;
@@ -411,7 +412,7 @@ sub next {
             # lib/GenTest_e/Executor/MySQL.pm will than set status STATUS_DATABASE_CORRUPTION.
             # So the command which follows avoids the warning because of non initialized variable.
             $result_err = 0 if not defined $result_err;
-            say("$mixer_role in Mixer : Critical failure " .
+            say("ERROR: $mixer_role in Mixer : Critical failure " .
                 status2text($execution_result->status()) . " (" . $execution_result->status() .
                 "), Error $result_err reported at dsn " . $executor->dsn());
             last query;
@@ -419,6 +420,7 @@ sub next {
 
          $restart_timeout = $mixer->restart_timeout();
          next query if $execution_result->status() == STATUS_SKIP;
+
       } # End of loop called "EXECUTE_QUERY"
 
       foreach my $validator (@{$mixer->validators()}) {
