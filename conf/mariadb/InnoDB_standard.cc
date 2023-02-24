@@ -271,7 +271,7 @@ $combinations = [ $grammars,
     --mysqld=--wait_timeout=28800
     --mysqld=--lock-wait-timeout=86400
     --mysqld=--innodb-lock-wait-timeout=50
-    --no-mask
+    --no_mask
     --queries=10000000
     --seed=random
     --reporters=Backtrace --reporters=ErrorLog --reporters=Deadlock
