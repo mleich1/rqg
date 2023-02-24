@@ -1,5 +1,6 @@
 # Copyright (C) 2013 Monty Program Ab
 # Copyright (C) 2019, 2022  MariaDB Corporation Ab.
+# Copyright (C) 2023 MariaDB plc
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -107,9 +108,15 @@ sub report {
     $first_reporter = $reporter if not defined $first_reporter;
     return STATUS_OK if $reporter ne $first_reporter;
 
+    say("INFO: $who_am_i Reporting ...");
     # Wait till the kill is finished + rr traces are written + the auxpid has disappeared.
     my $server = $reporter->properties->servers->[0];
-    $server->cleanup_dead_server;
+    my $status = $server->cleanup_dead_server;
+    if (STATUS_OK != $status) {
+        say("ERROR: $who_am_i cleaning up the killed server failed with status $status. " .
+            "Will exit with STATUS_ENVIRONMENT_FAILURE.");
+        exit STATUS_ENVIRONMENT_FAILURE;
+    }
 
     my $datadir = $reporter->serverVariable('datadir');
     # Cut trailing forward/backward slashes away.
@@ -680,7 +687,7 @@ sub report {
         }
     }
 
-    my $status = STATUS_OK;
+    $status = STATUS_OK;
     $dbh->disconnect();
     say("INFO: $who_am_i No failures found. " . Auxiliary::build_wrs($status));
     return $status;
