@@ -46,7 +46,37 @@ then
     echo echo "ERROR: Determine the free space in '$BASE_FS' failed."
     exit 4
 fi
-SPACE_PLANNED=$(($SPACE_AVAIL / 3))
+# Thoughts for a cc file having 50% vardir_fast and 50% vardir_slow
+# ------------------------------------------------------------------------------
+# 1. Observation:
+#    Even if the slowdir rqg_ext4 container occupies 40% of the initial free
+#    space in /dev/shm some testing campaign could have tests which fail
+#    because of no more space in the rqg_ext4 filesystem.
+#    (25% , 30%, 33% and 40% tried)
+#    Variant a) The DB server babbles somewhere of no more space.          (*)
+#    Variant b) RQG means to have seen some freeze of the DB server because
+#               timeouts get exceeded and similar. The reason can be that the
+#               DB server waits for free space.
+#    Variant c) RQG babbles about some failure when writing, copying, .... (**)
+#    (*) Easy to detect and to classify as "no more space" problem.
+#    (**) Analysis is frequnet extreme difficult.
+# 2. Raising the size of rqg_ext4 over 50% makes no sense because certain stuff
+#    (Example: rr traces, file backups, ...) of tests using slowdir gets already
+#    stored in /dev/shm. I gues that some raise would led to reducing the
+#    overall throughput.
+# 3. Some sophisticated solution like
+#    - do not prefill rqg_ext4 with dd --> Let it just grow during testing.
+#    - tune lib/ResourceControl.pm which observes the free space in fast_dir
+#    is thinkable.
+#    But it does not help in case of userdefined slowdirs which have already
+#    their full size + the tuning will be costly.
+# Conclusions:
+# - lib/ResourceControl.pm must take care of the space consumption in slowdir
+# - The optimal size of the rqg_ext4 vs /dev/shm is reached in case we have
+#   maximum throughput ->
+#   no or low fraction of tests stopped because of trouble with free space in
+#   fast_dir (/dev/shm/rqg) and slow_dir (maybe /dev/shm/rqg_ext4)
+SPACE_PLANNED=$(($SPACE_AVAIL / 10 * 4))
 # 'sdp' reports for /dev/shm a total space of 1,559,937,276 which is
 # suspicious high. Given the CPU power etc. we do not need more than 100 GB.
 # Formatting more than required wastes elapsed time on 'sdp'.
