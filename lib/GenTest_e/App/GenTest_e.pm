@@ -452,7 +452,7 @@ sub doGenTest {
             last;
         }
         sleep 5;
-    }
+    } # End of loop OUTER
 
     foreach my $worker_pid (keys %worker_pids) {
         say("Killing (TERM) remaining worker process with pid $worker_pid...");
