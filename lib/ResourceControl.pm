@@ -1,4 +1,5 @@
 #  Copyright (c) 2018 - 2022 MariaDB Corporation Ab.
+#  Copyright (c) 2023 MariaDB plc
 #  Use is subject to license terms.
 #
 #  This program is free software; you can redistribute it and/or modify
@@ -117,12 +118,20 @@ my $mem_est_free_init;
 my $mem_est_free;
 my $mem_consumed;
 
+# fast_dir which is usually /dev/shm/rqg
 my $vardir;             # Path to that directory
 my $vardir_free_init;
 my $vardir_free;
 my $vardir_consumed;
 
-my $workdir;            # Path to that directory
+# slow_dir which is usually /dev/shm/rqg_ext4
+my $slowdir;             # Path to that directory
+my $slowdir_free_init;
+my $slowdir_free;
+my $slowdir_consumed;
+
+# Usually /data/results
+my $workdir;             # Path to that directory
 my $workdir_free_init;
 my $workdir_free;
 my $workdir_consumed;
@@ -164,7 +173,8 @@ use constant RC_ALLOWED_VALUE_LIST => [ RC_NONE, RC_BAD, RC_CHANGE_1, RC_CHANGE_
 my $rc_type;
 
 my $book_keeping_file;
-my $print = 0;
+my $last_df_print = 0;
+my $print         = 0;
 
 # Print the memory consumption of the process running rqg_batch
 # -------------------------------------------------------------
@@ -178,11 +188,11 @@ my $rqg_batch_debug = 0;
 my $resource_control_debug = 0;
 
 sub init {
-    ($rc_type, $workdir, $vardir) = @_;
+    ($rc_type, $workdir, $vardir, $slowdir) = @_;
 
-    if (3 != scalar @_) {
+    if (4 != scalar @_) {
         Carp::cluck("INTERNAL ERROR: ResourceControl::init: 4 parameters " .
-                    "(rc_type, workdir, vardir) are required");
+                    "(rc_type, workdir, vardir, slowdir) are required");
         safe_exit(STATUS_INTERNAL_ERROR);
     }
     say("DEBUG: ResourceControl::init at begin") if Auxiliary::script_debug("L2");
@@ -204,6 +214,14 @@ sub init {
     }
     if (not -d $vardir) {
         Carp::cluck("INTERNAL ERROR: vardir '$vardir' does not exist or is not a directory.");
+        safe_exit(STATUS_INTERNAL_ERROR);
+    }
+    if (not defined $slowdir) {
+        Carp::cluck("INTERNAL ERROR: slowdir is undef.");
+        safe_exit(STATUS_INTERNAL_ERROR);
+    }
+    if (not -d $slowdir) {
+        Carp::cluck("INTERNAL ERROR: slowdir '$slowdir' does not exist or is not a directory.");
         safe_exit(STATUS_INTERNAL_ERROR);
     }
     if (not defined $workdir) {
@@ -342,6 +360,7 @@ sub init {
     measure();
 
     $vardir_free_init   = $vardir_free;
+    $slowdir_free_init  = $slowdir_free;
     $workdir_free_init  = $workdir_free;
     $mem_est_free_init  = $mem_est_free;
     $swap_used_init     = $swap_used;
@@ -360,6 +379,7 @@ sub init {
     # Preload data into variables belonging to the std output
     my $worker_active = 0;
     my $vardir_used   = 0;
+    my $slowdir_used  = 0;
     my $workdir_used  = 0;
 
     # Estimations regarding the safe and average number of workers.
@@ -408,6 +428,7 @@ sub init {
         my $line =
           "$iso_ts ResourceControl type    : $rc_type\n"                                           .
           "$iso_ts vardir  '$vardir'  free : $vardir_free_init\n"                                  .
+          "$iso_ts slowdir '$slowdir' free : $slowdir_free_init\n"                                 .
           "$iso_ts workdir '$workdir' free : $workdir_free_init\n"                                 .
           "$iso_ts memory total            : $mem_total\n"                                         .
           "$iso_ts memory real free        : $mem_est_free_init\n"                                 .
@@ -424,7 +445,9 @@ sub init {
           "$iso_ts The distance between non cpu measurements depends on the needs of RQG Batch.\n" .
           "$iso_ts Minimal distance between cpu measurements: 5s\n"                                .
           "------------------------------------------------------------------------------------\n" .
-          "$iso_ts worker , vardir_consumed - vardir_free , "                                      .
+          "$iso_ts worker , "                                                                      .
+                   "vardir_consumed - vardir_free , "                                              .
+                   "slowdir_consumed - slowdir_free , "                                            .
                    "workdir_consumed - workdir_free , "                                            .
                    "mem_consumed - mem_est_free , "                                                .
                    "swap_consumed - swap_free , "                                                  .
@@ -447,6 +470,12 @@ sub report {
         return LOAD_INCREASE;
     }
 
+    my $curr_time = time();
+    if ($curr_time > $last_df_print + 1) {
+        system("df -vk /dev/shm/rqg /dev/shm/rqg_ext4");
+        $last_df_print = $curr_time;
+    }
+
     # A call with functionality like 'du' is missing because
     # - a corresponding Perl module is not part of the "standard" Ubuntu install
     # - I fear using 'du' from OS level is too slow
@@ -455,6 +484,7 @@ sub report {
     measure();
 
     $vardir_consumed   = $vardir_free_init   - $vardir_free;
+    $slowdir_consumed  = $slowdir_free_init  - $slowdir_free;
     $workdir_consumed  = $workdir_free_init  - $workdir_free;
     $mem_consumed      = $mem_est_free_init  - $mem_est_free;
     $swap_consumed     = $swap_used          - $swap_used_init;
@@ -467,29 +497,29 @@ sub report {
     #    uses ResourceControl were not able to prevent that we reached a dangerous situation
     # c) catch the cases where the user should take care of the state (cleanup , what runs in
     #    parallel etc.) of his testing box.
-    my $vr_U;
-    my $mr_U;
-    my $rr_U;
-    my $sr_U;
-    my $wr_U;
+    my $vardir_remain_U;
+    my $mem_remain_U;
+    my $ram_remain_U;
+    my $swap_remain_U;
+    my $workdir_remain_U;
     my $rd_U;
     #
     # One worker dies with core and we would hit no more space in filesystem.
-    $vr_U = $vardir_free - SPACE_CORE;
+    $vardir_remain_U = $vardir_free - SPACE_CORE;
     # We are below the free space threshold for a rqg_batch run in general.
-    $wr_U = $workdir_free - SPACE_FREE;
+    $workdir_remain_U = $workdir_free - SPACE_FREE;
     # One worker dies with core which has to be placed in tmpfs. The current virtual memory
     # usage forces to put stuff (parts of running programs and/or parts of vardir occupied
     # by files) with a size like that core into the swap. And there is not enough free.
-    # $sr_U = $swap_free - SPACE_CORE;
-    $sr_U = $mem_est_free + $swap_free - SPACE_CORE;
-    # $sr_U = 0 if 0 == $swap_free;
-    $mr_U = $mem_est_free - 0; # Basically no idea
+    # $swap_remain_U = $swap_free - SPACE_CORE;
+    $swap_remain_U = $mem_est_free + $swap_free - SPACE_CORE;
+    # $swap_remain_U = 0 if 0 == $swap_free;
+    $mem_remain_U = $mem_est_free - 0; # Basically no idea
     # 8000 MB is a guess based on
     #     RQG on skylake01, swap space use started to grow and
     #     192 GB - ($vardir_consumed + $mem_consumed) = 8000 MB.
     $rd_U = $vardir_consumed + $mem_consumed + 8000;
-    $rr_U = $mem_total - $rd_U;
+    $ram_remain_U = $mem_total - $rd_U;
 
 #----------------------
 
@@ -501,11 +531,11 @@ sub report {
     # This is done by assuming that some estimated fraction of ongoing RQG runs dies with core
     # at roughly the same point of time.
     #
-    my $vr_D;
-    my $mr_D;
-    my $rr_D;
-    my $sr_D;
-    my $wr_D;
+    my $vardir_remain_D;
+    my $mem_remain_D;
+    my $ram_remain_D;
+    my $swap_remain_D;
+    my $workdir_remain_D;
     my $vd_D;
     my $rd_D;
     my $sd_D;
@@ -520,31 +550,31 @@ sub report {
     #     --> decrease criterion fulfilled
     # Checks of criterions is ordered give_up? --if no--> decrease? --if no--> keep? --> ...
     $vd_D = (1 + ($worker_active - 1) * SHARE_CORE)  * SPACE_CORE;
-    $vr_D = $vardir_free - $vd_D;
+    $vardir_remain_D = $vardir_free - $vd_D;
     $sd_D = $vd_D;
-    # $sr_D = $swap_free - $sd_D;
-    $sr_D = $mem_est_free + $swap_free - $sd_D;
-    # $sr_D = 0 if 0 == $swap_free;
+    # $swap_remain_D = $swap_free - $sd_D;
+    $swap_remain_D = $mem_est_free + $swap_free - $sd_D;
+    # $swap_remain_D = 0 if 0 == $swap_free;
     # All active workers finish with fail + archiving etc. and we would fall below the free space
     # threshold for the workdir. Some moderate decrease of activity till stop would be good.
-    $wr_D = $workdir_free - $worker_active * SPACE_REMAIN + SPACE_FREE;
+    $workdir_remain_D = $workdir_free - $worker_active * SPACE_REMAIN + SPACE_FREE;
     # In case the already existing space consumption ($vardir_consumed + $mem_consumed + 8000)
     # and feared additional space consumption ($vd_D + 1000) exceeds the total amount of RAM
-    # ($mem_total) than the OS will be forced to use more swap space that we do not want.
+    # ($mem_total) than the OS will be forced to use more swap space what we do not want.
     $rd_D = $vd_D + $vardir_consumed + $mem_consumed + 8000 + 1000;
-    $rr_D = $mem_total - $rd_D;
-    $mr_D = $mem_est_free - 0; # Basically no idea
+    $ram_remain_D = $mem_total - $rd_D;
+    $mem_remain_D = $mem_est_free - 0; # Basically no idea
 
 #----------------------
 
     # Setting $load_status = LOAD_KEEP serves to prevent that we start some additional RQG run
     # which than maybe leads to the state that we must set LOAD_DECREASE and stop one RQG run.
     #
-    my $vr_K;
-    my $mr_K;
-    my $rr_K;
-    my $sr_K;
-    my $wr_K;
+    my $vardir_remain_K;
+    my $mem_remain_K;
+    my $ram_remain_K;
+    my $swap_remain_K;
+    my $workdir_remain_K;
     my $vd_K;
     my $wd_K;
     my $md_K;
@@ -561,7 +591,7 @@ sub report {
     } else {
         $vd_K = SPACE_CORE + SPACE_USED;
     }
-    $vr_K = $vardir_free - $vd_K;
+    $vardir_remain_K = $vardir_free - $vd_K;
 
     # FIXME maybe refine:
     # Zero paging assumed $mem_consumed contains already the space consumption in tmpfs.
@@ -575,11 +605,11 @@ sub report {
     } else {
         $md_K = MEM_USED + SPACE_USED + SPACE_CORE;
     }
-    $mr_K = $mem_est_free - $md_K;
+    $mem_remain_K = $mem_est_free - $md_K;
 
     # Tried but not good because jumping from INCREASE without hitting KEEP between to DECREASE.
-    # $sr_K = $sr_D;
-    $sr_K = $sr_D - $md_K / 2;
+    # $swap_remain_K = $swap_remain_D;
+    $swap_remain_K = $swap_remain_D - $md_K / 2;
 
     # In case the estimated space consumed in memory ($md_K) and the estimated space in vardir
     # ($vd_K) exceeds the total amount of RAM ($mem_total) than we will maybe
@@ -590,41 +620,41 @@ sub report {
     #     RQG on skylake01, swap space use started to grow and
     #     192 GB - ($vardir_consumed + $mem_consumed) = 8000 MB.
     $rd_K = $md_K + $vd_K + $vardir_consumed + $mem_consumed + 10000;
-    $rr_K = $mem_total - $rd_K;
+    $ram_remain_K = $mem_total - $rd_K;
 
     # All worker finish with the usual amount of remainings.
     $wd_K = (1 + $worker_active) * SPACE_REMAIN + SPACE_FREE; # ????
-    $wr_K = $workdir_free - $wd_K;
+    $workdir_remain_K = $workdir_free - $wd_K;
 
     my $estimation =
-    "DEBUG: Estimation for vardir           : ".int($vr_U)." , ".int($vr_D)." , ".int($vr_K)."\n".
-    "DEBUG: Estimation for RAM/avoid paging : ".int($rr_U)." , ".int($rr_D)." , ".int($rr_K)."\n".
-    "DEBUG: Estimation for memory           : ".int($mr_U)." , ".int($mr_D)." , ".int($mr_K)."\n".
-    "DEBUG: Estimation for swapspace        : ".int($sr_U)." , ".int($sr_D)." , ".int($sr_K)."\n".
-    "DEBUG: Estimation for workdir          : ".int($wr_U)." , ".int($wr_D)." , ".int($wr_K)."\n";
+    "DEBUG: Estimation for vardir           : ".int($vardir_remain_U)." , ".int($vardir_remain_D)." , ".int($vardir_remain_K)."\n".
+    "DEBUG: Estimation for RAM/avoid paging : ".int($ram_remain_U)." , ".int($ram_remain_D)." , ".int($ram_remain_K)."\n".
+    "DEBUG: Estimation for memory           : ".int($mem_remain_U)." , ".int($mem_remain_D)." , ".int($mem_remain_K)."\n".
+    "DEBUG: Estimation for swapspace        : ".int($swap_remain_U)." , ".int($swap_remain_D)." , ".int($swap_remain_K)."\n".
+    "DEBUG: Estimation for workdir          : ".int($workdir_remain_U)." , ".int($workdir_remain_D)." , ".int($workdir_remain_K)."\n";
 
     my $load_status;
     my $info_m = '';
     my $info   = '';
     if (not defined $load_status) {
         my $end_part = "is dangerous small.";
-        if      (0 > $vr_U) {
+        if      (0 > $vardir_remain_U) {
             $info_m = "G1";
             $info = "INFO: $info_m The free space in '$vardir' ($vardir_free MB) $end_part";
             $load_status = LOAD_GIVE_UP;
-        } elsif (0 > $mr_U) {
+        } elsif (0 > $mem_remain_U) {
             $info_m = "G2";
             $info = "INFO: $info_m The free memory ($mem_est_free MB) $end_part";
             $load_status = LOAD_GIVE_UP;
-#       } elsif (0 > $rr_U) {
+#       } elsif (0 > $ram_remain_U) {
 #           $info_m = "G3";
 #           $info = "INFO: $info_m The space consumption for the RAM ($mem_total MB) $end_part";
 #           $load_status = LOAD_GIVE_UP;
-        } elsif (0 > $sr_U) {
+        } elsif (0 > $swap_remain_U) {
             $info_m = "G4";
             $info = "INFO: $info_m The free virtual memory (RAM+SWAP) $end_part";
             $load_status = LOAD_GIVE_UP;
-        } elsif (0 > $wr_U) {
+        } elsif (0 > $workdir_remain_U) {
             $info_m = "G5";
             $info = "INFO: $info_m The free space in '$workdir' ($workdir_free MB) $end_part";
             $load_status = LOAD_GIVE_UP;
@@ -636,28 +666,32 @@ sub report {
             $info_m = "G7";
             $info = "INFO: $info_m 10% of total swap space used. This is bad.";
             $load_status = LOAD_GIVE_UP;
+        } elsif ($slowdir_consumed > $slowdir_free_init * 0.98) {
+            $info_m = "G8";
+            $info = "INFO: $info_m 98% of initial free space in slowdir used. This is bad.";
+            $load_status = LOAD_GIVE_UP;
         }
     }
 
     if (not defined $load_status) {
         my $end_part = "is critical.";
-        if      (0 > $vr_D) {
+        if      (0 > $vardir_remain_D) {
             $info_m = "D1";
             $info = "INFO: $info_m The free space in '$vardir' ($vardir_free MB) $end_part";
             $load_status = LOAD_DECREASE;
-        } elsif (0 > $mr_D) {
+        } elsif (0 > $mem_remain_D) {
             $info_m = "D2";
             $info = "INFO: $info_m The free memory ($mem_est_free MB) $end_part";
             $load_status = LOAD_DECREASE;
-#       } elsif (0 > $rr_D) {
+#       } elsif (0 > $ram_remain_D) {
 #           $info_m = "D3";
 #           $info = "INFO: $info_m The space consumption for the RAM ($mem_total MB) $end_part";
 #           $load_status = LOAD_DECREASE;
-        } elsif (0 > $sr_D) {
+        } elsif (0 > $swap_remain_D) {
             $info_m = "D4";
             $info = "INFO: $info_m The free virtual memory (RAM+SWAP) $end_part";
             $load_status = LOAD_DECREASE;
-        } elsif (0 > $wr_D) {
+        } elsif (0 > $workdir_remain_D) {
             $info_m = "D5";
             $info = "INFO: $info_m The free space in '$workdir' ($workdir_free MB) $end_part";
             $load_status = LOAD_DECREASE;
@@ -667,6 +701,10 @@ sub report {
             # 300 < int($pswpout) --> LOAD_DECREASE
             $info_m = "D6";
             $info = "INFO: $info_m Paging ($pswpout) has been observed. This $end_part";
+            $load_status = LOAD_DECREASE;
+        } elsif ($slowdir_consumed > $slowdir_free_init * 0.95) {
+            $info_m = "D7";
+            $info = "INFO: $info_m 95% of initial free space in slowdir used. This $end_part.";
             $load_status = LOAD_DECREASE;
         }
     }
@@ -679,29 +717,33 @@ sub report {
             $info_m = "K0";
             $info = "INFO: $info_m The value for CPU iowait $cpu_iowait is bigger than 20.";
             $load_status = LOAD_KEEP;
-        } elsif (0 > $vr_K) {
+        } elsif (0 > $vardir_remain_K) {
             $info_m = "K1";
             $info = "INFO: $info_m The free space in '$vardir' ($vardir_free MB) $end_part";
             $load_status = LOAD_KEEP;
-        } elsif (0 > $mr_K) {
+        } elsif (0 > $mem_remain_K) {
             $info_m = "K2";
             $info = "INFO: $info_m The free memory ($mem_est_free MB) $end_part";
             $load_status = LOAD_KEEP;
-#       } elsif (0 > $rr_K) {
+#       } elsif (0 > $ram_remain_K) {
 #           $info_m = "K3";
 #           $info = "INFO: $info_m The space consumption for the RAM ($mem_total MB) $end_part";
 #           $load_status = LOAD_KEEP;
-        } elsif (0 > $sr_K) {
+        } elsif (0 > $swap_remain_K) {
             $info_m = "K4";
             $info = "INFO: $info_m The free virtual memory (RAM+SWAP) $end_part";
             $load_status = LOAD_KEEP;
-        } elsif (0 > $wr_K) {
+        } elsif (0 > $workdir_remain_K) {
             $info_m = "K5";
             $info = "INFO: $info_m The free space in '$workdir' ($workdir_free MB) $end_part";
             $load_status = LOAD_KEEP;
         } elsif ($swap_consumed > $swap_total / 100) {
             $info_m = "K6";
             $info = "INFO: $info_m 1% of total swap space used consumed for testing. This $end_part";
+            $load_status = LOAD_KEEP;
+        } elsif ($slowdir_consumed > $slowdir_free_init * 0.9) {
+            $info_m = "K7";
+            $info = "INFO: $info_m 90% of initial free space in slowdir used. This $end_part.";
             $load_status = LOAD_KEEP;
         }
     }
@@ -719,6 +761,7 @@ sub report {
     my $iso_ts = isoTimestamp();
     my $line = "$iso_ts $worker_active , " .
                    $vardir_consumed   . " - " . $vardir_free   . " , " .
+                   $slowdir_consumed  . " - " . $slowdir_free  . " , " .
                    $workdir_consumed  . " - " . $workdir_free  . " , " .
                    $mem_consumed      . " - " . $mem_est_free  . " , " .
                    $swap_consumed     . " - " . $swap_free     . " , " .
@@ -788,6 +831,15 @@ sub measure {
         $vardir_free = int($ref->{bavail});
     } else {
         say("ERROR: df for '$vardir' failed.");
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        Batch::emergency_exit($status);
+    }
+    $ref = Filesys::Df::df($slowdir, SPACE_UNIT);  # Default output is 1M blocks
+    if(defined($ref)) {
+        # bavail == Free space which the current user would be allowed to occupy.
+        $slowdir_free = int($ref->{bavail});
+    } else {
+        say("ERROR: df for '$slowdir' failed.");
         my $status = STATUS_ENVIRONMENT_FAILURE;
         Batch::emergency_exit($status);
     }

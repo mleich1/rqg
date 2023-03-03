@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
+# Copyright (c) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -503,7 +504,8 @@ if (not defined $resource_control) {
 my ($load_status, $workers_mid, $workers_min) =
     # FIXME, maybe:
     # This is not roughly 100% safe because rqg_slow_dir gets not perfect attention.
-    ResourceControl::init($resource_control, $workdir, Local::get_rqg_fast_dir());
+    ResourceControl::init($resource_control, $workdir,
+                          Local::get_rqg_fast_dir(), Local::get_rqg_slow_dir());
 if($load_status ne ResourceControl::LOAD_INCREASE) {
     $status = STATUS_ENVIRONMENT_FAILURE;
     say("ERROR: ResourceControl reported the load status '$load_status' but around begin the " .
