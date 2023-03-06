@@ -1,4 +1,5 @@
 #  Copyright (c) 2018, 2021 MariaDB
+#  Copyright (c) 2023 MariaDB plc
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -198,7 +199,7 @@ alt_transaction:
 
 alt_lock_unlock_table:
     FLUSH TABLE alt_table_name FOR EXPORT
-    LOCK TABLE alt_table_name READ
+  | LOCK TABLE alt_table_name READ
   | LOCK TABLE alt_template_table_name WRITE
   | SELECT * FROM alt_table_name FOR UPDATE
   | UNLOCK TABLES
