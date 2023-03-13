@@ -1,4 +1,5 @@
 #  Copyright (c) 2018, 2022 MariaDB Corporation Ab.
+#  Copyright (c) 2023 MariaDB plc
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -1568,11 +1569,111 @@ sub measure_space_consumption {
         say("WARNING: '$cmd' exited with value " . ($? >> 8));
         return -1;
     } else {
-        # say("DEBUG: '$cmd' exited with value " . ($? >> 8));
         chomp $return; # Remove the '\n' at end.
         return $return;
     }
 }
+
+sub run_cmd {
+# Run a shell command and return return code, output.
+    my ($cmd) = @_;
+    my $who_am_i = Basics::who_am_i();
+    if (not defined $cmd or $cmd eq '') {
+        say("ERROR: $who_am_i \$cmd is undef or ''.");
+        return STATUS_INTERNAL_ERROR, undef;
+    }
+    my $return = `$cmd`;
+    if ($? == -1) {
+        say("WARNING: $who_am_i '$cmd' failed to execute: $!");
+        return STATUS_ENVIRONMENT_FAILURE, undef;
+    } elsif ($? & 127) {
+        say("WARNING: $who_am_i '$cmd' died with signal " . ($? & 127));
+        return STATUS_ENVIRONMENT_FAILURE, undef;
+    } elsif (($? >> 8) != 0) {
+        say("WARNING: $who_am_i '$cmd' exited with value " . ($? >> 8));
+        return STATUS_ENVIRONMENT_FAILURE, undef;
+    } else {
+        chomp $return; # Remove the '\n' at end.
+        return STATUS_OK, $return;
+    }
+}
+
+# Current total storage space consumption of some RQG test.
+# == vardir including symlinks
+# == fast_dir including symlinks
+# == (fast_dir + tiny content on slow_dir) if DB data directories on fast_dir
+# == (fast_dir + serious content on slow_dir) if DB data directories on slow_dir
+my $total_size          = 0;
+# Current storage space consumption of some RQG test on fast_dir (symlinks excluded)
+my $fast_dir_size       = 0;
+# Current storage space consumption of some RQG test on slow_dir (symlinks excluded)
+my $slow_dir_size       = 0;
+my $max_total_size      = 0;
+my $max_fast_dir_size   = 0;
+my $max_slow_dir_size   = 0;
+
+sub update_sizes {
+# 2023-03-09T14:11:29 [3568724] INFO: rqg_fast_dir          : '/dev/shm/rqg/1678366173/96' -- fs_type observed: tmpfs
+# 2023-03-09T14:11:29 [3568724] INFO: rqg_slow_dir          : '/dev/shm/rqg_ext4/1678366173/96' -- fs_type observed: ext4
+# 2023-03-09T14:11:29 [3568724] INFO: vardir                : '/dev/shm/rqg/1678366173/96'
+#
+# Ubuntu does not provide Filesys::DiskUsage hence I do not use it.
+#
+    my $who_am_i = Basics::who_am_i();
+    my $status;
+    ($status, $total_size) = run_cmd("du -sk --dereference " . Local::get_rqg_fast_dir);
+    if (STATUS_OK != $status) {
+        return $status;
+    }
+#   say("DEBUG: total size in KB: $total_size");
+    $total_size =~ s{\s.*}{};
+    if ($max_total_size < $total_size) {
+        $max_total_size = $total_size;
+    }
+
+    ($status, $fast_dir_size) = run_cmd("du -sk " . Local::get_rqg_fast_dir);
+    if (STATUS_OK != $status) {
+        return $status;
+    }
+#   say("DEBUG: fast_dir size in KB: $fast_dir_size");
+    $fast_dir_size =~ s{\s.*}{};
+    if ($max_fast_dir_size < $fast_dir_size) {
+        $max_fast_dir_size = $fast_dir_size;
+    }
+
+    ($status, $slow_dir_size) = run_cmd("du -sk " . Local::get_rqg_slow_dir);
+    if (STATUS_OK != $status) {
+        return $status;
+    }
+#   say("DEBUG: slow_dir size in KB: $slow_dir_size");
+    $slow_dir_size =~ s{\s.*}{};
+    if ($max_slow_dir_size < $slow_dir_size) {
+        $max_slow_dir_size = $slow_dir_size;
+    }
+
+    return STATUS_OK;;
+}
+
+sub get_sizes {
+    my $status = update_sizes;
+    if (STATUS_OK != $status) {
+        return $status;
+    }
+    return STATUS_OK, $total_size, $fast_dir_size, $slow_dir_size;
+}
+
+sub report_max_sizes {
+    my $status = update_sizes;
+    if (STATUS_OK != $status) {
+        return $status;
+    }
+    say("Storage space comsumption in KB");
+    say("Maximum total: $max_total_size");
+    say("Maximum in fast_dir: $max_fast_dir_size");
+    say("Maximum in slow_dir: $max_slow_dir_size");
+    return STATUS_OK;
+}
+
 
 ####################################################################################################
 

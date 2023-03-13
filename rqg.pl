@@ -63,7 +63,6 @@ BEGIN {
 
 my $rqg_start_time = time();
 
-# my $start_cwd      = Cwd::getcwd();
 my $start_cwd      = POSIX::getcwd();
 
 # How many characters of each argument to a function to print.
@@ -1618,6 +1617,12 @@ if ($gendata_dump) {
     # }
 }
 
+($return, my $total_size, my $fast_dir_size, my $slow_dir_size) = Auxiliary::get_sizes();
+if (STATUS_OK != $return) {
+    my $return = STATUS_ENVIRONMENT_FAILURE;
+    exit_test($return);
+}
+
 # FIXME maybe:
 # Shutdown, maybe file backup, Restart
 # Hint for the case that files should be copied.
@@ -1772,6 +1777,13 @@ if (($final_result == STATUS_OK)                         and
         # system("killall -9 mysqld mariadbd; sleep 3");
         my $server_num = 0;
         my $first_server_num;
+        # FIXME maybe:
+        # Save storage space by
+        # 1. Dump the first server.
+        # 2. For server in (second to last server)
+        #       Dump that server
+        #       Compare that dump to the dunp of the first server
+        #       delete the dump of the server if equal to dump of first server
         foreach my $srv (@server) {
             $server_num++;
             if (not defined $srv) {
@@ -1821,6 +1833,7 @@ if (($final_result == STATUS_OK)                         and
                 }
             }
         }
+        Auxiliary::update_sizes;
         if ($final_result == STATUS_OK) {
             say("INFO: Comparing SQL dumps...");
             my $server_num = 0;
@@ -2300,8 +2313,7 @@ sub exit_test {
         $logfile = $workdir . '/rqg.log';
     }
 
-    say("INFO: vardir_size : " . Auxiliary::measure_space_consumption($vardirs[0]));
-
+    Auxiliary::report_max_sizes;
     run_end($status);
 }
 

@@ -118,20 +118,24 @@ my $mem_est_free_init;
 my $mem_est_free;
 my $mem_consumed;
 
-# fast_dir which is usually /dev/shm/rqg
+# vardir == fast_dir which is usually /dev/shm/rqg
 my $vardir;             # Path to that directory
 my $vardir_free_init;
 my $vardir_free;
 my $vardir_consumed;
+my $vardir_percent;
+my $max_vardir_percent = 0;
 
-# slow_dir which is usually /dev/shm/rqg_ext4
+# slowdir which is usually /dev/shm/rqg_ext4
 my $slowdir;             # Path to that directory
 my $slowdir_free_init;
 my $slowdir_free;
 my $slowdir_consumed;
+my $slowdir_percent;
+my $max_slowdir_percent = 0;
 
-# Usually /data/results
-my $workdir;             # Path to that directory
+# Path to directory for storing results usually /data/results
+my $workdir;
 my $workdir_free_init;
 my $workdir_free;
 my $workdir_consumed;
@@ -151,6 +155,13 @@ my $cpu_idle;
 my $cpu_iowait;
 my $cpu_system;
 my $cpu_user;
+
+my $load_count          = 0;
+my $load_increase_count = 0;
+my $load_keep_count     = 0;
+my $min_keep_worker     = undef;
+my $load_decrease_count = 0;
+my $min_decrease_worker = undef;
 
 my $lxs;   # All stuff of interest except CPU
 my $lxs1;  # CPU only
@@ -233,6 +244,7 @@ sub init {
         safe_exit(STATUS_INTERNAL_ERROR);
     }
 
+    $load_count++;
     if ($rc_type eq RC_NONE) {
         say("WARN: Automatic ResourceControl is disabled. This is risky because increasing the " .
             "load is all time allowed.");
@@ -245,6 +257,7 @@ sub init {
         say("INFO: Number of CPU's reported by the OS (nproc): $nproc");
         my $workers_mid = int($nproc / 2);
         my $workers_min = int($nproc / 4);
+        $load_increase_count++;
         return LOAD_INCREASE, $workers_mid, $workers_min;
     } else {
         say("INFO: Automatic ResourceControl is enabled. Report type '$rc_type'.");
@@ -377,7 +390,7 @@ sub init {
     }
 
     # Preload data into variables belonging to the std output
-    my $worker_active = 0;
+    # Superfluous??? my $worker_active = 0;
     my $vardir_used   = 0;
     my $slowdir_used  = 0;
     my $workdir_used  = 0;
@@ -464,17 +477,41 @@ sub init {
 
 
 sub report {
-    my ($worker_active) = @_;
+    our ($worker_active) = @_;
+
+    our $load_status;
+    $load_count++;
+
+    sub charge_increase {
+        $load_status = LOAD_INCREASE;
+    }
+
+    sub charge_keep {
+        $load_keep_count++;
+        if (not defined $min_keep_worker or $min_keep_worker > $worker_active) {
+            $min_keep_worker = $worker_active;
+        }
+        $load_status = LOAD_KEEP;
+    }
+
+    sub charge_decrease {
+        $load_decrease_count++;
+        if (not defined $min_decrease_worker or $min_decrease_worker > $worker_active) {
+            $min_decrease_worker = $worker_active;
+        }
+        $load_status = LOAD_DECREASE;
+    }
 
     if ($rc_type eq RC_NONE) {
+        $load_increase_count++;
         return LOAD_INCREASE;
     }
 
-    my $curr_time = time();
-    if ($curr_time > $last_df_print + 1) {
-        system("df -vk /dev/shm/rqg /dev/shm/rqg_ext4");
-        $last_df_print = $curr_time;
-    }
+#   my $curr_time = time();
+#   if ($curr_time > $last_df_print + 1) {
+#       system("df -vk /dev/shm/rqg /dev/shm/rqg_ext4");
+#       $last_df_print = $curr_time;
+#   }
 
     # A call with functionality like 'du' is missing because
     # - a corresponding Perl module is not part of the "standard" Ubuntu install
@@ -633,7 +670,6 @@ sub report {
     "DEBUG: Estimation for swapspace        : ".int($swap_remain_U)." , ".int($swap_remain_D)." , ".int($swap_remain_K)."\n".
     "DEBUG: Estimation for workdir          : ".int($workdir_remain_U)." , ".int($workdir_remain_D)." , ".int($workdir_remain_K)."\n";
 
-    my $load_status;
     my $info_m = '';
     my $info   = '';
     if (not defined $load_status) {
@@ -678,34 +714,34 @@ sub report {
         if      (0 > $vardir_remain_D) {
             $info_m = "D1";
             $info = "INFO: $info_m The free space in '$vardir' ($vardir_free MB) $end_part";
-            $load_status = LOAD_DECREASE;
+            charge_decrease;
         } elsif (0 > $mem_remain_D) {
             $info_m = "D2";
             $info = "INFO: $info_m The free memory ($mem_est_free MB) $end_part";
-            $load_status = LOAD_DECREASE;
+            charge_decrease;
 #       } elsif (0 > $ram_remain_D) {
 #           $info_m = "D3";
 #           $info = "INFO: $info_m The space consumption for the RAM ($mem_total MB) $end_part";
-#           $load_status = LOAD_DECREASE;
+#           charge_decrease;
         } elsif (0 > $swap_remain_D) {
             $info_m = "D4";
             $info = "INFO: $info_m The free virtual memory (RAM+SWAP) $end_part";
-            $load_status = LOAD_DECREASE;
+            charge_decrease;
         } elsif (0 > $workdir_remain_D) {
             $info_m = "D5";
             $info = "INFO: $info_m The free space in '$workdir' ($workdir_free MB) $end_part";
-            $load_status = LOAD_DECREASE;
+            charge_decrease;
         } elsif (100 < int($pswpout)) {
             # FIXME maybe:
             # 100 < int($pswpout) --> LOAD_KEEP
             # 300 < int($pswpout) --> LOAD_DECREASE
             $info_m = "D6";
             $info = "INFO: $info_m Paging ($pswpout) has been observed. This $end_part";
-            $load_status = LOAD_DECREASE;
+            charge_decrease;
         } elsif ($slowdir_consumed > $slowdir_free_init * 0.95) {
             $info_m = "D7";
             $info = "INFO: $info_m 95% of initial free space in slowdir used. This $end_part.";
-            $load_status = LOAD_DECREASE;
+            charge_decrease;
         }
     }
 
@@ -716,35 +752,35 @@ sub report {
             # Adding some RQG run more will only increase CPU iowait and that does not make sense.
             $info_m = "K0";
             $info = "INFO: $info_m The value for CPU iowait $cpu_iowait is bigger than 20.";
-            $load_status = LOAD_KEEP;
+            charge_keep;
         } elsif (0 > $vardir_remain_K) {
             $info_m = "K1";
             $info = "INFO: $info_m The free space in '$vardir' ($vardir_free MB) $end_part";
-            $load_status = LOAD_KEEP;
+            charge_keep;
         } elsif (0 > $mem_remain_K) {
             $info_m = "K2";
             $info = "INFO: $info_m The free memory ($mem_est_free MB) $end_part";
-            $load_status = LOAD_KEEP;
+            charge_keep;
 #       } elsif (0 > $ram_remain_K) {
 #           $info_m = "K3";
 #           $info = "INFO: $info_m The space consumption for the RAM ($mem_total MB) $end_part";
-#           $load_status = LOAD_KEEP;
+#           charge_keep;
         } elsif (0 > $swap_remain_K) {
             $info_m = "K4";
             $info = "INFO: $info_m The free virtual memory (RAM+SWAP) $end_part";
-            $load_status = LOAD_KEEP;
+            charge_keep;
         } elsif (0 > $workdir_remain_K) {
             $info_m = "K5";
             $info = "INFO: $info_m The free space in '$workdir' ($workdir_free MB) $end_part";
-            $load_status = LOAD_KEEP;
+            charge_keep;
         } elsif ($swap_consumed > $swap_total / 100) {
             $info_m = "K6";
             $info = "INFO: $info_m 1% of total swap space used consumed for testing. This $end_part";
-            $load_status = LOAD_KEEP;
+            charge_keep;
         } elsif ($slowdir_consumed > $slowdir_free_init * 0.9) {
             $info_m = "K7";
             $info = "INFO: $info_m 90% of initial free space in slowdir used. This $end_part.";
-            $load_status = LOAD_KEEP;
+            charge_keep;
         }
     }
 
@@ -753,6 +789,7 @@ sub report {
     #   to just hope that all will work well
     # - the checks above did not reveal trouble
     if (not defined $load_status) {
+        $load_increase_count++;
         $load_status = LOAD_INCREASE;
     } else {
         say($info) if Auxiliary::script_debug("L2");
@@ -828,7 +865,9 @@ sub measure {
     $ref = Filesys::Df::df($vardir, SPACE_UNIT);  # Default output is 1M blocks
     if(defined($ref)) {
         # bavail == Free space which the current user would be allowed to occupy.
-        $vardir_free = int($ref->{bavail});
+        $vardir_free =        int($ref->{bavail});
+        $vardir_percent =     int($ref->{per});
+        $max_vardir_percent = $vardir_percent if $max_vardir_percent < $vardir_percent;
     } else {
         say("ERROR: df for '$vardir' failed.");
         my $status = STATUS_ENVIRONMENT_FAILURE;
@@ -838,6 +877,8 @@ sub measure {
     if(defined($ref)) {
         # bavail == Free space which the current user would be allowed to occupy.
         $slowdir_free = int($ref->{bavail});
+        $slowdir_percent =     int($ref->{per});
+        $max_slowdir_percent = $slowdir_percent if $max_slowdir_percent < $slowdir_percent;
     } else {
         say("ERROR: df for '$slowdir' failed.");
         my $status = STATUS_ENVIRONMENT_FAILURE;
@@ -911,6 +952,21 @@ sub ask_tool {
     system("free");
     system("df -vk");
     system("ps -elf");
+}
+
+sub print_statistics {
+    $min_keep_worker =     "<undef>" if not defined $min_keep_worker;
+    $min_decrease_worker = "<undef>" if not defined $min_decrease_worker;
+    say("STATISTICS: slowdir free from total free in %: " .
+        ($slowdir_free_init * 100 / ($slowdir_free_init + $vardir_free_init)));
+    say("STATISTICS: max vardir used in %:              $max_vardir_percent");
+    say("STATISTICS: max slowdir used in %:             $max_slowdir_percent");
+    say("STATISTICS: load determined count:             $load_count");
+    say("STATISTICS: load increase acceptable:          $load_increase_count");
+    say("STATISTICS: load keep decisions:               $load_keep_count");
+    say("STATISTICS: min # of workers if keep:          $min_keep_worker");
+    say("STATISTICS: load decrease decisions:           $load_decrease_count");
+    say("STATISTICS: min # of workers if decrease:      $min_decrease_worker");
 }
 
 1;

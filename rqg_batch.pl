@@ -1360,10 +1360,11 @@ $best_verdict = Verdict::RQG_VERDICT_IGNORE   if 0 < $Batch::verdict_ignore;
 $best_verdict = Verdict::RQG_VERDICT_INTEREST if 0 < $Batch::verdict_interest;
 $best_verdict = Verdict::RQG_VERDICT_REPLAY   if 0 < $Batch::verdict_replay;
 
+say("\n\n");
+ResourceControl::print_statistics;
 my $fat_message = Batch::get_extra_info_hash("STATISTICS");
-
 my $pl = Verdict::RQG_VERDICT_LENGTH + 2;
-my $message = "\n\n"                                                                               .
+my $message = ""                                                                                   .
 "STATISTICS: RQG runs -- Verdict\n"                                                                .
 "STATISTICS: " . Auxiliary::lfill($Batch::verdict_replay, 8)    . " -- "                           .
                  Auxiliary::rfill("'" . Verdict::RQG_VERDICT_REPLAY   . "'",$pl)                   .
