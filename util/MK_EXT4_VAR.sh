@@ -76,7 +76,19 @@ fi
 #   maximum throughput ->
 #   no or low fraction of tests stopped because of trouble with free space in
 #   fast_dir (/dev/shm/rqg) and slow_dir (maybe /dev/shm/rqg_ext4)
-SPACE_PLANNED=$(($SPACE_AVAIL / 10 * 4))
+# rqg_extr | Max used | load   | load_keep      | load_decrease  | Remarks
+#    40.0% |      61% |  25544 |   734 K1 2.87% |   266 D1 1.04% | (1), (2)
+#    33.3% |      86% |                                          | (1)
+#    33.3% |      79% |  22024 |    88 K1 0.4%  |    34 D1 0.15% | (1), (2)
+#    33.3% |      66% |   7948 |    72 K1 0.91% |    20 D1 0.25% | (2)
+#    33.3% |      65% |  10236 |    30 K1 0.29% |    10 D1 0.10% | (2)
+#    33.3% |      66% |   9990 |     2 K1       |     2 D1       | (2)      | 9280s RelWithDebInfo
+# (1) with journal and reserved blocks for root
+# (2) there seems to be also some impact of the properties (failure quota) of
+#     the MariaDB source tree
+#     Test fail -> archiving with compression -> longer timespan of storage use
+
+SPACE_PLANNED=$((($SPACE_AVAIL * 3) / 10))
 # 'sdp' reports for /dev/shm a total space of 1,559,937,276 which is
 # suspicious high. Given the CPU power etc. we do not need more than 100 GB.
 # Formatting more than required wastes elapsed time on 'sdp'.
@@ -91,7 +103,9 @@ echo "SPACE_AVAIL ->$SPACE_AVAIL<- SPACE_PLANNED ->$SPACE_PLANNED<- (all in KB)"
 # Make the file $CONTAINER big enough for keeping the internal structures of
 # a filesystem with the planned size.
 sudo fallocate -l "$SPACE_PLANNED""K" "$CONTAINER"
-sudo mkfs.ext4 -j "$CONTAINER"
+# -m0                 0% reserved blocks for root
+# -O ^has_journal     Disable journaling
+sudo mkfs.ext4 -m0 -O ^has_journal -j "$CONTAINER"
 
 sudo mount "$CONTAINER" "$VARDIR_FS"
 sudo chown $USER "$VARDIR_FS" "$CONTAINER"
