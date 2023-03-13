@@ -1926,7 +1926,7 @@ sub waitForServerToStop {
             if (Time::HiRes::time() > $next_ps_check) {
                 my $new_ps_tree = Auxiliary::get_ps_tree($self->pid);
                 if ($new_ps_tree eq $old_ps_tree) {
-                    say("DEBUG: $who_am_i \$new_ps_tree == \$old_ps_tree == '$new_ps_tree'" .
+                    say("DEBUG: $who_am_i \$new_ps_tree == \$old_ps_tree == '$new_ps_tree' " .
                         "Aborting the grace period.");
                     last;
                 } else {
