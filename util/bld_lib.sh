@@ -1,5 +1,6 @@
 #!/bin/bash
 # Copyright (C) 2021, 2022 MariaDB Corporation Ab.
+# Copyright (C) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -369,7 +370,9 @@ function check_1st()
     cd "$BINDIR"
     cd mysql-test
     # Assigning a MTR_BUILD_THREAD serves to avoid collisions with RQG (starts at 730).
-    perl ./mysql-test-run.pl --mtr-build-thread=700 --mem 1st        2>&1   | tee -a "$BLD_PROT"
+    perl ./mysql-test-run.pl --mtr-build-thread=700 --mem 1st 2>&1 > 1st.prt
+    cat 1st.prt                                                             | tee -a "$BLD_PROT"
+    rm 1st.prt
     rm -rf var/*
     rm -f var
 }
@@ -404,11 +407,13 @@ function install_till_end()
 
     # Without the following chmod successing builds by other group members will fail during the
     # install because overwriting of some files in $INSTALL_PREFIX/include is not allowed.
-    # My guess: rm -rf did not delete evrything.
+    # My guess: rm -rf did not delete everything.
     chmod -R g+w "$INSTALL_PREFIX"
     check_1st "$INSTALL_PREFIX"
+    grep 'MariaDB Version' "$BLD_PROT" | sort -u                            | tee -a "$SHORT_PROT"
 
     archiving
+    mv "$BLD_PROT" "$INSTALL_PREFIX"
 
     echo
     echo "End of build+install process reached"
