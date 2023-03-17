@@ -1,5 +1,6 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
 # Copyright (C) 2022 MariaDB Corporation Ab.
+# Copyright (C) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -198,13 +199,19 @@ sub validate {
         return STATUS_OK;
     }
 
-    my $aux_query = 'SELECT @@autocommit /* Validator */';
+    my $aux_query =  'SELECT @@autocommit /* Validator */';
     my $aux_result = $executor->execute($aux_query);
     my $aux_err =    $aux_result->err();
     my $aux_data =   $aux_result->data();
     my $aux_status = $aux_result->status();
     my $aux_info =   result_info($aux_result);
     say("DEBUG: $who_am_i " . $aux_info) if $debug_here;
+
+    if (STATUS_SKIP == $aux_status) {
+        say("DEBUG: $who_am_i ->" . $aux_query . "<- harvested status $aux_status. " .
+            "Will return STATUS_OK.") if $debug_here;
+        return STATUS_OK;
+    }
 
     if (defined $aux_err) {
         # Being victim of
@@ -218,6 +225,13 @@ sub validate {
     }
 
     my $autocommit = $aux_data->[0]->[0];
+    if (not defined $autocommit) {
+        say("ERROR: $who_am_i \$autocommit is undef.");
+        say("DEBUG: $who_am_i Outcome of ->" . $aux_query . "<-");
+        say("DEBUG: $who_am_i aux_status $aux_status");
+        say("DEBUG: $who_am_i aux_info $aux_info");
+        exit STATUS_INTERNAL_ERROR;
+    }
     say("DEBUG: $who_am_i autocommit is ->" . $autocommit . "<-") if $debug_here;
     if (1 eq $autocommit ) {
         # We are in a new transaction.
