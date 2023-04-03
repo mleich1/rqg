@@ -132,7 +132,7 @@ use constant DEFAULT_SERVER_KILL_TIMEOUT         => 30;
 use constant DEFAULT_SERVER_ABRT_TIMEOUT         => 60;
 
 
-my %aux_pids;
+our %aux_pids;
 
 sub new {
     my $class = shift;
@@ -591,10 +591,9 @@ sub _reportError {
 # They will not call a killServer later.
 ####################################################################################################
 sub startServer {
-# FIXME: We need to return all kinds of statuses
     my ($self) = @_;
 
-    my $who_am_i = "DBServer_e::MySQL::MySQLd::startServer:";
+    our $who_am_i = "DBServer_e::MySQL::MySQLd::startServer:";
 
     my @defaults = ($self->[MYSQLD_CONFIG_FILE] ? ("--defaults-group-suffix=.runtime",
                    "--defaults-file=$self->[MYSQLD_CONFIG_FILE]") : ("--no-defaults"));
@@ -602,7 +601,7 @@ sub startServer {
 
     my ($v1, $v2, @rest) = $self->versionNumbers;
     my $v = $v1 * 1000 + $v2;
-    my $command = $self->generateCommand(
+    our $command = $self->generateCommand(
                         [@defaults],
                         $self->[MYSQLD_STDOPTS],
                         # Do not add "--core-file" here because it wastes resources in case
@@ -756,59 +755,8 @@ sub startServer {
             # a single SIGCHLD.
             # Therefore killServer,crashServer ... call waitForAuxpidGone which tries to reap too.
             #
-            # Observation 2020-12
-            # Main process of the RQG runner is 5890.
-            # The "DEBUG: server pid : 8014 , server_running :" are caused by running the code
-            # of the reporter 'ServerDead'.
-            # 11:14:52 [5890] DEBUG: server pid : 8014 , server_running : 1
-            # 11:14:53 [5890] WARN: Auxpid 7966 exited with exit status 139.
-            #          If auxpid is gone than its child "rr" should have been gone too.
-            # 11:14:53 [5890] DEBUG: server pid : 8014 , server_running : 1
-            # 11:14:54 [5890] DEBUG: server pid : 8014 , server_running : 1
-            #          If the server is running shouldn't it be observed by "rr"?
-            #          But isn't "rr" already gone?
-            # 11:14:55 [5890] DEBUG: server pid : 8014 , server_running : 0
-            # 11:14:55 [5890] INFO: Reporter 'ServerDead': The process of the DB server 8014 is
-            #                 no more running
-            # My guess:
-            # The box is so overloaded that even the OS needs significant time for updating
-            # its processtable etc. Probably the DB server process already disappeared 11:14:53.
-
-            my $who_am_i = "Auxpid Reaper:";
             # say("DEBUG: $who_am_i Auxpid_list sorted:" . join("-", sort keys %aux_pids));
-
-            foreach my $pid (keys %aux_pids) {
-                if ($$ != $aux_pids{$pid}) {
-                    # We are not the parent of $pid. Hence delete the entry.
-                    delete $aux_pids{$pid};
-                    next;
-                }
-                # Returns of Auxiliary::reapChild
-                # -------------------------------
-                # $reaped -- 0 (not reaped) or 1 (reaped)
-                # $status -- exit status of the process if reaped,
-                #            otherwise STATUS_OK or STATUS_INTERNAL_ERROR
-                #     0, STATUS_INTERNAL_ERROR -- most probably already reaped
-                #                              == Defect in RQG logics
-                my ($reaped, $status) = Auxiliary::reapChild($pid, "Auxpid for DB server start");
-                if (1 == $reaped) {
-                    delete $aux_pids{$pid};
-                    if (STATUS_OK == $status) {
-                        say("DEBUG: $who_am_i Auxpid $pid exited with exit status STATUS_OK.")
-                    } else {
-                        say("WARN: $who_am_i Auxpid $pid exited with exit status $status.");
-                        # Making a backtrace if STATUS_OK != $status might look attractive but
-                        # it will kick even in harmless situations.
-                        # system("killall -15 mysqld") leads to auxpid exits with 137.
-                        # Impact:
-                        # Aside of confusion if its a server error or not we will get all time
-                        # a valueless backtrace if rr tracing.
-                    }
-                }
-                if (0 == $reaped and STATUS_OK != $status) {
-                    say("ERROR: $who_am_i Attempt to reap Auxpid $pid failed with status $status.");
-                }
-            }
+            aux_pid_reaper();
         };
 
         if (defined Runtime::get_valgrind()) {
@@ -847,7 +795,8 @@ sub startServer {
             # So we prevent the writing of core files via ulimit.
             # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
             # in the DB server error log.
-            $command = "ulimit -c 0; rr record " . $rr_options . " --mark-stdio $command";
+            #### $command = "ulimit -c 0; rr record " . $rr_options . " --mark-stdio $command";
+            $command = "rr record " . $rr_options . " --mark-stdio $command";
             # say("DEBUG: ---- 1 ->" . $rr_options . "<-");
             # say("DEBUG: ---- 2 ->" . $command . "<-");
         }
@@ -863,7 +812,7 @@ sub startServer {
             # of rather low value. But the
             # [rr 19150 <event_number>] <timestamp> might help to find the right region of
             # events where debugging should start.
-            $command .= ' "--log_warnings=4" ' . Local::get_rqg_rr_add();
+            $command .= ' "--log_warnings=4" ' . Local::get_rqg_rr_add() if Local::get_rqg_rr_add() ne '';
         } else {
             # In case rr is not invoked than we want core files.
             $command .= ' "--core-file"';
@@ -876,10 +825,12 @@ sub startServer {
 
         $self->[MYSQLD_AUXPID] = fork();
         if ($self->[MYSQLD_AUXPID]) {
-
+            # Here is the parent (rqg.pl or some reporter) of the just forked process.
+            # ------------------------------------------------------------------------
+            # say("DEBUG: aux_pid is " . $self->[MYSQLD_AUXPID]);
             # We put the pid of the parent as value into %aux_pids.
-            # By that any future child like the reporter 'Crashrecovery*' knows that it cannot reap
-            # that auxiliary process.
+            # By processing that any future child like the reporter 'Crashrecovery*' knows
+            # that it cannot reap that auxiliary process.
             $aux_pids{$self->[MYSQLD_AUXPID]} = $$;
             # Unfortunately it cannot be guaranteed that this child process will be later
             # the DB server. Two examples:
@@ -923,65 +874,40 @@ sub startServer {
 
             my $start_time = time();
             my $wait_end =   $start_time + $tool_startup + $pid_seen_timeout;
-            while (1) {
+            while (time() < $wait_end) {
                 Time::HiRes::sleep($wait_time);
-                # Style till mid 2023-01
-                # [Note] /data/Server_bin/bb-10.6-MDEV-29181C_asan_Og/bin/mysqld (server 10.6.12-MariaDB-debug-log) starting as process 1794271 ...
-                # Style since mid 2023-01
-                # [Note] Starting MariaDB 10.7.8-MariaDB-debug-log source revision 666149485fef2f51cd5685cc2172f561b2679209 as process 3283580
-                $pid = Auxiliary::get_string_after_pattern($errorlog,
-                           "Starting MariaDB .{1,300} as process ");
-                if (not defined $pid) {
-                    # It is not guaranteed that $errorlog exists immediate.
-                    if (time() > $start_time + $tool_startup + 5) {
-                        my $status = STATUS_ENVIRONMENT_FAILURE;
-                        say("ERROR: $who_am_i Trouble with '$errorlog'. " .
-                            Auxiliary::build_wrs($status));
-                        return $status;
-                    }
-                } elsif ('' eq $pid) {
-                    $pid = Auxiliary::get_string_after_pattern($errorlog,
-                           "mysqld .{1,100} starting as process ");
-                    if (time() > $start_time + $tool_startup + 5) {
-                         if (not defined $pid) {
-                             my $status = STATUS_ENVIRONMENT_FAILURE;
-                             say("ERROR: $who_am_i Trouble with '$errorlog'. " .
-                                 Auxiliary::build_wrs($status));
-                             return $status;
-                         }
-                    }
-                }
-                $pid = Auxiliary::check_if_reasonable_pid($pid);
+                $pid = $self->find_server_pid;
                 if (defined $pid) {
-                    $self->[MYSQLD_SERVERPID] = $pid;
+                    # $self->[MYSQLD_SERVERPID] = $pid;   # Already done by find_server_pid
                     say("INFO: $who_am_i Time till server pid $pid detected in s: " .
                         (time() - $start_time));
                     # Auxiliary::print_ps_tree($$);
                     last;
-                }
-
-                # Maybe $self->[MYSQLD_AUXPID] has already finished and was reaped.
-                if (not kill(0, $self->[MYSQLD_AUXPID])) {
-                    my $status = STATUS_SERVER_CRASHED;
-                    say("ERROR: $who_am_i The auxiliary process is no more running. " .
-                        Auxiliary::build_wrs($status));
-                    # The status reported by cleanup_dead_server does not matter.
-                    $self->cleanup_dead_server;
-                    $self->make_backtrace();
-                    return $status;
-                }
-
-                if (time() >= $wait_end) {
-                    my $status = STATUS_CRITICAL_FAILURE;
-                    say("ERROR: $who_am_i The Server has not printed its pid within the last " .
-                        ($pid_seen_timeout + $tool_startup) ."s. " . Auxiliary::build_wrs($status));
-                    # The status reported by cleanup_dead_server does not matter.
-                    # cleanup_dead_server takes care of $self->[MYSQLD_AUXPID].
-                    $self->cleanup_dead_server;
-                    sayFile($errorlog);
-                    return $status;
+                } else {
+                    # Maybe the startup failed and aux_pid can get reaped.
+                    aux_pid_reaper();
+                    if (not kill(0, $self->[MYSQLD_AUXPID])) {
+                        my $status = STATUS_SERVER_CRASHED;
+                        say("ERROR: $who_am_i The auxiliary process is no more running. " .
+                            Auxiliary::build_wrs($status));
+                        # The status reported by cleanup_dead_server does not matter.
+                        $self->cleanup_dead_server;
+                        $self->make_backtrace();
+                        return $status;
+                    }
                 }
             }
+            if (not defined $pid) {
+                my $status = STATUS_CRITICAL_FAILURE;
+                say("ERROR: $who_am_i Trouble to determine the server pid within the last " .
+                    ($pid_seen_timeout + $tool_startup) ."s. " . Auxiliary::build_wrs($status));
+                # The status reported by cleanup_dead_server does not matter.
+                # cleanup_dead_server takes care of $self->[MYSQLD_AUXPID].
+                $self->cleanup_dead_server;
+                sayFile($errorlog);
+                return $status;
+            }
+
             # $self->stop_server_for_debug(5, 'mysqld', -11, 5);
 
             # If reaching this line we have a valid pid in $pid and $self->[MYSQLD_SERVERPID].
@@ -1137,23 +1063,63 @@ sub startServer {
             }
             $self->printInfo;
         } else {
-            # THIS IS THE CHILD with pid MYSQLD_AUXPID who tries soon to start the server.
-            # ----------------------------------------------------------------------------
-            # Warning: Current pid is != PID found in server error log or pid file because
-            # of natural reasons like     bash -> rr -> mysqld
-            # say("DEBUG ----: Here is $$ before exec to DB server");
+            # Here is the just forked child (aux_pid) of rqg.pl or some reporter.
+            # -------------------------------------------------------------------
+            # Who tries to become (exec of command without shell metacharacters)
+            # - a server if using rr is not ordered
+            #   --> aux_pid == server_pid
+            # - rr starting a server if using rr is ordered
+            #   --> aux_pid == rr_pid != server_pid
+            #
+            # Warning:
+            # In case the command contains shell metacharacters like for example '"' than
+            # /bin/sh -c ... will be called by aux_pid == we get some additional process in the mid.
+            # Per observation 2023-03 this could end up with
+            #    rr does not finish and consumes 100% CPU
+            #    rqg.pl itself will not fix that state.
+            #    rqg_batch.pl seems to fix the situation but the impact on the usability of
+            #    rr traces is not yet known.
+            # In case there is no /bin/sh -c ... in the middle
+            # Observation 2023-03 without /bin/sh -c ... in the middle:
+            #    20:14:25 [519587] ERROR: DBServer_e::MySQL::MySQLd::server_is_operable:
+            #                      server[1] with process [519689] is no more running.
+            #       ... rr consumes 100% CPU ...
+            #       I assume the timeout is too big.
+            #    20:17:25 [519587] ERROR: DBServer_e::MySQL::MySQLd::waitForAuxpidGone:
+            #                      The auxiliary process has not disappeared within 180s waiting.
+            #                      Will send SIGKILL and return status STATUS_FAILURE(1) later.
+            #    20:17:31 [519587] DEBUG: DBServer_e::MySQL::MySQLd::aux_pid_reaper:
+            #                      Auxpid 519677 exited with exit status STATUS_OK.
+            #    20:17:31 [519587] INFO: DBServer_e::MySQL::MySQLd::waitForAuxpidGone:
+            #                      aux_pid was gone after SIGKILL and waiting (s): 186
+            #       ... the rr trace is incomplete ...
+
+            # Even if having an additional /bin/sh ... in the middle it will inherit this setting.
             $ENV{'_RR_TRACE_DIR'} = $rr_trace_dir if defined $rr_trace_dir;
-            # say("DEBUG ---- 4 ->" . $command . "<-");
-            # Reason for going with $command >> \"$errorlog\" 2>&1 :
-            # In case "rr" has problems or similar than it laments about its problems into $errorlog.
-            # Maybe add syncing whatever data or should routines consuming that data like the
-            # reporter Backtrace take care of that?
-            # IDEA:
-            # Maybe append a perl program looking for crash and making a backtrace after the start?
-            exec("$command >> \"$errorlog\" 2>&1") || Carp::cluck("ERROR: Could not start mysql server");
-            #    say("DEBUG ---- 5 !!!!");
+
+            # Strip the '"' away so that we do not get the '/bin/sh -c ....'.
+            $command =~ s/"//g;
+            say("DEBUG: Server start command ->" . $command . "<-");
+
+            # Reason for directing STDOUT and STDERR into $errorlog:
+            # In case "rr" has something to tell or criticize than simply join that with the
+            # server error log.
+            Auxiliary::direct_to_file($errorlog);
+
+            sub aux_give_up {
+                $who_am_i .= " Auxpid:";
+                Auxiliary::direct_to_stdout();
+                Carp::cluck("ERROR: $who_am_i Could not exec =>" . $command . "<=");
+                say("ERROR: $who_am_i Will exit with exit status STATUS_ENVIRONMENT_FAILURE");
+                exit STATUS_ENVIRONMENT_FAILURE;
+            }
+
+            # For testing
+            #     exec('omo13') || aux_give_up;
+            exec($command) || aux_give_up;
         }
     }
+    # Auxiliary::print_ps_tree($$);
     if (not defined $self->dbh) {
         # $self->dbh is a function and tries to make a connect.
         my $status = STATUS_FAILURE;
@@ -1197,16 +1163,14 @@ sub killServer {
             say("INFO: $who_am_i Killed process ".$self->[MYSQLD_WINDOWS_PROCESS]->GetProcessID());
         }
     } else {
-        if (not defined $self->serverpid) {
-            # Why not picking the value from server error log?
-            $self->[MYSQLD_SERVERPID] = Auxiliary::get_pid_from_file($self->pidfile, $silent);
-            if (defined $self->serverpid) {
-                say("WARN: $who_am_i serverpid had to be extracted from pidfile.") if not $silent;
-            }
-        }
-        if (defined $self->serverpid) {
+        aux_pid_reaper();
+        my $serverpid = $self->find_server_pid;
+        if (not defined $serverpid) {
+            say("INFO: $who_am_i Killing the server process impossible because " .
+                "no server pid found.") if not defined $silent;
+        } else {
             if (not $self->running) {
-                say("INFO: $who_am_i The server with process [" . $self->serverpid .
+                say("INFO: $who_am_i The server with process [" . $serverpid .
                     "] is already no more running. Will return STATUS_OK.") if not $silent;
                 # IMPORTANT:
                 # Do NOT return from here because this will break the scenario of the reporter
@@ -1215,26 +1179,23 @@ sub killServer {
                 # In report: Call killServer and wait by that in cleanup_dead_server till rr trace
                 #            is complete written.
             } else {
-                kill KILL => $self->serverpid;
+                kill KILL => $serverpid;
                 # There is no guarantee that the OS has already killed the process when
                 # kill KILL returns. This is especially valid for boxes with currently
                 # extreme CPU load.
                 if ($self->waitForServerToStop($kill_timeout) != STATUS_OK) {
-                    say("ERROR: $who_am_i Unable to kill the server process " . $self->serverpid);
+                    say("ERROR: $who_am_i Unable to kill the server process " . $serverpid);
                 } else {
-                    say("INFO: $who_am_i Killed the server process " . $self->serverpid);
+                    say("INFO: $who_am_i Killed the server process " . $serverpid);
                 }
             }
-        } else {
-            say("INFO: $who_am_i Killing the server process impossible because " .
-                "no server pid found.") if not defined $silent;
         }
     }
     my $return = $self->running($silent) ? STATUS_FAILURE : STATUS_OK;
 
     # Clean up when the server is not alive.
     $self->cleanup_dead_server;
-    # Is the position after cleanup_dead ... ok?
+
     return $return;
 
 } # End sub killServer
@@ -1299,6 +1260,7 @@ sub crashServer {
         $self->killServer; ## Temporary
         $self->[MYSQLD_WINDOWS_PROCESS] = undef;
     } else {
+        aux_pid_reaper();
         if (not defined $self->serverpid) {
             # $self->[MYSQLD_SERVERPID] = $self->get_pid_from_pid_file;
             $self->[MYSQLD_SERVERPID] = Auxiliary::get_pid_from_file($self->pidfile);
@@ -1902,32 +1864,33 @@ sub waitForServerToStop {
         Time::HiRes::sleep($wait_unit);
     }
 
-    # Give some grace period in case there seems to be activity in the DB server.
-    # ---------------------------------------------------------------------------
-    # Reasons:
-    # The elapsed time for some shutdown/a DB server disappearing depends on
-    # - how/why the server disappears
-    #   shutdown/SIGTERM, SIGABRT, SIGSEGV, SIGKILL
-    # - the setting of innodb_fast_shutdown und if 'rr' or 'valgrind' is invoked
-    #   We already multiplied $timeout with factors for compensation.
-    # - the hardware and the parallel load on the box
-    #   There will be frequent extreme load on the box.
-    # - The DB Server setup and the test.
-    # Observed on shutdown via pstree for the main server process:
-    #    n'th call  child processes/threads <A>, <B>
-    #    (n + 1)'th call  child processes/threads <A>, <C>, <D>
-    #               == Childprocesses/threads exit but new ones can show up
     if ($self->running) {
+        # Give some grace period in case there seems to be activity in the DB server.
+        # ---------------------------------------------------------------------------
+        # Reasons:
+        # The elapsed time for some shutdown/a DB server disappearing depends on
+        # - how/why the server disappears
+        #   shutdown/SIGTERM, SIGABRT, SIGSEGV, SIGKILL
+        # - the setting of innodb_fast_shutdown und if 'rr' or 'valgrind' is invoked
+        #   We already multiplied $timeout with factors for compensation.
+        # - the hardware and the parallel load on the box
+        #   There will be frequent extreme load on the box.
+        # - The DB Server setup and the test.
+        # Observed on shutdown via pstree for the main server process:
+        #    n'th call  child processes/threads <A>, <B>
+        #    (n + 1)'th call  child processes/threads <A>, <C>, <D>
+        #               == Childprocesses/threads exit but new ones can show up
         say("INFO: $who_am_i Being forced to give a grace period.");
         $wait_end  =        Time::HiRes::time() + 60 * Runtime::get_runtime_factor();
         my $old_ps_tree =   Auxiliary::get_ps_tree($self->pid);
         my $next_ps_check = Time::HiRes::time() + 3;
         while ($self->running && Time::HiRes::time() < $wait_end) {
+            aux_pid_reaper();
             if (Time::HiRes::time() > $next_ps_check) {
                 my $new_ps_tree = Auxiliary::get_ps_tree($self->pid);
                 if ($new_ps_tree eq $old_ps_tree) {
-                    say("DEBUG: $who_am_i \$new_ps_tree == \$old_ps_tree == '$new_ps_tree' " .
-                        "Aborting the grace period.");
+                    say("DEBUG: $who_am_i \$new_ps_tree == \$old_ps_tree == \n" .
+                        $new_ps_tree . "Aborting the grace period.");
                     last;
                 } else {
                     say("DEBUG: $who_am_i Current ps_tree: '$new_ps_tree'.");
@@ -2121,28 +2084,22 @@ sub running {
         return -f $self->pidfile;
     }
 
-    my $pid = $self->serverpid;
+    # Experimental
+    aux_pid_reaper();
+    my $pid = $self->find_server_pid;
     if (not defined $pid) {
-        # $pid = $self->get_pid_from_pid_file;
-        $pid = Auxiliary::get_pid_from_file($self->pidfile, $silent);
-        if (defined $pid) {
-            say("WARN: $who_am_i serverpid had to be extracted from pidfile.");
-            $self->[MYSQLD_SERVERPID] = $pid;
-        } else {
-            say("ALARM: $who_am_i No valid value for pid found in pidfile. " .
-                "Will return 0 == not running.") if not defined $silent;
-            return 0;
-        }
+        Carp::cluck("ALARM: $who_am_i serverpid is undef. Will return 0 == not running.");
+        return 0;
     }
-    my $return = kill(0, $self->serverpid);
+    my $return = kill(0, $pid);
     if (not defined $return) {
-        say("WARN: $who_am_i kill 0 serverpid " . $self->serverpid . " returned undef. " .
+        say("WARN: $who_am_i kill 0 serverpid " . $pid . " returned undef. " .
             "Will return 0");
         return 0;
     } else {
         return $return;
     }
-}
+} # End sub running
 
 sub _find {
    my($self, $bases, $subdir, @names) = @_;
@@ -2402,7 +2359,6 @@ sub cleanup_dead_server {
 }
 
 
-# FIXME: Maybe put the main code into some sub in Auxiliary.pm.
 sub waitForAuxpidGone {
 # Purpose:
 # - Ensure that there is sufficient time for finishing writing core files and "rr" traces.
@@ -2428,87 +2384,47 @@ sub waitForAuxpidGone {
         return $status;
     }
     # say("DEBUG: Start waiting for aux_pids gone.");
-    while (1) {
-        Time::HiRes::sleep($wait_time);
-        if (exists $aux_pids{$pid} and $$ == $aux_pids{$pid}) {
-            # The current process is the parent of the auxiliary process.
-            # I fear that the sigalarm in startServer is not sufficient for ensuring that
-            # auxiliary processes get reaped. So lets do this here again.
-            # Auxiliary::print_ps_tree($pid);
-            # Returns of Auxiliary::reapChild
-            # -------------------------------
-            # $reaped -- 0 (not reaped) or 1 (reaped)
-            # $status -- exit status of the process if reaped,
-            #            otherwise STATUS_OK or STATUS_INTERNAL_ERROR
-            #     0, STATUS_INTERNAL_ERROR -- most probably already reaped
-            #                              == Defect in RQG logics
-            #     0, STATUS_OK -- either just running or waitpid ... delivered undef
-            #                     == Try to reap again after some short sleep.
-            my ($reaped, $status) = Auxiliary::reapChild($pid,
-                                                         "waitForAuxpidGone");
-            my $msg_snip = "after " . (time() - $start_time) . "s waiting.";
-            if (1 == $reaped) {
-                delete $aux_pids{$pid};
-                if (STATUS_OK == $status) {
-                    say("DEBUG: $who_am_i The child process auxpid $pid exited with exit status " .
-                        "STATUS_OK $msg_snip");
-                } else {
-                    say("WARN: $who_am_i The child process auxpid $pid exited with exit status " .
-                        "$status $msg_snip");
-                }
-            } else {
-                # We have not reaped.
-                if (STATUS_OK != $status) {
-                    say("ERROR: $who_am_i The attempt to reap the child process auxpid $pid " .
-                        "failed with status $status $msg_snip");
-                }
-            }
-        } else {
-            # The auxiliary process
-            # - is not in our hash for such processes
-            #   --> Poll that it finishes.
-            # or
-            # - is in our hash for such processes but we are not the parent.
-            #   --> Delete it from our hash for such processes. And poll that it finishes.
-            delete $aux_pids{$pid};
-            # Maybe the auxiliary process has already finished and was reaped.
-            if (not kill(0, $pid)) {
-                my $status = STATUS_OK;
-                # say("DEBUG: $who_am_i The non child process auxpid $pid is no more running." .
-                #     " Will return status STATUS_OK" . "($status).");
-                return $status;
-            } else {
-                # 1. It is not our child == reaping is done by other process.
-                # 2. We need to loop around till the process is gone == the
-                #    other process has reaped or we exceed the timeout.
-                # This all means we have nothing to do in this branch.
-            }
-        }
-        if (time() >= $wait_end) {
-            # For debugging:
-            # system("ps -elf | grep " . $pid);
-            my $status = STATUS_FAILURE;
-            say("ERROR: $who_am_i The auxiliary process has not disappeared within $wait_timeout" .
-                "s waiting. Will send SIGKILL and return status STATUS_FAILURE($status) later.");
-            kill KILL => $pid;
-            # Variants:
-            # 1. The auxiliary process is not in our hash for such processes.
-            #    SIGKILL + wait a bit.
-            # 2. The auxiliary process is in our hash for such processes and we are the parent.
-            #    SIGKILL + wait a bit.
-            # 3. The auxiliary process is in our hash for such processes and we are not the parent.
-            #    SIGKILL + wait a bit.
-            # FIXME : Provisoric solution.
-            sleep 10;
-            if (exists $aux_pids{$pid} and $$ == $aux_pids{$pid}) {
-                my $reaped;
-                ($reaped, $status) = Auxiliary::reapChild($pid, "waitForAuxpidGone");
-            }
-            delete $aux_pids{$pid};
+    while (time() < $wait_end) {
+        # Maybe the auxiliary process has already finished and was reaped.
+        aux_pid_reaper();
+        if (not kill(0, $pid)) {
+            my $status = STATUS_OK;
+            # say("DEBUG: $who_am_i The non child process auxpid $pid is no more running." .
+            #     " Will return status STATUS_OK" . "($status).");
+            say("INFO: $who_am_i aux_pid was gone after waiting (s): " . (time() - $start_time));
             return $status;
+        } else {
+            Time::HiRes::sleep($wait_time);
         }
     }
-}
+    my $status = STATUS_FAILURE;
+    say("ERROR: $who_am_i The auxiliary process has not disappeared within $wait_timeout" .
+         "s waiting. Will send SIGKILL and return status STATUS_FAILURE($status) later.");
+    # kill KILL => $pid;
+    kill TERM => $pid;
+    $wait_end = time() + 10;
+    while (time() < $wait_end) {
+        aux_pid_reaper();
+        # Variants:
+        # 1. The auxiliary process is not in our hash for such processes.
+        #    SIGKILL + wait a bit.
+        # 2. The auxiliary process is in our hash for such processes and we are the parent.
+        #    SIGKILL + wait a bit.
+        # 3. The auxiliary process is in our hash for such processes and we are not the parent.
+        #    SIGKILL + wait a bit.
+        if (not kill(0, $pid)) {
+            my $status = STATUS_OK;
+            say("INFO: $who_am_i aux_pid was gone after SIGKILL and waiting (s): " .
+                (time() - $start_time));
+            return $status;
+        } else {
+            Time::HiRes::sleep($wait_time);
+        }
+    }
+    say("ERROR: $who_am_i Even after SIGKILL and some waiting the auxiliary process has not " .
+        "disappeared.");
+    return $status;
+} # End sub waitForAuxpidGone
 
 
 sub make_backtrace {
@@ -2529,7 +2445,7 @@ sub make_backtrace {
 # == The caller needs to transform that to what he thinks like
 #    STATUS_RECOVERY_FAILURE and similar.
 #
-# FIXME:
+# ATTENTION:
 # Every piece in RQG wanting a backtrace should call the routine from here.
 # IMHO it is rather questionable if the current Reporter Backtrace is needed in its current form.
 # The reasons:
@@ -2549,13 +2465,14 @@ sub make_backtrace {
     # my $server_running = kill (0, serverpid());
     my $who_am_i =  Basics::who_am_i;
     my $server_id = $self->server_id();
-    $who_am_i .=    " server[" . $server_id . "] ";
+    $who_am_i .=    " server[" . $server_id . "]";
     my $vardir =    $self->vardir();
     my $error_log = $self->errorlog();
 
     # my $server_pid  = $self->serverpid();
 
     my $status = STATUS_SERVER_CRASHED;
+    aux_pid_reaper();
     # What is with    if (osWindows())
     if ($self->running) {
         say("DEBUG: $who_am_i The server with process [" .
@@ -2572,7 +2489,7 @@ sub make_backtrace {
             $status = STATUS_SERVER_CRASHED;
         }
     }
-    # cleanup_dead_server waits till the aux/fork pis is gone.
+    # cleanup_dead_server waits till the aux/fork pid is gone.
     $self->cleanup_dead_server;
 
     my $rqg_homedir = Local::get_rqg_home();
@@ -2585,6 +2502,35 @@ sub make_backtrace {
         exit $status;
     }
     say("INFO: $who_am_i ------------------------------ Begin");
+    if (not -e $error_log) {
+        Carp::cluck("ERROR: $who_am_i A server error log '$error_log' does not exist.");
+        $status = STATUS_ENVIRONMENT_FAILURE;
+    }
+
+    # Auxiliary::print_ps_tree($$);
+    my $rr = Runtime::get_rr();
+    if (defined $rr) {
+        # We try to generate a backtrace from the rr trace.
+        my $rr_trace_dir    = $vardir . '/rr';
+        my $backtrace       = $vardir . '/backtrace.txt';
+        my $backtrace_cfg   = $rqg_homedir . "/backtrace-rr.gdb";
+        if (not -d $rr_trace_dir) {
+            Carp::cluck("ERROR: $who_am_i Some rr trace directory '$rr_trace_dir' does not exist.");
+            $status = STATUS_ENVIRONMENT_FAILURE;
+        }
+        # Note:
+        # The rr option --mark-stdio would print STDERR etc. when running 'continue'.
+        # But this just shows the content of the server error log which we have anyway.
+        my $command = "_RR_TRACE_DIR=$rr_trace_dir rr replay >$backtrace 2>/dev/null " .
+                      "< $backtrace_cfg";
+        system('bash -c "set -o pipefail; '. $command .'"');
+        sayFile($backtrace);
+        sayFile($error_log);
+        $status = STATUS_SERVER_CRASHED;
+        say("INFO: $who_am_i No core file to be expected. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i ------------------------------ End");
+        return $status;
+    }
 
     # Note:
     # The message within the server error log "Writing a core file..." describes the intention
@@ -2601,26 +2547,7 @@ sub make_backtrace {
         # Go on
     } else {
         say("INFO: $who_am_i The pattern '$core_dumped_pattern' was not found in '$error_log'.");
-        my $rr = Runtime::get_rr();
-        if (defined $rr) {
-            # We try to generate a backtrace from the rr trace.
-            my $rr_trace_dir    = $vardir . '/rr';
-            my $backtrace       = $vardir . '/backtrace.txt';
-            my $backtrace_cfg   = $rqg_homedir . "/backtrace-rr.gdb";
-            if (not -e $error_log) {
-                Carp::cluck("ALARM: $who_am_i A server error log '$error_log' does not exist.");
-            }
-            if (not -d $rr_trace_dir) {
-                Carp::cluck("ALARM: $who_am_i Some rr trace directory '$rr_trace_dir' does not exist.");
-            }
-            # Note:
-            # The rr option --mark-stdio would print STDERR etc. when running 'continue'.
-            # But this just shows the content of the server error log which we have anyway.
-            my $command = "_RR_TRACE_DIR=$rr_trace_dir rr replay >$backtrace 2>/dev/null " .
-                          "< $backtrace_cfg";
-            system('bash -c "set -o pipefail; '. $command .'"');
-            sayFile($backtrace);
-        }
+        # Maybe it was a SIGNAL which does not cause a core file generation like SIGKILL.
         sayFile($error_log);
         $status = STATUS_SERVER_CRASHED;
         say("INFO: $who_am_i No core file to be expected. " . Auxiliary::build_wrs($status));
@@ -2788,6 +2715,15 @@ use constant PROCESSLIST_PROCESS_COMMAND     => 4;
 use constant PROCESSLIST_PROCESS_TIME        => 5;
 use constant PROCESSLIST_PROCESS_INFO        => 7;
 
+my @end_line_patterns = (
+    '^Aborted$',
+    'core dumped',
+    '^Segmentation fault$',
+    'mysqld: Shutdown complete$',
+    '^Killed$',                   # SIGKILL by RQG or OS or user
+    'mysqld got signal',          # SIG(!=KILL) by DB server or RQG or OS or user
+);
+
     my $self = shift;
 
     my $status =        STATUS_OK;
@@ -2799,16 +2735,65 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
         $status = STATUS_INTERNAL_ERROR;
         say("ERROR: $who_am_i Will return STATUS_INTERNAL_ERROR" .
             "($status) because of previous error.");
+        return $status;
     }
-    $who_am_i .=        " $server_name ";
+    $who_am_i .=        " $server_name";
 
-    my $pid = $self->serverpid;
-    $pid = "<unknown>" if not defined $pid;
+    # my $pid = $self->serverpid;
+    # $pid = "<unknown>" if not defined $pid;
+    my $pid = $self->find_server_pid;
     if (not $self->running) {
         say("ERROR: $who_am_i with process [" . $pid . "] is no more running.");
         $status = $self->make_backtrace();
         say("INFO: $who_am_i make_backtrace reported status $status. Will return that.");
+        return $status;
     } else {
+        # The main DB server process is running. But maybe the DB server is around dying.
+        my $error_log = $self->errorlog();
+        my $content =   Auxiliary::getFileSlice($error_log, 1000000);
+        if (not defined $content or '' eq $content) {
+            say("FATAL ERROR: $who_am_i No server error log content got. " .
+                "Will return STATUS_ENVIRONMENT_FAILURE.");
+            return STATUS_ENVIRONMENT_FAILURE;
+        }
+        my $return = Auxiliary::content_matching($content, \@end_line_patterns, '', 0);
+        if      ($return eq Auxiliary::MATCH_YES) {
+            say("INFO: $who_am_i end_line_pattern in server error log found.");
+            say("INFO: $who_am_i Setting the status to STATUS_SERVER_CRASHED.");
+            $status = STATUS_SERVER_CRASHED;
+            # Do we wait here and than make_backtrace waits again?
+            say("INFO: $who_am_i Will poll up to 30s if the server process finishes before " .
+                "calling 'make_backtrace'.");
+            my $end_time = time() + 30;
+            # say("DEBUG: Server pid is $pid");
+            while (time() < $end_time) {
+                aux_pid_reaper();
+                if (not $self->running) {
+                    last;
+                } else {
+                    sleep 1;
+                }
+            }
+            if (not $self->running) {
+                say("ERROR: $who_am_i with process [" . $pid . "] is no more running.");
+                say("DEBUG: $who_am_i Will call 'make_backtrace'");
+            } else {
+                say("ERROR: $who_am_i with process [" . $pid . "] stays running.");
+                say("DEBUG: $who_am_i Will call 'make_backtrace' which will kill the server " .
+                    "process if running.");
+            }
+            my $mbt_status = $self->make_backtrace();
+            say("INFO: $who_am_i make_backtrace reported status $mbt_status.");
+            say("ERROR: $who_am_i Will stick to status $status and return that because of " .
+                "previous errors.");
+        } elsif ($return eq Auxiliary::MATCH_NO) {
+            # Do nothing
+        } else {
+            say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. " .
+                "Will return STATUS_ENVIRONMENT_FAILURE.");
+            return STATUS_ENVIRONMENT_FAILURE;
+        }
+
         # say("DEBUG: The server[" . $server_id . "] with process [" . $pid . "] is running.");
         # say("DEBUG: port is " . $self->port );
         if (not defined $self->dbh) {
@@ -2825,7 +2810,7 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
             $status = GenTest_e::Executor::MySQL::errorType($DBI::err);
             if (STATUS_SERVER_CRASHED == $status) {
                 say("INFO: $who_am_i Setting the status to STATUS_SERVER_CRASHED.");
-                say("INFO: $who_am_i Will poll 30s if the server process finishes before " .
+                say("INFO: $who_am_i Will poll up to 30s if the server process finishes before " .
                     "calling 'make_backtrace'.");
                 my $end_time = time() + 30;
                 while (time() < $end_time) {
@@ -2908,5 +2893,120 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
     say("DEBUG: $who_am_i Will return $status.");
     return $status;
 } # End of sub server_is_operable
+
+sub aux_pid_reaper {
+    my $who_am_i =  Basics::who_am_i;
+    my $run_again = 1;
+    # Loop as long as a full round over all %aux_pids gives at least one reap.
+    # say("DEBUG: $who_am_i At begin Auxpid_list sorted: " . join("-", sort keys %aux_pids));
+    while ($run_again) {
+        $run_again = 0;
+        foreach my $pid (keys %aux_pids) {
+            if ($$ != $aux_pids{$pid}) {
+                # We are not the parent of $pid. Hence delete the entry.
+                delete $aux_pids{$pid};
+                next;
+            }
+            # Returns of Auxiliary::reapChild
+            # -------------------------------
+            # $reaped -- 0 (not reaped) or 1 (reaped)
+            # $status -- exit status of the process if reaped,
+            #            otherwise STATUS_OK or STATUS_INTERNAL_ERROR
+            #     0, STATUS_INTERNAL_ERROR -- most probably already reaped
+            #                              == Defect in RQG logics
+            my ($reaped, $status) = Auxiliary::reapChild($pid, "Auxpid for DB server start");
+            if (1 == $reaped) {
+                $run_again = 1;
+                delete $aux_pids{$pid};
+                if (STATUS_OK == $status) {
+                    say("DEBUG: $who_am_i Auxpid $pid exited with exit status STATUS_OK.");
+                } else {
+                    say("WARN: $who_am_i Auxpid $pid exited with exit status $status.");
+                    # Making a backtrace if STATUS_OK != $status might look attractive but
+                    # it will kick even in harmless situations.
+                    # system("killall -15 mysqld") leads to auxpid exits with 137.
+                    # Impact:
+                    # Aside of confusion if its a server error or not we will get all time
+                    # a valueless backtrace if rr tracing.
+                }
+            }
+        }
+    }
+    # say("DEBUG: $who_am_i At end Auxpid_list sorted: " . join("-", sort keys %aux_pids));
+} # End sub aux_pid_reaper
+
+sub find_server_pid {
+    my $self = shift;
+
+    my $who_am_i =  Basics::who_am_i;
+    my $pid = $self->serverpid;
+    if (defined $pid) {
+        return $pid;
+    }
+    say("DEBUG: $who_am_i Extracting server pid from pidfile and error log.");
+    my $pid_per_pidfile =  $self->server_pid_per_pidfile;
+    my $pid_per_errorlog = $self->server_pid_per_errorlog;
+    if (not defined $pid_per_pidfile and not defined $pid_per_errorlog) {
+        say("DEBUG: server pid neither in pidfile nor error log found.");
+        $self->[MYSQLD_SERVERPID] = undef;
+    } elsif (defined $pid_per_pidfile and not defined $pid_per_errorlog) {
+        $self->[MYSQLD_SERVERPID] = $pid_per_pidfile;
+    } elsif (not defined $pid_per_pidfile and defined $pid_per_errorlog) {
+        $self->[MYSQLD_SERVERPID] = $pid_per_errorlog;
+    } else {
+        # defined $pid_per_pidfile != defined $pid_per_errorlog
+        say("ERROR: pid_per_pidfile($pid_per_pidfile) != pid_per_errorlog(" .
+            $pid_per_errorlog . "). Will pick and return $pid_per_pidfile.");
+        $self->[MYSQLD_SERVERPID] = $pid_per_pidfile;
+    }
+    return $self->serverpid;
+} # End sub find_server_pid
+
+sub server_pid_per_pidfile {
+    my $self = shift;
+
+    my $who_am_i =  Basics::who_am_i;
+    my $pid = Auxiliary::get_pid_from_file($self->pidfile, 1);
+    if (defined $pid) {
+        say("DEBUG: $who_am_i serverpid found in pidfile.");
+        # $self->[MYSQLD_SERVERPID] = $pid;
+        return $pid;
+    } else {
+        say("DEBUG: $who_am_i serverpid is undef. Will return undef.");
+        return undef;
+    }
+}
+
+sub server_pid_per_errorlog {
+    my $self = shift;
+
+    my $who_am_i =  Basics::who_am_i;
+    my $errorlog = $self->errorlog;
+    # bin/mysqld gets called and writes into the server error log
+    # - till mid 2023-01
+    #   [Note] <path>/bin/mysqld (server 10.6.12-MariaDB-debug-log) starting as process 1794271 ...
+    # - since mid 2023-01
+    #   [Note] Starting MariaDB 10.7.8-MariaDB-debug-log source revision 666149485fef2f51cd5685cc2172f561b2679209 as process 3283580
+    my $pid = Auxiliary::get_string_after_pattern($errorlog,
+                   "Starting MariaDB .{1,300} as process ");
+    if (not defined $pid) {
+        # File does not exist and similar.
+        say("ERROR: $who_am_i Trouble with '$errorlog'. Will return undef.");
+        return undef;
+    } elsif ('' eq $pid) {
+        # No such line found or line found but no value.
+        $pid = Auxiliary::get_string_after_pattern($errorlog,
+                   "mysqld .{1,100} starting as process ");
+    }
+    $pid = Auxiliary::check_if_reasonable_pid($pid);
+    if (defined $pid) {
+        # $self->[MYSQLD_SERVERPID] = $pid;
+        say("DEBUG: $who_am_i serverpid found in errorlog.");
+        return $pid;
+    } else {
+        say("DEBUG: $who_am_i serverpid is undef. Will return undef.");
+        return undef;
+    }
+}
 
 1;
