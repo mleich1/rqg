@@ -17,21 +17,6 @@
 
 package Auxiliary;
 
-# TODO:
-# - Structure everything better.
-# - Add missing routines
-# - Decide about the relationship to the content of
-#   lib/GenTest_e.pm, lib/DBServer_e/DBServer.pm, maybe more.
-#   There are various duplicate routines like sayFile, tmpdir, ....
-# - search for string (pid or whatever) after pattern before line end in some file
-# - move too MariaDB/MySQL specific properties/settings out
-# It looks like Cwd::abs_path "cleans" ugly looking paths with superfluous
-# slashes etc.. Check closer and use more often.
-#
-
-# use Runtime;
-
-
 use strict;
 use Basics;
 use GenTest_e;
@@ -2821,8 +2806,11 @@ sub get_pid_from_file {
     my $fname  = shift;
     my $silent = shift;
     my $who_am_i = "get_pid_from_file:";
+    if (not defined $fname) {
+        Carp::confess("INTERNAL ERROR: $who_am_i \$fname is undef.");
+    }
     if (not open(PID, $fname)) {
-        say("ERROR: $who_am_i Could not open pid file '$fname' for reading, " .
+        Carp::cluck("ERROR: $who_am_i Could not open pid file '$fname' for reading, " .
             "Will return undef") if not defined $silent;
         return undef;
     }
@@ -3490,6 +3478,91 @@ sub remove_dbs_dirs {
     }
 
     return STATUS_OK;
+}
+
+# Routines for redirecting the output
+# ===================================
+# Ideas taken from
+#    https://www.perlmonks.org/bare/?node_id=255129
+#    https://www.perl.com/article/45/2013/10/27/How-to-redirect-and-restore-STDOUT/
+# Typical use case
+# ----------------
+# The reporter Mariabackup_linux has to execute a rather long sequence of actions like
+#     backup, prepare backupped data, start server on backupped data, check content
+# several times per single RQG run.
+# In case the sequence
+# - passes
+#   Than we do no more need any details of it. Just "We got a pass" is sufficient.
+# - does not pass
+#   Than we need a huge amount of detail because the reason for the trouble might be in
+#       RQG code, DB server, Mariabackup, environment, ...
+# Hence the reporter
+# - writes essential information about success and fail to STDOUT --> finally rqg.log
+# - writes details per sequence into a file reporter.prt
+# - dumps the content of reporter.prt to STDOUT if a sequence fails
+# - deletes reporter.prt if a sequence passes
+# The switching via direct_to_file and direct_to_stdout takes care that the RQG routine
+# called by Mariabackup_linux writes into the right "object".
+my $stdout_save;
+my $stderr_save;
+sub direct_to_file {
+    my ($output_file) = @_;
+
+    my $who_am_i = Basics::who_am_i();
+
+    if (not open($stdout_save, ">&", STDOUT)) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: $who_am_i : Getting STDOUT failed with '$!' " .
+            "Will exit with status " . status2text($status) . "($status)");
+        exit $status;
+    }
+    if (not open($stderr_save, ">&", STDERR)) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: $who_am_i : Getting STDERR failed with '$!' " .
+            "Will exit with status " . status2text($status) . "($status)");
+        exit $status;
+    }
+    # say("DEBUG: $who_am_i : Redirecting all output to '$output_file'.");
+    unlink ($output_file);
+    if (not open(STDOUT, ">>", $output_file)) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
+            "Will exit with status " . status2text($status) . "($status)");
+        exit $status;
+    }
+    # Redirect STDERR to the log of the RQG run.
+    if (not open(STDERR, ">>", $output_file)) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
+            "Will exit with status " . status2text($status) . "($status)");
+        exit $status;
+    }
+}
+
+sub direct_to_stdout {
+
+    my $who_am_i = Basics::who_am_i();
+    if (not defined $stdout_save or not $stderr_save) {
+        my $status = STATUS_INTERNAL_ERROR;
+        say("INTERNAL ERROR: $who_am_i If ever running 'direct_to_stdout' " .
+            "than there must have been a 'direct_to_file' prior.");
+        exit $status;
+    }
+
+    if (not open(STDOUT, ">&" , $stdout_save)) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
+            "Will exit with status " . status2text($status) . "($status)");
+        exit $status;
+    }
+    if (not open(STDERR, ">&" , $stderr_save)) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
+            "Will exit with status " . status2text($status) . "($status)");
+        exit $status;
+    }
+    close($stdout_save);
+    close($stderr_save);
 }
 
 1;
