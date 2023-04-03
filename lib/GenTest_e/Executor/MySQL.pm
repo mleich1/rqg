@@ -24,7 +24,6 @@ require Exporter;
 
 @ISA = qw(GenTest_e::Executor);
 
-
 # (mleich) Explanations found in web
 # Our strings written to STDOUT are sequences of multibyte characters (->utf8) and
 # NOT single byte characters. So we need to set utf8 in order to prevent whatever
@@ -1164,21 +1163,25 @@ sub execute {
 
    if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD or
        $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_UNKNOWN) {
-       # Experimental
-       # ------------
-       # Observation since years:
+       # Observation from the early days of RQG more or less up till today:
+       # ------------------------------------------------------------------
        # 1. A query gets generated because current time < end_time.
-       # 2. Than this query gets transformed into many variants.
-       #    During the execution of one of these variants the threshold of the reporter Deadlock
-       #    gets exceeded and the reporter claims to have seen STATUS_SERVER_DEADLOCK.
+       # 2. Than this query gets executed on the first server and maybe
+       #    - executed on other servers too (some kind of replication) + results compared
+       #    - transformed into many variants which get executed too
+       #    - checked by validators.
+       #    During one of these actions some RQG timeout (threshold of reporter Deadlock,
+       #    alarm in rqg.pl, rqg_batch.pl, ...) kicks in and claims to have caught a problem
+       #    which might be a server deadlock or freeze or whatever.
        # Worker threads get the end time assigned. So check that limit here.
-       # I hope that reporters have not such a end_time.
-       #
-       # Not relevant for: Gendata*, MetadataCacher, Reporter
+       # Warning:
+       # In case the "give up" of the worker thread is not handled perfect than tests
+       # running some kind of replication might end with content diff between servers.
+       # This all is not relevant for: Gendata*, MetadataCacher, Reporter
        my $give_up_time = $executor->end_time();
        if (defined $give_up_time and time() > $give_up_time) {
               say("INFO: $who_am_i $executor_role has already exceeded " .
-                  "the end_time. Will return STATUS_SKIP");
+                  "the end_time (1). Will return STATUS_SKIP");
           return GenTest_e::Result->new(
               query       => $query,
               status      => STATUS_SKIP,
@@ -1190,8 +1193,8 @@ sub execute {
    if (not defined $dbh) {
       # One executor lost his connection but the server was connectable.
       # --> return a result with status STATUS_SKIP_RELOOP to Mixer::next.
-      # Mixer disconnects than all executors, omits running any validator for the current query
-      # and also omits running the remaining queries.
+      # Mixer disconnects than all executors, omits running any validator for the current
+      # query and also omits running the remaining queries.
       # Hint: A call of Generator leads to some "multi" query == list of "single" queries.
       #       Mixer picks the leftmost "single" query from that list and gives it to every
       #       executor (one per DB server). After execution (includes validators) the next
@@ -1208,6 +1211,20 @@ sub execute {
             query       => '/* During connect attempt */',
             status      => $status,
          );
+      } else {
+         # Connecting might last long.
+         if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD or
+            $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_UNKNOWN) {
+            my $give_up_time = $executor->end_time();
+            if (defined $give_up_time and time() > $give_up_time) {
+               say("INFO: $who_am_i $executor_role has already exceeded " .
+                   "the end_time (2). Will return STATUS_SKIP");
+               return GenTest_e::Result->new(
+                   query       => $query,
+                   status      => STATUS_SKIP,
+               );
+            }
+         }
       }
       $dbh = $executor->dbh();
    }
@@ -1627,6 +1644,7 @@ sub execute {
 
         # Check if the query was a CHECK TABLE and if we harvested a result set which points clear
         # to data corruption in InnoDB. In the moment all other bad cases get ignored.
+        # ------------------------------------------------------------------------------------------
         if ($query =~ m{check\s+table\s+}i) {
             # Experiment for checking if the reporter 'RestartConsistency*.pm' works correct.
             # if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_REPORTER) {
