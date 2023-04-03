@@ -279,7 +279,7 @@ sub check_and_set_local_config {
                 safe_exit($status);
             } else {
                 if      (DBDIR_TYPE_FAST eq $dbdir_type) {
-                    $rqg_rr_add = '';
+                    $rqg_rr_add =    '';
                     $vardir =        $rqg_fast_dir;
                     $dbdir  =        $rqg_fast_dir;
                     $dbdir_fs_type = $fast_fs_type;
