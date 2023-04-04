@@ -641,18 +641,20 @@ sub nativeReport {
         say("INFO: $who_am_i Executing $cdb_command");
         system($cdb_command);
     } else {
-        # system("gdb --batch -p $server_pid -ex 'thread apply all backtrace'");
+        # When being here it is not 100% clear if we have a real freeze or some dying server.
         my $msg_begin = "INFO: $who_am_i Killing mysqld with pid $server_pid with";
         say("$msg_begin SIGHUP in order to force debug output.");
         # MariaDB prints a round status information into the server error log.
         kill(1, $server_pid);
 
-        # FIXME:
-        # How to ensure that
-        # - all debug output is written before the SIGSEGV is sent
-        # - worker threads detecting that the server does not respond twist the final status to
-        #   something != STATUS_SERVER_DEADLOCKED
-        sleep(($reporter_query_threshold + OVERLOAD_ADD) / 2);
+        # Writing the status information will require some time.
+        my $wait_end = time() + ($reporter_query_threshold + OVERLOAD_ADD) / 2;
+        while(time() < $wait_end) {
+            sleep(1);
+            if (STATUS_OK != server_dead($reporter)) {
+                exit STATUS_SERVER_CRASHED;
+            }
+        }
 
         say("$msg_begin SIGSEGV in order to capture core.");
         kill(11, $server_pid);
@@ -667,7 +669,9 @@ sub nativeReport {
         # FIXME:
         # Whenever a RQG worker thread has problems with the connection than it should exit with
         # STATUS_CRITICAL_FAILURE or similar.
-        # Basically: Reporters should finally figure out what the defect is.
+        # Basically:
+        # Only reporters or some routine after gendata or YY grammar processing should finally
+        # figure out what the defect is.
     }
 
     exit STATUS_SERVER_DEADLOCKED;
