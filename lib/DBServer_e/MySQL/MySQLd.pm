@@ -2533,20 +2533,22 @@ sub make_backtrace {
     }
 
     # Note:
-    # The message within the server error log "Writing a core file..." describes the intention
-    # but not if that really happened.
-    my $core_dumped_pattern = 'core dumped';
-    my $found = Auxiliary::search_in_file($error_log, $core_dumped_pattern);
-    if      (not defined $found) {
+    #    Writing a core file... seems to be roughly "the DB server decides to assert".
+    #    It just describes the intention but not if that really happened or is finished.
+    my $found1 = Auxiliary::search_in_file($error_log, 'core dumped');
+    my $found2 = Auxiliary::search_in_file($error_log, 'Writing a core file');
+    if      (not defined $found1) {
         $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. " .
             Auxiliary::build_wrs($status));
         say("INFO: $who_am_i ------------------------------ End");
         return $status;
-    } elsif (1 == $found) {
+    } elsif (1 == $found1) {
+        # Go on
+    } elsif (1 == $found2) {
         # Go on
     } else {
-        say("INFO: $who_am_i The pattern '$core_dumped_pattern' was not found in '$error_log'.");
+        say("INFO: $who_am_i None of the core_dumped_patterns was not found in '$error_log'.");
         # Maybe it was a SIGNAL which does not cause a core file generation like SIGKILL.
         sayFile($error_log);
         $status = STATUS_SERVER_CRASHED;
@@ -2943,7 +2945,7 @@ sub find_server_pid {
     if (defined $pid) {
         return $pid;
     }
-    say("DEBUG: $who_am_i Extracting server pid from pidfile and error log.");
+    # say("DEBUG: $who_am_i Extracting server pid from pidfile and error log.");
     my $pid_per_pidfile =  $self->server_pid_per_pidfile;
     my $pid_per_errorlog = $self->server_pid_per_errorlog;
     if (not defined $pid_per_pidfile and not defined $pid_per_errorlog) {
@@ -2968,11 +2970,10 @@ sub server_pid_per_pidfile {
     my $who_am_i =  Basics::who_am_i;
     my $pid = Auxiliary::get_pid_from_file($self->pidfile, 1);
     if (defined $pid) {
-        say("DEBUG: $who_am_i serverpid found in pidfile.");
-        # $self->[MYSQLD_SERVERPID] = $pid;
+        # say("DEBUG: $who_am_i serverpid found in pidfile.");
         return $pid;
     } else {
-        say("DEBUG: $who_am_i serverpid is undef. Will return undef.");
+        # say("DEBUG: $who_am_i serverpid is undef. Will return undef.");
         return undef;
     }
 }
@@ -2986,7 +2987,7 @@ sub server_pid_per_errorlog {
     # - till mid 2023-01
     #   [Note] <path>/bin/mysqld (server 10.6.12-MariaDB-debug-log) starting as process 1794271 ...
     # - since mid 2023-01
-    #   [Note] Starting MariaDB 10.7.8-MariaDB-debug-log source revision 666149485fef2f51cd5685cc2172f561b2679209 as process 3283580
+    #   [Note] Starting MariaDB 10.7.8-MariaDB-debug-log source revision ... as process 3283580
     my $pid = Auxiliary::get_string_after_pattern($errorlog,
                    "Starting MariaDB .{1,300} as process ");
     if (not defined $pid) {
@@ -3001,10 +3002,10 @@ sub server_pid_per_errorlog {
     $pid = Auxiliary::check_if_reasonable_pid($pid);
     if (defined $pid) {
         # $self->[MYSQLD_SERVERPID] = $pid;
-        say("DEBUG: $who_am_i serverpid found in errorlog.");
+        # say("DEBUG: $who_am_i serverpid found in errorlog.");
         return $pid;
     } else {
-        say("DEBUG: $who_am_i serverpid is undef. Will return undef.");
+        # say("DEBUG: $who_am_i serverpid is undef. Will return undef.");
         return undef;
     }
 }
