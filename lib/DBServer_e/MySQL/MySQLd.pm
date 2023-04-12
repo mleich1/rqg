@@ -1092,9 +1092,22 @@ sub startServer {
             #                      Auxpid 519677 exited with exit status STATUS_OK.
             #    20:17:31 [519587] INFO: DBServer_e::MySQL::MySQLd::waitForAuxpidGone:
             #                      aux_pid was gone after SIGKILL and waiting (s): 186
-            #       ... the rr trace is incomplete ...
+            #       ... the rr trace is incomplete like expected ...
 
-            # Even if having an additional /bin/sh ... in the middle it will inherit this setting.
+            # The "outside" should dictate all time to go with generation big core files allowed.
+            # That is because parts of the RQG test up till the complete test might be without "rr".
+            # But if using "rr" for some operation we might harvest some fat core file in addition.
+            # And this is some serious wasting of resources. Hence we try to avoid this.
+            # "ulimit -c 0" cannot be used because that would require invoking a shell.
+            # Solution: Set the rlimit if BSD::Resource is available.
+            if (defined $rr and Local::bsd_resource) {
+                # Docu: setrlimit() returns true on success and undef on failure.
+                if (not defined BSD::Resource::setrlimit('RLIMIT_CORE', 0, 0)) {
+                    say("WARN: Setting the core file size via rlimit failed.");
+                }
+            }
+
+            # Even if having an additional /bin/sh ... in the middle we will inherit this setting.
             $ENV{'_RR_TRACE_DIR'} = $rr_trace_dir if defined $rr_trace_dir;
 
             # Strip the '"' away so that we do not get the '/bin/sh -c ....'.
@@ -2955,6 +2968,9 @@ sub find_server_pid {
         $self->[MYSQLD_SERVERPID] = $pid_per_pidfile;
     } elsif (not defined $pid_per_pidfile and defined $pid_per_errorlog) {
         $self->[MYSQLD_SERVERPID] = $pid_per_errorlog;
+    } elsif (defined $pid_per_pidfile and defined $pid_per_errorlog and
+             $pid_per_pidfile == $pid_per_errorlog) {
+        $self->[MYSQLD_SERVERPID] = $pid_per_pidfile;
     } else {
         # defined $pid_per_pidfile != defined $pid_per_errorlog
         say("ERROR: pid_per_pidfile($pid_per_pidfile) != pid_per_errorlog(" .
