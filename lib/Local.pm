@@ -1,4 +1,5 @@
 #  Copyright (c) 2021, 2022 MariaDB Corporation Ab.
+#  Copyright (c) 2023 MariaDB plc
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -27,6 +28,22 @@ use Cwd;
 use constant DBDIR_TYPE_FAST => 'fast';
 use constant DBDIR_TYPE_SLOW => 'slow';
 use constant DBDIR_TYPE_LIST => [ DBDIR_TYPE_FAST, DBDIR_TYPE_SLOW ];
+
+my $bsd_resource_found;
+BEGIN {
+    if (not defined (eval "require BSD::Resource")) {
+        say("WARN: Couldn't load Module 'BSD::Resource' $@\n");
+        say("WARN: Without that module core files might get generated even if tracing via 'rr'.");
+        say("HINT: For Ubuntu:     sudo apt-get install libbsd-resource-perl");
+        $bsd_resource_found = 0;
+    } else {
+        $bsd_resource_found = 1;
+    }
+}
+
+sub bsd_resource {
+    return $bsd_resource_found;
+}
 
 our $rqg_home;
 sub check_and_set_rqg_home {
