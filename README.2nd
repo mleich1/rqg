@@ -165,13 +165,19 @@ Preparations for using RQG, my batch tool and build scripts
   sudo apt-get install libdbd-mysql-perl
   sudo apt-get install libtext-csv-perl
 
+- Optional but highly recommended stuff for plain RQG
+  sudo apt-get install libbsd-resource-perl
+
 - Stuff needed for my batch tool rqg_batch.pl
   sudo apt-get install libfilesys-df-perl
   sudo apt-get install libsys-statistics-linux-perl
   sudo apt-get install liblog-log4perl-perl
 
-  Prevent swapping because the resource control in rqg_batch.pl fears swapping goes towards
-  a SSD and wants to avoid a wear out of that device by excessive writing.
+  Prevent swapping because
+  - the resource control in rqg_batch.pl fears swapping goes towards a SSD and
+    wants to avoid a wear out of that device by excessive writing
+  - starting some additional RQG run might trade CPU idle for CPU waiting for io
+    and similar. And that is some very inefficient use of the testing box.
 
   Recommended:
   As root:
@@ -210,23 +216,29 @@ Preparations for using RQG, my batch tool and build scripts
 - Stuff needed for build MariaDB and RQG testing
 
   Your .profile should set variables like
+     # Used by my scripts for building MariaDB and RQG testing
+     export GENERAL_SOURCE_DIR="/Server"
+     export GENERAL_STORE_DIR="/data"
+     export GENERAL_BIN_DIR="/Server_bin"
 
-  # Used by RQG Release build scripts and RQG testing
-  export GENERAL_SOURCE_DIR="/Server"
-  export GENERAL_STORE_DIR="/data"
-  export GENERAL_BIN_DIR="/Server_bin"
+     ulimit -c unlimited
+     ulimit -S -n 61440
 
-  ulimit -c unlimited
-  ulimit -S -n 61440
-
-  sudo cp <RQG install dir>/util/bld_*.sh /usr/local/bin
+  Copy the build scripts to a "default" location.
+     sudo cp <RQG install dir>/util/bld_*.sh /usr/local/bin
 
   cp <RQG install dir>/local_template.cfg <RQG install dir>/local.cfg
   Please edit <RQG install dir>/local.cfg so that it fits to your needs.
 
-  sudo <RQG install dir>/util/MK_EXT4_VAR.sh
-  will generate some container file using 1/3 of the free space of the device
-  where /dev/shm is located and mount that file as /dev/shm/rqg_ext4.
+  If going with the defaults
+     $rqg_fast_dir = '/dev/shm/rqg';
+     $rqg_slow_dir = '/dev/shm/rqg_ext4';
+  in <RQG install dir>/local.cfg than run
+     sudo <RQG install dir>/util/MK_EXT4_VAR.sh
+  which will generate
+  - the directories '/dev/shm/rqg' and '/dev/shm/rqg_ext4'
+  - some container file using 1/3 of the free space of the device where '/dev/shm'
+    is located and mount that file at '/dev/shm/rqg_ext4'
 
 How to build by example
 -----------------------
@@ -236,22 +248,22 @@ Assuming that you have set the environment variables to values like above
    cd preview-10.8-MDEV-14425
    git checkout origin/preview-10.8-MDEV-14425
 
-   bld_asan.sh preview-10.8-MDEV-14425
+   bld_asan_Og.sh preview-10.8-MDEV-14425
 
    If something goes
    - wrong than /dev/shm/build_dir/build.prt shows the output of the build process.
      More comfortable for finding the problem would be
      cd /dev/shm/build_dir
      make
-   - well than MariaDB compiled with debug+asan will be installed in
-        /Server_bin/preview-10.8-MDEV-14425_asan
+   - well than MariaDB compiled with debug+asan+Optimization "g" will be installed in
+        /Server_bin/preview-10.8-MDEV-14425_asan_Og
      and the (1656597700 is the unixtimestamp of the build)
      - detailed protocol about the build will be
-        /data/binarchs/preview-10.8-MDEV-14425_asan_1656597700.prt.xz
+        /data/binarchs/preview-10.8-MDEV-14425_asan_Og_1656597700.prt.xz
      - short protocol about the build will be
-        /data/binarchs/preview-10.8-MDEV-14425_asan_1656597700.short
+        /data/binarchs/preview-10.8-MDEV-14425_asan_Og_1656597700.short
      - archive of the installed binaries will be
-        /data/binarchs/preview-10.8-MDEV-14425_asan_1656597700.tar.xz
+        /data/binarchs/preview-10.8-MDEV-14425_asan_Og_1656597700.tar.xz
 
 How to make a single RQG run
 ----------------------------
@@ -294,13 +306,14 @@ Content of that workdir
 - Short build protocol of the first and second set of binaries assigned
   basedir1.short
   basedir2.short
-- hardlink to an archive of the binaries
+- hardlinks to archives of the binaries
   basedir1.tar.xz
   basedir2.tar.xz
 - GIT related information about RQG, source/branch for basedir1 and basedir2
   SourceInfo.txt
-- copy of the configuration file for this RQG batch run
-  Combinator.cc or Simplifier.cfg
+- copy of the configuration file (conf/mariadb/InnoDB_standard.cc or similar) used for
+  for this RQG batch run
+  The copy is named Combinator.cc or Simplifier.cfg
 - derivate of the configuration files used for making the RQG batch run and the verdicts
   Verdict.cfg
 - Log file of the RQG batch resource control
@@ -313,7 +326,7 @@ Content of that workdir
   setup.new in case you run util/SUMMARY.sh later in addition
 - Directories <number with up to three digits and never leading zeros) like 266
   per active RQG runner.
-  This directory contains gendata files (*.zz), grammars *.yy), the RQG log etc.
+  Such a directory contains gendata files (*.zz), grammars *.yy), the RQG log etc.
   The fate of that directory depends on the final verdict.
   In case the result is not of interest than it gets dropped. Otherwise it gets
   transformed to some directory for any finished RQG run with result of interest.
@@ -432,13 +445,13 @@ Collection of hints (under construction)
      Feel free to
      - give a list of guesses per event of interest
      - call a guess which is with a likelihood of lets say >= 95% true "truth"
-   - A bunch of extra output lines, lets assume 100 per RQG run, which start with "INFO: "
+   - A bunch of extra output lines, lets assume a few hundred per RQG run, which start with "INFO: "
      and allow to conclude in which phase of the RQG test work flow we are might help a lot
      in failure analysis.
    - As soon as its obvious that GenTest will have to exit with a status code > 0 the amount
      of extra information is allowed to be big.
    - Make messages "grep friendly"
-   - Reduce the use of "croak"
+   - Reduce the use of "croak" and "die".
      - We might want some more specific exit status than just "2".
      - Carp::cluck gives frequent a serious better information how we reached the routine
        where the problem showed up.
@@ -901,8 +914,8 @@ Hints
                     $recovery_failure_end ],
    2. [ 'TBR-1143 MDEV-11111' , '<whatever> ]
          ################### There must be no space in that name.
-   3. [ 'TBR-1144' , '<whatever A> ]          <======= There must be a ',' at end.
-      [ 'TBR-1143' , '<whatever A> ]          <------- A ',' at end is recommended.
+   3. [ 'TBR-1144' , '<whatever A>' ]          <======= There must be a ',' at end.
+      [ 'TBR-1143' , '<whatever B>' ]          <------- A ',' at end is recommended.
 2. Typical errors in RQG YY grammars
 2.1 Rules must have a lower case name.
     Otherwise they will not get valuated as the name of a rule.
@@ -913,9 +926,9 @@ Hints
         t4 ;
     query:
         SELECT col1 FROM rule1;
-    leads to the generation of queries like
-    a)  SELECT col1 FROM t3 ; <-- correct syntax
-    b)  t4 ;                  <-- wrong syntax
+    leads to the generation of the query
+        SELECT col1 FROM t3 ;
+        t4 ;
 3. Take care that the content of literals is not equal to a rule name.
    Negative example:
     rule1: { $var = 'rule1' ; return undef };
@@ -956,5 +969,5 @@ Hints
 
 
 
-Matthias 2023-02
+Matthias 2023-04
 
