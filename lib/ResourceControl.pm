@@ -269,7 +269,7 @@ sub init {
             "HINT: - RECOMMENDED\n"                                                                .
             "HINT:   Use a box with Linux OS and install the perl modules\n"                       .
             "HINT:      'Filesys::Df' and 'Sys::Statistics::Linux'\n"                              .
-            "HINT:   Example for Ubuntu 17.10:\n"                                                  .
+            "HINT:   Example for Ubuntu:\n"                                                        .
             "HINT:      sudo apt-get install libfilesys-df-perl libsys-statistics-linux-perl\n"    .
             "HINT: or\n"                                                                           .
             "HINT: - more or less RISKY\n"                                                         .
