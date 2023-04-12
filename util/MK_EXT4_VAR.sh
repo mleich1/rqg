@@ -1,3 +1,5 @@
+#!/bin/bash
+LANG=C
 set -x
 BASE_FS="/dev/shm"
 if [ ! -d $BASE_FS ]
@@ -89,7 +91,7 @@ fi
 #     Test fail -> archiving with compression -> longer timespan of storage use
 
 SPACE_PLANNED=$((($SPACE_AVAIL * 3) / 10))
-# 'sdp' reports for /dev/shm a total space of 1,559,937,276 which is
+# The box 'sdp' reports for /dev/shm a total space of 1,559,937,276 which is
 # suspicious high. Given the CPU power etc. we do not need more than 100 GB.
 # Formatting more than required wastes elapsed time on 'sdp'.
 MAX_SPACE=209715200
@@ -116,6 +118,7 @@ sudo chmod 775   "$VARDIR_FS"
 # Therefore ensure that $CONTAINER has the required size.
 DUMMY_FILE="$VARDIR_FS""/klops"
 set +e
+echo "The message 'No space left on device' is expected."
 dd if=/dev/zero of="$DUMMY_FILE" bs=1M
 set -e
 sudo rm "$DUMMY_FILE"
@@ -123,5 +126,10 @@ set +e
 sudo chgrp dev "$VARDIR_FS"
 set -e
 ls -ld "$VARDIR_FS" "$CONTAINER"
+OTHER_DIR="/dev/shm/rqg"
+if [ ! -e "$OTHER_DIR" ]
+then
+   mkdir "$OTHER_DIR"
+fi
 
 df -vk
