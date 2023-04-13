@@ -366,7 +366,7 @@ function archiving()
 function check_1st()
 {
     BINDIR=$1
-    echo "# Check if the release in '"$BINDIR"' basically works"            | tee -a "$BLD_PROT"
+    echo "# Checking if the release in '"$BINDIR"' basically works"         | tee -a "$BLD_PROT"
     cd "$BINDIR"
     cd mysql-test
     # Assigning a MTR_BUILD_THREAD serves to avoid collisions with RQG (starts at 730).
