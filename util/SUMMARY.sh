@@ -128,19 +128,22 @@ function process_log()
     # echo "processor $RUNNING finished, currently active '/bin/bash ./SUMMARY.sh' : $ACTIVE"
 }
 
-RUNNING=0
-# ~ 1s elapsed time per rqg log
+function num_children {
+    NUM_CHILDREN=`ps -eo ppid | grep -w $$ | wc -l`
+    echo $NUM_CHILDREN >> otto
+}
+
+NPROC=`nproc`
 for LOG_FILE in `ls -d "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9]/rqg.log \
 "$WRK_DIR"/[A-Za-z]*/rqg.log \
 "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9].log 2>/dev/null`
 do
-    if [ $RUNNING -ge 10 ]
-    then
-        wait
-        RUNNING=0
-    fi
-    RUNNING=$(($RUNNING + 1))
-    # echo "RUNNING: ""$RUNNING"
+    num_children
+    while [ $NUM_CHILDREN -gt $NPROC ]
+    do
+        sleep 1
+        num_children
+    done
     # echo "Processing ->""$LOG_FILE""<-"
     process_log "$LOG_FILE" &
 done
