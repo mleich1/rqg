@@ -88,7 +88,7 @@ our $grammars =
   #    - disadvantages
   #      - Slower RQG test simplifier
   #      - Hit too many unwanted/known but not yet fixed bugs
-  #    compared to using more lean tests
+  #    compared to using more lean tests.
   #    So better run that crowd but use rather lean or hand crafted tests for simplification
   #    or specific features if possible.
   # DDL-DDL, DDL-DML, DML-DML
@@ -138,7 +138,7 @@ our $grammars =
   '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy  --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --redefine=conf/mariadb/redefine_innodb_sys_ddl.yy',
   '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
   '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=RestartConsistency',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup_linux',
+  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=150M',
   '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=CrashRecovery',
   '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--log-bin --rpl_mode=statement',
   '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--log-bin --rpl_mode=mixed',
@@ -152,12 +152,12 @@ our $grammars =
   '--grammar=conf/mariadb/table_stress_innodb_fk.yy      --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
 
   # DML only together with Mariabackup
-  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --reporters=Mariabackup_linux ',
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=Mariabackup_linux ',
-  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=Mariabackup_linux ',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --reporters=Mariabackup_linux ',
-  '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup_linux ',
-  '--grammar=conf/mariadb/table_stress_innodb_fk_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup_linux ',
+  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --reporters=Mariabackup_linux --loose-innodb-log-file-size=150M',
+  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=Mariabackup_linux --loose-innodb-log-file-size=150M',
+  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=Mariabackup_linux --loose-innodb-log-file-size=150M',
+  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --reporters=Mariabackup_linux --loose-innodb-log-file-size=150M',
+  '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup_linux --loose-innodb-log-file-size=150M',
+  '--grammar=conf/mariadb/table_stress_innodb_fk_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup_linux --loose-innodb-log-file-size=150M',
   # DML only together with RestartConsistency
   '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --reporters=RestartConsistency ',
   '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=RestartConsistency ',
@@ -324,9 +324,20 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_sort_buffer_size=65536 ',
     '',
     '',
+    '',
+    '',
+  ],
+  [
+    ' --mysqld=--innodb-open-files=10 ',
+    '',
+    '',
+    '',
+    '',
   ],
   [
     ' --redefine=conf/mariadb/redefine_checks_off.yy ',
+    '',
+    '',
     '',
     '',
   ],
