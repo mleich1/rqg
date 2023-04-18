@@ -288,17 +288,32 @@ sub waitForSlaveSync {
     my ($file, $pos) = $self->master->dbh->selectrow_array($query);
     my $error = $self->master->dbh->err();
     if (defined $error and $error > 0) {
-        say("EROR: The query '$query' failed with error: $error");
+        say("EROR: The query '$query' failed on master with error: $error");
         $self->master->dbh->disconnect();
         return STATUS_FAILURE;
     }
     say("Master status $file/$pos. Waiting for slave to catch up...");
-    $query = "SELECT MASTER_POS_WAIT('$file',$pos)";
+    $query = "SELECT MASTER_POS_WAIT('$file', $pos)";
     my $wait_result = $self->slave->dbh->selectrow_array($query);
+    # Experiment
+    $error = $self->slave->dbh->err();
+    if (defined $error and $error > 0) {
+        say("EROR: The query '$query' failed on slave with error: $error");
+        $self->slave->dbh->disconnect();
+        return STATUS_FAILURE;
+    }
     if (not defined $wait_result) {
         if ($self->slave->dbh) {
+            $query = "SHOW SLAVE STATUS /* ReplMySQLd::waitForSlaveSync */";
             my @slave_status = $self->slave->dbh->selectrow_array(
                                       "SHOW SLAVE STATUS /* ReplMySQLd::waitForSlaveSync */");
+            $error = $self->slave->dbh->err();
+            # Experiment
+            if (defined $error and $error > 0) {
+                say("EROR: The query '$query' failed on slave with error: $error");
+                $self->slave->dbh->disconnect();
+                return STATUS_FAILURE;
+            }
             say("ERROR: $who_am_i Slave SQL thread has stopped with error: " . $slave_status[37] .
                 "Will return STATUS_FAILURE.");
         } else {

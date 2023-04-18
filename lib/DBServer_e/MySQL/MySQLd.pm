@@ -2097,7 +2097,6 @@ sub running {
         return -f $self->pidfile;
     }
 
-    # Experimental
     aux_pid_reaper();
     my $pid = $self->find_server_pid;
     if (not defined $pid) {
@@ -2177,8 +2176,15 @@ sub dbh {
                                       mysql_auto_reconnect  => 1});
    }
    if(!defined $self->[MYSQLD_DBH]) {
-      say("ERROR: (Re)connect to " . $self->[MYSQLD_PORT] . " failed due to " .
-               $DBI::err . ": " . $DBI::errstr);
+      say("ERROR: (Re)connect to " . $self->[MYSQLD_PORT] . " failed due to " . $DBI::err .
+          ": " . $DBI::errstr);
+   } else {
+      # Fixme: Is this maybe too early?
+      # Connections made in the current package are used for supervision and checking.
+      # Hence they should go without limited statement_time.
+      # Without that
+      # ERROR: DBServer_e::MySQL::ReplMySQLd::waitForSlaveSync: failed frequent mysterious.
+      $self->[MYSQLD_DBH]->do('SET @@max_statement_time = 0');
    }
    return $self->[MYSQLD_DBH];
 }
