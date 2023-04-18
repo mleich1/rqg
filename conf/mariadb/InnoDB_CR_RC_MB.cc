@@ -1,4 +1,5 @@
-# Copyright (C) 2021, 2022 MariaDB corporation Ab. All rights reserved.
+# Copyright (C) 2019, 2022 MariaDB corporation Ab. All rights reserved.
+# Copyright (C) 2023 MariaDB plc All rights reserved.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -49,15 +50,19 @@ our $encryption_setup =
   '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
 
 our $compression_setup =
-  # The availability of the plugins depends on 1. build mechanics 2. Content of OS
+  # The availability of the plugins depends on 1. build mechanics 2. Content of OS install
   # The server startup will not fail if some plugin is missing except its very important
   # like for some storage engine. Of course some error message will be emitted.
   # Without this setting
   # - innodb page compression will be less till not covered by MariaDB versions >= 10.7
   # - upgrade tests starting with version < 10.7 and going up to version >= 10.7 will
   #   suffer from TBR-1313 effects.
+  # In case the compression algorithm used is in ('zlib','lzma') than we can assign some compression level.
+  # Use the smallest which is 1 instead of 6 (default).
+  # The hope is that it raises the throughput and/or reduces the fraction of max_gd_timeout exceeded
+  # and/or false alarms when running a test with compression.
   '--mysqld=--plugin-load-add=provider_lzo.so --mysqld=--plugin-load-add=provider_bzip2.so --mysqld=--plugin-load-add=provider_lzma.so ' .
-  '--mysqld=--plugin-load-add=provider_snappy.so --mysqld=--plugin-load-add=provider_lz4.so ';
+  '--mysqld=--plugin-load-add=provider_snappy.so --mysqld=--plugin-load-add=provider_lz4.so --mysqld=--loose-innodb_compression_level=1';
 
 our $duration = 300;
 our $grammars =
@@ -66,11 +71,11 @@ our $grammars =
   # Suffers in old releases massive from https://jira.mariadb.org/browse/MDEV-19449
   '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy',    # This looked once like a dud.
   # Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
-  # '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --grammar=conf/percona_qa/BT-16274/BT-16274.yy ' .
-  #     '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
+  '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --max_gd_duration=900 --grammar=conf/percona_qa/BT-16274/BT-16274.yy ' .
+      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
   # Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
-  # '--gendata=conf/percona_qa/percona_qa.zz --grammar=conf/percona_qa/percona_qa.yy ' .
-  #     '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
+  '--gendata=conf/percona_qa/percona_qa.zz --max_gd_duration=900 --grammar=conf/percona_qa/percona_qa.yy ' .
+      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
   '--views --grammar=conf/mariadb/partitions_innodb.yy ' .
       '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy',
   '--gendata=conf/engines/innodb/full_text_search.zz --max_gd_duration=1200 --short_column_names --grammar=conf/engines/innodb/full_text_search.yy ' .
@@ -97,10 +102,12 @@ our $grammars =
   # Rather small tables with short lifetime.
   '--gendata=conf/mariadb/concurrency.zz --gendata_sql=conf/mariadb/concurrency.sql --grammar=conf/mariadb/concurrency.yy',
 
-  # rare DDL-DML, heavy DML-DML
+  # heavy DML-DML
   '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
+  # heavy DML-DML and FOREIGN KEYs
+  '--grammar=conf/mariadb/table_stress_innodb_fk_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
 
-  # Main DDL-DDL, DDL-DML stress work horse   with generated virtual columns, fulltext indexes, KILL QUERY/SESSION, BACKUP STAGE
+  # Main DDL-DDL, DDL-DML, DML-DML stress work horse   with generated virtual columns, fulltext indexes, KILL QUERY/SESSION, BACKUP STAGE
   '--grammar=conf/mariadb/table_stress_innodb.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
   # Derivate of above which tries to avoid any DDL rebuilding the table, also without BACKUP STAGE
   #     IMHO this fits more likely to the average fate of production applications.
@@ -109,11 +116,17 @@ our $grammars =
   '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
   '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --redefine=conf/mariadb/xa.yy',
 
-  # Fiddle with FOREIGN Keys and TRUNCATE
+  # Fiddle with FOREIGN KEYs and
+  # - especially TRUNCATE
   '--gendata=conf/mariadb/fk_truncate.zz --grammar=conf/mariadb/fk_truncate.yy',
+  # - the full set of DDL like in the other table_stress_innodb*
+  '--grammar=conf/mariadb/table_stress_innodb_fk.yy      --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
+
 
   # Tests checking transactional properties
-  # FIXME: Add variations of the ISOLATION LEVEL is useful
+  # =======================================
+  # READ-UNCOMMITTED and READ-COMMITTED will be not assigned because they guarantee less than
+  # we can check in the moment.
   # Disabled because not compatible with max_statement_timeout and other timeouts etc.
   # ' --grammar=conf/transactions/transactions.yy --gendata=conf/transactions/transactions.zz --validators=DatabaseConsistency ',
   ' --grammar=conf/transactions/repeatable_read.yy --gendata=conf/transactions/transactions.zz --validators=RepeatableRead ',
@@ -159,7 +172,7 @@ $combinations = [ $grammars,
     --mysqld=--wait_timeout=28800
     --mysqld=--lock-wait-timeout=86400
     --mysqld=--innodb-lock-wait-timeout=50
-    --no-mask
+    --no_mask
     --queries=10000000
     --seed=random
     --reporters=Backtrace --reporters=ErrorLog --reporters=Deadlock
@@ -211,6 +224,7 @@ $combinations = [ $grammars,
     ' --reporters=Mariabackup_linux  --duration=300 ',
   ],
   [
+    # No more supported since 10.6
     ' --mysqld=--loose-innodb-sync-debug ',
     '',
   ],
@@ -221,6 +235,27 @@ $combinations = [ $grammars,
   [
     ' --mysqld=--innodb_adaptive_hash_index=off ',
     ' --mysqld=--innodb_adaptive_hash_index=on ',
+  ],
+  [
+    ' --mysqld=--innodb_sort_buffer_size=65536 ',
+    '',
+    '',
+    '',
+    '',
+  ],
+  [
+    ' --mysqld=--innodb-open-files=10 ',
+    '',
+    '',
+    '',
+    '',
+  ],
+  [
+    ' --redefine=conf/mariadb/redefine_checks_off.yy ',
+    '',
+    '',
+    '',
+    '',
   ],
   [
     # Binary logging is more likely enabled.
@@ -298,13 +333,11 @@ $combinations = [ $grammars,
     # So rather set this in local.cfg variable $rqg_slow_dbdir_rr_add.
   ],
   [
-    '',
-    '',
-    '',
-    '',
-    # Next line suffered in history much of MDEV-26450.
-    # innodb_undo_log_truncate=ON is not default. So it should run less frequent.
-    ' --mysqld=--innodb_undo_tablespaces=3 --mysqld=--innodb_undo_log_truncate=ON ',
+    # Default Value: OFF
+    ' --mysqld=--innodb_undo_log_truncate=OFF ',
+    ' --mysqld=--innodb_undo_log_truncate=OFF ',
+    ' --mysqld=--innodb_undo_log_truncate=OFF ',
+    ' --mysqld=--innodb_undo_log_truncate=ON ',
   ],
   [
     # innodb_change_buffering
@@ -326,35 +359,22 @@ $combinations = [ $grammars,
     ' --mysqld=--loose_innodb_change_buffering=all ',
   ],
   [
+    # Global, not dynamic
+    # Default Value: 3 (>= MariaDB 11.0), 0 (<= MariaDB 10.11)
+    # Range: 0, or 2 to 95 (>= MariaDB 10.2.2), 0, or 2 to 126 (<= MariaDB 10.2.1)
+    '',
+    '',
+    ' --mysqld=--innodb_undo_tablespaces=0 ',
+    ' --mysqld=--innodb_undo_tablespaces=3 ',
+    ' --mysqld=--innodb_undo_tablespaces=16 ',
+  ],
+  [
     # The default is off.
     ' --mysqld=--innodb_rollback_on_timeout=ON ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
-  ],
-  [
-    # slow (usually SSD/HDD) at all in order to cover
-    # - a device with slow IO
-    # - most probably a filesystem type != tmpfs
-    # fast (RAM) at all in order to cover
-    # - some higher CPU and RAM IO load by not spending to much time on slow devices
-    # - tmpfs
-    # 90% fast to 10% slow in order to
-    # - get extreme load for CPU and RAM IO because that seems to be better for bug detection/replay
-    #   A higher percentage for slow leads easy to a high percentage of CPU waiting for IO
-    #   instead of CPU system/user
-    # - avoid to wear out some SSD, the slow device might be a SSD, too fast
-    ' --vardir_type=slow ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
   ],
   [
     # 1. innodb_page_size >= 32K requires a innodb-buffer-pool-size >=24M
@@ -377,6 +397,31 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_page_size=32K --mysqld=--innodb-buffer-pool-size=256M ',
     ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=24M  ',
     ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=256M ',
+  ],
+  [
+    # slow (usually SSD/HDD) at all in order to cover
+    # - maybe a device with slow IO
+    # - a filesystem type != tmpfs
+    # fast (RAM) at all in order to cover
+    # - some higher CPU and RAM IO load by not spending to much time on slow devices
+    # - tmpfs
+    #
+    # 90% fast to 10% slow (if HDD or SSD) or 50% fast to 50% slow (if ext4 in virtual memory)
+    # in order to
+    # - get extreme load for CPU and RAM IO because that seems to be better for bug detection/replay
+    #   A higher percentage for slow leads easy to a high percentage of CPU waiting for IO
+    #   instead of CPU system/user
+    # - avoid to wear out some SSD, the slow device might be a SSD, too fast
+    ' --vardir_type=slow ',
+    ' --vardir_type=slow ',
+    ' --vardir_type=slow ',
+    ' --vardir_type=slow ',
+    ' --vardir_type=slow ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
   ],
 ];
 
