@@ -1,4 +1,5 @@
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
+# Copyright (c) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -75,7 +76,7 @@ use POSIX;
 #    But redirect STDOUT/STDERR to a file $reporter_prt.
 #    In case the reporter
 #    - detects a problem than
-#      Switch back to the usual STDOUT/STDERR (--> direct_to_std()) so that any additional/
+#      Switch back to the usual STDOUT/STDERR (--> direct_to_stdout()) so that any additional/
 #      decisive error messages become visible in the RQG log.
 #      Maybe also print the content of $reporter_prt because
 #         Now its valuable and not just noise. And maybe BW list matching will use it.
@@ -178,7 +179,7 @@ sub monitor {
         # exit instead of return is acceptable.
     }
 
-    direct_to_file();
+    Auxiliary::direct_to_file($reporter_prt);
 
     # Reuse data for the clone if possible or adjust it.
     my $clone_basedir = $basedir;
@@ -192,7 +193,7 @@ sub monitor {
 
     ## Create clone database server directory structure
     if (STATUS_OK != Auxiliary::make_dbs_dirs($clone_vardir)) {
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : Preparing the storage structure for the server '1_clone' failed. " .
             "Will exit with status " . status2text($status) . "($status)");
@@ -213,7 +214,7 @@ sub monitor {
     # flush_method read that way could be ''.
     # But when assigning that later mariabackup/mariadb abort (10.2).
     $datadir =~ s{[\\/]$}{}sgio;
-    # 2020-02-27 The start of the server on the backuped data failed because this data
+    # 2020-02-27 The start of the server on the backupped data failed because this data
     # goes with a different InnoDB page size than the server default of 16K.
     my $innodb_page_size        = $reporter->serverVariable('innodb_page_size');
     # Useful because we should not go below the minimal innodb_buffer_pool_size.
@@ -238,7 +239,7 @@ sub monitor {
     # mariabackup could be in bin too.
     my $backup_binary = "$client_basedir" . "/mariabackup";
     if (not -e $backup_binary) {
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : Calculated mariabackup binary '$backup_binary' not found. " .
             "Will exit with status " . status2text($status) . "($status)");
@@ -333,7 +334,7 @@ sub monitor {
 # And there is some mariabackup process alive though it should not.
 
     sigaction SIGALRM, new POSIX::SigAction sub {
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         # Concept:
         # Set the error_exit_message before setting the alarm.
         say("ERROR: $who_am_i $exit_msg" .
@@ -344,7 +345,7 @@ sub monitor {
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         remove_clone_dbs_dirs($clone_vardir);
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
         return $status;
@@ -359,7 +360,7 @@ sub monitor {
     my $res = $?;
     alarm (0);
     if ($res != 0) {
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         # mariabackup --backup failing with
         #    [00] FATAL ERROR: 2022-05-20 18:56:44 failed to execute query BACKUP STAGE START:
         #         Deadlock found when trying to get lock; try restarting transaction
@@ -409,7 +410,7 @@ sub monitor {
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         remove_clone_dbs_dirs($clone_vardir);
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
         return $status;
@@ -430,12 +431,12 @@ sub monitor {
     if (not defined $found) {
         # Technical problems!
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         say("FATAL ERROR: $who_am_i \$found is undef. " .
             "Will exit with STATUS_ENVIRONMENT_FAILURE.");
         exit $status;
     } elsif ($found) {
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         say("INFO: $who_am_i corrupted file detected. " .
             "Will exit with STATUS_BACKUP_FAILURE.");
         sayFile($reporter_prt);
@@ -449,7 +450,7 @@ sub monitor {
     # For experimenting
     # system("touch $rqg_backup_dir/data");
     if (STATUS_OK != Basics::copy_dir_to_newdir($clone_datadir, $rqg_backup_dir . "/data")) {
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         my $status = STATUS_INTERNAL_ERROR;
         say("ERROR: $who_am_i Copying '$clone_datadir' to '$rqg_backup_dir' failed. " .
             "Will exit with status " . status2text($status) . "($status)");
@@ -459,7 +460,7 @@ sub monitor {
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         remove_clone_dbs_dirs($clone_vardir);
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
         return $status;
@@ -475,7 +476,7 @@ sub monitor {
     $res = $?;
     alarm (0);
     if ($res != 0) {
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         my $status = STATUS_BACKUP_FAILURE;
         say("ERROR: $who_am_i : First prepare returned $res. The command output is around end of " .
             "'$reporter_prt'. Will exit with status " . status2text($status) . "($status)");
@@ -488,7 +489,7 @@ sub monitor {
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         remove_clone_dbs_dirs($clone_vardir);
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
         return $status;
@@ -577,7 +578,7 @@ sub monitor {
         "are normal. MB prepare is not allowed to do rollbacks.");
     my $status = $clone_server->startServer();
     if ($status != STATUS_OK) {
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         # It is intentional to exit with STATUS_BACKUP_FAILURE.
         $status = STATUS_BACKUP_FAILURE;
         say("ERROR: $who_am_i : Starting a DB server on the cloned data failed.");
@@ -589,7 +590,7 @@ sub monitor {
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         $clone_server->killServer();
         remove_clone_dbs_dirs($clone_vardir);
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
@@ -610,7 +611,7 @@ sub monitor {
         mysql_auto_reconnect   => 0
     });
     if (not defined $clone_dbh) {
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         # It is intentional to exit with STATUS_BACKUP_FAILURE.
         $status = STATUS_BACKUP_FAILURE;
         sayFile($clone_err);
@@ -627,7 +628,7 @@ sub monitor {
     if ($reporter->testEnd() <= time() + 5) {
         $clone_dbh->disconnect();
         my $status = STATUS_OK;
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         $clone_server->killServer();
         remove_clone_dbs_dirs($clone_vardir);
         say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
@@ -642,7 +643,7 @@ sub monitor {
         if ($reporter->testEnd() <= time() + 5) {
             $clone_dbh->disconnect();
             my $status = STATUS_OK;
-            direct_to_std();
+            Auxiliary::direct_to_stdout();
             $clone_server->killServer();
             remove_clone_dbs_dirs($clone_vardir);
             say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
@@ -665,7 +666,7 @@ sub monitor {
             # return STATUS_DATABASE_CORRUPTION if $clone_dbh->err() > 0 && $clone_dbh->err() != 1178;
             my $err = $clone_dbh->err;
             if (defined $err and $err > 0) {
-                direct_to_std();
+                Auxiliary::direct_to_stdout();
                 say("ERROR: $who_am_i : '$sql' failed with : " . $err);
                 $clone_dbh->disconnect();
                 sayFile($clone_err);
@@ -711,10 +712,10 @@ sub monitor {
     # but is otherwise somehow damaged. And these damages become maybe visible when having
     # - heavy DML+DDL including some runtime of more than 60s which we do not have here
     # - a "friendly" shutdown
-#   direct_to_std();
+#   Auxiliary::direct_to_stdout();
     $status = $clone_server->stopServer();
     if (STATUS_OK != $status) {
-        direct_to_std();
+        Auxiliary::direct_to_stdout();
         $status = STATUS_BACKUP_FAILURE;
         say("ERROR: $who_am_i : Shutdown of DB server on cloned data made trouble. ".
             "Hence trying to kill it and return STATUS_BACKUP_FAILURE later.");
@@ -726,67 +727,11 @@ sub monitor {
     }
     remove_clone_dbs_dirs($clone_vardir);
     # system("find $clone_vardir -follow");
-    direct_to_std();
+    Auxiliary::direct_to_stdout();
     unlink ($reporter_prt);
     say("DEBUG: $who_am_i : Pass") if $script_debug;
 
     return STATUS_OK;
-}
-
-# https://www.perlmonks.org/bare/?node_id=255129
-# https://www.perl.com/article/45/2013/10/27/How-to-redirect-and-restore-STDOUT/
-# FIXME: Move these two routines to Auxiliary.pm
-my $stdout_save;
-my $stderr_save;
-sub direct_to_file {
-
-    if (not open($stdout_save, ">&", STDOUT)) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Getting STDOUT failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-    }
-    if (not open($stderr_save, ">&", STDERR)) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Getting STDERR failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-    }
-    say("DEBUG: $who_am_i : Redirecting all output to '$reporter_prt'.") if $script_debug;
-    unlink ($reporter_prt);
-    if (not open(STDOUT, ">>", $reporter_prt)) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-    }
-    # Redirect STDERR to the log of the RQG run.
-    if (not open(STDERR, ">>", $reporter_prt)) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-    }
-}
-
-sub direct_to_std {
-
-    # Note(mleich):
-    # I hope that in case of error the error messages will end up in $reporter_prt.
-    if (not open(STDOUT, ">&" , $stdout_save)) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-    }
-    if (not open(STDERR, ">&" , $stderr_save)) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-    }
-    close($stdout_save);
-    close($stderr_save);
 }
 
 sub type {
