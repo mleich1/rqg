@@ -1,4 +1,5 @@
 #  Copyright (c) 2017, MariaDB
+#  Copyright (c) 2023, MariaDB plc
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -194,7 +195,7 @@ ia_optional_default_or_current_timestamp:
 ia_default_or_current_timestamp_val:
     '1970-01-01'
   | CURRENT_TIMESTAMP
-  | CURRENT_TIESTAMP ON UPDATE CURRENT_TIMESTAMP
+  | CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   | 0
 ;
 

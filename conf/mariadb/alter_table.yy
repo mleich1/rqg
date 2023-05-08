@@ -348,7 +348,7 @@ alt_optional_default_or_current_timestamp:
 alt_default_or_current_timestamp_val:
     '1970-01-01'
   | CURRENT_TIMESTAMP
-  | CURRENT_TIESTAMP ON UPDATE CURRENT_TIMESTAMP
+  | CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
   | 0
 ;
 
