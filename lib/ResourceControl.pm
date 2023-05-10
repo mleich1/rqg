@@ -55,7 +55,7 @@ use constant SPACE_FREE     => 10000;
 # Maximum storage space in MB required in vardir by one ongoing RQG run without core.
 # FIXME: measure
 # average run          ~  300 MB
-# rr for all processes ~ 2000 MB   roughly never used
+# rr for all processes ~ 2000 MB   never used in production + no more supported
 # rr for bootstrap, start, restart with recovery  ~ 500MB
 use constant SPACE_USED     => 300;   # <-- FIXME: measure
                                       # Problem: We could have temporary doubling or similar.
@@ -156,6 +156,7 @@ my $cpu_iowait;
 my $cpu_system;
 my $cpu_user;
 
+my $load_status;
 my $load_count          = 0;
 my $load_increase_count = 0;
 my $load_keep_count     = 0;
@@ -379,7 +380,7 @@ sub init {
     $swap_used_init     = $swap_used;
 
     $print = 0; # Only now 'report' should not write into the bookkeeping file.
-    my $load_status = report(0);
+    my $not_needed = report(0);
     $print = $rc_type;
 
     if (LOAD_INCREASE ne $load_status) {
@@ -479,7 +480,7 @@ sub init {
 sub report {
     our ($worker_active) = @_;
 
-    our $load_status;
+    $load_status = undef;
     $load_count++;
 
     sub charge_increase {
