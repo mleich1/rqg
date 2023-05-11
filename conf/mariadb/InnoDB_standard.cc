@@ -328,6 +328,16 @@ $combinations = [ $grammars,
     '',
   ],
   [
+    # innodb_random_read_ahead: Default Value: OFF
+    # innodb_read_ahead_threshold: Default Value: 56
+    ' --mysqld=--innodb_random_read_ahead=OFF ',
+    ' --mysqld=--innodb_random_read_ahead=OFF ',
+    ' --mysqld=--innodb_random_read_ahead=OFF ',
+    ' --mysqld=--innodb_random_read_ahead=OFF ',
+    ' --mysqld=--innodb_random_read_ahead=ON --mysqld=--innodb_read_ahead_threshold=0 ',
+    ' --mysqld=--innodb_random_read_ahead=ON ',
+  ],
+  [
     ' --mysqld=--innodb-open-files=10 ',
     '',
     '',
