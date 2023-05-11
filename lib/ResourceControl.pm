@@ -47,29 +47,34 @@ use constant SPACE_UNIT     => 1048576;
 
 # Basic guesses
 # -------------
+# The most dangerous but also most used constellation is:
+#     All big stuff is located on --vardir_type=fast == /dev/shm/rqg
+#
 # Maximum storage space in MB required in workdir for RQG log + archive for one failing RQG run.
 use constant SPACE_REMAIN   => 100;
 # Storage space in MB which should stay unused in workdir
 use constant SPACE_FREE     => 10000;
 #
 # Maximum storage space in MB required in vardir by one ongoing RQG run without core.
-# FIXME: measure
-# average run          ~  300 MB
-# rr for all processes ~ 2000 MB   never used in production + no more supported
-# rr for bootstrap, start, restart with recovery  ~ 500MB
-use constant SPACE_USED     => 300;   # <-- FIXME: measure
-                                      # Problem: We could have temporary doubling or similar.
+#    average RQG run no rr                                       ~   300 MB
+#    rr for all processes (no more supported)                    ~  2000 MB
+#    rr for bootstrap, start, kill server, restart with recovery ~   500 MB
+#    rr for bootstrap, start, long period nearby filesystem full ~ 29000 MB
+#    We could have
+#      - temporary up till tripling of space consumption caused by
+#        Backup of datadir, run server on backupped data, etc.
+#      - long lasting a big space consumption caused by
+#        No of tables, no of rows, blobs etc.
+use constant SPACE_USED     => 500;
+#
 # Maximum storage space in MB required in vardir by a core (ASAN Build).
-# AFAIR seen
-# ASAN build   core ~ 2000 MB
-# debug build  core ~  900 MB but rare also 1800 MB observed.
-use constant SPACE_CORE     => 3000;  # <-- FIXME: measure
+#    ASAN build   core ~ 2000 MB , rare also 2900 MB
+#    debug build  core ~  900 MB , rare also 1800 MB
+use constant SPACE_CORE     => 3000;
 # Maximum share of RQG runs where an end with core is assumed.
 use constant SHARE_CORE     => 0.1;
 # Maximum memory consumption of a RQG run (ASAN build) (space in vardir ignored)
 use constant MEM_USED       => 800;
-# Archive of ASAN BUILD run with core (up to) 500
-# vardir of ASAN BUILD run with core (up to) 1800 (core 1500)
 
 my $module_missing = 0;
 
@@ -577,7 +582,7 @@ sub report {
     my $vd_D;
     my $rd_D;
     my $sd_D;
-    # One worker and the estimated fraction of the remaining worker dies with core at the same
+    # One worker and the estimated fraction of the remaining worker die with core at the same
     # point of time.
     # Important:
     # We must compute more than in the "give up" case (SPACE_CORE). Because otherwise we could get
@@ -617,15 +622,15 @@ sub report {
     my $wd_K;
     my $md_K;
     my $rd_K;
-    # An additional RQG worker
-    # - has his own space consumption even without crashing   maximum of (average,SPACE_USED)
-    # - could crash with core
-    # and all the other already active RQG workers could crash too.
+    # An additional RQG worker gets started.
+    # From the now running RQG workers
+    # - two crash with core and the remaining like average
+    # - two had nearly no space consumption but reach maximum of (average,SPACE_USED).
     if ($worker_active > 0) {
+        $vd_K = (2 + ($worker_active - 1) * SHARE_CORE) * SPACE_CORE;
         my $space_estimation = $vardir_consumed / $worker_active;
         $space_estimation = SPACE_USED if $space_estimation < SPACE_USED;
-        $vd_K = $worker_active * SHARE_CORE * SPACE_CORE + SPACE_CORE
-                + $space_estimation;
+        $vd_K = $vd_K + 2 * $space_estimation;
     } else {
         $vd_K = SPACE_CORE + SPACE_USED;
     }
