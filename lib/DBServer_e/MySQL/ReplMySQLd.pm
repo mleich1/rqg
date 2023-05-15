@@ -216,14 +216,17 @@ sub mode {
 sub startServer {
     my ($self) = @_;
 
+    my $status;
     my $who_am_i = Basics::who_am_i();
 
-    if ($self->master->startServer != STATUS_OK) {
-        return STATUS_FAILURE;
+    $status = $self->master->startServer;
+    if ($status != STATUS_OK) {
+        return $status;
     }
     my $master_dbh = $self->master->dbh;
+    $status = $self->slave->startServer;
     if ($self->slave->startServer != STATUS_OK) {
-        return STATUS_FAILURE;
+        return $status;
     }
     my $slave_dbh = $self->slave->dbh;
 
