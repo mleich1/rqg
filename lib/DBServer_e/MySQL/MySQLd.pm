@@ -1618,6 +1618,8 @@ sub stopServer {
                 ## If shutdown fails, we want to know why:
                 say("ERROR: $who_am_i Shutdown failed due to " . $dbh->err . ": " . $dbh->errstr);
                 $res = STATUS_FAILURE;
+                # Experiment
+                $res = STATUS_SERVER_SHUTDOWN_FAILURE;
             } else {
                 # FIXME:
                 # waitForServerToStop could return STATUS_INTERNAL_ERROR
@@ -1706,6 +1708,8 @@ sub stopServer {
         $match = $content_slice =~ m{$pattern}s;
         if (not $match) {
             $res = STATUS_FAILURE;
+            # Experiment
+            $res = STATUS_SERVER_SHUTDOWN_FAILURE;
             # Typical text in server error log in case   shutdown/term  fails with crash
             # --------------------------------------------------------------------------
             # <TimeStamp> [ERROR] mysqld got signal <SignalNumber> ;
