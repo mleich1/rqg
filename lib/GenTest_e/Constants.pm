@@ -1,6 +1,7 @@
 # Copyright (c) 2008,2011 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013 Monty Program Ab.
 # Copyright (c) 2018,2022 MariaDB Corporation Ab.
+# Copyright (c) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -71,6 +72,7 @@ require Exporter;
    STATUS_SERVER_KILLED
    STATUS_REPLICATION_FAILURE
    STATUS_BACKUP_FAILURE
+   STATUS_SERVER_SHUTDOWN_FAILURE
    STATUS_RECOVERY_FAILURE
    STATUS_UPGRADE_FAILURE
    STATUS_DATABASE_CORRUPTION
@@ -124,7 +126,7 @@ use constant STATUS_TEST_FAILURE               => 24;   # Boundary between genui
 use constant STATUS_SELECT_REDUCTION           => 5;    # A coefficient to substract from error codes in order to make them non-fatal
 
 use constant STATUS_REQUIREMENT_UNMET_SELECT   => 25;
-use constant STATUS_ERROR_MISMATCH_SELECT      => 26;   # A SELECT query caused those erros, however the test can continue
+use constant STATUS_ERROR_MISMATCH_SELECT      => 26;   # A SELECT query caused those errors, however the test can continue
 use constant STATUS_LENGTH_MISMATCH_SELECT     => 27;   # since the database has not been modified
 use constant STATUS_CONTENT_MISMATCH_SELECT    => 28;   #
 use constant STATUS_SCHEMA_MISMATCH            => 29;   #
@@ -137,13 +139,15 @@ use constant STATUS_CUSTOM_OUTCOME             => 36;   # Used for things such a
 
 use constant STATUS_POSSIBLE_FAILURE           => 60;
 
+use constant STATUS_SERVER_SHUTDOWN_FAILURE    => 90;
+
 # Higher-priority errors --------------------------------------------------------------------------#
 
 # STATUS_CRITICAL_FAILURE(100) is the Boundary between critical and non-critical errors.
 # Setting STATUS_CRITICAL_FAILURE in some RQG component
 # - "means"
 #   The situation met is critical but the component does not feel capable to give some sufficient
-#   detailed or sufficient reliable status. like for example STATUS_SERVER_CRASHED.
+#   detailed or sufficient reliable status like for example STATUS_SERVER_CRASHED.
 #   Example: Getting no connection does not imply that the server must have crashed.
 # - should lead to calling other RQG components which might "feel" more capable to deliver some
 #   more detailed and reliable status.
@@ -154,8 +158,8 @@ use constant STATUS_CRITICAL_FAILURE           => 100;
 
 
 use constant STATUS_SERVER_CRASHED             => 101;
-
 use constant STATUS_SERVER_KILLED              => 102;   # Willfull killing of the server, will not be reported as a crash
+                                                         # Example: Reporter CrashRecovery
 
 use constant STATUS_REPLICATION_FAILURE        => 103;
 use constant STATUS_UPGRADE_FAILURE            => 104;
