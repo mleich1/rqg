@@ -2571,7 +2571,7 @@ sub make_backtrace {
     } elsif (1 == $found2) {
         # Go on
     } else {
-        say("INFO: $who_am_i None of the core_dumped_patterns was not found in '$error_log'.");
+        say("INFO: $who_am_i None of the core_dumped_patterns were found in '$error_log'.");
         # Maybe it was a SIGNAL which does not cause a core file generation like SIGKILL.
         sayFile($error_log);
         $status = STATUS_SERVER_CRASHED;
