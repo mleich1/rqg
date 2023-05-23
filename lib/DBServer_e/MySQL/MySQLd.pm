@@ -2861,7 +2861,7 @@ my @end_line_patterns = (
         } else {
             # $self->dbh connects if required and sets @@max_statement_time = 0.
             my $dbh =         $self->dbh;
-            $query =          "SHOW FULL PROCESSLIST";
+            my $query =       "SHOW FULL PROCESSLIST";
             my $processlist = $dbh->selectall_arrayref($query);
             # The query could have failed.
             if (not defined $processlist) {
