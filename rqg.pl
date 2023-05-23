@@ -1207,7 +1207,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
             exit_test($status);
         }
         $dbh->disconnect();
-
     }
 
     # server1 is the "new" server (after upgrade).
