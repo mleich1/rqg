@@ -2153,44 +2153,40 @@ sub dsn {
 }
 
 sub dbh {
-   my ($self) = @_;
-   if (defined $self->[MYSQLD_DBH]) {
-      if (!$self->[MYSQLD_DBH]->ping) {
-         say("Stale connection to " . $self->[MYSQLD_PORT] . ". Reconnecting");
-         $self->[MYSQLD_DBH] = DBI->connect(
-                                    $self->dsn("mysql"),
-                                    undef,
-                                    undef,
-                                    { PrintError            => 0,
-                                      RaiseError            => 0,
-                                      AutoCommit            => 1,
-                                      mysql_connect_timeout => Runtime::get_connect_timeout(),
-                                      mysql_auto_reconnect  => 1});
-      }
-   } else {
-      say("Connecting to " . $self->[MYSQLD_PORT]);
-      $self->[MYSQLD_DBH] = DBI->connect(
-                                    $self->dsn("mysql"),
-                                    undef,
-                                    undef,
-                                    { PrintError            => 0,
-                                      RaiseError            => 0,
-                                      AutoCommit            => 1,
-                                      mysql_connect_timeout => Runtime::get_connect_timeout(),
-                                      mysql_auto_reconnect  => 1});
-   }
-   if(!defined $self->[MYSQLD_DBH]) {
-      say("ERROR: (Re)connect to " . $self->[MYSQLD_PORT] . " failed due to " . $DBI::err .
-          ": " . $DBI::errstr);
-   } else {
-      # Fixme: Is this maybe too early?
-      # Connections made in the current package are used for supervision and checking.
-      # Hence they should go without limited statement_time.
-      # Without that
-      # ERROR: DBServer_e::MySQL::ReplMySQLd::waitForSlaveSync: failed frequent mysterious.
-      $self->[MYSQLD_DBH]->do('SET @@max_statement_time = 0');
-   }
-   return $self->[MYSQLD_DBH];
+    our ($self) = @_;
+
+    sub try_to_connect {
+        return DBI->connect($self->dsn("mysql"),
+                            undef,
+                            undef,
+                            {PrintError            => 0,
+                             RaiseError            => 0,
+                             AutoCommit            => 1,
+                             mysql_connect_timeout => Runtime::get_connect_timeout(),
+                             mysql_auto_reconnect  => 1});
+    }
+
+    if (defined $self->[MYSQLD_DBH]) {
+        if (!$self->[MYSQLD_DBH]->ping) {
+            say("Stale connection to " . $self->[MYSQLD_PORT] . ". Reconnecting");
+            $self->[MYSQLD_DBH] = try_to_connect();
+        }
+    } else {
+        say("Connecting to " . $self->[MYSQLD_PORT]);
+        $self->[MYSQLD_DBH] = try_to_connect();
+    }
+    if(!defined $self->[MYSQLD_DBH]) {
+        say("ERROR: (Re)connect to " . $self->[MYSQLD_PORT] . " failed due to " . $DBI::err .
+            ": " . $DBI::errstr);
+    } else {
+        # Fixme: Is this maybe too early?
+        # Connections made in the current package are used for supervision and checking.
+        # Hence they should go without limited statement_time.
+        # Without that
+        # ERROR: DBServer_e::MySQL::ReplMySQLd::waitForSlaveSync: failed frequent mysterious.
+        $self->[MYSQLD_DBH]->do('SET @@max_statement_time = 0');
+    }
+    return $self->[MYSQLD_DBH];
 }
 
 sub server_id {
@@ -2863,11 +2859,8 @@ my @end_line_patterns = (
             say("ERROR: $who_am_i Will stick to status $status and return that because of " .
                 "previous errors.");
         } else {
-            # FIXME maybe:
-            # We need some reasonable timeout for any query like Deadlock already has.
-            my $query =       '/*!100108 SET @@max_statement_time = 0 */';
+            # $self->dbh connects if required and sets @@max_statement_time = 0.
             my $dbh =         $self->dbh;
-            $dbh->do($query);
             $query =          "SHOW FULL PROCESSLIST";
             my $processlist = $dbh->selectall_arrayref($query);
             # The query could have failed.
