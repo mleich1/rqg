@@ -274,7 +274,7 @@ $combinations = [ $grammars,
     --no_mask
     --queries=10000000
     --seed=random
-    --reporters=Backtrace --reporters=ErrorLog --reporters=Deadlock
+    --reporters=None --reporters=ErrorLog --reporters=Deadlock
     --validators=None
     --mysqld=--log_output=none
     --mysqld=--log_bin_trust_function_creators=1
@@ -286,6 +286,14 @@ $combinations = [ $grammars,
     " $encryption_setup " .
     " $compression_setup " .
     " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=300 ",
+  ],
+  [
+    # The default is innodb_fast_shutdown=1.
+    '--mysqld=--loose-innodb_fast_shutdown=1' ,
+    '' ,
+    '' ,
+    '' ,
+    '--mysqld=--loose-innodb_fast_shutdown=0' ,
   ],
   [
     # innodb_file_per_table
