@@ -1,6 +1,7 @@
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2020, 2022 MariaDB Corporation Ab.
+# Copyright (c) 2023 plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -268,7 +269,7 @@ sub waitForSlaveSync {
 
     if ($self->[REPLMYSQLD_NOSYNC]) {
         say("Replication mode is NOSYNC, slave synchronization will be skipped");
-      return STATUS_OK;
+        return STATUS_OK;
     }
 
     if (! $self->master->dbh) {
@@ -317,7 +318,8 @@ sub waitForSlaveSync {
                 $self->slave->dbh->disconnect();
                 return STATUS_FAILURE;
             }
-            say("ERROR: $who_am_i Slave SQL thread has stopped with error: " . $slave_status[37] .
+            say("ERROR: $who_am_i Slave SQL thread has stopped with error: " .
+                $slave_status[37] . " " .
                 "Will return STATUS_FAILURE.");
         } else {
             say("ERROR: $who_am_i Lost connection to the slave. " .
