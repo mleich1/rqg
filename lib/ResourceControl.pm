@@ -582,17 +582,17 @@ sub report {
     my $vd_D;
     my $rd_D;
     my $sd_D;
-    # One worker and the estimated fraction of the remaining worker die with core at the same
-    # point of time.
-    # Important:
-    # We must compute more than in the "give up" case (SPACE_CORE). Because otherwise we could get
-    # $vardir_free < SPACE_CORE
-    #     --> give_up criterion fulfilled
-    # $vardir_free < SPACE_CORE
-    #     $worker_active * SHARE_CORE < 1 and therefore rounded up to 1
-    #     --> decrease criterion fulfilled
-    # Checks of criterions is ordered give_up? --if no--> decrease? --if no--> keep? --> ...
-    $vd_D = (1 + ($worker_active - 1) * SHARE_CORE)  * SPACE_CORE;
+    # Bad scenario assumed:
+    # - one worker and the estimated fraction of the remaining worker die with core.
+    # - one worker had nearly no space consumption but reaches maximum of (average,SPACE_USED).
+    if ($worker_active > 0) {
+        $vd_D = (1 + ($worker_active - 1) * SHARE_CORE)  * SPACE_CORE;
+        my $space_estimation = $vardir_consumed / $worker_active;
+        $space_estimation = SPACE_USED if $space_estimation < SPACE_USED;
+        $vd_D = $vd_D + $space_estimation;
+    } else {
+        $vd_D = 0;
+    }
     $vardir_remain_D = $vardir_free - $vd_D;
     $sd_D = $vd_D;
     # $swap_remain_D = $swap_free - $sd_D;
@@ -622,10 +622,11 @@ sub report {
     my $wd_K;
     my $md_K;
     my $rd_K;
-    # An additional RQG worker gets started.
-    # From the now running RQG workers
-    # - two crash with core and the remaining like average
-    # - two had nearly no space consumption but reach maximum of (average,SPACE_USED).
+    # Bad scenario assumed:
+    # - one additional RQG worker would get started.
+    # - from the now running RQG workers
+    #   - two crash with core and the remaining like average
+    #   - two had nearly no space consumption but reach maximum of (average,SPACE_USED).
     if ($worker_active > 0) {
         $vd_K = (2 + ($worker_active - 1) * SHARE_CORE) * SPACE_CORE;
         my $space_estimation = $vardir_consumed / $worker_active;
