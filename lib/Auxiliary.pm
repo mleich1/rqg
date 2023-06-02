@@ -1606,36 +1606,41 @@ sub update_sizes {
 #
 # Ubuntu does not provide Filesys::DiskUsage hence I do not use it.
 #
+# Observation:
+# RC code 1 because some file disappeared
     my $who_am_i = Basics::who_am_i();
     my $status;
     ($status, $total_size) = run_cmd("du -sk --dereference " . Local::get_rqg_fast_dir);
-    if (STATUS_OK != $status) {
-        return $status;
-    }
-#   say("DEBUG: total size in KB: $total_size");
-    $total_size =~ s{\s.*}{};
-    if ($max_total_size < $total_size) {
-        $max_total_size = $total_size;
+    if (not defined $total_size) {
+        # Currently do nothing
+    } else {
+#       say("DEBUG: total size in KB: $total_size");
+        $total_size =~ s{\s.*}{};
+        if ($max_total_size < $total_size) {
+            $max_total_size = $total_size;
+        }
     }
 
     ($status, $fast_dir_size) = run_cmd("du -sk " . Local::get_rqg_fast_dir);
-    if (STATUS_OK != $status) {
-        return $status;
-    }
-#   say("DEBUG: fast_dir size in KB: $fast_dir_size");
-    $fast_dir_size =~ s{\s.*}{};
-    if ($max_fast_dir_size < $fast_dir_size) {
-        $max_fast_dir_size = $fast_dir_size;
+    if (not defined $fast_dir_size) {
+        # Currently do nothing
+    } else {
+#       say("DEBUG: fast_dir size in KB: $fast_dir_size");
+        $fast_dir_size =~ s{\s.*}{};
+        if ($max_fast_dir_size < $fast_dir_size) {
+            $max_fast_dir_size = $fast_dir_size;
+        }
     }
 
     ($status, $slow_dir_size) = run_cmd("du -sk " . Local::get_rqg_slow_dir);
-    if (STATUS_OK != $status) {
-        return $status;
-    }
-#   say("DEBUG: slow_dir size in KB: $slow_dir_size");
-    $slow_dir_size =~ s{\s.*}{};
-    if ($max_slow_dir_size < $slow_dir_size) {
-        $max_slow_dir_size = $slow_dir_size;
+    if (not defined $slow_dir_size) {
+        # Currently do nothing
+    } else {
+#       say("DEBUG: slow_dir size in KB: $slow_dir_size");
+        $slow_dir_size =~ s{\s.*}{};
+        if ($max_slow_dir_size < $slow_dir_size) {
+            $max_slow_dir_size = $slow_dir_size;
+        }
     }
 
     # RSS of all processes belonging to the current processgroup summed up
