@@ -2552,29 +2552,14 @@ sub make_backtrace {
     }
 
     # Note:
-    #    Writing a core file... seems to be roughly "the DB server decides to assert".
-    #    It just describes the intention but not if that really happened or is finished.
-    my $found1 = Auxiliary::search_in_file($error_log, 'core dumped');
-    my $found2 = Auxiliary::search_in_file($error_log, 'Writing a core file');
-    if      (not defined $found1) {
-        $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. " .
-            Auxiliary::build_wrs($status));
-        say("INFO: $who_am_i ------------------------------ End");
-        return $status;
-    } elsif (1 == $found1) {
-        # Go on
-    } elsif (1 == $found2) {
-        # Go on
-    } else {
-        say("INFO: $who_am_i None of the core_dumped_patterns were found in '$error_log'.");
-        # Maybe it was a SIGNAL which does not cause a core file generation like SIGKILL.
-        sayFile($error_log);
-        $status = STATUS_SERVER_CRASHED;
-        say("INFO: $who_am_i No core file to be expected. " . Auxiliary::build_wrs($status));
-        say("INFO: $who_am_i ------------------------------ End");
-        return $status;
-    }
+    # The server error log might contain lines saying
+    # - core dumped
+    # - Writing a core file
+    # but that seems to describe rather some intention and not something finished.
+    # There are also cases where none of these lines were written but some core file exists.
+    # Hence focussing on "core dumped" or ... does not seem to make sense.
+
+    $status = STATUS_SERVER_CRASHED;
 
     # FIXME MAYBE: Is that timeout reasonable?
     my $wait_timeout   = 360 * Runtime::get_runtime_factor();
