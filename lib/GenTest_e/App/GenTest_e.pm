@@ -393,10 +393,11 @@ sub doGenTest {
     $self->channel()->close;
 
     # We are the parent process, wait for for all spawned processes to terminate
-    my $total_status   = STATUS_OK;
-    my $total_status_t = STATUS_OK;
-    my $total_status_r = STATUS_OK;
-    my $reporter_died  = 0;
+    my $total_status     = STATUS_OK;
+    my $total_status_t   = STATUS_OK;
+    my $total_status_r   = STATUS_OK;
+    my $reporter_died    = 0;
+    my $update_size_time = time() + 5;
     OUTER: while (1) {
         # Worker & Reporter processes that were spawned.
         my @spawned_pids = (keys %worker_pids, $reporter_pid);
@@ -434,6 +435,12 @@ sub doGenTest {
                 last OUTER if $child_exit_status >= STATUS_CRITICAL_FAILURE;
                 last OUTER if 0 == scalar (keys %worker_pids);
             }
+        }
+        if (time() > $update_size_time) {
+            if (STATUS_OK != Auxiliary::update_sizes()) {
+                return STATUS_ENVIRONMENT_FAILURE;
+            }
+            $update_size_time = time() + 5;
         }
         if (time() >= $self->[GT_TEST_END] + Runtime::get_runtime_factor() * 120) {
             # (mleich) What follows is experimental
