@@ -110,7 +110,7 @@ sub report {
 
     say("INFO: $who_am_i Reporting ...");
     # Wait till the kill is finished + rr traces are written + the auxpid has disappeared.
-    my $server = $reporter->properties->servers->[0];
+    our $server = $reporter->properties->servers->[0];
     my $status = $server->cleanup_dead_server;
     if (STATUS_OK != $status) {
         say("ERROR: $who_am_i cleaning up the killed server failed with status $status. " .
@@ -185,55 +185,54 @@ sub report {
         say("ERROR: $who_am_i Status based on server start attempt is $recovery_status");
     }
 
-    # Experiment:
-    # system("killall -9 mysqld");
+    our $errorlog_status = STATUS_OK;
+    # FIXME maybe: Move the routine check_error_log into lib/DBServer_e/MySQL/MySQLd.pm
+    #              if easy doable.
+    # IN:  Current $errorlog_status?
+    # OUT: $errorlog_status
+    # The caller has to keep its task (Example used here: CrashRecovery) in mind and map
+    # - STATUS_SERVER_CRASHED (exception, ..., segmentation fault) to STATUS_RECOVERY_FAILURE
+    # - STATUS_SERVER_CORRUPTION (corrupt|crashed) to STATUS_RECOVERY_FAILURE
+    # - STATUS_ENVIRONMENT_FAILURE (device full error) to nothing else
+    sub check_error_log {
+        open(RECOVERY, $server->errorlog);
+        while (<RECOVERY>) {
+            $_ =~ s{[\r\n]}{}siog;
+            # Only for debugging
+            # say($_);
+            if      ($_ =~ m{corrupt|crashed}) {
+                say("WARN: $who_am_i Log message '$_' might indicate database corruption.");
+                my $status = STATUS_RECOVERY_FAILURE;
+                $errorlog_status = $status if $status > $errorlog_status;
+                last;
+            } elsif ($_ =~ m{exception}sio) {
+                my $status = STATUS_RECOVERY_FAILURE;
+                $errorlog_status = $status if $status > $errorlog_status;
+                last;
+            } elsif ($_ =~ m{device full error|no space left on device}sio) {
+                say("ERROR: $who_am_i Log message '$_' indicating environment failure found.");
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                $errorlog_status = $status if $status > $errorlog_status;
+                last;
+            } elsif (($_ =~ m{got signal}sio) ||
+                     ($_ =~ m{segfault}sio) ||
+                     ($_ =~ m{segmentation fault}sio)) {
+                say("ERROR: $who_am_i Recovery has apparently crashed.");
+                my $status = STATUS_RECOVERY_FAILURE;
+                $errorlog_status = $status if $status > $errorlog_status;
+                last;
+            }
+        }
+        close(RECOVERY);
+    }
+
+    # For debugging:
+    # system("killall -11 mysqld; sleep 3");
 
     # We look into the server error log even if the start attempt failed.
     # Reason: Filesystem full should not be classified as STATUS_RECOVERY_FAILURE.
-    my $errorlog_status = STATUS_OK;
-    open(RECOVERY, $server->errorlog);
-    while (<RECOVERY>) {
-        $_ =~ s{[\r\n]}{}siog;
-        # Only for debugging
-        # say($_);
-        if ($_ =~ m{registration as a STORAGE ENGINE failed.}sio) {
-            say("ERROR: $who_am_i Log message '$_' . Assuming recovery failure or " .
-                "failure in RQG reporter.");
-            my $status = STATUS_RECOVERY_FAILURE;
-            $errorlog_status = $status if $status > $errorlog_status;
-        } elsif ($_ =~ m{corrupt|crashed}) {
-            say("WARN: $who_am_i Log message '$_' might indicate database corruption.");
-            my $status = STATUS_RECOVERY_FAILURE;
-            $errorlog_status = $status if $status > $errorlog_status;
-        } elsif ($_ =~ m{exception}sio) {
-            my $status = STATUS_RECOVERY_FAILURE;
-            $errorlog_status = $status if $status > $errorlog_status;
-        } elsif ($_ =~ m{ready for connections}sio) {
-            if ($errorlog_status == STATUS_OK) {
-                say("INFO: $who_am_i Log message '$_' found.");
-            }
-            # Some of the actions belonging to a restart with crash recovery are asynchronous.
-            # So it can happen that 'ready for connections' was already printed before one
-            # of the asynchronous actions crashes the server.
-            # Hence we should no more run here a 'last'.
-            # last;
-        } elsif ($_ =~ m{device full error|no space left on device}sio) {
-            say("ERROR: $who_am_i Log message '$_' indicating environment failure found.");
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            $errorlog_status = $status if $status > $errorlog_status;
-            last;
-        } elsif (
-            ($_ =~ m{got signal}sio) ||
-            ($_ =~ m{segfault}sio) ||
-            ($_ =~ m{segmentation fault}sio)
-        ) {
-            say("ERROR: $who_am_i Recovery has apparently crashed.");
-            # In case $server->startServer failed than it makes a cleanup + backtrace.
-            my $status = STATUS_RECOVERY_FAILURE;
-            $errorlog_status = $status if $status > $errorlog_status;
-        }
-    }
-    close(RECOVERY);
+    check_error_log();
+
     if ($recovery_status > STATUS_OK) {
         say("ERROR: $who_am_i Status based on error log checking is $recovery_status");
         if ($errorlog_status > $recovery_status) {
@@ -687,9 +686,17 @@ sub report {
         }
     }
 
-    $status = STATUS_OK;
+    # We look again into the server error log because sometimes the SQL's above pass but
+    # the server is already around crashing initiated by these SQL's.
+    check_error_log();
+
+    if ($errorlog_status > STATUS_OK) {
+        $status = $errorlog_status;
+    } else {
+        $status = STATUS_OK;
+        say("INFO: $who_am_i No failures found. " . Auxiliary::build_wrs($status));
+    }
     $dbh->disconnect();
-    say("INFO: $who_am_i No failures found. " . Auxiliary::build_wrs($status));
     return $status;
 }
 
