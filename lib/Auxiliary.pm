@@ -1593,9 +1593,11 @@ my $total_size          = 0;
 my $fast_dir_size       = 0;
 # Current storage space consumption of some RQG test on slow_dir (symlinks excluded)
 my $slow_dir_size       = 0;
+my $rs_size             = 0;
 my $max_total_size      = 0;
 my $max_fast_dir_size   = 0;
 my $max_slow_dir_size   = 0;
+my $max_rs_size         = 0;
 
 sub update_sizes {
 # 2023-03-09T14:11:29 [3568724] INFO: rqg_fast_dir          : '/dev/shm/rqg/1678366173/96' -- fs_type observed: tmpfs
@@ -1636,7 +1638,23 @@ sub update_sizes {
         $max_slow_dir_size = $slow_dir_size;
     }
 
-    return STATUS_OK;;
+    # RSS of all processes belonging to the current processgroup summed up
+    my $prgp = getpgrp;
+    ($status, $rs_size) = run_cmd("pgrep -g $prgp | xargs ps -o rsz | grep -v 'RSS' " .
+                                  "| awk '{rss+=\$1} END {print rss}'");
+    if (STATUS_OK != $status) {
+        return $status;
+    }
+    # say("DEBUG: Sum of rss of processgroup in KB: $rs_size");
+    if ($max_rs_size < $rs_size) {
+        $max_rs_size = $rs_size;
+    }
+
+    if (STATUS_OK != $status) {
+        return $status;
+    }
+
+    return STATUS_OK;
 }
 
 sub get_sizes {
@@ -1644,7 +1662,7 @@ sub get_sizes {
     if (STATUS_OK != $status) {
         return $status;
     }
-    return STATUS_OK, $total_size, $fast_dir_size, $slow_dir_size;
+    return STATUS_OK, $total_size, $fast_dir_size, $slow_dir_size, $rs_size;
 }
 
 sub report_max_sizes {
@@ -1652,10 +1670,11 @@ sub report_max_sizes {
     if (STATUS_OK != $status) {
         return $status;
     }
-    say("Storage space comsumption in KB");
-    say("Maximum total: $max_total_size");
+    say("Space comsumption in KB");
+    say("Maximum total(fast_dir+slow_dir): $max_total_size");
     say("Maximum in fast_dir: $max_fast_dir_size");
     say("Maximum in slow_dir: $max_slow_dir_size");
+    say("Maximum rss of processgroup: $max_rs_size");
     return STATUS_OK;
 }
 
