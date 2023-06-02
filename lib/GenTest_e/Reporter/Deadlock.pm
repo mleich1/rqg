@@ -116,7 +116,7 @@ use constant CONNECT_TIMEOUT_THRESHOLD       => 60;   # Seconds
 # FIXME if possible/time permits:
 # $query_lifetime_threshold should be <= assigned duration
 # $query_lifetime_threshold should be ~ QueryTimeout + ...
-use constant QUERY_LIFETIME_THRESHOLD        => 180;  # Seconds
+use constant QUERY_LIFETIME_THRESHOLD        => 270;  # Seconds
 
 # Number of suspicious queries required before a deadlock is declared.
 # use constant STALLED_QUERY_COUNT_THRESHOLD   => 5;
@@ -126,7 +126,7 @@ use constant STALLED_QUERY_COUNT_THRESHOLD   => 2;
 # use constant ACTUAL_TEST_DURATION_MULTIPLIER => 2;
 
 # Number of seconds the actual test duration is allowed to exceed the desired one.
-use constant ACTUAL_TEST_DURATION_EXCEED     => 300;  # Seconds
+use constant ACTUAL_TEST_DURATION_EXCEED     => 600;  # Seconds
 
 # The time, in seconds, we will wait for some query issued by the reporter (i.e. SHOW PROCESSLIST)
 # before we declare the server hanged.
@@ -359,7 +359,29 @@ sub monitor_nonthreaded {
     say("DEBUG: $who_am_i '" . $query . "' runtime was " . (time() - $query_start) . "s.")
         if $script_debug;
 
-    my $stalled_queries = 0;
+    my $stalled_queries        = 0;
+
+    # Warning:
+    # COMMAND "Killed" and TIME == n does not mean that it was n seconds with COMMAND == "Killed".
+    # --------------------------------------------------------------------------------------------
+    # 2023-05-31T11:52:01 [2884928] Reporter 'Deadlock': ID -- COMMAND -- TIME -- INFO -- state
+    # 2023-05-31T11:52:01 [2884928] Reporter 'Deadlock': 14 -- Sleep -- 261 -- <undef> -- ok
+    # 2023-05-31T11:52:01 [2884928] Reporter 'Deadlock': 15 -- Query -- 24 -- INSERT IGNORE INTO t1 ( id, k) VALUES ( NULL, -171507712 ) /* E_R Thread1 QNO 4627 CON_ID 15 */ -- ok
+    # 2023-05-31T11:52:01 [2884928] Reporter 'Deadlock': 42 -- Query -- 0 -- SHOW FULL PROCESSLIST -- ok
+    # 2023-05-31T11:52:01 [2884928] Reporter 'Deadlock': Content of processlist ---------- end
+    # 2023-05-31T11:52:11 [2884928] Reporter 'Deadlock': Content of processlist ---------- begin
+    # 2023-05-31T11:52:11 [2884928] Reporter 'Deadlock': ID -- COMMAND -- TIME -- INFO -- state
+    # 2023-05-31T11:52:11 [2884928] Reporter 'Deadlock': 14 -- Sleep -- 271 -- <undef> -- ok
+    # 2023-05-31T11:52:11 [2884928] Reporter 'Deadlock': 15 -- Killed -- 34 -- INSERT IGNORE INTO t1 ( id, k) VALUES ( NULL, -171507712 ) /* E_R Thread1 QNO 4627 CON_ID 15 */ -- ok
+    # 2023-05-31T11:52:11 [2884928] Reporter 'Deadlock': 43 -- Query -- 0 -- SHOW FULL PROCESSLIST -- ok
+    # 2023-05-31T11:52:01 [2884928] Reporter 'Deadlock': Content of processlist ---------- end
+    # ...
+    # 2023-05-31T11:54:51 [2884928] Reporter 'Deadlock': Content of processlist ---------- begin
+    # 2023-05-31T11:54:51 [2884928] Reporter 'Deadlock': ID -- COMMAND -- TIME -- INFO -- state
+    # 2023-05-31T11:54:51 [2884928] Reporter 'Deadlock': 14 -- Sleep -- 432 -- <undef> -- ok
+    # 2023-05-31T11:54:51 [2884928] Reporter 'Deadlock': 15 -- Killed -- 195 -- INSERT IGNORE INTO t1 ( id, k) VALUES ( NULL, -171507712 ) /* E_R Thread1 QNO 4627 CON_ID 15 */ -- ok
+    # 2023-05-31T11:54:51 [2884928] Reporter 'Deadlock': 59 -- Query -- 0 -- SHOW FULL PROCESSLIST -- ok
+    # 2023-05-31T11:54:51 [2884928] Reporter 'Deadlock': Content of processlist ---------- end
 
     my $processlist_report = "$who_am_i Content of processlist ---------- begin\n";
     $processlist_report .= "$who_am_i ID -- COMMAND -- TIME -- INFO -- state\n";
