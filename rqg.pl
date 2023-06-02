@@ -1616,8 +1616,7 @@ if ($gendata_dump) {
     # }
 }
 
-($return, my $total_size, my $fast_dir_size, my $slow_dir_size) = Auxiliary::get_sizes();
-if (STATUS_OK != $return) {
+if (STATUS_OK != Auxiliary::update_sizes()) {
     my $return = STATUS_ENVIRONMENT_FAILURE;
     exit_test($return);
 }
@@ -1832,7 +1831,10 @@ if (($final_result == STATUS_OK)                         and
                 }
             }
         }
-        Auxiliary::update_sizes;
+        if (STATUS_OK != Auxiliary::update_sizes()) {
+            my $return = STATUS_ENVIRONMENT_FAILURE;
+            exit_test($return);
+        }
         if ($final_result == STATUS_OK) {
             say("INFO: Comparing SQL dumps...");
             my $server_num = 0;
