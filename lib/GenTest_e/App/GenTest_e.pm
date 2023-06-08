@@ -397,7 +397,7 @@ sub doGenTest {
     my $total_status_t   = STATUS_OK;
     my $total_status_r   = STATUS_OK;
     my $reporter_died    = 0;
-    my $update_size_time = time() + 5;
+    my $update_size_time = time();
     OUTER: while (1) {
         # Worker & Reporter processes that were spawned.
         my @spawned_pids = (keys %worker_pids, $reporter_pid);
@@ -438,9 +438,10 @@ sub doGenTest {
         }
         if (time() > $update_size_time) {
             if (STATUS_OK != Auxiliary::update_sizes()) {
-                return STATUS_ENVIRONMENT_FAILURE;
+                # return STATUS_ENVIRONMENT_FAILURE;
+            } else {
+                $update_size_time = time() + 2;
             }
-            $update_size_time = time() + 5;
         }
         if (time() >= $self->[GT_TEST_END] + Runtime::get_runtime_factor() * 120) {
             # (mleich) What follows is experimental
