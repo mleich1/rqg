@@ -383,6 +383,9 @@ sub monitor_nonthreaded {
     # 2023-05-31T11:54:51 [2884928] Reporter 'Deadlock': 59 -- Query -- 0 -- SHOW FULL PROCESSLIST -- ok
     # 2023-05-31T11:54:51 [2884928] Reporter 'Deadlock': Content of processlist ---------- end
 
+    # FIXME:
+    # If all "worker" sessions are 'Killed' than the system is in a suspicious state.
+
     my $processlist_report = "$who_am_i Content of processlist ---------- begin\n";
     $processlist_report .= "$who_am_i ID -- COMMAND -- TIME -- INFO -- state\n";
     foreach my $process (@$processlist) {
