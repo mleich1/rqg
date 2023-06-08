@@ -1140,6 +1140,23 @@ sub startServer {
             "Will return STATUS_FAILURE" . "($status)");
         return STATUS_FAILURE;
     } else {
+        ####### Experiment begin ##########
+        # Attempt to catch https://jira.mariadb.org/browse/MDEV-31386
+        my $query = "SELECT * FROM `information_schema`.`INNODB_BUFFER_PAGE` /* server starter */";
+        SQLtrace::sqltrace_before_execution($query);
+        $self->dbh->do($query);
+        my $error = $self->dbh->err();
+        SQLtrace::sqltrace_after_execution($error);
+        if (defined $error) {
+            my $status = STATUS_CRITICAL_FAILURE;
+            say("ERROR: $who_am_i ->" . $query . "<- failed with $error. " .
+                Auxiliary::build_wrs($status));
+            return $status;
+        } else {
+            say("DEBUG: $who_am_i ->" . $query . "<- passed");
+        }
+        ####### Experiment end ##########
+
         # Rare occuring scenario:
         # Start server, have load, shutdown, restart with modified system variables without
         # using the current sub.
@@ -1791,7 +1808,10 @@ sub checkDatabaseIntegrity {
     foreach my $val (@$key_ref) {
         my $database = $val->[0];
         # say("DEBUG: database ->" . $database . "<-");
-        next if $database =~ m{^(rqg|mysql|information_schema|pbxt|performance_schema)$}sio;
+        ######### Experiment begin
+        # next if $database =~ m{^(rqg|mysql|information_schema|pbxt|performance_schema)$}sio;
+        next if $database =~ m{^(rqg|mysql|                   pbxt|performance_schema)$}sio;
+        ######### Experiment end
         $aux_query = "USE $database";
         my $res_use = $executor->execute($aux_query);
         $status = $res_use->status;
@@ -1846,6 +1866,7 @@ sub checkDatabaseIntegrity {
     }
     return $status;
 } # End of sub checkDatabaseIntegrity
+
 
 sub addErrorLogMarker {
    my $self   = shift;
