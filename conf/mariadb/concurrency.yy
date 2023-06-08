@@ -329,7 +329,7 @@ query_init:
    init_basics1 ; init_basics2 ; init_namespaces ; maintain_session_entry ; set_timeouts ;
 
 maintain_session_entry:
-   REPLACE INTO test . rqg_sessions SET rqg_id = _thread_id , processlist_id = CONNECTION_ID(), pid = { my $x = $$ } , connect_time = UNIX_TIMESTAMP();  COMMIT ;
+   REPLACE INTO rqg . rqg_sessions SET rqg_id = _thread_id , processlist_id = CONNECTION_ID(), pid = { my $x = $$ } , connect_time = UNIX_TIMESTAMP();  COMMIT ;
 
 set_timeouts:
    SET SESSION lock_wait_timeout = 2 ; SET SESSION innodb_lock_wait_timeout = 1 ;
@@ -850,10 +850,10 @@ kill_query_or_session:
 #    Hence this will be not generated.
 # 5. Various combinations of sessions running 1. till 5.
 #
-# (1) COMMIT before and after selecting in test . rqg_sessions in order to avoid effects caused by
+# (1) COMMIT before and after selecting in rqg . rqg_sessions in order to avoid effects caused by
 #     - a maybe open transaction before that select
 #     - the later statements of a transaction maybe opened by that select
-# (2) No COMMIT before and after selecting in test . rqg_sessions in order to have no freed locks
+# (2) No COMMIT before and after selecting in rqg . rqg_sessions in order to have no freed locks
 #     before the KILL affecting the own session is issued.
 #
    COMMIT ; correct_rqg_sessions_table           ; COMMIT                            | # (1)
@@ -863,17 +863,17 @@ kill_query_or_session:
    COMMIT ; other_id_part                        ; COMMIT ; KILL SOFT QUERY      @kill_id ; # (1)
 
 own_id_part:
-   SELECT     processlist_id  INTO @kill_id FROM test . rqg_sessions WHERE rqg_id  = _thread_id ;
+   SELECT     processlist_id  INTO @kill_id FROM rqg . rqg_sessions WHERE rqg_id  = _thread_id ;
 other_id_part:
-   SELECT MIN(processlist_id) INTO @kill_id FROM test . rqg_sessions WHERE rqg_id <> _thread_id AND processlist_id IS NOT NULL;
+   SELECT MIN(processlist_id) INTO @kill_id FROM rqg . rqg_sessions WHERE rqg_id <> _thread_id AND processlist_id IS NOT NULL;
 kill_50_cond:
    MOD(rqg_id,2) = 0;
 kill_age_cond:
    UNIX_TIMESTAMP() - connect_time > 10;
 
 correct_rqg_sessions_table:
-   # UPDATE test . rqg_sessions SET processlist_id = NULL, connect_time = NULL WHERE processlist_id NOT IN (SELECT id FROM information_schema. processlist);
-   UPDATE test . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
+   # UPDATE rqg . rqg_sessions SET processlist_id = NULL, connect_time = NULL WHERE processlist_id NOT IN (SELECT id FROM information_schema. processlist);
+   UPDATE rqg . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
 
 ddl:

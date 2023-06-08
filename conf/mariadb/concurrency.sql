@@ -1,4 +1,5 @@
 # Copyright (c) 2018, MariaDB Corporation
+# Copyright (c) 2023, MariaDB plc
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -53,16 +54,33 @@
 # processlist_id -- Processlist id of the RQG worker thread
 #                   The value to be used in KILL ...
 # pid            -- The process id in the OS.
-#                   Maybe its sometimes useful.
+#                   Maybe its some day in future useful.
 # connect_time   -- The time of the last connect.
 #                   The diff between current time and this could be used for
 #                   sophisticated functionality like
 #                   - longer lifetime is required (but not already sufficient)
 #                     for generating bigger transactions
 #                   - less connects and disconnects for some RQG worker thread
-#                     increase the stress on functionality in focus by
+#                     increase the stress on functionality maybe in focus by
 #                     spending less ressources on required activity being
 #                     not or at least less in focus of checking
 #
-CREATE TABLE IF NOT EXISTS test . rqg_sessions (rqg_id BIGINT, processlist_id BIGINT, pid BIGINT, connect_time INT, PRIMARY KEY(rqg_id)) ENGINE = MyISAM ;
+# Picking some good enough ENGINE for test . rqg_sessions:
+# There are test variants which invoke killing the server process intentionally,
+# restart and go on with whatever.
+# 1. In case we would use MyISAM than we would have a serious risk that the table needs to be
+#    repaired after such a crash. This would disturb to some more or less big extend.
+# 2. In case we would use some more robust storage engine like InnoDB than the table should
+#    survive the crash without trouble on restart etc.
+# 3. For whatever engine where the table has survived without damage and proper data
+#    we might be faced with minor trouble because of the data.
+#    That all belongs to the previous server uptime.
+# So it looks like ENGINE = InnoDB or MEMORY is the optimal choice.
+# FIXME:
+# Is it necessary to protect the table against grammars and redefines which use
+# the YY grammar language builtin '_table' and attack them via DDL or DML?
+#
+CREATE SCHEMA IF NOT EXISTS rqg;
+DROP TABLE IF EXISTS rqg . rqg_sessions;
+CREATE TABLE rqg . rqg_sessions (rqg_id BIGINT, processlist_id BIGINT, pid BIGINT, connect_time INT, PRIMARY KEY(rqg_id)) ENGINE = InnoDB ;
 

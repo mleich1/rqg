@@ -67,6 +67,7 @@
 # Is it necessary to protect the table against grammars and redefines which use
 # the YY grammar language builtin '_table' and attack them via DDL or DML?
 #
-CREATE SCHEMA rqg;
-CREATE TABLE IF NOT EXISTS rqg . rqg_sessions (rqg_id BIGINT, processlist_id BIGINT, pid BIGINT, connect_time INT, PRIMARY KEY(rqg_id)) ENGINE = InnoDB ;
+CREATE SCHEMA IF NOT EXISTS rqg;
+DROP TABLE IF EXISTS rqg . rqg_sessions;
+CREATE TABLE rqg . rqg_sessions (rqg_id BIGINT, processlist_id BIGINT, pid BIGINT, connect_time INT, PRIMARY KEY(rqg_id)) ENGINE = InnoDB ;
 
