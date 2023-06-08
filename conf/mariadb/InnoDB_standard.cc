@@ -110,7 +110,7 @@ our $grammars =
   '--gendata --vcols --views --grammar=conf/mariadb/instant_add.yy',
 
   '--grammar=conf/runtime/metadata_stability.yy --gendata=conf/runtime/metadata_stability.zz',
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz',
+  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --max_gd_duration=900',
   '--grammar=conf/mariadb/partitions_innodb.yy',
   '--grammar=conf/mariadb/partitions_innodb.yy --gendata-advanced --skip-gendata',
   '--grammar=conf/replication/replication.yy --gendata=conf/replication/replication-5.1.zz --max_gd_duration=1200', # rr on asan_Og exceeded 900 * 1.5
@@ -153,21 +153,21 @@ our $grammars =
 
   # DML only together with Mariabackup
   '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
+  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --max_gd_duration=900 --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
   '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
   '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
   '--grammar=conf/mariadb/table_stress_innodb_fk_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
   # DML only together with RestartConsistency
   '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --reporters=RestartConsistency ',
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=RestartConsistency ',
+  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --max_gd_duration=900 --reporters=RestartConsistency ',
   '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=RestartConsistency ',
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --reporters=RestartConsistency ',
   '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=RestartConsistency ',
   '--grammar=conf/mariadb/table_stress_innodb_fk_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=RestartConsistency ',
   # DML only together with CrashRecovery
   '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --reporters=CrashRecovery ',
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --reporters=CrashRecovery ',
+  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --max_gd_duration=900 --reporters=CrashRecovery ',
   '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --reporters=CrashRecovery ',
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --reporters=CrashRecovery ',
   '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=CrashRecovery ',
@@ -184,8 +184,8 @@ our $grammars =
   # DML only together with --validator=SelectStability ----------------
   '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --mysqld=--transaction-isolation=REPEATABLE-READ --validator=SelectStability ',
   '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --mysqld=--transaction-isolation=SERIALIZABLE    --validator=SelectStability ',
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --mysqld=--transaction-isolation=REPEATABLE-READ --validator=SelectStability ',
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --mysqld=--transaction-isolation=SERIALIZABLE    --validator=SelectStability ',
+  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --max_gd_duration=900 --mysqld=--transaction-isolation=REPEATABLE-READ --validator=SelectStability ',
+  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --max_gd_duration=900 --mysqld=--transaction-isolation=SERIALIZABLE    --validator=SelectStability ',
   #     conf/engines/engine_stress.yy switches the ISOLATION LEVEL around and that does not fit to the capabilities of SelectStability
   # '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --validator=SelectStability ',
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --mysqld=--transaction-isolation=REPEATABLE-READ --validator=SelectStability ',
