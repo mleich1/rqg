@@ -1133,19 +1133,20 @@ sub startServer {
         }
     }
     # Auxiliary::print_ps_tree($$);
-    if (not defined $self->dbh) {
-        # $self->dbh is a function and tries to make a connect.
+    # $self->dbh is a function and tries to make a connect.
+    my $dbh = $self->dbh;
+    if (not defined $dbh) {
         my $status = STATUS_FAILURE;
         say("ERROR: $who_am_i We did not get a connection to the just started server. " .
             "Will return STATUS_FAILURE" . "($status)");
-        return STATUS_FAILURE;
+        return $status;
     } else {
         ####### Experiment begin ##########
         # Attempt to catch https://jira.mariadb.org/browse/MDEV-31386
         my $query = "SELECT * FROM `information_schema`.`INNODB_BUFFER_PAGE` /* server starter */";
         SQLtrace::sqltrace_before_execution($query);
-        $self->dbh->do($query);
-        my $error = $self->dbh->err();
+        $dbh->do($query);
+        my $error = $dbh->err();
         SQLtrace::sqltrace_after_execution($error);
         if (defined $error) {
             my $status = STATUS_CRITICAL_FAILURE;
