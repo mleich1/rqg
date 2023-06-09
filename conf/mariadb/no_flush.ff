@@ -1,0 +1,3 @@
+$rules = {
+  'flush' => sub { $_ =~ m{FLUSH}is },
+}
