@@ -269,8 +269,6 @@ $combinations = [ $grammars,
     --mysqld=--net_write_timeout=60
     --mysqld=--loose-table_lock_wait_timeout=50
     --mysqld=--wait_timeout=28800
-    --mysqld=--lock-wait-timeout=86400
-    --mysqld=--innodb-lock-wait-timeout=50
     --no_mask
     --queries=10000000
     --seed=random
@@ -286,6 +284,14 @@ $combinations = [ $grammars,
     " $encryption_setup " .
     " $compression_setup " .
     " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=300 ",
+  ],
+  [
+    # 2023-06
+    # The combination lock-wait-timeout=<small> -- innodb-lock-wait-timeout=<a bit bigger>
+    # seems to be important too.
+    '--mysqld=--lock-wait-timeout=15    --mysqld=--innodb-lock-wait-timeout=10' ,
+    # The defaults 2023-06
+    '--mysqld=--lock-wait-timeout=86400 --mysqld=--innodb-lock-wait-timeout=50' ,
   ],
   [
     # The default is innodb_fast_shutdown=1.
