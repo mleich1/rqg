@@ -521,6 +521,7 @@ sub report {
             next if $tables{$table} eq 'VIEW';
 
             foreach my $sql (
+                "SHOW CREATE TABLE $table_to_check",
                 "CHECK TABLE $table_to_check EXTENDED",
                 "ANALYZE TABLE $table_to_check",
                 "OPTIMIZE TABLE $table_to_check",
