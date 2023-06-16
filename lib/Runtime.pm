@@ -193,7 +193,7 @@ sub help_rr {
 "           Disadvantages:\n"                                                                      .
 "           - rr tracing reduces the throughput by ~ 50%\n"                                        .
 "           - the likelihood to replay some bad effect drops in average to ~ 1/3 of without rr.\n" .
-"           - some bad effect will not replay at all\n"                                            .
+"           - some bad effects will not replay at all\n"                                           .
 "           - certain InnoDB options are not compatible with using 'rr'\n"                         .
 "      --rr_options=<value>\n"                                                                     .
 "           A list of rr related options like\n"                                                   .
