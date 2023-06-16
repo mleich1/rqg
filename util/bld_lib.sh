@@ -266,7 +266,6 @@ function run_make()
     env | sort                                                              | tee -a "$BLD_PROT"
     echo 'Environment dump ---------------------- end'                      | tee -a "$BLD_PROT"
     START_TS=`date '+%s'`
-    # nice -19 make -j $PARALLEL_M                                     2>&1   | tee -a "$BLD_PROT"
     nice -19 make -j $PARALLEL_M --trace                             2>&1   | tee -a "$BLD_PROT"
     END_TS=`date '+%s'`
     RUNTIME=$(($END_TS - $START_TS))
@@ -311,6 +310,12 @@ function remove_some_tests()
     rm -f mysql-test/plugin/sphinx
     rm -f mysql-test/suite/federated
     rm -f mysql-test/plugin/connect
+    rm -f mariadb-test/suite/s3
+    rm -f mariadb-test/plugin/spider
+    rm -f mariadb-test/plugin/rocksdb
+    rm -f mariadb-test/plugin/sphinx
+    rm -f mariadb-test/suite/federated
+    rm -f mariadb-test/plugin/connect
     set +e
 }
 
@@ -334,7 +339,8 @@ function archiving()
     #   for running a rr replay.
     # - not for running MTR tests on some historic tree
     # Hence we can save space by removing all MTR tests.
-    tar --exclude="mysql-test" -cf - . | $COMP_PROG > "$TARGET_ARCH" 2>&1   | tee -a "$BLD_PROT"
+    tar --exclude="mariadb-test" --exclude="mysql-test" -cf - . | \
+        $COMP_PROG > "$TARGET_ARCH" 2>&1                                    | tee -a "$BLD_PROT"
 
     MD5SUM=`md5sum "$TARGET_ARCH" | cut -f1 -d' '`
     echo "MD5SUM of archive: $MD5SUM"                                       | tee -a "$BLD_PROT"
@@ -367,14 +373,24 @@ function check_1st()
 {
     BINDIR=$1
     echo "# Checking if the release in '"$BINDIR"' basically works"         | tee -a "$BLD_PROT"
+    set -e
     cd "$BINDIR"
-    cd mysql-test
+    if [ ! -d mariadb-test ]
+    then
+        THE_NAME="mysql"
+    else
+        THE_NAME="mariadb"
+    fi
+    TEST_DIR="$THE_NAME""-test"
+    cd "$TEST_DIR"
+
     # Assigning a MTR_BUILD_THREAD serves to avoid collisions with RQG (starts at 730).
-    perl ./mysql-test-run.pl --mtr-build-thread=700 --mem 1st 2>&1 > 1st.prt
+    perl ./"$TEST_DIR"-run.pl --mtr-build-thread=700 --mem 1st 2>&1    > 1st.prt
     cat 1st.prt                                                             | tee -a "$BLD_PROT"
     rm 1st.prt
     rm -rf var/*
     rm -f var
+    set +e
 }
 
 function git_info()
