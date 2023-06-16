@@ -747,7 +747,7 @@ sub report {
             charge_decrease;
         } elsif ($slowdir_consumed > $slowdir_free_init * 0.95) {
             $info_m = "D7";
-            $info = "INFO: $info_m 95% of initial free space in slowdir used. This $end_part.";
+            $info = "INFO: $info_m 90% of initial free space in slowdir used. This $end_part.";
             charge_decrease;
         }
     }
