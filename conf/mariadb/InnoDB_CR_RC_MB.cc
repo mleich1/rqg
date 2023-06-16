@@ -170,12 +170,10 @@ $combinations = [ $grammars,
     --mysqld=--net_write_timeout=60
     --mysqld=--loose-table_lock_wait_timeout=50
     --mysqld=--wait_timeout=28800
-    --mysqld=--lock-wait-timeout=86400
-    --mysqld=--innodb-lock-wait-timeout=50
     --no_mask
     --queries=10000000
     --seed=random
-    --reporters=Backtrace --reporters=ErrorLog --reporters=Deadlock
+    --reporters=None --reporters=ErrorLog --reporters=Deadlock
     --validators=None
     --mysqld=--log_output=none
     --mysqld=--log_bin_trust_function_creators=1
@@ -187,6 +185,22 @@ $combinations = [ $grammars,
     " $encryption_setup " .
     " $compression_setup " .
     " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=300 ",
+  ],
+  [
+    # 2023-06
+    # The combination lock-wait-timeout=<small> -- innodb-lock-wait-timeout=<a bit bigger>
+    # seems to be important too.
+    '--mysqld=--lock-wait-timeout=15    --mysqld=--innodb-lock-wait-timeout=10' ,
+    # The defaults 2023-06
+    '--mysqld=--lock-wait-timeout=86400 --mysqld=--innodb-lock-wait-timeout=50' ,
+  ],
+  [
+    # The default is innodb_fast_shutdown=1.
+    '--mysqld=--loose-innodb_fast_shutdown=1' ,
+    '' ,
+    '' ,
+    '' ,
+    '--mysqld=--loose-innodb_fast_shutdown=0' ,
   ],
   [
     # innodb_file_per_table
@@ -242,6 +256,16 @@ $combinations = [ $grammars,
     '',
     '',
     '',
+  ],
+  [
+    # innodb_random_read_ahead: Default Value: OFF
+    # innodb_read_ahead_threshold: Default Value: 56
+    ' --mysqld=--innodb_random_read_ahead=OFF ',
+    ' --mysqld=--innodb_random_read_ahead=OFF ',
+    ' --mysqld=--innodb_random_read_ahead=OFF ',
+    ' --mysqld=--innodb_random_read_ahead=OFF ',
+    ' --mysqld=--innodb_random_read_ahead=ON --mysqld=--innodb_read_ahead_threshold=0 ',
+    ' --mysqld=--innodb_random_read_ahead=ON ',
   ],
   [
     ' --mysqld=--innodb-open-files=10 ',
