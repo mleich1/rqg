@@ -1,4 +1,5 @@
 # Copyright (c) 2021, 2022 MariaDB Corporation Ab. All rights reserved.
+# Copyright (c) 2023 MariaDB plc. All rights reserved.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -42,15 +43,19 @@ our $encryption_setup =
   '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
 
 our $compression_setup =
-  # The availability of the plugins depends on 1. build mechanics 2. Content of OS
+  # The availability of the plugins depends on 1. build mechanics 2. Content of OS install
   # The server startup will not fail if some plugin is missing except its very important
   # like for some storage engine. Of course some error message will be emitted.
   # Without this setting
   # - innodb page compression will be less till not covered by MariaDB versions >= 10.7
   # - upgrade tests starting with version < 10.7 and going up to version >= 10.7 will
   #   suffer from TBR-1313 effects.
-  '--mysqld=--plugin-load-add=provider_lzo.so --mysqld=--plugin-load-add=provider_bzip2.so --mysqld=--plugin-load-add=provider_lzma ' .
-  '--mysqld=--plugin-load-add=provider_snappy --mysqld=--plugin-load-add=provider_lz4 ';
+  # In case the compression algorithm used is in ('zlib','lzma') than we can assign some compression level.
+  # Use the smallest which is 1 instead of 6 (default).
+  # The hope is that it raises the throughput and/or reduces the fraction of max_gd_timeout exceeded
+  # and/or false alarms when running a test with compression.
+  '--mysqld=--plugin-load-add=provider_lzo.so --mysqld=--plugin-load-add=provider_bzip2.so --mysqld=--plugin-load-add=provider_lzma.so ' .
+  '--mysqld=--plugin-load-add=provider_snappy.so --mysqld=--plugin-load-add=provider_lz4.so --mysqld=--loose-innodb_compression_level=1';
 
 our $duration = 300;
 our $grammars =
@@ -75,7 +80,7 @@ $combinations = [ $grammars,
     --mysqld=--wait_timeout=28800
     --mysqld=--lock-wait-timeout=86400
     --mysqld=--innodb-lock-wait-timeout=50
-    --no-mask
+    --no_mask
     --queries=10000000
     --seed=random
     --reporters=Backtrace --reporters=ErrorLog --reporters=Deadlock
@@ -97,11 +102,12 @@ $combinations = [ $grammars,
     # In order to accelerate the move away from ROW_FORMAT = Compressed the variable
     # innodb_read_only_compressed with the default ON was introduced.
     # Impact on older tests + setups: ROW_FORMAT = Compressed is mostly no more checked.
-    # Hence we need to enable checking of that feature till its removed via
-    # innodb_read_only_compressed=OFF.
+    # Hence we need to enable checking of that feature by assigning innodb_read_only_compressed=OFF.
+    # Forecast: ROW_FORMAT = Compressed will stay supported.
     ' --mysqld=--loose-innodb_read_only_compressed=OFF ',
   ],
   [
+    # No more supported since 10.6
     ' --mysqld=--loose-innodb-sync-debug ',
     '',
   ],
@@ -112,6 +118,16 @@ $combinations = [ $grammars,
   [
     ' --mysqld=--innodb_adaptive_hash_index=off ',
     ' --mysqld=--innodb_adaptive_hash_index=on ',
+  ],
+  [
+    ' --mysqld=--innodb_sort_buffer_size=65536 ',
+    '',
+    '',
+  ],
+  [
+    ' --redefine=conf/mariadb/redefine_checks_off.yy ',
+    '',
+    '',
   ],
   [
     # Binary logging is more likely enabled.
@@ -180,8 +196,8 @@ $combinations = [ $grammars,
     # per second. And that seems to cause a higher fraction of tests invoking rr where the
     # max_gd_timeout gets exceeded. Per current experience the impact on the fraction of bugs found
     # or replayed is rather more negative than positive. But there is one case where this helped.
-    " --mysqld=--innodb-use-native-aio=0 --mysqld=--loose-gdb --mysqld=--loose-debug-gdb --rr=Extended --rr_options='--chaos --wait' ",
     " --mysqld=--innodb-use-native-aio=0 --mysqld=--loose-gdb --mysqld=--loose-debug-gdb --rr=Extended --rr_options='--wait' ",
+    " --mysqld=--innodb-use-native-aio=0 --mysqld=--loose-gdb --mysqld=--loose-debug-gdb --rr=Extended --rr_options='--chaos --wait' ",
     # Coverage for libaio or liburing.
     " --mysqld=--innodb_use_native_aio=1 ",
     # rr+InnoDB running on usual filesystem on HDD or SSD need
@@ -191,44 +207,48 @@ $combinations = [ $grammars,
     # So rather set this in local.cfg variable $rqg_slow_dbdir_rr_add.
   ],
   [
-    '',
-    '',
-    '',
-    '',
-    # Next line suffered in history much of MDEV-26450.
-    # innodb_undo_log_truncate=ON is not default. So it should run less frequent.
-    ' --mysqld=--innodb_undo_tablespaces=3 --mysqld=--innodb_undo_log_truncate=ON ',
+    # Default Value: OFF
+    ' --mysqld=--innodb_undo_log_truncate=OFF ',
+    ' --mysqld=--innodb_undo_log_truncate=OFF ',
+    ' --mysqld=--innodb_undo_log_truncate=OFF ',
+    ' --mysqld=--innodb_undo_log_truncate=ON ',
   ],
   [
-# Report Bug    ' --mysqld=--innodb_rollback_on_timeout=ON ',
+    # innodb_change_buffering
+    # Scope: Global     Dynamic: Yes
+    # Data Type: enumeration (>= MariaDB 10.3.7), string (<= MariaDB 10.3.6)
+    # Default Value:
+    #   >= MariaDB 10.5.15, MariaDB 10.6.7, MariaDB 10.7.3, MariaDB 10.8.2: none
+    #   <= MariaDB 10.5.14, MariaDB 10.6.6, MariaDB 10.7.2, MariaDB 10.8.1: all
+    # Valid Values: inserts, none, deletes, purges, changes, all
+    # Deprecated: MariaDB 10.9.0
+    '',
+    '',
+    '',
+    ' --mysqld=--loose_innodb_change_buffering=inserts ',
+    ' --mysqld=--loose_innodb_change_buffering=none ',
+    ' --mysqld=--loose_innodb_change_buffering=deletes ',
+    ' --mysqld=--loose_innodb_change_buffering=purges ',
+    ' --mysqld=--loose_innodb_change_buffering=changes ',
+    ' --mysqld=--loose_innodb_change_buffering=all ',
+  ],
+  [
+    # Global, not dynamic
+    # Default Value: 3 (>= MariaDB 11.0), 0 (<= MariaDB 10.11)
+    # Range: 0, or 2 to 95 (>= MariaDB 10.2.2), 0, or 2 to 126 (<= MariaDB 10.2.1)
+    '',
+    '',
+    ' --mysqld=--innodb_undo_tablespaces=0 ',
+    ' --mysqld=--innodb_undo_tablespaces=3 ',
+    ' --mysqld=--innodb_undo_tablespaces=16 ',
+  ],
+  [
     # The default is off.
+    ' --mysqld=--innodb_rollback_on_timeout=ON ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
     ' --mysqld=--innodb_rollback_on_timeout=OFF ',
-  ],
-  [
-    # slow (SSD/HDD) at all in order to cover
-    # - a device with slow IO
-    # - most probably a filesystem type != tmpfs
-    # fast (RAM) at all in order to cover
-    # - some higher CPU and RAM IO load by not spending to much time on slow devices
-    # - tmpfs
-    # 90% fast to 10% slow in order to
-    # - get extreme load for CPU and RAM IO because that seems to be better for bug detection/replay
-    #   A higher percentage for slow leads easy to a high percentage of CPU waiting for IO
-    #   instead of CPU system/user
-    # - avoid to wear out some SSD, the slow device might be a SSD, too fast
-    ' --vardir_type=slow ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
-    ' --vardir_type=fast ',
   ],
   [
     # 1. innodb_page_size >= 32K requires a innodb-buffer-pool-size >=24M
@@ -251,6 +271,31 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_page_size=32K --mysqld=--innodb-buffer-pool-size=256M ',
     ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=24M  ',
     ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=256M ',
+  ],
+  [
+    # slow (usually SSD/HDD) at all in order to cover
+    # - maybe a device with slow IO
+    # - a filesystem type != tmpfs
+    # fast (RAM) at all in order to cover
+    # - some higher CPU and RAM IO load by not spending to much time on slow devices
+    # - tmpfs
+    #
+    # 90% fast to 10% slow (if HDD or SSD) or 50% fast to 50% slow (if ext4 in virtual memory)
+    # in order to
+    # - get extreme load for CPU and RAM IO because that seems to be better for bug detection/replay
+    #   A higher percentage for slow leads easy to a high percentage of CPU waiting for IO
+    #   instead of CPU system/user
+    # - avoid to wear out some SSD, the slow device might be a SSD, too fast
+    ' --vardir_type=slow ',
+    ' --vardir_type=slow ',
+    ' --vardir_type=slow ',
+    ' --vardir_type=slow ',
+    ' --vardir_type=slow ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
+    ' --vardir_type=fast ',
   ],
 ];
 
