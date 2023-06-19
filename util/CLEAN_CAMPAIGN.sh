@@ -27,7 +27,7 @@ echo "Inspecting ->$MY_DIR<-"
 if [ ! -d "$MY_DIR" ]
 then
     echo "ERROR: The directory ->$MY_DIR<- does not exist or is not a directory."
-    echo "USAGE: util/CLEAN_CAMPAIGN.sh <directory with the rmains of a testing campaign>"
+    echo "USAGE: util/CLEAN_CAMPAIGN.sh <directory with the remains of a testing campaign>"
     exit 4
 fi
 

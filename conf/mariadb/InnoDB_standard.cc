@@ -172,6 +172,8 @@ our $grammars =
   '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --reporters=CrashRecovery ',
   '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=CrashRecovery ',
   '--grammar=conf/mariadb/table_stress_innodb_fk_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=CrashRecovery ',
+  # DDL+DML together with Mariabackup
+  '--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
 
   # Tests checking transactional properties
   # =======================================

@@ -2772,10 +2772,7 @@ sub search_in_file {
 # } else {
 #     return STATUS_OK;
 # }
-#
-# Warning:
-# Enclosing the pattern with ' or " could have a serious impact.
-# So better test out if the pattern works like expected.
+# Enclosing the pattern with ' is usually better than ".
 #
     my ($search_file, $pattern) = @_;
 
