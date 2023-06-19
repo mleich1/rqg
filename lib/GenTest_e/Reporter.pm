@@ -1,5 +1,6 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2018,2022 MariaDB Corporation Ab.
+# Copyright (c) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -188,15 +189,22 @@ sub new {
     my $binary;
     my $bindir;
     my $binname;
-    $binname = osWindows() ? 'mysqld.exe' : 'mysqld';
+    $binname = osWindows() ? 'mariadbd.exe' : 'mariadbd';
+    # FIXME: Could $binary be undef?
     ($bindir,$binary)=$reporter->findMySQLD($binname);
+    return undef if not defined $bindir or not defined $binary;
     if (-e $binary) {
-        $reporter->[REPORTER_SERVER_INFO]->{bindir} = $bindir;
-        $reporter->[REPORTER_SERVER_INFO]->{binary} = $binary;
+        # Do nothing
     } else {
-        say("ERROR: $who_am_i No server binary found. Will return undef.");
-        return undef;
+        $binname = osWindows() ? 'mysqld.exe' : 'mysqld';
+        ($bindir,$binary)=$reporter->findMySQLD($binname);
+        if (not -e $binary) {
+            say("ERROR: $who_am_i No server binary found. Will return undef.");
+            return undef;
+        }
     }
+    $reporter->[REPORTER_SERVER_INFO]->{bindir} = $bindir;
+    $reporter->[REPORTER_SERVER_INFO]->{binary} = $binary;
 
     foreach my $client_path ("client/RelWithDebInfo", "client/Debug",
                              "client", "../client", "bin", "../bin") {
@@ -321,6 +329,7 @@ sub configure {
 sub findMySQLD {
     my ($reporter,$binname)=@_;
     my $bindir;
+    # FIXME: Clean that
     # Handling general basedirs and MTRv1 style basedir,
     # but trying not to search the entire universe just for the sake of it
     my @basedirs = ($reporter->serverVariable('basedir'));
@@ -332,6 +341,7 @@ sub findMySQLD {
     find(sub {
             $bindir=$File::Find::dir if $_ eq $binname;
     }, @basedirs);
+    return (undef, undef) if not defined $bindir;
     my $binary = File::Spec->catfile($bindir, $binname);
     return ($bindir,$binary);
 }

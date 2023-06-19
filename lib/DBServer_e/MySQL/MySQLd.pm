@@ -92,6 +92,7 @@ use constant MYSQLD_RR_OPTIONS                   => 34;
 # MYSQLD_SERVER_ID will be most time used for better messages in case we run several
 # DB server in parallel.
 use constant MYSQLD_SERVER_ID                    => 35;
+use constant MYSQLD_BACKUP                       => 36;
 
 use constant MYSQLD_PID_FILE                     => "mysql.pid";
 use constant MYSQLD_ERRORLOG_FILE                => "mysql.err";
@@ -162,41 +163,60 @@ sub new {
     }
 
     # Observation 2021-01
-    # _absPath("'/dev/shm/vardir'") returns '' !
-    # Of course the value "'/dev/shm/vardir'" is crap and it should have been checked
-    # earlier that such a directory exists or can be created.
-    # Why the assumption that $self->vardir must be than meant relativ to $self->basedir?
-    # <runner>.pl command line help does not say that.
-#   if (not $self->_absPath($self->vardir)) {
-#       $self->[MYSQLD_VARDIR] = $self->basedir."/".$self->vardir;
-#   }
+    # '/dev/shm/vardir' did not exist and _absPath("'/dev/shm/vardir'") returned '' !
 
     # Default tmpdir for server.
     $self->[MYSQLD_TMPDIR] =  $self->vardir . "/tmp";
 
     $self->[MYSQLD_DATADIR] = $self->[MYSQLD_VARDIR] . "/data";
 
-    # If mysqld server is found use it.
-    eval {
-        $self->[MYSQLD_MYSQLD] = $self->_find([$self->basedir],
-                                              osWindows()?["sql/Debug","sql/RelWithDebInfo","sql/Release","bin"]:["sql","libexec","bin","sbin"],
-                                              osWindows()?"mysqld.exe":"mysqld");
-    };
-
-    $self->serverType($self->[MYSQLD_MYSQLD]);
-
-    if (not defined $self->serverType($self->[MYSQLD_MYSQLD])) {
-        say("ERROR: No fitting server binary in '$self->basedir' found.");
+    $self->[MYSQLD_MYSQLD] = $self->_find([$self->basedir],
+            osWindows()?["sql/Debug","sql/RelWithDebInfo","sql/Release","bin"]:["sql","libexec","bin","sbin"],
+            osWindows()?"mariadbd.exe":"mariadbd");
+    $self->[MYSQLD_MYSQLD] = $self->_find([$self->basedir],
+            osWindows()?["sql/Debug","sql/RelWithDebInfo","sql/Release","bin"]:["sql","libexec","bin","sbin"],
+            osWindows()?"mysqld.exe":"mysqld") if not defined $self->[MYSQLD_MYSQLD];
+    if (not defined $self->[MYSQLD_MYSQLD]) {
+        say("ERROR: No fitting server binary in '" . $self->basedir . "' found.");
         return undef;
+    } else {
+        $self->serverType($self->[MYSQLD_MYSQLD]);
+        # say("DEBUG: ->" . $self->[MYSQLD_MYSQLD] . "<-");
     }
 
     $self->[MYSQLD_BOOT_SQL] = [];
 
     $self->[MYSQLD_DUMPER] = $self->_find([$self->basedir],
-                                          osWindows()?["client/Debug","client/RelWithDebInfo","client/Release","bin"]:["client","bin"],
-                                          osWindows()?"mysqldump.exe":"mysqldump");
+            osWindows()?["client/Debug","client/RelWithDebInfo","client/Release","bin"]:["client","bin"],
+            osWindows()?("mariadb-dump.exe","mysqldump.exe"):("mariadb-dump","mysqldump"));
+    if (not defined $self->[MYSQLD_DUMPER]) {
+        say("ERROR: No fitting dumper binary in '" . $self->basedir . "' found.");
+        return undef;
+    } else {
+        say("DEBUG: MYSQLD_DUMPER ->" . $self->[MYSQLD_DUMPER] . "<-");
+    }
+
+    $self->[MYSQLD_SQL_RUNNER] = $self->_find([$self->basedir],
+            osWindows()?["client/Debug","client/RelWithDebInfo","client/Release","bin"]:["client","bin"],
+            osWindows()?("mariadb.exe","mysql.exe"):("mariadb","mysql"));
+    if (not defined $self->[MYSQLD_SQL_RUNNER]) {
+        say("ERROR: No fitting sql runner binary in '" . $self->basedir . "' found.");
+        return undef;
+    } else {
+        say("DEBUG: MYSQLD_SQL_RUNNER ->" . $self->[MYSQLD_SQL_RUNNER] . "<-");
+    }
 
     $self->[MYSQLD_CLIENT_BINDIR] = dirname($self->[MYSQLD_DUMPER]);
+
+    $self->[MYSQLD_BACKUP]= $self->_find([$self->basedir],
+            osWindows()?["client/Debug","client/RelWithDebInfo","client/Release","bin"]:["client","bin"],
+            osWindows()?"mariabackup.exe":"mariabackup");
+    if (not defined $self->[MYSQLD_BACKUP]) {
+        say("ERROR: No fitting backup binary in '" . $self->basedir . "' found.");
+        return undef;
+    } else {
+        say("DEBUG: MYSQLD_BACKUP ->" . $self->[MYSQLD_BACKUP] . "<-");
+    }
 
     ## Check for CMakestuff to get hold of source dir:
 
@@ -213,37 +233,62 @@ sub new {
         }
     }
 
-    ## Use valgrind suppression file available in mysql-test path.
+    ## Use valgrind suppression file if needed and available in mysql-test path.
     if ($self->[MYSQLD_VALGRIND]) {
         $self->[MYSQLD_VALGRIND_SUPPRESSION_FILE] = $self->_find(defined $self->sourcedir?[$self->basedir,$self->sourcedir]:[$self->basedir],
-                                                             osWindows()?["share/mysql-test","mysql-test"]:["share/mysql-test","mysql-test"],
-                                                             "valgrind.supp")
+                                                             ["share/mariadb-test","mariadb-test","share/mysql-test","mysql-test"],
+                                                             "valgrind.supp");
+        if (not defined $self->[MYSQLD_VALGRIND_SUPPRESSION_FILE]) {
+            say("ERROR: No valgrind suppression file in '" . $self->basedir . "' found.");
+            return undef;
+        } else {
+            say("DEBUG: MYSQLD_VALGRIND_SUPPRESSION_FILE ->" . $self->[MYSQLD_VALGRIND_SUPPRESSION_FILE] . "<-");
+        }
     };
 
-    foreach my $file ("mysql_system_tables.sql",
-                      "mysql_performance_tables.sql",
-                      "mysql_system_tables_data.sql",
-                      "mysql_test_data_timezone.sql",
-                      "fill_help_tables.sql") {
-        my $script =
-             eval { $self->_find(defined $self->sourcedir?[$self->basedir,$self->sourcedir]:[$self->basedir],
-                          ["scripts","share/mysql","share"], $file) };
+    my $script;
+    foreach my $fname_fragment ("_system_tables.sql", "_performance_tables.sql",
+                                "_system_tables_data.sql", "_test_data_timezone.sql") {
+        $script = $self->_find(defined $self->sourcedir?[$self->basedir,$self->sourcedir]:[$self->basedir],
+                               ["scripts","share/mysql","share"], "mariadb" . $fname_fragment);
+        $script = $self->_find(defined $self->sourcedir?[$self->basedir,$self->sourcedir]:[$self->basedir],
+                               ["scripts","share/mysql","share"], "mysql" . $fname_fragment)
+                      if not defined $script;
+        if (not defined $script) {
+            say("ERROR: No file '<prefix>" . $fname_fragment . "' in '" . $self->basedir . "' found.");
+            return undef;
+        } else {
+            push(@{$self->[MYSQLD_BOOT_SQL]},$script) if $script;
+        }
+    }
+
+    my $fname =  "fill_help_tables.sql";
+    $script = $self->_find(defined $self->sourcedir?[$self->basedir,$self->sourcedir]:[$self->basedir],
+                              ["scripts","share/mysql","share"], $fname);
+    if (not defined $script) {
+        say("ERROR: No file '" . $fname . "' in '" . $self->basedir . "' found.");
+        return undef;
+    } else {
         push(@{$self->[MYSQLD_BOOT_SQL]},$script) if $script;
     }
 
+    $fname = "english/errmsg.sys";
     $self->[MYSQLD_MESSAGES] =
        $self->_findDir(defined $self->sourcedir?[$self->basedir,$self->sourcedir]:[$self->basedir],
-                       ["sql/share","share/mysql","share"], "english/errmsg.sys");
+                       ["sql/share","share/mysql","share"], $fname);
+    if (not defined $self->[MYSQLD_MESSAGES]) {
+        say("ERROR: No file '" . $fname . "' in '" . $self->basedir . "' found.");
+        return undef;
+    }
 
+    $fname = "Index.xml";
     $self->[MYSQLD_CHARSETS] =
-        $self->_findDir(defined $self->sourcedir?[$self->basedir,$self->sourcedir]:[$self->basedir],
-                        ["sql/share/charsets","share/mysql/charsets","share/charsets"], "Index.xml");
-
-
-    #$self->[MYSQLD_LIBMYSQL] =
-    #   $self->_findDir([$self->basedir],
-    #                   osWindows()?["libmysql/Debug","libmysql/RelWithDebInfo","libmysql/Release","lib","lib/debug","lib/opt","bin"]:["libmysql","libmysql/.libs","lib/mysql","lib"],
-    #                   osWindows()?"libmysql.dll":osMac()?"libmysqlclient.dylib":"libmysqlclient.so");
+       $self->_findDir(defined $self->sourcedir?[$self->basedir,$self->sourcedir]:[$self->basedir],
+                       ["sql/share/charsets","share/mysql/charsets","share/charsets"], $fname);
+    if (not defined $self->[MYSQLD_MESSAGES]) {
+        say("ERROR: No file '" . $fname . "' in '" . $self->basedir . "' found.");
+        return undef;
+    }
 
     $self->[MYSQLD_STDOPTS] = ["--basedir=".$self->basedir,
                                $self->_messages,
@@ -251,9 +296,9 @@ sub new {
                                "--tmpdir=".$self->[MYSQLD_TMPDIR]];
 
     if ($self->[MYSQLD_START_DIRTY]) {
-        say("Using existing data for MySQL " . $self->version . " at " . $self->datadir);
+        say("Using existing data for server " . $self->version . " at " . $self->datadir);
     } else {
-        say("Creating MySQL " . $self->version . " database at " . $self->datadir);
+        say("Creating server " . $self->version . " database at " . $self->datadir);
         if ($self->createMysqlBase != STATUS_OK) {
             say("ERROR: Bootstrap failed. Will return undef.");
             return undef;
@@ -569,12 +614,12 @@ sub createMysqlBase  {
     if ($rc != 0) {
         my $status = STATUS_FAILURE;
         say("ERROR: Bootstrap failed");
-        # The current code of make_backtrace is focused on server crashes outside of bootstrap.
-        # And because of that it insists in inspecting the stderr output in some 'mysql.err'.
-        # Hence I copy 'boot.err' to 'mysql.err' first.
-        File::Copy::copy($booterr, $self->errorlog);
-        $self->make_backtrace();
-        sayFile($booterr);
+#       # The current code of make_backtrace is focused on server crashes outside of bootstrap.
+#       # And because of that it insists in inspecting the stderr output in some 'mysql.err'.
+#       # Hence I copy 'boot.err' to 'mysql.err' first.
+#       File::Copy::copy($booterr, $self->errorlog);
+#       sayFile($booterr);
+        $self->make_backtrace;
         say("ERROR: Will return STATUS_FAILURE" . "($status)");
         return $status;
     } else {
@@ -693,7 +738,7 @@ sub startServer {
         $exe =~ s/\//\\/g;
         $vardir =~ s/\//\\/g;
         $self->printInfo();
-        say("INFO: Starting MySQL " . $self->version . ": $exe as $command on $vardir");
+        say("INFO: Starting server " . $self->version . ": $exe as $command on $vardir");
         # FIXME: Inform about error + return undef so that the caller can clean up
         Win32::Process::Create($proc,
                                $exe,
@@ -821,7 +866,7 @@ sub startServer {
         # This is too early. printInfo needs the pid which is currently unknown!
         # $self->printInfo;
 
-        say("INFO: Starting MySQL " . $self->version . ": $command");
+        say("INFO: Starting server " . $self->version . ": $command");
 
         $self->[MYSQLD_AUXPID] = fork();
         if ($self->[MYSQLD_AUXPID]) {
@@ -915,14 +960,14 @@ sub startServer {
             # SIGKILL or SIGABRT sent to the server make no difference for the fate of "rr".
             # "rr" finishes smooth and get reaped by its parent.
 
-            # $self->stop_server_for_debug(5, 'mysqld', -6, 5);
+            # $self->stop_server_for_debug(5, -11, 'mariadbd mysqld', 10);
             $start_time = time();
             $wait_end =   $start_time + $startup_timeout;
             while (1) {
                 Time::HiRes::sleep($wait_time);
                 if (not kill(0, $pid)) {
                     my $status = STATUS_SERVER_CRASHED;
-                    say("ERROR: $who_am_i The Server process disappeared after having started " .
+                    say("ERROR: $who_am_i The server process disappeared after having started " .
                         "with pid $pid. " . Auxiliary::build_wrs($status));
                     # The status reported by cleanup_dead_server does not matter.
                     # cleanup_dead_server takes care of $self->[MYSQLD_AUXPID].
@@ -932,6 +977,7 @@ sub startServer {
                     return $status;
                 }
 
+                # $self->stop_server_for_debug(5, -11, 'mariadbd mysqld', 10);
                 my $found;
                 # Several threads are working in parallel on getting the server started.
                 # Observation 2021-12-02
@@ -958,7 +1004,7 @@ sub startServer {
                 # Do not search for 'mysqld: ready for connections' in case the outcome is
                 # already decided by "[ERROR] mysqld got signal".
                 $found = Auxiliary::search_in_file($errorlog,
-                                                   "\[ERROR\] mysqld got signal");
+                                                   '\[ERROR\] (mariadbd|mysqld) got signal');
                 if (not defined $found) {
                     # Technical problems.
                     my $status = STATUS_ENVIRONMENT_FAILURE;
@@ -971,18 +1017,18 @@ sub startServer {
                     return $status;
                 } elsif ($found) {
                     my $status = STATUS_SERVER_CRASHED;
-                    say("INFO: $who_am_i '[ERROR] mysqld got signal ' observed.");
+                    say("INFO: $who_am_i '[ERROR] <DB server> got signal ' observed.");
                     $self->make_backtrace();
                     # sayFile($errorlog);
                     return $status;
                 } else {
-                    # say("DEBUG: $who_am_i Up till now no '[ERROR] mysqld got signal ' observed.");
+                  # say("DEBUG: $who_am_i Up till now no '[ERROR] <DB server> got signal' observed.");
                 }
 
                 # We search for a line like
                 # [Note] /home/mleich/Server_bin/10.5_asan_Og/bin/mysqld: ready for connections.
                 $found = Auxiliary::search_in_file($errorlog,
-                                                   "\[Note\].{1,150}mysqld: ready for connections");
+                                                   '\[Note\].{1,150}(mariadbd|mysqld): ready for connections');
                 # For testing:
                 # $found = undef;
                 if (not defined $found) {
@@ -1001,7 +1047,7 @@ sub startServer {
                 }
                 if (time() >= $wait_end) {
                     my $status = STATUS_CRITICAL_FAILURE;
-                    say("ERROR: $who_am_i The Server has not finished its start within the ".
+                    say("ERROR: $who_am_i The server has not finished its start within the ".
                         "last $startup_timeout" . "s. Will crash the server, make a backtrace and " .
                         Auxiliary::build_wrs($status));
                     $self->crashServer();
@@ -1416,7 +1462,7 @@ sub dumper {
 
 sub dumpdb {
     my ($self,$database, $file) = @_;
-    say("Dumping MySQL server ".$self->version." data on port ".$self->port);
+    say("Dumping server ".$self->version." data on port ".$self->port);
     my $dump_command = '"'.$self->dumper.
                              "\" --hex-blob --skip-triggers --compact ".
                              "--order-by-primary --skip-extended-insert ".
@@ -1450,7 +1496,7 @@ sub dumpSchema {
 
 sub dumpSomething {
     my ($self, $options, $file_prefix) = @_;
-    say("Dumping MySQL server " . $self->version . " content on port " . $self->port);
+    say("Dumping server " . $self->version . " content on port " . $self->port);
     my $dump_command = '"' . $self->dumper . "\" --host=127.0.0.1 --port=" . $self->port .
                              " --user=root $options";
     say("DEBUG: dump_command ->" . $dump_command . "<-");
@@ -1518,7 +1564,7 @@ sub normalizeDump {
 
 sub nonSystemDatabases {
   my $self= shift;
-  return @{$self->dbh->selectcol_arrayref(
+  return sort @{$self->dbh->selectcol_arrayref(
       "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA ".
       "WHERE LOWER(SCHEMA_NAME) NOT IN ('mysql','information_schema','performance_schema','sys')"
     )
@@ -1540,7 +1586,7 @@ sub nonSystemDatabases1 {
     # Hence the solution is to use <connection_handle>->selectcol_arrayref(....).
     my $dbh = $self->dbh;
     if (not defined $dbh) {
-        say("ERROR: $who_am_i No connection to Server got. Will return undef.");
+        say("ERROR: $who_am_i No connection to server got. Will return undef.");
         return undef;
     } else {
         # Unify somehow like picking code from lib/GenTest_e/Executor/MySQL.pm.
@@ -1557,7 +1603,7 @@ sub nonSystemDatabases1 {
             say("ERROR: $who_am_i Query failed with $error. Will return undef.");
             return undef;
         }
-        my @schema_list = @{$col_arrayref};
+        my @schema_list = sort @{$col_arrayref};
         return \@schema_list;
     }
 }
@@ -1722,7 +1768,7 @@ sub stopServer {
         # say("DEBUG: $who_am_i Written by shutdown attempt ->" . $content_slice . "<-");
         close ($file_handle);
         my $match   = 0;
-        my $pattern = 'mysqld: Shutdown complete';
+        my $pattern = '(mariadbd|mysqld): Shutdown complete';
         $match = $content_slice =~ m{$pattern}s;
         if (not $match) {
             $res = STATUS_FAILURE;
@@ -1743,8 +1789,7 @@ sub stopServer {
             # In case of SIGKILL (might be issued by rqg_batch.pl ingredients or the user)
             # we get only a line
             # Killed
-            say("WARN: $who_am_i No regular shutdown achieved. Will return $res later.");
-            $pattern = '\[ERROR\] mysqld got signal ';
+            $pattern = '\[ERROR\] (mariadbd|mysqld) got signal ';
             $match =   $content_slice =~ m{$pattern}s;
             if ($match) {
                 say("INFO: $who_am_i The shutdown finished with server crash.");
@@ -2140,28 +2185,23 @@ sub running {
 } # End sub running
 
 sub _find {
-   my($self, $bases, $subdir, @names) = @_;
+    my($self, $bases, $subdir, @names) = @_;
 
-   foreach my $base (@$bases) {
-      foreach my $s (@$subdir) {
-         foreach my $n (@names) {
-            my $path  = $base . "/" . $s . "/" . $n;
-            return $path if -f $path;
-         }
-      }
-   }
-   my $paths = "";
-   foreach my $base (@$bases) {
-      $paths .= join(",", map {"'" . $base . "/" . $_ ."'"} @$subdir) . ",";
-   }
-   my $names = join(" or ", @names );
-   # FIXME: Replace what follows maybe with
-   # 1. Carp::cluck(.....)
-   # 2. return undef
-   # 3. The caller should make a regular abort if undef was returned.
-   # At least it must be prevented that the RQG runner aborts without stopping any
-   # running servers + cleanup.
-   Carp::confess("ERROR: Cannot find '$names' in $paths");
+    foreach my $base (@$bases) {
+        foreach my $s (@$subdir) {
+            foreach my $n (@names) {
+                my $path  = $base . "/" . $s . "/" . $n;
+                return $path if -f $path;
+            }
+        }
+    }
+    return undef;
+#   my $paths = "";
+#   foreach my $base (@$bases) {
+#       $paths .= join(",", map {"'" . $base . "/" . $_ ."'"} @$subdir) . ",";
+#   }
+#   my $names = join(" or ", @names );
+#   Carp::confess("ERROR: Cannot find '$names' in $paths");
 }
 
 sub dsn {
@@ -2253,13 +2293,9 @@ sub version {
 
     if (not defined $self->[MYSQLD_VERSION]) {
         my $conf = $self->_find([$self->basedir],
-                                ['scripts',
-                                 'bin',
-                                 'sbin'],
-                                'mysql_config.pl', 'mysql_config');
-        ## This will not work if there is no perl installation,
-        ## but without perl, RQG won't work either :-)
-        my $ver = `perl $conf --version`;
+                                ['scripts', 'bin', 'sbin'],
+                                'mariadb_config', 'mysql_config');
+        my $ver = `$conf --version`;
         chop($ver);
         $self->[MYSQLD_VERSION] = $ver;
     }
@@ -2509,29 +2545,39 @@ sub make_backtrace {
     $who_am_i .=    " server[" . $server_id . "]";
     my $vardir =    $self->vardir();
     my $error_log = $self->errorlog();
+    my $booterr   = $self->vardir . "/" . MYSQLD_BOOTERR_FILE;
 
     # my $server_pid  = $self->serverpid();
 
     my $status = STATUS_SERVER_CRASHED;
-    aux_pid_reaper();
-    # What is with    if (osWindows())
-    if ($self->running) {
-        say("DEBUG: $who_am_i The server with process [" .
-            $self->serverpid . "] is not yet dead.");
-        # DEFAULT_TERM_TIMEOUT might be a bit oversized.
-        my $timeout = DEFAULT_TERM_TIMEOUT * Runtime::get_runtime_factor();
-        if ($self->waitForServerToStop($timeout) != STATUS_OK) {
-            say("ALARM: $who_am_i ########## The server process " . $self->serverpid .
-                " is not dead. Trying kill with core. ##########");
-            $self->crashServer;
-            $status = STATUS_CRITICAL_FAILURE;
-        } else {
-            say("INFO: The server process " . $self->serverpid . " is no more running.");
-            $status = STATUS_SERVER_CRASHED;
+
+    if (-e $error_log) {
+        aux_pid_reaper();
+        sayFile($error_log);
+        # What is with    if (osWindows())
+        if ($self->running) {
+            say("DEBUG: $who_am_i The server with process [" .
+                $self->serverpid . "] is not yet dead.");
+            # DEFAULT_TERM_TIMEOUT might be a bit oversized.
+            my $timeout = DEFAULT_TERM_TIMEOUT * Runtime::get_runtime_factor();
+            if ($self->waitForServerToStop($timeout) != STATUS_OK) {
+                say("ALARM: $who_am_i ########## The server process " . $self->serverpid .
+                    " is not dead. Trying kill with core. ##########");
+                $self->crashServer;
+                $status = STATUS_CRITICAL_FAILURE;
+            } else {
+                say("INFO: The server process " . $self->serverpid . " is no more running.");
+                $status = STATUS_SERVER_CRASHED;
+            }
         }
+        # cleanup_dead_server waits till the aux/fork pid is gone.
+        $self->cleanup_dead_server;
+    } elsif (-e $booterr) {
+        sayFile($booterr);
+    } else {
+        say("ERROR: $who_am_i Neither '$booterr' nor '$error_log' exist.");
+        return STATUS_ENVIRONMENT_FAILURE;
     }
-    # cleanup_dead_server waits till the aux/fork pid is gone.
-    $self->cleanup_dead_server;
 
     my $rqg_homedir = Local::get_rqg_home();
     # For testing:
@@ -2543,12 +2589,9 @@ sub make_backtrace {
         exit $status;
     }
     say("INFO: $who_am_i ------------------------------ Begin");
-    if (not -e $error_log) {
-        Carp::cluck("ERROR: $who_am_i A server error log '$error_log' does not exist.");
-        $status = STATUS_ENVIRONMENT_FAILURE;
-    }
 
     # Auxiliary::print_ps_tree($$);
+
     my $rr = Runtime::get_rr();
     if (defined $rr) {
         # We try to generate a backtrace from the rr trace.
@@ -2566,12 +2609,12 @@ sub make_backtrace {
                       "< $backtrace_cfg";
         system('bash -c "set -o pipefail; '. $command .'"');
         sayFile($backtrace);
-        sayFile($error_log);
         $status = STATUS_SERVER_CRASHED;
         say("INFO: $who_am_i No core file to be expected. " . Auxiliary::build_wrs($status));
         say("INFO: $who_am_i ------------------------------ End");
         return $status;
     }
+
 
     # Note:
     # The server error log might contain lines saying
@@ -2579,17 +2622,30 @@ sub make_backtrace {
     # - Writing a core file
     # but that seems to describe rather some intention and not something finished.
     # There are also cases where none of these lines were written but some core file exists.
-    # Hence focussing on "core dumped" or ... does not seem to make sense.
+    # Hence focussing on "core dumped" or ... does not seem to make much sense.
+    # The exception seems to be "[ERROR] Aborting" which was observed in failing bootstraps.
 
     $status = STATUS_SERVER_CRASHED;
 
     # FIXME MAYBE: Is that timeout reasonable?
-    my $wait_timeout   = 360 * Runtime::get_runtime_factor();
-    my $start_time     = Time::HiRes::time();
-    my $max_end_time   = $start_time + $wait_timeout;
-    my $datadir        = $self->datadir();
-    my $pid            = $self->pid();
     my $core;
+    my $datadir        = $self->datadir();
+    my $start_time     = Time::HiRes::time();
+    my $wait_timeout;
+    my $max_end_time;
+
+    if (-e $error_log) {
+        $wait_timeout   = 360 * Runtime::get_runtime_factor();
+    } elsif (-e $booterr) {
+        # Hint: In case a bootstrap failed than we do not need to wait long for a core.
+        $wait_timeout =    10 * Runtime::get_runtime_factor();
+    } else {
+        say("ERROR: $who_am_i Neither '$booterr' nor '$error_log' exist.");
+        return STATUS_ENVIRONMENT_FAILURE;
+    }
+
+    $max_end_time   = $start_time + $wait_timeout;
+    my $pid            = $self->pid();
     while (not defined $core and Time::HiRes::time() < $max_end_time) {
         sleep 1;
         $core = <$datadir/core*>;
@@ -2611,7 +2667,6 @@ sub make_backtrace {
     }
     if (not defined $core) {
         $status = STATUS_SERVER_CRASHED;
-        sayFile($error_log);
         say("INFO: $who_am_i Even after $wait_timeout" . "s waiting no core file with expected " .
             "name found. " . Auxiliary::build_wrs($status));
         say("INFO: $who_am_i ------------------------------ End");
@@ -2747,9 +2802,9 @@ my @end_line_patterns = (
     '^Aborted$',
     'core dumped',
     '^Segmentation fault$',
-    'mysqld: Shutdown complete$',
-    '^Killed$',                   # SIGKILL by RQG or OS or user
-    'mysqld got signal',          # SIG(!=KILL) by DB server or RQG or OS or user
+    '(mariadbd|mysqld): Shutdown complete$',
+    '^Killed$',                     # SIGKILL by RQG or OS or user
+    '(mariadbd|mysqld) got signal',          # SIG(!=KILL) by DB server or RQG or OS or user
 );
 
     my $self = shift;
@@ -3015,7 +3070,7 @@ sub server_pid_per_errorlog {
     # - since mid 2023-01
     #   [Note] Starting MariaDB 10.7.8-MariaDB-debug-log source revision ... as process 3283580
     my $pid = Auxiliary::get_string_after_pattern($errorlog,
-                   "Starting MariaDB .{1,300} as process ");
+                   "Starting .{1,500} as process ");
     if (not defined $pid) {
         # File does not exist and similar.
         say("ERROR: $who_am_i Trouble with '$errorlog'. Will return undef.");
@@ -3023,7 +3078,7 @@ sub server_pid_per_errorlog {
     } elsif ('' eq $pid) {
         # No such line found or line found but no value.
         $pid = Auxiliary::get_string_after_pattern($errorlog,
-                   "mysqld .{1,100} starting as process ");
+                   " starting as process ");
     }
     $pid = Auxiliary::check_if_reasonable_pid($pid);
     if (defined $pid) {

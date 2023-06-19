@@ -227,7 +227,7 @@ sub monitor_nonthreaded {
     # debilitating deadlocks.
 
     # For testing
-    # system("killall -11 mysqld"); # return STATUS_SERVER_CRASHED
+    # system("killall -11 mariadbd mysqld"); # return STATUS_SERVER_CRASHED
     my $dbh;
 
     # We directly call exit() in the handler because attempting to catch and handle the signal in
@@ -295,7 +295,7 @@ sub monitor_nonthreaded {
     alarm ($alarm_timeout);
     # For testing: Syntax error -> STATUS_UNKNOWN_ERROR
     # $query    = "SHOW FULL OMO";          # Syntax error -> STATUS_SYNTAX_ERROR(21)
-    # system("killall -9 mysqld; sleep 1"); # Dead server  -> STATUS_SERVER_CRASHED(101)
+    # system("killall -9 mariadbd mysqld; sleep 1"); # Dead server  -> STATUS_SERVER_CRASHED(101)
     #
     # alarm (3);                            # Exceed $alarm_timeout -> STATUS_SERVER_DEADLOCKED
     # $query = "SELECT SLEEP(4)";
@@ -596,7 +596,7 @@ sub nativeDead {
         #     "Will check more.");
         # Maybe the server is around crashing.
         my $error_log = $reporter->serverInfo('errorlog');
-        my $found = Auxiliary::search_in_file($error_log, '\[ERROR\] mysqld got signal');
+        my $found = Auxiliary::search_in_file($error_log, '\[ERROR\] (mariadbd|mysql) got signal');
         if (not defined $found) {
             # Technical problems!
             my $status = STATUS_ENVIRONMENT_FAILURE;
@@ -604,7 +604,7 @@ sub nativeDead {
                 "Will exit with STATUS_ENVIRONMENT_FAILURE.");
             exit $status;
         } elsif ($found) {
-            say("INFO: $who_am_i '\[ERROR\] mysqld got signal' detected. " .
+            say("INFO: $who_am_i '\[ERROR\] <DB server> got signal' detected. " .
                 "Will exit with STATUS_SERVER_CRASHED.");
             exit STATUS_SERVER_CRASHED;
         } else {
@@ -667,7 +667,7 @@ sub nativeReport {
         system($cdb_command);
     } else {
         # When being here it is not 100% clear if we have a real freeze or some dying server.
-        my $msg_begin = "INFO: $who_am_i Killing mysqld with pid $server_pid with";
+        my $msg_begin = "INFO: $who_am_i Killing <Db server> with pid $server_pid with";
         say("$msg_begin SIGHUP in order to force debug output.");
         # MariaDB prints a round status information into the server error log.
         kill(1, $server_pid);

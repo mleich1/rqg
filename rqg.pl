@@ -788,17 +788,25 @@ my $all_binaries_exist = 1;
 foreach my $i (0..3) {
     if (defined $basedirs[$i]) {
         my $found = 0;
-        my $name = "mysqld" . $extension;
+        my $name = "mariadbd" . $extension;
         $return = Auxiliary::find_file_at_places($basedirs[$i], \@subdir_list, $name);
         if (defined $return) {
-            say("DEBUG: Server binary found : '$return'.");
+            # say("DEBUG: Server binary found : '$return'.");
             $found = 1;
             next;
         } else {
-            say("DEBUG: No server binary named '$name' in '$basedirs[$i]' found.");
-            if ($found == 0) {
-                say("ERROR: No server binary in $basedirs[$i]' found.");
-                $all_binaries_exist = 0;
+            $name = "mysqld" . $extension;
+            $return = Auxiliary::find_file_at_places($basedirs[$i], \@subdir_list, $name);
+            if (defined $return) {
+                # say("DEBUG: Server binary found : '$return'.");
+                $found = 1;
+                next;
+            } else {
+                # say("DEBUG: No server binary named '$name' in '$basedirs[$i]' found.");
+                if ($found == 0) {
+                    say("ERROR: No server binary in $basedirs[$i]' found.");
+                    $all_binaries_exist = 0;
+                }
             }
         }
     } # End of checking defined $basedirs[$i]
