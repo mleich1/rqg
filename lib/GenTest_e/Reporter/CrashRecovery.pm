@@ -77,7 +77,7 @@ sub monitor {
     # disconnected and the crash is maybe too harmless.
     # In addition the reporter "Deadlock" will also try to connect.
     if (time() > $reporter->testEnd() - 19) {
-    my $kill_msg = "$who_am_i Sending SIGKILL to server with pid $pid in order to force a crash.";
+        my $kill_msg = "$who_am_i Sending SIGKILL to server with pid $pid in order to force a crash.";
         say("INFO: $kill_msg");
         # Do not use $server->killServer here because it might cause trouble within the GenTest_e.pm
         # OUTER loop like
