@@ -181,8 +181,9 @@ sub parseFromString {
     while ($grammar_string =~ s{#include [<"](.*?)[>"]$}{
         {
             my $include_string;
-            my $include_file = $1;
-            if (not open (IF, $1)) {
+            my $rqg_home = $ENV{'RQG_HOME'};
+            my $include_file = $rqg_home . "/" . $1;
+            if (not open (IF, $include_file)) {
                 my $status = STATUS_ENVIRONMENT_FAILURE;
                 Carp::cluck("Unable to open include file '$include_file': $!. " .
                             "Will return status " . status2text($status) . " ($status)\n");
