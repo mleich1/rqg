@@ -143,7 +143,20 @@ create_table:
 create_parent:
    CREATE TABLE birth . parent ( non_generated_cols generated_cols ) engine_setup ;
 create_child:
-   CREATE TABLE birth . child LIKE birth . parent ; ALTER TABLE birth . child ADD FOREIGN KEY (col1) REFERENCES birth . parent(col1) ;
+   CREATE TABLE birth . child LIKE birth . parent ; ALTER TABLE birth . child ADD FOREIGN KEY (col1) REFERENCES birth . parent(col1) on_action ;
+on_action:
+                       |
+   on_delete           |
+   on_update           |
+   on_delete on_update ;
+on_delete:
+   ON DELETE update_delete_action ;
+on_update:
+   ON UPDATE update_delete_action ;
+update_delete_action:
+   RESTRICT |
+   CASCADE  |
+   SET NULL ;
 move_to_test:
    set_table_names RENAME TABLE birth . parent TO $parent , birth . child TO $child ;
 
