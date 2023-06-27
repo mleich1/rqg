@@ -105,28 +105,29 @@ my $simp_success           = -1;
 # (Most probably) needed because of technical reasons.
 use constant PHASE_SIMP_BEGIN       => 'simp_begin';
 #
-# Attempt to replay with the compactified initial grammar.
+# Attempts to replay with the compactified initial grammar.
 use constant PHASE_FIRST_REPLAY     => 'first_replay';
 my $first_replay_success   = -1;
 #
-# Attempt to replay with the actual best replaying grammar and threads = 1,
+# Attempts to replay with the actual best replaying grammar and threads = 1,
 use constant PHASE_THREAD1_REPLAY   => 'thread1_replay';
 my $thread1_replay_success = -1;
 #
-# Attempt to shrink the amount of reporters, validators, transformers.
+# Attempts to shrink the amount of reporters, validators, transformers.
 use constant PHASE_RVT_SIMP         => 'rvt_simp';
 my $rvt_simp_success       = -1;
 #
+# Attempts to shrink the YY grammar.
 use constant PHASE_GRAMMAR_SIMP     => 'grammar_simp';
 #
-# Attempt to reduce the amount of threads (useful before 'grammar_clone')
+# Attempts to reduce the amount of threads (useful before 'grammar_clone')
 # Try with n in (1, 2, 3, ...) but n < $threads.
 # In case one replays than make all orders with more threads invalid and stop corresponding jobs.
 # Limit the number of finished attempts.
 use constant PHASE_THREAD_REDUCE    => 'thread_reduce';
 my $thread_reduce_success  = -1;
 
-# Attempt to clone rules
+# Clone rules
 # - containing more than one alternative/component
 # - being used more than once
 # within the actual best replaying grammar.
