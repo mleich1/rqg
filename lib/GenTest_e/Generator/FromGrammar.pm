@@ -1,6 +1,7 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2018-2021 MariaDB Corporation Ab.
+# Copyright (c) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -121,7 +122,6 @@ sub next {
     # Used in expand
     our $prng = $generator->[GENERATOR_PRNG];
     my %rule_invariants = ();
-
 
     my %rule_counters;
     # our because the inner sub "expand" fiddles with %invariants.
@@ -531,16 +531,14 @@ sub next {
 			splice(@sentence, $pos, 1, @expansion);
 
         }
-
         return @sentence;
     } # end of sub expand
 
 	#
 	# If a temporary file has been left from a previous statement, unlink it.
 	#
-
-   unlink($generator->[GENERATOR_TMPNAM]) if defined $generator->[GENERATOR_TMPNAM];
-   $generator->[GENERATOR_TMPNAM] = undef;
+    unlink($generator->[GENERATOR_TMPNAM]) if defined $generator->[GENERATOR_TMPNAM];
+    $generator->[GENERATOR_TMPNAM] = undef;
 
    my $starting_rule;
 
