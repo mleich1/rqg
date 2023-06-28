@@ -186,21 +186,22 @@ sub report {
     }
 
     our $errorlog_status = STATUS_OK;
-    # FIXME maybe: Move the routine check_error_log into lib/DBServer_e/MySQL/MySQLd.pm
-    #              if easy doable.
-    # IN:  Current $errorlog_status?
-    # OUT: $errorlog_status
-    # The caller has to keep its task (Example used here: CrashRecovery) in mind and map
-    # - STATUS_SERVER_CRASHED (exception, ..., segmentation fault) to STATUS_RECOVERY_FAILURE
-    # - STATUS_SERVER_CORRUPTION (corrupt|crashed) to STATUS_RECOVERY_FAILURE
-    # - STATUS_ENVIRONMENT_FAILURE (device full error) to nothing else
     sub check_error_log {
         open(RECOVERY, $server->errorlog);
+        our $errorlog_check;
+        $errorlog_check = 1 if not defined $errorlog_check;
         while (<RECOVERY>) {
             $_ =~ s{[\r\n]}{}siog;
             # Only for debugging
             # say($_);
-            if      ($_ =~ m{corrupt|crashed}) {
+            if      ($_ =~ m{Table was marked as crashed and should be repaired}) {
+                if ($errorlog_check == 1) {
+                    say("ALARM: $who_am_i Log message '$_' direct after crash + restart + no touching of table is unexpected.");
+                    last;
+                } else {
+                    say("WARN: $who_am_i Log message '$_' after crash + restart + checks.");
+                }
+            } elsif ($_ =~ m{corrupt}) {
                 say("WARN: $who_am_i Log message '$_' might indicate database corruption.");
                 my $status = STATUS_RECOVERY_FAILURE;
                 $errorlog_status = $status if $status > $errorlog_status;
@@ -224,6 +225,7 @@ sub report {
             }
         }
         close(RECOVERY);
+        $errorlog_check = 2;
     }
 
     # For debugging:
@@ -367,7 +369,9 @@ sub report {
 
             my @walk_queries;
 
+            my $has_no_key = 1;
             while (my $key_hashref = $sth_keys->fetchrow_hashref()) {
+                $has_no_key = 0;
                 my $key_name =    $key_hashref->{Key_name};
                 my $column_name = $key_hashref->{Column_name};
 
@@ -456,10 +460,16 @@ sub report {
                     }
                     my $my_query = "SELECT $select_type FROM $table_to_check " .
                                    "FORCE INDEX (`$key_name`) " . $main_predicate;
-                    # say("DEBUG: Walkquery ==>" . $my_query . "<=");
+                    # say("DEBUG: Walkquery ==>" . $my_query . "<= added");
                     push @walk_queries, $my_query;
                 }
             };
+
+            if ($has_no_key) {
+                my $my_query = "SELECT * FROM $table_to_check";
+                push @walk_queries, $my_query;
+                say("DEBUG: Walkquery ==>" . $my_query . "<= added");
+            }
 
             my %rows;
             my %data;
