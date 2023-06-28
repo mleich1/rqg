@@ -614,11 +614,6 @@ sub createMysqlBase  {
     if ($rc != 0) {
         my $status = STATUS_FAILURE;
         say("ERROR: Bootstrap failed");
-#       # The current code of make_backtrace is focused on server crashes outside of bootstrap.
-#       # And because of that it insists in inspecting the stderr output in some 'mysql.err'.
-#       # Hence I copy 'boot.err' to 'mysql.err' first.
-#       File::Copy::copy($booterr, $self->errorlog);
-#       sayFile($booterr);
         $self->make_backtrace;
         say("ERROR: Will return STATUS_FAILURE" . "($status)");
         return $status;
