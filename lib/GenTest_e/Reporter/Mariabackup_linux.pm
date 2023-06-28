@@ -657,6 +657,9 @@ sub monitor {
         # FIXME: The command above can fail.
         my %tables = @$tabl_ref;
         foreach my $table (keys %tables) {
+            # For testing
+            # $clone_server->crashServer();
+
             # Should not do CHECK etc., and especially ALTER, on a view
             next if $tables{$table} eq 'VIEW';
             my $sql = "CHECK TABLE `$database`.`$table` EXTENDED";
@@ -669,25 +672,21 @@ sub monitor {
                 Auxiliary::direct_to_stdout();
                 say("ERROR: $who_am_i : '$sql' failed with : " . $err);
                 $clone_dbh->disconnect();
-                sayFile($clone_err);
                 sayFile($reporter_prt);
-                # FIXME:
-                # It should be possible to replay what happened based on
-                # - the data backup copy and starting+checking
-                # - some rr trace if enabled
-                # Hence running some killServer now will not destroy valuable information or
-                # to generate it later.
-                # But reacting on some dying server with killServer
-                # - can lead to confusion based on error log content like
-                #   Was the server already dying or came the 'mysqld got signal ' from the
-                #   killServer?
-                # - has an influence how the final death happens and the error log content
-                # Provisional solution:
+                my $snip = "the server running on cloned data.";
                 if ($err == 2013 or $err == 2006) {
-                    sleep 30;
+                    say("ERROR: $who_am_i : Will call make_backtrace for " . $snip);
+                    $clone_server->make_backtrace;
+                } else {
+                    sayFile($clone_err);
+                    # It should be possible to replay what happened based on
+                    # - the data backup copy and starting+checking
+                    # - some rr trace if enabled
+                    # Hence running some killServer now will not destroy valuable information or
+                    # prevent to generate it later.
+                    say("ERROR: $who_am_i : Will kill " . $snip);
+                    my $throw_away_status = $clone_server->killServer();
                 }
-                say("ERROR: $who_am_i : Will kill the server running on cloned data");
-                my $throw_away_status = $clone_server->killServer();
                 # The damage is some corruption.
                 # Based on the fact that this is found in the server running on the backuped data
                 # I prefer to return STATUS_BACKUP_FAILURE and not STATUS_DATABASE_CORRUPTION.
@@ -712,7 +711,6 @@ sub monitor {
     # but is otherwise somehow damaged. And these damages become maybe visible when having
     # - heavy DML+DDL including some runtime of more than 60s which we do not have here
     # - a "friendly" shutdown
-#   Auxiliary::direct_to_stdout();
     $status = $clone_server->stopServer();
     if (STATUS_OK != $status) {
         Auxiliary::direct_to_stdout();
