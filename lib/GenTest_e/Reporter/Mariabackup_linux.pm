@@ -237,7 +237,10 @@ sub monitor {
 
     # Replace maybe by use of Auxiliary::find_file_at_places like in rqg_batch.pl
     # mariabackup could be in bin too.
-    my $backup_binary = "$client_basedir" . "/mariabackup";
+    my $backup_binary = "$client_basedir" . "/mariadb-backup";
+    if (not -e $backup_binary) {
+        $backup_binary = "$client_basedir" . "/mariabackup";
+    }
     if (not -e $backup_binary) {
         Auxiliary::direct_to_stdout();
         my $status = STATUS_ENVIRONMENT_FAILURE;

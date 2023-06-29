@@ -1164,12 +1164,14 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                                     server_options   => $mysqld_options[0],
                                     general_log      => 1,
                                     config           => $cnf_array_ref,
+                                    id               => 1,
                                     user             => $user);
     if (not defined $server[0]) {
         say("ERROR: Preparing the server[0] for the start failed.");
         my $status = STATUS_ENVIRONMENT_FAILURE;
         exit_test($status);
     }
+
 
     my $status = $server[0]->startServer;
     if ($status > STATUS_OK) {
@@ -1237,6 +1239,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                    server_options    => $mysqld_options[1],
                    general_log       => 1,
                    config            => $cnf_array_ref,
+                   id                => 2,
                    user              => $user);
 
     $dsns[1] = $server[1]->dsn($database, $user);

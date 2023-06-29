@@ -1,4 +1,5 @@
 # Copyright (C) 2016, 2022 MariaDB Corporation Ab
+# Copyright (C) 2023 MariaDB plc
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -244,7 +245,7 @@ sub report {
     # If we are here, the new server must have started and no critical errors occurred.
     # For a minor upgrade, it should be enough, and the server should be working properly.
     # For the major upgrade, however, having some errors in the error is
-    # normal, until we run mysql_upgrade.
+    # normal, until we run the upgrade program.
 
     $dbh = DBI->connect($server->dsn);
     if (not defined $dbh) {
@@ -255,17 +256,20 @@ sub report {
     if ($server->majorVersion eq $major_version_old) {
         say("New server started successfully after the minor upgrade");
     } elsif ($server->serverVariable('innodb_read_only') and (uc($server->serverVariable('innodb_read_only')) eq 'ON' or $server->serverVariable('innodb_read_only') eq '1') ) {
-        say("New server is running with innodb_read_only=1, skipping mysql_upgrade");
+        say("New server is running with innodb_read_only=1, skipping the upgrade program");
     } else {
-        my $mysql_upgrade= $server->clientBindir.'/'.(osWindows() ? 'mysql_upgrade.exe' : 'mysql_upgrade');
-        say("New server started successfully after the major upgrade, running mysql_upgrade now using the command:");
-        my $cmd= "\"$mysql_upgrade\" --host=127.0.0.1 --port=".$server->port." --user=root --password=''";
+        my $upgrade_pgm= $server->clientBindir.'/'.(osWindows() ? 'mariadb-upgrade.exe' : 'mariadb-upgrade');
+        if (not -e $upgrade_pgm) {
+            $upgrade_pgm= $server->clientBindir.'/'.(osWindows() ? 'mysql_upgrade.exe' : 'mysql_upgrade');
+        }
+        say("New server started successfully after the major upgrade, running the upgrade program now using the command:");
+        my $cmd= "\"$upgrade_pgm\" --host=127.0.0.1 --port=".$server->port." --user=root --password=''";
         say($cmd);
-        my $res= system("$cmd > $datadir/mysql_upgrade.log");
+        my $res= system("$cmd > $datadir/upgrade.log");
         if ($res == STATUS_OK) {
-            # mysql_upgrade can return exit code 0 even if user tables are corrupt,
+            # The upgrade program upgrade can return exit code 0 even if user tables are corrupt,
             # so we don't trust the exit code, we should also check the actual output
-            if (open(UPGRADE_LOG, "$datadir/mysql_upgrade.log")) {
+            if (open(UPGRADE_LOG, "$datadir/upgrade.log")) {
                 OUTER_READ:
                 while (<UPGRADE_LOG>) {
                     # For now we will only check 'Repairing tables' section,
@@ -274,24 +278,24 @@ sub report {
                     while (<UPGRADE_LOG>) {
                         if (/^\s*Error/) {
                             $res= STATUS_UPGRADE_FAILURE;
-                            say("ERROR: $who_am_i Found errors in mysql_upgrade output");
-                            sayFile("$datadir/mysql_upgrade.log");
+                            say("ERROR: $who_am_i Found errors in update program output");
+                            sayFile("$datadir/upgrade.log");
                             last OUTER_READ;
                         }
                     }
                 }
                 close (UPGRADE_LOG);
             } else {
-                say("ERROR: $who_am_i Could not find mysql_upgrade.log");
+                say("ERROR: $who_am_i Could not find upgrade.log");
                 $res= STATUS_UPGRADE_FAILURE;
             }
         }
         if ($res != STATUS_OK) {
-            say("ERROR: $who_am_i mysql_upgrade has failed");
+            say("ERROR: $who_am_i The upgrade program has failed");
             sayFile($errorlog);
             return report_and_return(STATUS_UPGRADE_FAILURE);
         }
-        say("mysql_upgrade has finished successfully, now the server should be ready to work");
+        say("The upgrade program has finished successfully, now the server should be ready to work");
     }
 
     #
