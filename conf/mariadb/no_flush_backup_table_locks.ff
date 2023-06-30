@@ -1,0 +1,5 @@
+$rules = {
+    'no_flush_tables' => sub { $_ =~ m{FLUSH .*TABLES}is },
+    'no_lock_table'   => sub { $_ =~ m{LOCK *TABLE}is },
+    'no_backup_lock'  => sub { $_ =~ m{BACKUP *STAGE}is },
+}
