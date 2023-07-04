@@ -745,7 +745,7 @@ sub report {
             $info_m = "D6";
             $info = "INFO: $info_m Paging ($pswpout) has been observed. This $end_part";
             charge_decrease;
-        } elsif ($slowdir_consumed > $slowdir_free_init * 0.95) {
+        } elsif ($slowdir_consumed > $slowdir_free_init * 0.92) {
             $info_m = "D7";
             $info = "INFO: $info_m 90% of initial free space in slowdir used. This $end_part.";
             charge_decrease;
@@ -784,7 +784,7 @@ sub report {
             $info_m = "K6";
             $info = "INFO: $info_m 1% of total swap space used consumed for testing. This $end_part";
             charge_keep;
-        } elsif ($slowdir_consumed > $slowdir_free_init * 0.9) {
+        } elsif ($slowdir_consumed > $slowdir_free_init * 0.88) {
             $info_m = "K7";
             $info = "INFO: $info_m 90% of initial free space in slowdir used. This $end_part.";
             charge_keep;
