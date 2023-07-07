@@ -70,7 +70,7 @@ $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
 $Carp::MaxArgNums= 8;
 
-use constant RQG_RUNNER_VERSION  => 'Version 4.2.1 (2022-12)';
+use constant RQG_RUNNER_VERSION  => 'Version 4.3.0 (2023-06)';
 use constant STATUS_CONFIG_ERROR => 199;
 
 use strict;
@@ -1340,7 +1340,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         }
     }
 }
-
 # In case something went wrong around server starts than the corresponding routine
 # made a backtrace and there should have been some exit.
 
@@ -1695,6 +1694,15 @@ foreach my $srv (@server) {
                 say("ERROR: Raising check_status from $check_status to $is_operable.");
                 $check_status = $is_operable;
             }
+            # EXPERIMENT BEGIN
+            if ($server_num > 0 and
+                defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE and
+                $check_status < STATUS_ENVIRONMENT_FAILURE) {
+                say("ERROR: Setting check_status STATUS_REPLICATION_FAILURE because its not the " .
+                    "first server and some kind of replication ($rpl_mode) is involved.");
+                $check_status = STATUS_REPLICATION_FAILURE;
+            }
+            # EXPERIMENT END
         }
     }
     if ($check_status > $final_result) {
