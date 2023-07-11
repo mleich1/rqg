@@ -118,39 +118,16 @@ sub report {
         exit STATUS_ENVIRONMENT_FAILURE;
     }
 
-    my $datadir = $reporter->serverVariable('datadir');
-    # Cut trailing forward/backward slashes away.
-    $datadir =~ s{[\\/]$}{}sgio;
-    my $fbackup_dir = $datadir;
-    $fbackup_dir =~ s{\/data$}{\/fbackup};
-    if ($datadir eq $fbackup_dir) {
-        say("ERROR: $who_am_i fbackup_dir equals datadir '$datadir'.");
-        exit STATUS_ENVIRONMENT_FAILURE;
-    }
-
     # Docu 2019-05
     # storage_engine
     # Description: See default_storage_engine.
     # Deprecated: MariaDB 5.5
     my $engine = $reporter->serverVariable('storage_engine');
 
-    say("INFO: $who_am_i Copying datadir... (interrupting the copy operation may cause " .
-        "investigation problems later)");
-    say("INFO: $who_am_i Datadir used by the server all time is: $datadir");
-    say("INFO: $who_am_i Copy of that datadir after crash and before restart is in: $fbackup_dir");
-    if (osWindows()) {
-        system("xcopy \"$datadir\" \"$fbackup_dir\" /E /I /Q");
-    } else {
-        system("cp -r --dereference $datadir $fbackup_dir");
+    my $backup_status = $server->backupDatadir();
+    if (STATUS_OK != $backup_status) {
+        return $backup_status;
     }
-    # move($server->errorlog, $fbackup_dir . "/" . MYSQLD_ERRORLOG_FILE);
-    my $errorlog = $server->errorlog;
-    if (STATUS_OK != Basics::copy_file($errorlog, $fbackup_dir . "/" .
-                                       File::Basename::basename($errorlog))) {
-        exit STATUS_ENVIRONMENT_FAILURE;
-    }
-    unlink($errorlog);
-    unlink("$datadir/core*");    # Remove cores from any previous crash
 
     say("INFO: $who_am_i Attempting database recovery using the server ...");
 
@@ -196,7 +173,8 @@ sub report {
             # say($_);
             if      ($_ =~ m{Table was marked as crashed and should be repaired}) {
                 if ($errorlog_check == 1) {
-                    say("ALARM: $who_am_i Log message '$_' direct after crash + restart + no touching of table is unexpected.");
+                    say("ALARM: $who_am_i Log message '$_' direct after crash + restart + " .
+                        "no touching of table is unexpected.");
                     last;
                 } else {
                     say("WARN: $who_am_i Log message '$_' after crash + restart + checks.");
@@ -234,7 +212,6 @@ sub report {
     # We look into the server error log even if the start attempt failed.
     # Reason: Filesystem full should not be classified as STATUS_RECOVERY_FAILURE.
     check_error_log();
-
     if ($recovery_status > STATUS_OK) {
         say("ERROR: $who_am_i Status based on error log checking is $recovery_status");
         if ($errorlog_status > $recovery_status) {
@@ -256,6 +233,8 @@ sub report {
     # Experiment:
     # This is the no more valid (before KILL) pid.
     # my $pid = $reporter->serverInfo('pid');
+
+    # The server start was successful + the server was connectable.
 
     my $dbh = DBI->connect($reporter->dsn(), undef, undef, {
             mysql_connect_timeout  => Runtime::get_connect_timeout(),
@@ -290,6 +269,8 @@ sub report {
         return $recovery_status;
     }
 
+# FIXME: Replace what follows
+if (1) {
     #
     # Phase 2 - The server is now running, so we execute various statements in order to
     #           verify table consistency.
@@ -696,6 +677,7 @@ sub report {
             }
         }
     }
+}
 
     # We look again into the server error log because sometimes the SQL's above pass but
     # the server is already around crashing initiated by these SQL's.
