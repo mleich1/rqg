@@ -111,7 +111,7 @@ sub report {
     say("INFO: $who_am_i Reporting ...");
     # Wait till the kill is finished + rr traces are written + the auxpid has disappeared.
     our $server = $reporter->properties->servers->[0];
-    my $status = $server->cleanup_dead_server;
+    my $status = $server->killServer;
     if (STATUS_OK != $status) {
         say("ERROR: $who_am_i cleaning up the killed server failed with status $status. " .
             "Will exit with STATUS_ENVIRONMENT_FAILURE.");
