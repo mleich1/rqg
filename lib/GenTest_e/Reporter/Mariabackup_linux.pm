@@ -181,6 +181,15 @@ sub monitor {
 
     Auxiliary::direct_to_file($reporter_prt);
 
+    # Take over the settings for the first server.
+    my @mysqld_options = @{$reporter->properties->servers->[0]->getServerOptions};
+
+    if($script_debug) {
+        Auxiliary::direct_to_stdout();
+        say("DEBUG: (new) mysqld_options\n" . join("\n", @mysqld_options));
+        Auxiliary::direct_to_file($reporter_prt);
+    }
+
     # Reuse data for the clone if possible or adjust it.
     my $clone_basedir = $basedir;
     my $clone_user    = $server0->user();
@@ -291,7 +300,7 @@ sub monitor {
     my $rr_addition = '';
 #   if (defined $rr and $rr eq Runtime::RR_TYPE_EXTENDED) {
         $rr_options =  '' if not defined $rr_options;
-        $ENV{'_RR_TRACE_DIR'} = $clone_rrdir;
+        $ENV{'_RR_TRACE_DIR'} = $clone_vardir . '/rr';
         $rr_addition = "ulimit -c 0; rr record --mark-stdio $rr_options";
 #   }
 
@@ -498,54 +507,15 @@ sub monitor {
         return $status;
     }
 
-    # Warning:
-    # Older and/or similar code was trying to set the server general log and error log files to non
-    # standard names.
-    #     my $clone_err = $clone_datadir . '/clone.err';
-    #     Inside of the @mysqld_options
-    #         '--log_error="'.$clone_err.'"',
-    #         '--general_log_file="'.$clone_datadir.'/clone.log"',
-    # This cannot work well when using DBServer_e::MySQL::MySQLd because that assumes that the
-    # standard names are used.
-    # Diffs between source server and server started on backupped data except different paths.
-    # log_bin :                         OFF instead of ON         ok
-    # log_bin_trust_function_creators : OFF instead of ON         ok
-    # max_allowed_packet :              20971520 other 134217728  ok if we do not transfer
-    #                                                                blob content to client
-    # max_statement_time :              0.000000 other 30         ok + recommended/necessary
-    # sync_binlog :                     0 other 1                 ok because we will not use
-    #                                                                it for critical stuff
-    my @mysqld_options = (
-        # Avoid collision if using a master-slave-mariabackup
-        '--server-id=3',
-        # DBServer_e::MySQL::MySQLd::startServer will add '--core-file' if it makes sense.
-        # '--core-file',
-        '--loose-console',
-        '--loose-lc-messages-dir=' . $lc_messages_dir,
-        '--datadir=' . $clone_datadir,
-    #   '--general-log',
-        '--datadir=' . $clone_datadir,
-        '--port=' . $clone_port,
-        '--loose-plugin-dir=' . $plugin_dir,
-        '--max-allowed-packet=20M',
-        '--innodb',
-        '--loose_innodb_use_native_aio=0',
-        '--sql_mode=NO_ENGINE_SUBSTITUTION',
-        '--max_statement_time=0',
-        '--connect_timeout=60',
-    );
-
-    foreach my $plugin (@$plugins) {
-        push @mysqld_options, '--plugin-load=' . $plugin->[0] . '=' . $plugin->[1];
-    };
-    push @mysqld_options, '--loose-file-key-management-filename=' . $fkm_file
-        if defined $fkm_file;
-    push @mysqld_options, '--innodb_page_size=' . $innodb_page_size
-        if defined $innodb_page_size;
-    push @mysqld_options, '--innodb_buffer_pool_size=' . $innodb_buffer_pool_size
-        if defined $innodb_buffer_pool_size;
-    push @mysqld_options, '--log_output=' . $log_output
-        if defined $log_output;
+    # Probably not needed because the checker might set that too.
+    push @mysqld_options, '--loose-max-statement-time=0';
+    # Probably not needed but maybe safer
+    push @mysqld_options, '--loose_innodb_use_native_aio=0';
+    # The main setup could be with some too short timeout.
+    push @mysqld_options, '--connect_timeout=60';
+    # We do not run Crashrecovery tests on the server running on backupped data.
+    # Hence we can pick the fastest setting which is less safe.
+    push @mysqld_options, '--sync_binlog=0';
 
     $|=1;
 
@@ -556,8 +526,11 @@ sub monitor {
 
     # Let routines from lib/DBServer_e/MySQL/MySQLd.pm do as much of the job as possible.
     # I hope that this will work on WIN.
+    # Warning:
+    # Do not set the names of the server general log or error log like older code did.
+    # This cannot work well when using DBServer_e::MySQL::MySQLd because that assumes some
+    # standard layout with standard names below $clone_vardir.
     $server_id = 'backup';
-    my $server_name = "server[$server_id]";
     my $clone_server = DBServer_e::MySQL::MySQLd->new(
                             basedir            => $clone_basedir,
                             vardir             => $clone_vardir,
@@ -571,9 +544,10 @@ sub monitor {
                             general_log        => 1,
                             config             => undef,
                             id                 => $server_id,
-                            user               => $clone_user);
+                            user               => $server0->user());
 
-    my $clone_err = $clone_server->errorlog();
+    my $server_name = "server[$server_id]";
+    my $clone_err =   $clone_server->errorlog();
 
     # system("ls -ld " . $clone_datadir . "/ib_logfile*");
     say("INFO: Attempt to start a DB server on the cloned data.");
