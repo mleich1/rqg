@@ -1,4 +1,5 @@
 # Copyright (C) 2009-2010 Sun Microsystems, Inc. All rights reserved.
+# Copyright (C) 2023 MariaDB plc. All rights reserved.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -238,7 +239,7 @@ binlog_event:
 set_iso_level:
 	safety_check SET global_or_session TRANSACTION ISOLATION LEVEL iso_level ;
 iso_level:
-	{ if ( $format == 'STATEMENT' ) { return $prng->arrayElement(['REPEATABLE READ','SERIALIZABLE']) } else { return $prng->arrayElement(['READ UNCOMMITTED','READ COMMITTED','REPEATABLE READ','SERIALIZABLE']) } } ;
+	{ if ( $format eq 'STATEMENT' ) { return $prng->arrayElement(['REPEATABLE READ','SERIALIZABLE']) } else { return $prng->arrayElement(['READ UNCOMMITTED','READ COMMITTED','REPEATABLE READ','SERIALIZABLE']) } } ;
 
 global_or_session:
 	SESSION | GLOBAL ;
@@ -436,7 +437,7 @@ value:
 	value_temporal         |
 	@aux                   |
 	NULL                   |
-	{ if ($format=='STATEMENT') {return '/*'} } value_unsafe_for_sbr { if ($format=='STATEMENT') {return '*/ 17 '} };
+	{ if ($format eq 'STATEMENT') {return '/*'} } value_unsafe_for_sbr { if ($format eq 'STATEMENT') {return '*/ 17 '} };
 
 value_unsafe_for_sbr:
 # Functions which are unsafe when bin log format = 'STATEMENT'
