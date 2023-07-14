@@ -1694,7 +1694,6 @@ foreach my $srv (@server) {
                 say("ERROR: Raising check_status from $check_status to $is_operable.");
                 $check_status = $is_operable;
             }
-            # EXPERIMENT BEGIN
             if ($server_num > 0 and
                 defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE and
                 $check_status < STATUS_ENVIRONMENT_FAILURE) {
@@ -1702,7 +1701,6 @@ foreach my $srv (@server) {
                     "first server and some kind of replication ($rpl_mode) is involved.");
                 $check_status = STATUS_REPLICATION_FAILURE;
             }
-            # EXPERIMENT END
         }
     }
     if ($check_status > $final_result) {
