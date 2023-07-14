@@ -1,6 +1,7 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2022, MariaDB Corporation Ab.
+# Copyright (c) 2023, MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -73,10 +74,23 @@ sub compare {
 
 sub dumpDiff {
     my @results = @_;
+
+    my $who_am_i = Basics::who_am_i;
     my @files;
     my $diff;
+    my $text;
 
     foreach my $i (0..1) {
+        if (not defined $results[$i]) {
+            $text = "<result[$i] is undef.>";
+            say("DEBUG: $text Will return this information.");
+            return $text;
+        }
+        if (not defined $results[$i]->data()) {
+            $text = "<result[$i] has undef data.>";
+            say("DEBUG: $text Will return this information.");
+            return $text;
+        }
 		return undef if not defined $results[$i] or not defined $results[$i]->data();
 		my $data_sorted = join("\n", sort map { join("\t", map { defined $_ ? $_ : "NULL" } @$_)
                                                   } @{$results[$i]->data()});
@@ -100,9 +114,10 @@ sub dumpDiff {
         foreach my $file (@files) {
             unlink($file);
         }
+        return "<no diff found>";
+    } else {
+        return $diff;
     }
-
-    return $diff;
 	
 }
 
