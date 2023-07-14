@@ -1663,6 +1663,11 @@ if (STATUS_INTERNAL_ERROR == $final_result) {
     exit_test($final_result);
 }
 
+if (STATUS_OK != Auxiliary::update_sizes()) {
+    my $return = STATUS_ENVIRONMENT_FAILURE;
+    exit_test($return);
+}
+
 # Catch if some server is no more operable.
 $check_status = checkServers($final_result); # Exits if status >= STATUS_CRITICAL_FAILURE
 $final_result = $check_status if $check_status > $final_result;
@@ -1682,6 +1687,38 @@ foreach my $srv (@server) {
         say("DEBUG: server[$server_num] is not defined.");
         next;
     }
+    my $status = STATUS_OK;
+    if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)   or
+        ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)       or
+        ($rpl_mode eq Auxiliary::RQG_RPL_ROW)           ) {
+        $status = $rplsrv->waitForSlaveSync;
+        if ($status != STATUS_OK) {
+            # FIXME: We get only STATUS_FAILURE or STATUS_OK returned!
+            # STATUS_REPLICATION_FAILURE is a guess.
+            say("ERROR: waitForSlaveSync failed with $status. ".
+                "Setting final_result to STATUS_REPLICATION_FAILURE.");
+            $final_result = STATUS_REPLICATION_FAILURE ;
+        }
+    } elsif ($rpl_mode eq Auxiliary::RQG_RPL_GALERA) {
+        $status = $rplsrv->waitForNodeSync();
+        if ($status != STATUS_OK) {
+            # FIXME: We get only STATUS_FAILURE or STATUS_OK returned!
+            # STATUS_REPLICATION_FAILURE is a guess.
+            say("ERROR: waitForNodeSync Some Galera cluster nodes were not in sync. " .
+                "Setting final_result to STATUS_REPLICATION_FAILURE.");
+            $final_result = STATUS_REPLICATION_FAILURE ;
+        }
+    } else {
+        # There is nothing to do for
+        # - RQG builtin statement based replication.
+        # - no kind of replication
+    }
+
+    if (STATUS_OK != Auxiliary::update_sizes()) {
+        my $return = STATUS_ENVIRONMENT_FAILURE;
+        exit_test($return);
+    }
+
     my $check_status = $server[$server_num - 1]->checkDatabaseIntegrity();
     if ($check_status != STATUS_OK) {
         say("ERROR: Database Integrity check for server[$server_num] failed " .
@@ -1752,31 +1789,6 @@ if (($final_result == STATUS_OK)                         and
 
     # Compare the content of all servers
     $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_SERVER_COMPARE);
-
-    my $status = STATUS_OK;
-    if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)   or
-        ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)       or
-        ($rpl_mode eq Auxiliary::RQG_RPL_ROW)           ) {
-        $status = $rplsrv->waitForSlaveSync;
-        if ($status != STATUS_OK) {
-            # FIXME: We get only STATUS_FAILURE or STATUS_OK returned!
-            # STATUS_REPLICATION_FAILURE is a guess.
-            say("ERROR: waitForSlaveSync failed with $status. ".
-                "Setting final_result to STATUS_REPLICATION_FAILURE.");
-            $final_result = STATUS_REPLICATION_FAILURE ;
-        }
-    } elsif ($rpl_mode eq Auxiliary::RQG_RPL_GALERA) {
-        $status = $rplsrv->waitForNodeSync();
-        if ($status != STATUS_OK) {
-            # FIXME: We get only STATUS_FAILURE or STATUS_OK returned!
-            # STATUS_REPLICATION_FAILURE is a guess.
-            say("ERROR: waitForNodeSync Some Galera cluster nodes were not in sync. " .
-                "Setting final_result to STATUS_REPLICATION_FAILURE.");
-            $final_result = STATUS_REPLICATION_FAILURE ;
-        }
-    } else {
-        # There is nothing to do for RQG builtin statement based replication.
-    }
 
     # The facts that
     # - the servers are alive
@@ -1896,11 +1908,6 @@ if (($final_result == STATUS_OK)                         and
 
 say("RESULT: The core of the RQG run ended with status " . status2text($final_result) .
     " ($final_result)");
-# FIXME:
-# If $final_result != STATUS_OK
-#     print all server error logs, stop all servers + cleanup + exit
-# and do not print any server error logs earlier except they would get later removed or ...
-
 
 # For debugging
 # killServers();
