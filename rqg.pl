@@ -1731,7 +1731,7 @@ foreach my $srv (@server) {
                 say("ERROR: Raising check_status from $check_status to $is_operable.");
                 $check_status = $is_operable;
             }
-            if ($server_num > 0 and
+            if ($server_num > 1 and
                 defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE and
                 $check_status < STATUS_ENVIRONMENT_FAILURE) {
                 say("ERROR: Setting check_status STATUS_REPLICATION_FAILURE because its not the " .
