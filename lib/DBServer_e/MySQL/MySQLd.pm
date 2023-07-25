@@ -38,6 +38,7 @@ use File::Copy qw(move);
 use Auxiliary;
 use Runtime;
 use GenTest_e::Constants;
+use GenTest_e::Comparator;
 
 use constant MYSQLD_BASEDIR                      => 0;
 use constant MYSQLD_VARDIR                       => 1;
@@ -653,6 +654,9 @@ sub startServer {
                          "--max-allowed-packet=128Mb", # Allow loading bigger blobs
                          "--port="      . $self->port,
                          "--socket="    . $self->socketfile,
+                         # EXPERIMENT BEGIN
+                         "--plugin_load_add=metadata_lock_info",
+                         # EXPERIMENT END
                          "--pid-file="  . $self->pidfile],
                          $self->_logOptions);
     # Do not set
@@ -1183,7 +1187,8 @@ sub startServer {
         return $status;
     } else {
         ####### Experiment begin ##########
-        # Attempt to catch https://jira.mariadb.org/browse/MDEV-31386
+        # Attempt to catch problems similar to https://jira.mariadb.org/browse/MDEV-31386
+        # Its essential that the SQL is executed as early as possible.
         my $query = "SELECT * FROM `information_schema`.`INNODB_BUFFER_PAGE` /* server starter */";
         SQLtrace::sqltrace_before_execution($query);
         $dbh->do($query);
@@ -1798,31 +1803,59 @@ sub stopServer {
 } # End of sub stopServer
 
 sub checkDatabaseIntegrity {
+# checkDatabaseIntegrity needs to be executed without
+# - concurrent sessions running DDL or kill random queries or sessions
+# - busy replication repeating DDL on slave
+# otherwise failures like
+#   action 1 on table A passes
+#   action 2 on table A fails with table A does not exist
+# can show up including getting some misleading status.
+#
 # Code uses GenTest_e::Executor.
+#
+# FIXME maybe: What about some error log checking?
     my $self = shift;
 
-    my $who_am_i =      Basics::who_am_i();
-    my $server_id =     $self->server_id();
-    my $server_name =   "server[" . $server_id . "]";
-    $who_am_i .=        " $server_name: ";
-    my $status =        STATUS_OK;
+    # Prepending the package costs too much space per line.
+    my $who_am_i =          "checkDatabaseIntegrity ";
+    my $server_id =         $self->server_id();
+    my $server_name =       "server[" . $server_id . "]";
+    $who_am_i .=            " $server_name: ";
+    my $status =            STATUS_OK;
     my $err;
+    my $omit_walk_queries = 0;
 
-    my $dsn =      $self->dsn();
+    my $dsn =               $self->dsn();
     my $executor = GenTest_e::Executor->newFromDSN($dsn);
     $executor->setId($server_id);
     $executor->setRole("checkDatabaseIntegrity");
-    # EXECUTOR_TASK_REPORTER ensures that max_statement_time is set to 0 for the current executor.
-    # But this is not valid for the connection established by mysqldump!
+    # EXECUTOR_TASK_CHECKER ensures that max_statement_time is set to 0 for the current executor.
+    # Hence there should be no trouble if certain SQL lasts long because a table is big.
     $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_CHECKER);
     $status = $executor->init();
     return $status if $status != STATUS_OK;
 
-    # For debugging
+    # For experimenting
+    if (0) {
+        # Generate two damaged views so that CHECK TABLE reports an error.
+        # Do not forget to uncomment the 'next if "VIEW" eq $table_type;' some lines later.
+        say("WARN: $who_am_i CREATE a table and a dangling view");
+        $executor->execute("CREATE TABLE test.extra_t1 (col1 INT)");
+        $executor->execute("CREATE TABLE test.extra_t2 (col1 INT, col2 INT)");
+        $executor->execute("CREATE TABLE test.extra_t1 (col1 INT)");
+        $executor->execute("CREATE VIEW test.extra_v1 AS SELECT * FROM test.extra_t1");
+        $executor->execute("CREATE VIEW test.extra_v2 AS SELECT * FROM test.extra_t2");
+        $executor->execute("ALTER TABLE test.extra_t2 DROP COLUMN col2");
+    }
+
+    #
     # $self->killServer;
     # SELECT 'test' WHERE 1 IS NULL --> not undef
     # GARBAGE                       --> undef and 1064
-    my $aux_query =     "SHOW DATABASES";
+    my $aux_query = "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, ENGINE " .
+             "FROM information_schema.tables " .
+             "WHERE TABLE_SCHEMA NOT IN ('pbxt','performance_schema') " .
+             "ORDER BY TABLE_SCHEMA, TABLE_NAME";
     my $res_databases = $executor->execute($aux_query);
     $status = $res_databases->status;
     if (STATUS_OK != $status) {
@@ -1835,54 +1868,144 @@ sub checkDatabaseIntegrity {
         return $status;
     }
 
-    if (0) {
-        # Generate some damaged view so that CHECK TABLE reports an error.
-        # Do not forget to uncomment the 'next if "VIEW" eq $table_type;' some lines later.
-        say("WARN: $who_am_i CREATE a table and a dangling view");
-        $executor->execute("CREATE TABLE test.extra_t2 (col1 INT, UNIQUE(KEY ");
-        $executor->execute("CREATE TABLE test.extra_t1 (col1 INT)");
-        $executor->execute("CREATE VIEW test.extra_v1 AS SELECT * FROM test.extra_t1");
-        $executor->execute("DROP TABLE test.extra_t1");
-    }
-
     my $key_ref = $res_databases->data;
     foreach my $val (@$key_ref) {
-        my $database = $val->[0];
-        # say("DEBUG: database ->" . $database . "<-");
-        ######### Experiment begin
-        # next if $database =~ m{^(rqg|mysql|information_schema|pbxt|performance_schema)$}sio;
-        next if $database =~ m{^(rqg|mysql|                   pbxt|performance_schema)$}sio;
-        ######### Experiment end
-        $aux_query = "USE $database";
-        my $res_use = $executor->execute($aux_query);
-        $status = $res_use->status;
-        if (STATUS_OK != $status) {
-            $executor->disconnect();
-            $err = $res_use->err;
-            say("ERROR: $who_am_i '$aux_query' failed, error: $err");
-            return $status;
-        }
-        $aux_query = "SHOW FULL TABLES";
+        my $r_schema =          $val->[0];
+        my $r_table =           $val->[1];
+        my $r_table_type =      $val->[2];
+        my $r_engine =          $val->[3];
+        $r_engine =             "<undef>" if not defined $r_engine;
+        my $table_to_check =    "`$r_schema`" . ' . ' . "`$r_table`";
+        # say("DEBUG: $who_am_i object: ->" . $r_schema . "<->" . $r_table . "<->" . $r_table_type .
+        #     "<->" . $r_engine . "<-");
+
+        # SHOW CREATE TABLE/VIEW
+        # ----------------------
+        $aux_query = "SHOW CREATE TABLE " . $table_to_check;
         my $res_tables = $executor->execute($aux_query);
         $status = $res_tables->status;
         if (STATUS_OK != $status) {
             $executor->disconnect();
             my $err    = $res_tables->err;
+            $err = "<undef>" if not defined $err;
             my $errstr = $res_tables->errstr;
-            say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
-                Auxiliary::build_wrs($status));
+            $errstr = "<undef>" if not defined $errstr;
+            say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err: $errstr");
+            if (STATUS_SEMANTIC_ERROR == $status) {
+                # The list of tables is determined from the server data dictionary.
+                # Hence we have a diff between server and innodb data dictionary == corruption.
+                say("ERROR: $who_am_i Raising status to STATUS_DATABASE_CORRUPTION.");
+                return STATUS_DATABASE_CORRUPTION;
+            }
+            say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
             return $status;
+        } else {
+            # say("DEBUG: $who_am_i Query ->" . $aux_query . "<- pass.");
         }
-        my $key_ref1 = $res_tables->data;
-        # Tables_in_test  Table_type
-        # t2      BASE TABLE
-        # v1      VIEW
-        foreach my $val1 (@$key_ref1) {
-            my $table =      $val1->[0];
-            my $table_type = $val1->[1];
-            # say("DEBUG: table ->" . $table . "<- table_type ->" . $table_type . "<-");
-            next if "VIEW" eq $table_type;
-            $aux_query = "CHECK TABLE `$database`.`$table` EXTENDED";
+        if ($r_table_type eq "VIEW" or
+            ($r_table_type eq "SYSTEM VIEW" and $r_engine eq "<undef>")) {
+            $aux_query = "SHOW CREATE VIEW $r_schema . $r_table";
+            # Hint:
+            # information_schema . ALL_PLUGINS ==> ->information_schema, ALL_PLUGINS, SYSTEM VIEW, Aria
+            # SHOW CREATE VIEW information_schema . ALL_PLUGINS harvests
+            # 1347 : 'information_schema.ALL_PLUGINS' is not of type 'VIEW'
+            my $res_tables = $executor->execute($aux_query);
+            $status = $res_tables->status;
+            if (STATUS_OK != $status) {
+                $executor->disconnect();
+                my $err    = $res_tables->err;
+                $err = "<undef>" if not defined $err;
+                my $errstr = $res_tables->errstr;
+                $errstr = "<undef>" if not defined $errstr;
+                if (STATUS_SEMANTIC_ERROR == $status) {
+                    # The list of tables is determined from the server data dictionary.
+                    # Hence we have a diff between server and innodb data dictionary == corruption.
+                    say("ERROR: $who_am_i Raising status to STATUS_DATABASE_CORRUPTION.");
+                    return STATUS_DATABASE_CORRUPTION;
+                }
+                say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
+                return $status;
+            } else {
+                $status = STATUS_OK;
+            }
+        } else {
+            # say("DEBUG: $who_am_i Query ->" . $aux_query . "<- pass.");
+        }
+
+        # $self->killServer;
+
+        # CHECK TABLE/VIEW
+        # ----------------
+        # There is no reason to exclude VIEWs(They might have lost their base table).
+        # The Executor can handle that and would return STATUS_SKIP.
+        $aux_query = "CHECK TABLE " . $table_to_check . " EXTENDED";
+        my $res_check = $executor->execute($aux_query);
+        $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
+        if (STATUS_OK != $status) {
+            my $err    = $res_check->err;
+            $err = "<undef>" if not defined $err;
+            my $errstr = $res_check->errstr;
+            $errstr = "<undef>" if not defined $errstr;
+            if (STATUS_SKIP == $status) {
+                say("INFO: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
+                $omit_walk_queries = 1 if $r_table_type eq "VIEW" or $r_table_type eq "SYSTEM VIEW";
+                $status = STATUS_OK;
+            } else {
+                if ($r_engine ne 'InnoDB') {
+                    my $aux_query1 = "REPAIR TABLE `$r_schema`.`$r_table` EXTENDED";
+                    my $res_tables = $executor->execute($aux_query1);
+                    $status = $res_tables->status;
+                    if (STATUS_OK != $status) {
+                        $executor->disconnect();
+                        my $err    = $res_tables->err;
+                        my $errstr = $res_tables->errstr;
+                        say("ERROR: $who_am_i Query ->" . $aux_query1 . "<- failed with $err : $errstr " .
+                            Auxiliary::build_wrs($status));
+                        return $status;
+                    }
+                    # say("INFO: $who_am_i Query ->" . $aux_query . "<- passed");
+                } else {
+                    $executor->disconnect();
+                    say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
+                        Auxiliary::build_wrs($status));
+                    return $status;
+                }
+            }
+        } else {
+            # say("INFO: $who_am_i $aux_query : pass");
+            # No reason to analyse the result because that was already done by MySQL.pm and
+            # we received some corresponding status.
+        }
+        if ($r_table_type eq "VIEW" or $r_table_type eq "SYSTEM VIEW") {
+            $aux_query = "CHECK VIEW " . $table_to_check;
+            my $res_check = $executor->execute($aux_query);
+            $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
+            if (STATUS_OK != $status) {
+                my $err    = $res_check->err;
+                $err = "<undef>" if not defined $err;
+                my $errstr = $res_check->errstr;
+                $errstr = "<undef>" if not defined $errstr;
+                if (STATUS_SKIP == $status) {
+                    say("INFO: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
+                    $status = STATUS_OK;
+                } else {
+                    $executor->disconnect();
+                    say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
+                        Auxiliary::build_wrs($status));
+                    return $status;
+                }
+            } else {
+                # say("INFO: $who_am_i $aux_query : pass");
+                # No reason to analyse the result because that was already done by MySQL.pm and
+                # we received some corresponding status.
+            }
+        }
+
+        # ANALYZE TABLE
+        # -------------
+        # I am aware that some fine grained checking of the server response is missing.
+        if ($r_table_type eq "BASE TABLE") {
+            $aux_query = "ANALYZE TABLE " . $table_to_check;
             my $res_check = $executor->execute($aux_query);
             $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
             if (STATUS_OK != $status) {
@@ -1899,11 +2022,397 @@ sub checkDatabaseIntegrity {
                     return $status;
                 }
             } else {
+                  say("INFO: $who_am_i $aux_query : pass");
+                # No reason to analyse the result because that was already done by MySQL.pm and
+                # we received some corresponding status.
+            }
+        }
+
+        # CHECKSUM TABLE
+        # --------------
+        if ($r_table_type eq "BASE TABLE") {
+            $aux_query = "CHECKSUM TABLE " . $table_to_check;
+            my $res_check = $executor->execute($aux_query);
+            $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
+            if (STATUS_OK != $status) {
+                my $err    = $res_check->err;
+                $err = "<undef>" if not defined $err;
+                my $errstr = $res_check->errstr;
+                $errstr = "<undef>" if not defined $errstr;
+                $executor->disconnect();
+                say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
+                    Auxiliary::build_wrs($status));
+                return $status;
+            } else {
+                # say("INFO: $who_am_i $aux_query : pass");
+                # No reason to analyse the result because that was already done by MySQL.pm and
+                # we received some corresponding status.
+            }
+        }
+
+        # SELECT * for tables/views in system schemas
+        # -------------------------------------------
+        # I fear that walk queries on certain system tables/views deliver result sets influenced
+        # by the number of walk queries executed and similar. Hence no walk queries with result
+        # set comparison on such tables/views.
+        # The tables/views in located in other schemas get a "SELECT * " during the walk query
+        # generation if needed.
+        if ($r_schema eq 'information_schema' or $r_schema eq 'mysql' or $r_schema eq 'mariadb') {
+            $aux_query = "SELECT * FROM " . $table_to_check;
+            my $res_check = $executor->execute($aux_query);
+            $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
+            if (STATUS_OK != $status) {
+                my $err    = $res_check->err;
+                $err = "<undef>" if not defined $err;
+                my $errstr = $res_check->errstr;
+                $errstr = "<undef>" if not defined $errstr;
+                # Damaged system views must not exist. Hence STATUS_SKIP is not tolerable.
+                $executor->disconnect();
+                say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
+                    Auxiliary::build_wrs($status));
+                return $status;
+            } else {
+                # say("INFO: $who_am_i $aux_query : pass");
+                # No reason to analyse the result because that was already done by MySQL.pm and
+                # we received some corresponding status.
+            }
+        }
+
+        next if $omit_walk_queries;
+        # next if $r_schema eq 'information_schema' or $r_schema eq 'mysql' or $r_schema eq 'mariadb';
+        # There is a too high risk to get result sets of different sizes or content because of
+        # selecting on some view containing counters.
+        # next if $r_schema eq 'information_schema' or $r_schema eq 'mysql' or $r_schema eq 'mariadb';
+        next if $r_schema eq 'information_schema';
+
+        # GENERATE WALK QUERIES
+        # ---------------------
+        # Reasons for running the walk queries:
+        # 1. CHECK TABLE ... EXTENDED might have a defect and miss to catch a key BTREE with
+        #    superflous, missing or wrong entries.
+        # 2. All the SQL above might miss to detect a diff between server and InnoDB DD.
+        #
+        # There is also a most probably very small risk to catch some optimizer bug.
+
+        # Do not assume that a column containing "int" in its name must be from data type INT.
+        # This is expected to fail like
+        #     ERROR: SELECT * FROM `test`.`AA` FORCE INDEX (`col_int_nokey`)
+        #            WHERE `col_int_nokey` >= -9223372036854775808
+        #     4078: Illegal parameter data types multipolygon and bigint for operation '>='.
+        # in case
+        # - renaming of columns or alter scrambles that == The grammar/redefines are problematic.
+        # - the simplifier in destructive mode could also scramble it like
+        #   CREATE TABLE .... (
+        #   { $name = 'c1_int ; $type = 'INT' } $name $type ,
+        #   <ruleA setting  $name = 'c1_char'> <ruleB setting $type = 'VARCHAR(10)'> $name $type
+        #   ...
+        #   The simplifier shrinks and we get
+        #   ruleB: ;
+        #   RQG will generate
+        #   CREATE TABLE .... (c1_int INT, c1_char INT)
+
+        my @walk_queries;
+        my $has_no_key = 1;
+        $aux_query = "SELECT INDEX_NAME, COLUMN_NAME FROM information_schema.statistics " .
+                     "WHERE table_schema = '$r_schema' and table_name = '$r_table'";
+        my $res_indexes = $executor->execute($aux_query);
+        $status = $res_indexes->status;
+        if (STATUS_OK != $status) {
+            my $err    = $res_check->err;
+            $err = "<undef>" if not defined $err;
+            my $errstr = $res_check->errstr;
+            $errstr = "<undef>" if not defined $errstr;
+            $executor->disconnect();
+            say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
+                Auxiliary::build_wrs($status));
+            return $status;
+        } else {
+              say("INFO: $who_am_i $aux_query : pass");
+        }
+        my $key_ref1 = $res_indexes->data;
+        foreach my $val (@$key_ref1) {
+            $has_no_key =     0;
+            my $key_name =    $val->[0];
+            my $column_name = $val->[1];
+            # say("DEBUG: key_name ->" . $key_name . "<-->" . $column_name . "<-");
+            # Most if not all grammars do not generate index names containing a backtick.
+            # But the automatic grammar simplifier could cause such names when running in
+            # destructive mode.
+            # CREATE TABLE t5 (
+            # col1 int(11) NOT NULL,
+            # col_text text DEFAULT NULL,
+            # PRIMARY KEY (col1),
+            # KEY `idx2``idx2` (col_text(9))
+            # ) ENGINE=InnoDB;
+            # SHOW CREATE TABLE t5;
+            # Table   Create Table
+            # t5      CREATE TABLE `t5` (
+            # `col1` int(11) NOT NULL,
+            # `col_text` text DEFAULT NULL,
+            # PRIMARY KEY (`col1`),
+            # KEY `idx2``idx2` (`col_text`(9))
+            # ) ENGINE=InnoDB DEFAULT CHARSET=latin1
+            # SELECT TABLE_NAME, INDEX_NAME, COLUMN_NAME
+            # FROM information_schema.statistics WHERE table_name = 't5';
+            # TABLE_NAME      INDEX_NAME      COLUMN_NAME
+            # t5      PRIMARY col1
+            # t5      idx2`idx2       col_text
+            # SELECT * FROM t5 FORCE INDEX(`idx2``idx2`);
+            # col1    col_text
+            # SELECT * FROM t5 FORCE INDEX("idx2`idx2");
+            # ERROR 42000: You have an error in your SQL syntax; ..... to use near '"idx2`idx2")' at line 1
+            # SELECT * FROM t5 FORCE INDEX("idx2``idx2");
+            # ERROR 42000: You have an error in your SQL syntax; ..... to use near '"idx2``idx2")' at line 1
+            # SELECT * FROM t5 FORCE INDEX(idx2``idx2);
+            # ERROR 42000: You have an error in your SQL syntax; ..... to use near '``idx2)' at line 1
+            # Protect any backtick from being interpreted as begin or end of the name.
+            #    Otherwise we could harvest
+            #       ERROR: SELECT * FROM `cool_down`.`t1` FORCE INDEX (`Marvão_idx2`Marvão_idx2`) ...
+            #       ... the right syntax to use near 'Marvão_idx2`)
+            #    and assume to have hit some recovery failure.
+            # say("DEBUG: $who_am_i key_name->" . $key_name . "<- Column_name->" . $column_name . "<-");
+            $key_name =~ s{`}{``}g;
+            # say("DEBUG: $who_am_i key_name transformed->" . $key_name . "<-");
+            # FIXME: Discover the real data type!
+            foreach my $select_type ('*' , "`$column_name`") {
+                my $main_predicate;
+                if ($column_name =~ m{int}sio) {
+                    $main_predicate = "WHERE `$column_name` >= -9223372036854775808";
+                } elsif ($column_name =~ m{char}sio) {
+                    $main_predicate = "WHERE `$column_name` = '' OR `$column_name` != ''";
+                } elsif ($column_name =~ m{date}sio) {
+                    $main_predicate = "WHERE (`$column_name` >= '1900-01-01' OR " .
+                                      "`$column_name` = '0000-00-00') ";
+                } elsif ($column_name =~ m{time}sio) {
+                    $main_predicate = "WHERE (`$column_name` >= '-838:59:59' OR " .
+                                      "`$column_name` = '00:00:00') ";
+                } else {
+                    # $main_predicate stays undef.
+                    # Nothing I can do.
+                }
+
+                # say("DEBUG: $who_am_i main_predicate->" . $main_predicate . "<-");
+                if (defined $main_predicate and $main_predicate ne '') {
+                    $main_predicate = $main_predicate . " OR `$column_name` IS NULL" .
+                                          " OR `$column_name` IS NOT NULL";
+                } else {
+                    $main_predicate = " WHERE `$column_name` IS NULL" .
+                                      " OR `$column_name` IS NOT NULL";
+                }
+                my $my_query = "SELECT $select_type FROM $table_to_check " .
+                               "FORCE INDEX (`$key_name`) " . $main_predicate;
+                # say("DEBUG: Walkquery ==>" . $my_query . "<= added");
+                push @walk_queries, $my_query;
+            }
+        }
+        if ($has_no_key) {
+            my $my_query = "SELECT * FROM $table_to_check";
+            push @walk_queries, $my_query;
+            # say("DEBUG: Walkquery ==>" . $my_query . "<= added");
+        }
+
+        my %rows;
+        my %data;
+        my $dbh = $executor->dbh;
+        foreach my $walk_query (@walk_queries) {
+            my $sth_rows = $dbh->prepare($walk_query);
+            $sth_rows->execute();
+            my $err    = $sth_rows->err();
+            my $errstr = '';
+            $errstr    = $sth_rows->errstr() if defined $sth_rows->errstr();
+            if (defined $err) {
+                my $msg_snip = "$who_am_i $walk_query harvested $err: $errstr.";
+                if (4078 == $err) {
+                    # 4078 (ER_ILLEGAL_PARAMETER_DATA_TYPES2_FOR_OPERATION):
+                    # Illegal parameter data types %s and %s for operation '%s'
+                    say("WARN: $msg_snip Will tolerate that.");
+                    next;
+                } elsif (1146 == $err) {
+                    # Observed on slave (MariaDB replication with permanent sync)
+                    # Certain SQL on some table has passed. But than one fails with
+                    # table does not exist.
+                    # Reason: The slave redoes actions from the server.
+                    my $status = STATUS_INTERNAL_ERROR;
+                    say("ERROR: $msg_snip " . Auxiliary::build_wrs($status));
+                    say("HINT: Are there concurrent sessions modifying data or needs some " .
+                        "replication a sync?");
+                } else {
+                    my $status = STATUS_CRITICAL_FAILURE; # FIXME: Is that right?
+                    say("ERROR: $msg_snip " . Auxiliary::build_wrs($status));
+                    $sth_rows->finish();
+                    $executor->disconnect();
+                    return $status;
+                }
+            } else {
+                say("DEBUG: $who_am_i Query ->" . $walk_query . "<- passed");
+            }
+
+            my $rows = $sth_rows->rows();
+            $sth_rows->finish();
+
+            push @{$rows{$rows}} , $walk_query;
+
+            if (keys %rows > 1) {
+                say("ERROR: $who_am_i Table $table_to_check is inconsistent. " .
+                    "Will return STATUS_DATABASE_CORRUPTION later.");
+                print Dumper \%rows;
+
+                my @rows_sorted = grep { $_ > 0 } sort keys %rows;
+
+                my $least_sql = $rows{$rows_sorted[0]}->[0];
+                my $most_sql  = $rows{$rows_sorted[$#rows_sorted]}->[0];
+                say("Query that returned least rows: $least_sql\n");
+                say("Query that returned most rows: $most_sql\n");
+
+                my $least_result_obj = GenTest_e::Result->new(
+                    data => $dbh->selectall_arrayref($least_sql)
+                );
+                my $most_result_obj = GenTest_e::Result->new(
+                    data => $dbh->selectall_arrayref($most_sql)
+                );
+
+                say(GenTest_e::Comparator::dumpDiff($least_result_obj, $most_result_obj));
+                $sth_rows->finish();
+                $executor->disconnect();
+                $status = STATUS_DATABASE_CORRUPTION;
+                return $status;
+            }
+        } # End of running all walk queries
+
+        # Prevent rebuilding a system table or view for now.
+        next if $r_schema eq 'information_schema' or $r_schema eq 'mysql' or $r_schema eq 'mariadb';
+
+        # REBUILD the table
+        # -----------------
+        # The hope is to detect
+        # - diffs between metadata and data in whatever btree
+        # - diffs between server and InnoDB data dictionary
+        # in case they could happen and revealed by a table rebuild at all.
+        # "Natural" problem observed 2023-06/07
+        #    ALTER TABLE <innodb table> FORCE harvests 1205 : Lock wait timeout exceeded
+        #    The reason is that some session executed
+        #       XA BEGIN 'xid175' ;
+        #       SQL fiddling with <innodb table>
+        #       XA END 'xid175' ;
+        #       XA PREPARE 'xid175' ;
+        #    which causes locks on <innodb table>.
+        #    And in case that session gets killed or disconnects these locks do not get released.
+        #    Other sessions could run XA COMMIT 'xid175' as soon as its prepared.
+        # EXECUTOR_TASK_CHECKER ensures that innodb_lock_timeout is small.
+        # Hence no extreme long waiting if ther are locks on the table. So there is some good
+        # chance to not run into whatever RQG timeouts followed by false status and similar.
+        if ($r_table_type eq "BASE TABLE") {
+            $aux_query = "ALTER TABLE " . $table_to_check . " FORCE";
+            my $res_check = $executor->execute($aux_query);
+            $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
+            if (STATUS_OK != $status) {
+                my $err =    $res_check->err;
+                $err =       "<undef>" if not defined $err;
+                my $errstr = $res_check->errstr;
+                $errstr =    "<undef>" if not defined $errstr;
+
+#               if (STATUS_UNSUPPORTED == $status) {  ????
+
+                # What follows might look nice because it would show locks caused by some
+                # prepared XA transaction. But its most probably worthless because
+                # the session which prepared the XA transaction might have disconnected.
+                # And than we get an empty result set.
+                # if (STATUS_TRANSACTION_ERROR == $status) {
+                #   my $aux_query1 = "SELECT THREAD_ID, LOCK_MODE, LOCK_DURATION, LOCK_TYPE " .
+                #                    "FROM information_schema.METADATA_LOCK_INFO " .
+                #                    "WHERE TABLE_SCHEMA = '$r_schema' AND TABLE_NAME = '$r_table'";
+                #   my $lock_check = $executor->execute($aux_query1);
+                #   my $lock_check_status = $lock_check->status;
+                #   if (STATUS_OK != $lock_check_status) {
+                #       my $lock_check_err    = $lock_check->err;
+                #       $lock_check_err =       "<undef>" if not defined $lock_check_err;
+                #       my $lock_check_errstr = $lock_check->errstr;
+                #       $lock_check_errstr =    "<undef>" if not defined $lock_check_errstr;
+                #       $executor->disconnect();
+                #       say("ERROR: $who_am_i Query ->" . $aux_query1 . "<- failed with $lock_check_err : $lock_check_errstr " .
+                #           Auxiliary::build_wrs($lock_check_status));
+                #       return $lock_check_status;
+                #   } else {
+                #       my $key_aux_ref = $lock_check->data;
+                #       if (not defined $key_aux_ref) {
+                #           say("DEBUG: key_aux_ref is undef");
+                #       } else {
+                #           say("DEBUG: key_aux_ref is defined and # of elements: " . scalar(@$key_aux_ref));
+                #       }
+                #       foreach my $lock_check_val (@$key_aux_ref) {
+                #           my $r_thread_id =     $lock_check_val->[0];
+                #           $r_thread_id =        "<undef>" if not defined $r_thread_id;
+                #           my $r_lock_mode =     $lock_check_val->[1];
+                #           $r_lock_mode =        "<undef>" if not defined $r_lock_mode;
+                #           my $r_lock_duration = $lock_check_val->[2];
+                #           $r_lock_duration =    "<undef>" if not defined $r_lock_duration;
+                #           my $r_lock_type =     $lock_check_val->[3];
+                #           $r_lock_type =        "<undef>" if not defined $r_lock_type;
+                #           say("DEBUG: METADATA_LOCK_INFO ->" . $r_thread_id . "<->" .
+                #               $r_lock_mode . "<->" . $r_lock_duration . "<->" .
+                #           $r_lock_type . "<-");
+                #       }
+                #   }
+                # }
+
+                if (STATUS_TRANSACTION_ERROR == $status and $r_engine = "InnoDB") {
+                    # InnoDB supports XA transactions and is transactional.
+                    my $msg_snip =    "$who_am_i Query ->" . $aux_query .
+                                      "<- failed with $err : $errstr";
+                    my $aux_query14 =  "XA RECOVER";
+                    my $res_check14 =  $executor->execute($aux_query14);
+                    my $status14    =  $res_check14->status;
+                    if (STATUS_OK != $status14) {
+                        my $err14 =    $res_check14->err;
+                        $err14    =    "<undef>" if not defined $err14;
+                        my $errstr14 = $res_check14->errstr;
+                        $errstr14 =    "<undef>" if not defined $errstr14;
+                        $executor->disconnect();
+                        say("ERROR: (maybe) " . $msg_snip);
+                        say("ERROR: $who_am_i Helper Query ->" . $aux_query14 . "<- failed with " .
+                            "$err14 : $errstr14 " . Auxiliary::build_wrs($status14));
+                        return $status14;
+                    } else {
+                        # Sample result set of XA RECOVER:
+                        # formatID  gtrid_length  bqual_length  data
+                        #        1             6             0  xid175
+                        my $key_ref1 = $res_check14->data;
+                        # Empty result set --> $key_ref1 defined and key_ref1 with 0 elements.
+                        if (scalar(@$key_ref1 > 0)) {
+                            say("WARN: $msg_snip seems to be caused by existing XA " .
+                                "transaction(s) in prepared state.");
+                            if(0) {
+                                foreach my $val (@$key_ref1) {
+                                    my $formatID =     $val->[0];
+                                    my $gtrid_length = $val->[1];
+                                    my $bqual_length = $val->[2];
+                                    my $data =         $val->[3];
+                                    say("DEBUG: $who_am_i Helper Query ->" . $aux_query14 .
+                                        " caught formatID: " . $formatID . " , gtrid_length: " .
+                                        $gtrid_length . " , bqual_length: " . $bqual_length .
+                                        " , data: " . $data);
+                                }
+                            }
+                        } else {
+                            $executor->disconnect();
+                            $status = STATUS_CRITICAL_FAILURE;
+                            say("ERROR: $msg_snip " . Auxiliary::build_wrs($status));
+                            return $status;
+                        }
+                    }
+                } else {
+                    $executor->disconnect();
+                    say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
+                        Auxiliary::build_wrs($status));
+                    return $status;
+                }
+            } else {
                 say("INFO: $who_am_i $aux_query : pass");
                 # No reason to analyse the result because that was already done by MySQL.pm and
                 # we received some corresponding status.
             }
         }
+        say("INFO: $who_am_i All checks on " . $table_to_check . " were successful.");
     }
     return $status;
 } # End of sub checkDatabaseIntegrity
@@ -2011,15 +2520,40 @@ sub waitForServerToStart {
 
 
 sub backupDatadir {
-  my $self= shift;
-  my $backup_name= shift;
+    my $server =     shift;
 
-  say("Copying datadir... (interrupting the copy operation may cause investigation problems later)");
-  if (osWindows()) {
-      system('xcopy "'.$self->datadir.'" "'.$backup_name.' /E /I /Q');
-  } else {
-      system('cp -r '.$self->datadir.' '.$backup_name);
-  }
+    my $who_am_i = Basics::who_am_i();
+
+    if ($server->running) {
+        say("ERROR: $who_am_i Routine was called even though the server is running.");
+        return STATUS_INTERNAL_ERROR;
+    }
+    my $datadir =  $server->datadir;
+    # Cut trailing forward/backward slashes away.
+    $datadir =~ s{[\\/]$}{}sgio;
+    my $fbackup_dir = $datadir;
+    $fbackup_dir =~ s{\/data$}{\/fbackup};
+    if ($datadir eq $fbackup_dir) {
+        say("ERROR: $who_am_i fbackup_dir equals datadir '$datadir'.");
+        return STATUS_INTERNAL_ERROR;
+    }
+    say("INFO: $who_am_i Copying datadir and error log to '$fbackup_dir' and removing error log " .
+        "and cores from datadir.");
+    say("WARN: $who_am_i Interrupting the copy operations may cause investigation problems later.");
+    if (osWindows()) {
+        system("xcopy \"$datadir\" \"$fbackup_dir\" /E /I /Q");
+    } else {
+        system("cp -r --dereference $datadir $fbackup_dir");
+    }
+    my $errorlog = $server->errorlog;
+    if (STATUS_OK != Basics::copy_file($errorlog, $fbackup_dir . "/" .
+                                       File::Basename::basename($errorlog))) {
+        return STATUS_ENVIRONMENT_FAILURE;
+    }
+    # Some deletions in $datadir in order to avoid confusion during analysis.
+    unlink($errorlog);
+    unlink("$datadir/core*");
+    unlink($server->errorlog);
 }
 
 # Extract important messages from the error log.
@@ -2131,7 +2665,7 @@ sub serverVariablesDump {
     }
     $sth->finish();
     my $result_print;
-    foreach my $plugin_name (keys %result) {
+    foreach my $plugin_name (sort keys %result) {
         say ("SPLUG: $plugin_name : " . $result{$plugin_name});
     }
     $dbh->disconnect();
@@ -2437,7 +2971,11 @@ sub waitForAuxpidGone {
 # - Ensure that we get informed by error messages about not disappearing processes etc.
 #   rqg_batch.pl might finally fix the situation by killing the processgroup.
 #   Even than we had some wasting of resources over some significant timespan.
-#
+# Warning:
+# The caller has to ensure that the main server process is already gone.
+# The observation on some box under extreme load was
+# The reporter CrashRecovery sent SIGKILL, called waitForAuxpidGone(success), called making a
+# file backup and that detected that the main server process was alive.
     my $self =          shift;
     my $who_am_i =      Basics::who_am_i();
     my $wait_timeout =  DEFAULT_AUXPID_GONE_TIMEOUT;
@@ -2542,6 +3080,7 @@ sub make_backtrace {
     my $error_log = $self->errorlog();
     my $booterr   = $self->vardir . "/" . MYSQLD_BOOTERR_FILE;
 
+    Carp::cluck("INFO: About who called $who_am_i");
     # my $server_pid  = $self->serverpid();
 
     my $status = STATUS_SERVER_CRASHED;
@@ -2791,6 +3330,7 @@ sub server_is_operable {
 use constant PROCESSLIST_PROCESS_ID          => 0;
 use constant PROCESSLIST_PROCESS_COMMAND     => 4;
 use constant PROCESSLIST_PROCESS_TIME        => 5;
+use constant PROCESSLIST_PROCESS_STATE       => 6;
 use constant PROCESSLIST_PROCESS_INFO        => 7;
 
 my @end_line_patterns = (
@@ -2807,6 +3347,13 @@ my @end_line_patterns = (
     my $status =        STATUS_OK;
     my $who_am_i =      Basics::who_am_i;
     my $server_id =     $self->server_id();
+    if (not defined $server_id) {
+        Carp::cluck("ERROR: server_id is undef");
+        $status = STATUS_INTERNAL_ERROR;
+        say("ERROR: $who_am_i Will return STATUS_INTERNAL_ERROR" .
+            "($status) because of previous error.");
+        return $status;
+    }
     my $server_name =   "server[" . $server_id . "]";
     if (not defined $server_id) {
         Carp::cluck("ERROR: server_id is undef");
@@ -2956,8 +3503,11 @@ my @end_line_patterns = (
                     $process_info    = "<undef>" if not defined $process_info;
                     my $process_time = $process->[PROCESSLIST_PROCESS_TIME];
                     $process_time    = "<undef>" if not defined $process_time;
+                    my $process_state= $process->[PROCESSLIST_PROCESS_STATE];
+                    $process_state   = "<undef>" if not defined $process_state;
                     $processlist_report .= "$who_am_i " . $process_id . " -- " . $process_command .
-                                " -- " . $process_time . " -- " . $process_info . "\n";
+                                " -- " . $process_time . " -- " . $process_state . " -- " .
+                                $process_info . "\n";
                  }
                  $processlist_report .= "$who_am_i Content of processlist ---------- end";
                  say($processlist_report);
