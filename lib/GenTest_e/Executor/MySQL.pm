@@ -1093,6 +1093,7 @@ sub get_connection {
 sub init {
     my $executor = shift;
 
+    my $who_am_i = Basics::who_am_i;
     # Experiment begin
     # We need to set $query_no exact here.
     $query_no = 0;
@@ -1101,11 +1102,11 @@ sub init {
     my $status = get_connection($executor);
 
     if ($status) {
-        say("ERROR: GenTest_e::Executor::MySQL::init: Getting a proper connection for " .
+        say("ERROR: $who_am_i Getting a proper connection for " .
              $executor->role() . " failed with $status. " . Auxiliary::build_wrs($status));
         return $status;
     } else {
-        # say("DEBUG: connection id is : " . $executor->connectionId());
+        # say("DEBUG: $who_am_i connection id is : " . $executor->connectionId());
         if ($executor->task() != GenTest_e::Executor::EXECUTOR_TASK_THREAD) {
             # The remaining 'tasks':
             #     EXECUTOR_TASK_GENDATA, EXECUTOR_TASK_CACHER, EXECUTOR_TASK_REPORTER,
@@ -1113,6 +1114,21 @@ sub init {
             # are all vulnerable to max_statement_time but must not suffer from that.
             $status = $executor->set_safe_max_statement_time ;
             return $status if $status != STATUS_OK;
+        }
+        if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_CHECKER) {
+            $status = $executor->set_safe_max_statement_time ;
+            return $status if $status != STATUS_OK;
+            my $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
+                             $executor->connectionId() . ' */ ';
+            my $aux_query = 'SET @@innodb_lock_wait_timeout = 10 ' . $trace_addition;
+            my $status = GenTest_e::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
+            if (STATUS_OK != $status) {
+                say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+                return $status;
+            } else {
+                return STATUS_OK;
+            }
+
         }
         # Experimental code. Do not remove even though currently disabled.
         # Intention: Accelerate the generation of data by temporary increase of buffer pool size.
@@ -1201,7 +1217,7 @@ sub execute {
       # query from that list is picked.
       # Maybe Not relevant for: Gendata*, MetadataCacher, Reporter
       say("DEBUG: $who_am_i The connection to the server for " .
-          "$executor_role was lost. Trying to reconnect.");
+          "$executor_role was lost. Trying to reconnect.") if $debug_here;
       my $status = get_connection($executor);
       # Hint: get_connection maintains the connection_id etc.
       if ($status) {
@@ -1265,18 +1281,20 @@ sub execute {
                 my $message_part = "ERROR: $who_am_i $executor_role Auxiliary query ->" .
                                    $aux_query . "<- failed: $error " .  $dbh->errstr();
                 my $status = $error_type;
-                if (($error_type == STATUS_SERVER_CRASHED) || ($error_type == STATUS_SERVER_KILLED)) {
+                if (($error_type == STATUS_SERVER_CRASHED) ||
+                    ($error_type == STATUS_SERVER_KILLED)) {
                    $executor->disconnect(); # FIXME: Would be that good?
                    if (STATUS_OK == $executor->is_connectable()) {
                       $status = STATUS_SKIP_RELOOP;
                       say("INFO: $message_part");
-                      say("INFO: $trace_addition : The server is connectable. Will return a result " .
-                          "containing the status " . status2text($status) . "($status).");
+                      say("INFO: $trace_addition : The server is connectable. Will return a " .
+                          "result containing the status " . status2text($status) . "($status).");
                    } else {
                       $status = STATUS_CRITICAL_FAILURE;
                       say("ERROR: $message_part");
-                      say("INFO: $trace_addition :  The server is not connectable. Will sleep 3s and than " .
-                          "return a result containing the status " . status2text($status) . "($status).");
+                      say("INFO: $trace_addition :  The server is not connectable. Will sleep " .
+                          "3s and than return a result containing the status " .
+                          status2text($status) . "($status).");
                       sleep(3);
                    }
                 } else {
@@ -1291,8 +1309,8 @@ sub execute {
 
             $executor->[EXECUTOR_MYSQL_AUTOCOMMIT] = 0;
             if ($executor->fetchMethod() == FETCH_METHOD_AUTO) {
-                say("INFO: $who_am_i $executor_role Transactions detected. Setting mysql_use_result to " .
-                    "0, so mysql_store_result() will be used.") if rqg_debug();
+                say("INFO: $who_am_i $executor_role Transactions detected. Setting " .
+                    "mysql_use_result to 0, so mysql_store_result() will be used.") if rqg_debug();
                 $dbh->{'mysql_use_result'} = 0;
             }
         }
@@ -1318,7 +1336,7 @@ sub execute {
     my $performance;
     # The validator Performance assigns EXECUTOR_FLAG_PERFORMANCE
     if ($execution_flags & EXECUTOR_FLAG_PERFORMANCE) {
-        # say("DEBUG: $trace_addition Before performance 'init'");
+        # say("DEBUG: Executor: $trace_addition Before performance 'init'");
         # FIXME:
         # This can be victim
         $performance = GenTest_e::QueryPerformance->new(
@@ -1327,7 +1345,7 @@ sub execute {
         );
     }
 
-    # say("DEBUG: $trace_addition Before prepare");
+    # say("DEBUG: Executor: $trace_addition Before prepare");
     my $start_time = Time::HiRes::time();
     # exp_server_kill($who_am_i, $query);
     my $sth = $dbh->prepare($query);
@@ -1347,7 +1365,7 @@ sub execute {
         );
     }
 
-    # say("DEBUG: $trace_addition Before execute");
+    # say("DEBUG: Executor: $trace_addition Before execute");
 
     ######## HERE THE QUERY GETS SENT TO THE SERVER ?? ########
     my $affected_rows =  $sth->execute();
@@ -1392,7 +1410,7 @@ sub execute {
     my $column_types = $sth->{mysql_type_name} if $sth and $sth->{NUM_OF_FIELDS};
 
     if (defined $performance) {
-        say("DEBUG: $trace_addition Before performance 'record'");
+        # say("DEBUG: Executor: $trace_addition Before performance 'record'");
         # FIXME:
         # This can be a victim of a crash.
         $performance->record();
@@ -1642,30 +1660,40 @@ sub execute {
         # We have @data and %data_hash.
         # Figure out when what (just one or both) is filled and pick the right.
 
-        # Check if the query was a CHECK TABLE and if we harvested a result set which points clear
-        # to data corruption in InnoDB. In the moment all other bad cases get ignored.
+        # Check if the query was a CHECK TABLE/VIEW and if we harvested a result set which points
+        # clear to data corruption in InnoDB. In the moment all other bad cases get ignored.
         # ------------------------------------------------------------------------------------------
-        if ($query =~ m{check\s+table\s+}i) {
+        if ($query =~ m{check\s+table\s+}i or $query =~ m{check\s+view\s+}i) {
             # Experiment for checking if the reporter 'RestartConsistency*.pm' works correct.
             # if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_REPORTER) {
             #         $result_status = STATUS_DATABASE_CORRUPTION;
             # }
-            my $full_result = "Full result of ->$query<-";
+            my $full_result = "Executor: Full result of ->$query<-";
+
             foreach my $data_elem (@data) {
                 my $line = join(" ", @{$data_elem});
                 $full_result .= "\n" . join(" ", @{$data_elem});
                 my ($ct_table, $ct_Op, $ct_Msg_type, $ct_Msg_text) = @{$data_elem};
-                # We can have concurrency even if we are not a thread or some reporter.
-                # Example: An event gets executed.
-                # So could get something like
-                # <TS> [118034] test.t3 check Error Query execution was interrupted
-                # <TS> [118034] test.t3 check error Corrupt <=====
-                if (($ct_Msg_text =~ /Table \'$ct_table\' doesn\'t exist/)     or
+                # We can have
+                # - concurrency by other session or EVENT and they may run
+                #   kill query or SQL causing locks
+                # - a short max_statement_time
+                #   Example:
+                #   <TS> [118034] test.t3 check Error Query execution was interrupted
+                #   <TS> [118034] test.t3 check error Corrupt <=====
+                # - a history where
+                #   - base tables of a view were dropped
+                #   - a table/view name gets picked but that object does no more or did never exist
+                # checkDatabaseIntegrity within MySQLd.pm picks only existing views and base tables.
+                if ((# The semantic error Table/View to be checked does no more or did never exist
+                     # has to be accepted.
+                     $ct_Msg_text =~ /Table \'$ct_table\' doesn\'t exist/ and
+                     'checkDatabaseIntegrity' ne $executor->role             ) or
                     ($ct_Msg_text =~ /Deadlock found when trying to get lock/) or
                     ($ct_Msg_text =~ /Lock wait timeout exceeded/)             or
                     ($ct_Msg_text =~ /Query execution was interrupted/)          ) {
-                    say("DEBUG: For query '" . $query . "' harmless '" . $line . "' observed.")
-                        if $debug_here;
+                    say("DEBUG: Executor: For query '" . $query . "' harmless '" . $line .
+                        "' observed.") if $debug_here;
                     return GenTest_e::Result->new(
                         query       => $query,
                         status      => STATUS_SKIP,
@@ -1673,11 +1701,25 @@ sub execute {
                 }
             }
 
+            # Dangling view test.extra_v1 AS SELECT * FROM test.extra_t1
+            # Error Table 'test.extra_t1' doesn't exist
+            # View 'test.extra_v1' references invalid table(s) or column(s) or function(s) or ...
+            # Corrupt
+            if ($full_result =~ /View .{1,200} references invalid table\(s\)/) {
+                say("DEBUG: Executor: " . $full_result . "\nobserved. Its most probably not a bug.")
+                    if $debug_here;
+                return GenTest_e::Result->new(
+                        query       => $query,
+                        status      => STATUS_SKIP,
+                );
+            }
+
             foreach my $data_elem (@data) {
                 # ->test.t1<->check<->Warning<->InnoDB: Index 'c' contains 1 entries, should be 0.<-
                 my $line = join(" ", @{$data_elem});
-                # say("DEBUG ->" . $line . "<-");
+                # say("DEBUG: Executor: line ->" . $line . "<-");
                 my ($ct_table, $ct_Op, $ct_Msg_type, $ct_Msg_text) = @{$data_elem};
+                # say("DEBUG: Executor: $ct_Msg_text -->" . $ct_Msg_text . "<-");
                 next if ('status' eq $ct_Msg_type or 'note' eq $ct_Msg_type);
                 if ('Warning' eq $ct_Msg_type) {
                     # Regarding the "cannot be used in the GENERATED ALWAYS":
@@ -1687,30 +1729,32 @@ sub execute {
                     # ) ENGINE = InnoDB ROW_FORMAT = Dynamic ;
                     # harvests in 10.4
                     # Warnings:
-                    # Warning 1901    Function or expression 'substr(`col_string`,4,13)' cannot be used in the GENERATED ALWAYS AS clause of `col_string_g`
+                    # Warning 1901    Function or expression 'substr(`col_string`,4,13)' cannot be
+                    #                 used in the GENERATED ALWAYS AS clause of `col_string_g`
                     # Warning 1105    Expression depends on the @@sql_mode value PAD_CHAR_TO_FULL_LENGTH
                     # + that warning during CHECK TABLE.
                     # In 10.6 already the CREATE TABLE fails with
-                    # ERROR HY000: Function or expression 'substr(`col_string`,4,13)' cannot be used in the GENERATED ALWAYS AS clause of `col_string_g`
+                    # ERROR HY000: Function or expression 'substr(`col_string`,4,13)' cannot be used
+                    #       in the GENERATED ALWAYS AS clause of `col_string_g`
+                    # Per Marko: The InnoDB messages come only if CHECK ... EXTENDED
+                    #            + harmless/to be expected.
                     if ($ct_Msg_text =~ /InnoDB: Unpurged clustered index record/            or
-                        $ct_Msg_text =~ /nnoDB: Clustered index record with stale history/   or
+                        $ct_Msg_text =~ /InnoDB: Clustered index record with stale history/  or
                         $ct_Msg_text =~ /InnoDB: Clustered index record not found for index/ or
                         $ct_Msg_text =~ /Function or expression .{1,200} cannot be used in the GENERATED ALWAYS .{1,200}/ or
                         $ct_Msg_text =~ /Expression depends on the \@\@sql_mode .{1,30}/       )
                     {
-                        # Per Marko:
-                        # Only if CHECK ... EXTENDED + harmless/to be expected.
-                        say("DEBUG: For query '" . $query . "' harmless '" . $line . "' observed.")
+                        say("DEBUG: Executor: For query '" . $query . "' harmless '" . $line . "' observed.")
                             if $debug_here;
                         next;
                     } else {
-                        say("ERROR: The query '" . $query . "' passed but has a result set line '" .
+                        say("ERROR: Executor: The query '" . $query . "' passed but has a result set line '" .
                             $line . "'.");
                             $result_status = STATUS_DATABASE_CORRUPTION;
                     }
                 }
                 if ('Error') {
-                    say("ERROR: The query '$query' passed but has a result set line\n" .
+                    say("ERROR: Executor: The query '$query' passed but has a result set line\n" .
                         "ERROR: ->$line<-.\n");
                     $result_status = STATUS_DATABASE_CORRUPTION;
                 }
@@ -1722,13 +1766,13 @@ sub execute {
                         # But without knowing the server process we can only request a SHUTDOWN.
                         # And during experiments that caused RQG reporting finally a DEADLOCK.
                         # $dbh->do("SHUTDOWN");
-                        say("ERROR: $full_result");
-                        say("ERROR: Will exit with status STATUS_DATABASE_CORRUPTION.");
+                        say("ERROR: Executor: $full_result");
+                        say("ERROR: Executor: Will exit with status STATUS_DATABASE_CORRUPTION.");
                         exit STATUS_DATABASE_CORRUPTION;
                     } else {
                         # A process like rqg.pl which should not exit without cleanup.
-                        say("ERROR: $full_result");
-                        say("ERROR: Will return a result containing status STATUS_DATABASE_CORRUPTION.");
+                        say("ERROR: Executor: $full_result");
+                        say("ERROR: Executor: Will return a result containing status STATUS_DATABASE_CORRUPTION.");
                         return GenTest_e::Result->new(
                            query       => $query,
                            status      => $result_status,
@@ -2323,14 +2367,14 @@ sub is_connectable {
     my $role = "ConnectChecker";
     # exp_server_kill("is_connectable", "Connect");
     my $check_dbh = get_dbh($executor->dsn(), $role, undef);
+    my $msg_snip = "Executor: Helper for " . $executor->role . " figured out: The server is ";
     if (defined $check_dbh) {
-        say("DEBUG: Helper for " . $executor->role . " figured out: The server is connectable.")
+        say("DEBUG: " . $msg_snip . "connectable.")
             if $debug_here;
         $check_dbh->disconnect();
         return STATUS_OK;
     } else {
-        say("ERROR: Helper for " . $executor->role . " figured out: The server is not connectable.")
-            if $debug_here;
+        say("ERROR: " . $msg_snip . "not connectable.");
         return STATUS_SERVER_CRASHED;
     }
 }
