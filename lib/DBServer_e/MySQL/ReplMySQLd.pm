@@ -275,15 +275,12 @@ sub waitForSlaveSync {
     if (! $self->master->dbh) {
         say("ERROR: $who_am_i Could not connect to master. " .
             "Will return STATUS_FAILURE.");
-        # Experimental
-        $self->master->dbh->disconnect();
+        # No connection --> no disconnect!
         return STATUS_FAILURE;
     }
     if (! $self->slave->dbh) {
         say("ERROR: $who_am_i Could not connect to slave. " .
             "Will return STATUS_FAILURE.");
-        # Experimental
-        $self->master->dbh->disconnect();
         return STATUS_FAILURE;
     }
 
