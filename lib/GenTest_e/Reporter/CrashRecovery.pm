@@ -162,48 +162,61 @@ sub report {
         say("ERROR: $who_am_i Status based on server start attempt is $recovery_status");
     }
 
-    our $errorlog_status = STATUS_OK;
     sub check_error_log {
+        my $errorlog_status = STATUS_OK;
+        my $status =          STATUS_OK;
+        my $basedir = $server->basedir();
         open(RECOVERY, $server->errorlog);
         our $errorlog_check;
         $errorlog_check = 1 if not defined $errorlog_check;
         while (<RECOVERY>) {
             $_ =~ s{[\r\n]}{}siog;
+            # The path to the MariaDB installation can contain keywords like 'corrupt' etc.
+            # And rather harmless messages like
+            # [ERROR] mariadbd: Can't open shared library '/data/Server_bin/bb-10.6-primary-corruption_asan_Og/lib/plugin/provider_lzo.so'
+            # (errno: 2, cannot open shared object file: No such file or directory)
+            # could show up. Reason: The provider_....so exist since MariaDB >= 10.7.
+            # Hence remove basedir from the line to look into.
+            my $shrinked =  $_;
+            $shrinked =~    s/$basedir//g;
             # Only for debugging
             # say($_);
-            if      ($_ =~ m{Table was marked as crashed and should be repaired}) {
+            if      ($shrinked =~ m{Table was marked as crashed and should be repaired}) {
                 if ($errorlog_check == 1) {
                     say("ALARM: $who_am_i Log message '$_' direct after crash + restart + " .
                         "no touching of table is unexpected.");
-                    last;
+                    $status = STATUS_CRITICAL_FAILURE;
+                    $errorlog_status = $status if $status > $errorlog_status;
                 } else {
                     say("WARN: $who_am_i Log message '$_' after crash + restart + checks.");
                 }
-            } elsif ($_ =~ m{corrupt}) {
+            } elsif ($shrinked =~ m{corrupt}) {
                 say("WARN: $who_am_i Log message '$_' might indicate database corruption.");
-                my $status = STATUS_RECOVERY_FAILURE;
+                $status = STATUS_RECOVERY_FAILURE;
                 $errorlog_status = $status if $status > $errorlog_status;
                 last;
-            } elsif ($_ =~ m{exception}sio) {
-                my $status = STATUS_RECOVERY_FAILURE;
+            } elsif ($shrinked =~ m{exception}sio) {
+                say("ERROR: $who_am_i Log message '$_' indicating exception.");
+                $status = STATUS_RECOVERY_FAILURE;
                 $errorlog_status = $status if $status > $errorlog_status;
                 last;
-            } elsif ($_ =~ m{device full error|no space left on device}sio) {
+            } elsif ($shrinked =~ m{device full error|no space left on device}sio) {
                 say("ERROR: $who_am_i Log message '$_' indicating environment failure found.");
                 my $status = STATUS_ENVIRONMENT_FAILURE;
                 $errorlog_status = $status if $status > $errorlog_status;
                 last;
-            } elsif (($_ =~ m{got signal}sio) ||
-                     ($_ =~ m{segfault}sio) ||
-                     ($_ =~ m{segmentation fault}sio)) {
+            } elsif (($shrinked =~ m{got signal}sio) ||
+                     ($shrinked =~ m{segfault}sio) ||
+                     ($shrinked =~ m{segmentation fault}sio)) {
                 say("ERROR: $who_am_i Recovery has apparently crashed.");
-                my $status = STATUS_RECOVERY_FAILURE;
+                $status = STATUS_RECOVERY_FAILURE;
                 $errorlog_status = $status if $status > $errorlog_status;
                 last;
             }
         }
         close(RECOVERY);
         $errorlog_check = 2;
+        return $errorlog_status;
     }
 
     # For debugging:
@@ -211,7 +224,7 @@ sub report {
 
     # We look into the server error log even if the start attempt failed.
     # Reason: Filesystem full should not be classified as STATUS_RECOVERY_FAILURE.
-    check_error_log();
+    my $errorlog_status = check_error_log();
     if ($recovery_status > STATUS_OK) {
         say("ERROR: $who_am_i Status based on error log checking is $recovery_status");
         if ($errorlog_status > $recovery_status) {
@@ -219,11 +232,12 @@ sub report {
                 "to $errorlog_status.");
             $recovery_status = $errorlog_status;
         }
-        if ($recovery_status >= STATUS_CRITICAL_FAILURE) {
+        if ($recovery_status > STATUS_CRITICAL_FAILURE) {
             sayFile($server->errorlog);
             say("ERROR: $who_am_i Will kill the server and " .
                 Auxiliary::build_wrs($recovery_status));
-            # $server->killServer an maybe already dead server does not waste ressources.
+            # $server->killServer applied to an maybe already dead server does not
+            # waste ressources.
             $server->killServer;
             return $recovery_status;
         }
@@ -681,7 +695,7 @@ if (1) {
 
     # We look again into the server error log because sometimes the SQL's above pass but
     # the server is already around crashing initiated by these SQL's.
-    check_error_log();
+    $errorlog_status = check_error_log();
 
     if ($errorlog_status > STATUS_OK) {
         $status = $errorlog_status;
