@@ -65,7 +65,7 @@ use constant SPACE_FREE     => 10000;
 #        Backup of datadir, run server on backupped data, etc.
 #      - long lasting big space consumption caused by
 #        No of tables, no of rows, blobs etc.
-use constant SPACE_USED     => 750;
+use constant SPACE_USED     => 500;
 #
 # Maximum storage space in MB required in vardir by a core (ASAN Build).
 #    ASAN build   core ~ 2000 MB , rare also 2900 MB
@@ -786,7 +786,7 @@ sub report {
             charge_keep;
         } elsif ($slowdir_consumed > $slowdir_free_init * 0.88) {
             $info_m = "K7";
-            $info = "INFO: $info_m 90% of initial free space in slowdir used. This $end_part.";
+            $info = "INFO: $info_m 88% of initial free space in slowdir used. This $end_part.";
             charge_keep;
         }
     }

@@ -50,7 +50,7 @@ use GenTest_e::Constants;
 use GenTest_e::Grammar;
 use GenTest_e::Grammar::Rule;
 
-my $script_debug = 1;
+my $script_debug = 0;
 
 # sub fill_rule_hash();
 # sub print_rule_hash();

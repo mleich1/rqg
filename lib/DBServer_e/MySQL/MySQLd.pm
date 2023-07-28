@@ -2295,9 +2295,10 @@ sub checkDatabaseIntegrity {
         #       SQL fiddling with <innodb table>
         #       XA END 'xid175' ;
         #       XA PREPARE 'xid175' ;
-        #    which causes locks on <innodb table>.
-        #    And in case that session gets killed or disconnects these locks do not get released.
-        #    Other sessions could run XA COMMIT 'xid175' as soon as its prepared.
+        #    which causes locks on <innodb table> and MDL locks.
+        #    And in case that session gets killed or disconnects none of these locks should
+        #    get released. (MDEV-24324 .... error that the MDL locks get released)
+        #    Btw. Other sessions could run XA COMMIT 'xid175' as soon as its prepared.
         # EXECUTOR_TASK_CHECKER ensures that innodb_lock_timeout is small.
         # Hence no extreme long waiting if ther are locks on the table. So there is some good
         # chance to not run into whatever RQG timeouts followed by false status and similar.
@@ -2315,8 +2316,7 @@ sub checkDatabaseIntegrity {
 
                 # What follows might look nice because it would show locks caused by some
                 # prepared XA transaction. But its most probably worthless because
-                # the session which prepared the XA transaction might have disconnected.
-                # And than we get an empty result set.
+                # MDEV-24324. We get an empty result set.
                 # if (STATUS_TRANSACTION_ERROR == $status) {
                 #   my $aux_query1 = "SELECT THREAD_ID, LOCK_MODE, LOCK_DURATION, LOCK_TYPE " .
                 #                    "FROM information_schema.METADATA_LOCK_INFO " .
