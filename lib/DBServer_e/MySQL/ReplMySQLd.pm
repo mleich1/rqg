@@ -226,7 +226,7 @@ sub startServer {
     }
     my $master_dbh = $self->master->dbh;
     $status = $self->slave->startServer;
-    if ($self->slave->startServer != STATUS_OK) {
+    if ($status != STATUS_OK) {
         return $status;
     }
     my $slave_dbh = $self->slave->dbh;
