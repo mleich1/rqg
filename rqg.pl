@@ -148,7 +148,7 @@ my $threads;
 my $default_threads         = 10;
 my $default_queries         = 100000000;
 my $duration;
-my $default_duration        = 3600;
+my $default_duration        = 300;
 my $default_max_gd_duration = 300;
 
 my @ARGV_saved = @ARGV;
@@ -1981,6 +1981,8 @@ sub checkServers {
             say("DEBUG: $who_am_i server[$server_num] is not defined.");
             next;
         }
+        # For debugging
+        # $server[1]->crashServer if $server_num > 1;
         my $status = $srv->server_is_operable;
         # Returns:
         # - STATUS_OK                    (DB process running + server connectable)
@@ -2003,6 +2005,13 @@ sub checkServers {
             if ($status > $current_status and $current_status != STATUS_RECOVERY_FAILURE) {
                 say("ERROR: $who_am_i Raising current_status from $current_status to $status");
                 $current_status = $status;
+            }
+            if ($server_num > 1 and
+                defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE and
+                $check_status < STATUS_ENVIRONMENT_FAILURE) {
+                say("ERROR: Setting current_status STATUS_REPLICATION_FAILURE because its not " .
+                    "the first server and some kind of replication ($rpl_mode) is involved.");
+                $current_status = $check_status;
             }
         }
     }
