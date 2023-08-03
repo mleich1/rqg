@@ -297,14 +297,16 @@ sub check_and_set_local_config {
             check_dir($results_dir);
         }
         $results_dir = Basics::unify_path($results_dir . "/" . $minor_runid);
-        if (0 == $batch or 1 == $batch) {
+        if (0 == $batch) {
             # $build_thread stays unchanged.
             if (STATUS_OK != Basics::conditional_remove__make_dir($results_dir)) {
                 my $status = STATUS_ENVIRONMENT_FAILURE;
                 safe_exit($status);
             }
-        } else {
+        } elsif (1 == $batch) {
             $build_thread = $build_thread + $minor_runid - 1;
+            check_dir($results_dir);
+        } else {
             check_dir($results_dir);
         }
 
