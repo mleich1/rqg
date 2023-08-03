@@ -293,6 +293,7 @@ use constant  ER_ROW_IS_REFERENCED_2                            => 1451;
 use constant  ER_NO_REFERENCED_ROW_2                            => 1452;
 use constant  ER_SP_RECURSION_LIMIT                             => 1456;
 use constant  ER_SP_PROC_TABLE_CORRUPT                          => 1457;
+use constant  ER_VIEW_RECURSIVE                                 => 1462;
 use constant  ER_NON_GROUPING_FIELD_USED                        => 1463;
 use constant  ER_TABLE_CANT_HANDLE_SPKEYS                       => 1464;
 use constant  ER_NO_TRIGGERS_ON_SYSTEM_SCHEMA                   => 1465;
@@ -773,6 +774,7 @@ my %err2type = (
     ER_VERS_WRONG_PARTS()                               => STATUS_SEMANTIC_ERROR,
     ER_VERSIONING_REQUIRED()                            => STATUS_SEMANTIC_ERROR,
     ER_VIEW_INVALID()                                   => STATUS_SEMANTIC_ERROR,
+    ER_VIEW_RECURSIVE()                                 => STATUS_SEMANTIC_ERROR,
     ER_VIEW_SELECT_DERIVED()                            => STATUS_SEMANTIC_ERROR,
     ER_VIEW_SELECT_TMPTABLE()                           => STATUS_SEMANTIC_ERROR,
     ER_VIRTUAL_COLUMN_FUNCTION_IS_NOT_ALLOWED()         => STATUS_SEMANTIC_ERROR,
@@ -1706,6 +1708,14 @@ sub execute {
             # View 'test.extra_v1' references invalid table(s) or column(s) or function(s) or ...
             # Corrupt
             if ($full_result =~ /View .{1,200} references invalid table\(s\)/) {
+                say("DEBUG: Executor: " . $full_result . "\nobserved. Its most probably not a bug.")
+                    if $debug_here;
+                return GenTest_e::Result->new(
+                        query       => $query,
+                        status      => STATUS_SKIP,
+                );
+            }
+            if ($full_result =~ /View .{1,200} contains view recursion/) {
                 say("DEBUG: Executor: " . $full_result . "\nobserved. Its most probably not a bug.")
                     if $debug_here;
                 return GenTest_e::Result->new(
