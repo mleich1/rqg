@@ -99,30 +99,56 @@ sub check_and_set_local_config {
     }
     # Variants
     # --------
-    # major_runid | minor_runid | batch   | allowed |
-    # ------------+-------------+---------+-------------------------------------------------------
-    #           * |           * |   undef | no      | rqg_batch.pl replaces the undef with 2
-    #                                               | rqg.pl replaces the undef with 0 or 1
-    #                                               | check_and_set_local_config aborts if undef
-    # ------------+-------------+---------+-------------------------------------------------------
-    #         def |         def |     0|1 | no      |
-    # ------------+-------------+---------+-------------------------------------------------------
-    #         def |         def |       2 | yes     | RQG run with assigned major_runid and
-    #                                               | minor_runid initiated by rqg_batch.pl.
-    # ------------+-------------+---------+-------------------------------------------------------
+    # major_runid | minor_runid | batch   | allowed
+    # ------------+-------------+---------+---------
+    #           * |           * |   undef | no
+    # ------------+-------------+---------+---------
+    #         def |         def |     0|1 | no
+    # ------------+-------------+---------+---------
+    #         def |         def |       2 | yes
+    #             RQG run with
+    #             - major_runid <1..max no of concurrent RQG runs>
+    #             - minor_runid
+    #             calculated by rqg_batch.pl and assigned to the RQG run.
+    #             During the RQG run
+    #                /data/results/<minor_runid>/<major_runid>
+    #                /dev/shm/rqg/<minor_runid>/<major_runid>
+    #                + maybe /dev/shm/rqg_ext4/<minor_runid>/<major_runid> exist.
+    #             Finally:
+    #                /data/results/<minor_runid>/<other number> will be left over.
+    # ------------+-------------+---------+---------
     #         def |       undef |       * | no
-    # ------------+-------------+---------+-------------------------------------------------------
-    #       undef |         def |       0 | yes     | RQG run stand alone with assigned
-    #                                               | minor_runid.
-    # ------------+-------------+---------+-------------------------------------------------------
+    # ------------+-------------+---------+---------
+    #       undef |         def |       0 | yes
+    #             RQG run stand alone with assigned minor_runid.
+    #             During the RQG run and finally
+    #                /data/results/SINGLE_RUN
+    #                /dev/shm/rqg/SINGLE_RUN/
+    #                + maybe /dev/shm/rqg_ext4/SINGLE_RUN/
+    # ------------+-------------+---------+---------
     #       undef |         def |       1 | no
-    # ------------+-------------+---------+-------------------------------------------------------
-    #       undef |       undef |       0 | yes     | RQG run stand alone with to be calculated
-    #                                               | minor_runid.
-    # ------------+-------------+---------+-------------------------------------------------------
+    # ------------+-------------+---------+---------
+    #       undef |       undef |       0 | yes
+    #
+    # FIXME: Use minor_runid == 'SINGLE_RUN' only.
+    #             RQG run stand alone with undef minor_runid.
+    #             During the RQG run and finally
+    #                /data/results/<Timestamp>
+    #                /dev/shm/rqg/<Timestamp>/
+    #                + maybe /dev/shm/rqg_ext4/<Timestamp>/
+    # ------------+-------------+---------+---------
     #       undef |       undef |       1 | no
-    # ------------+-------------+-----------+-------------------------------------------------------
-    #       undef |       undef |       2 | yes     | rqg_batch.pl
+    # ------------+-------------+-----------+-------
+    #       undef |       undef |       2 | yes
+    #             rqg_batch.pl calculates
+    #             major_runid <1..max no of concurrent RQG runs>
+    #             + minor_runid (a time stamp)
+    #             During the RQG run
+    #                /data/results/<minor_runid>/<major_runid>
+    #                /dev/shm/rqg/<minor_runid>/<major_runid>
+    #                + maybe /dev/shm/rqg_ext4/<minor_runid>/<major_runid>
+    #             Finally:
+    #                /data/results/<minor_runid>/<other number>
     #
     # Roughly
     # - If major_runid defined than the corresponding subdirectory must already exist.
@@ -271,7 +297,7 @@ sub check_and_set_local_config {
             check_dir($results_dir);
         }
         $results_dir = Basics::unify_path($results_dir . "/" . $minor_runid);
-        if (0 == $batch) {
+        if (0 == $batch or 1 == $batch) {
             # $build_thread stays unchanged.
             if (STATUS_OK != Basics::conditional_remove__make_dir($results_dir)) {
                 my $status = STATUS_ENVIRONMENT_FAILURE;
