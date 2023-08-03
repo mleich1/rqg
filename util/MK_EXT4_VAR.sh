@@ -1,6 +1,13 @@
 #!/bin/bash
 LANG=C
-set -x
+
+  set -x
+
+if [ 'root' = "$USER" ]
+then
+   echo "ERROR: $0 was called as user 'root' or with prepended sudo."
+   exit 4
+fi
 BASE_FS="/dev/shm"
 if [ ! -d $BASE_FS ]
 then
