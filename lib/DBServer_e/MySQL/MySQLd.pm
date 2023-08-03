@@ -1814,9 +1814,11 @@ sub checkDatabaseIntegrity {
 # Code uses GenTest_e::Executor.
 #
 # FIXME maybe: What about some error log checking?
+
+
     my $self = shift;
 
-    # Prepending the package costs too much space per line.
+    # Prepending the package costs too much space per line reported.
     my $who_am_i =          "checkDatabaseIntegrity ";
     my $server_id =         $self->server_id();
     my $server_name =       "server[" . $server_id . "]";
@@ -1835,17 +1837,108 @@ sub checkDatabaseIntegrity {
     $status = $executor->init();
     return $status if $status != STATUS_OK;
 
+    sub show_the_locks {
+        my ($executor,$r_schema, $r_table) = @_;
+        my $who_am_i =  "checkDatabaseIntegrity::show_the_locks: ";
+        my ($aux_query, $lock_check, $lock_check_status);
+        $aux_query =    "SELECT THREAD_ID, LOCK_MODE, LOCK_DURATION, LOCK_TYPE " .
+                        "FROM information_schema.METADATA_LOCK_INFO " .
+                        "WHERE TABLE_SCHEMA = '$r_schema' AND TABLE_NAME = '$r_table'";
+        $lock_check =        $executor->execute($aux_query);
+        $lock_check_status = $lock_check->status;
+        if (STATUS_OK != $lock_check_status) {
+            my $lock_check_err    = $lock_check->err;
+            $lock_check_err =       "<undef>" if not defined $lock_check_err;
+            my $lock_check_errstr = $lock_check->errstr;
+            $lock_check_errstr =    "<undef>" if not defined $lock_check_errstr;
+            $executor->disconnect();
+            say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $lock_check_err : " .
+                $lock_check_errstr . " " . Auxiliary::build_wrs($lock_check_status));
+            return $lock_check_status;
+        } else {
+            my $key_aux_ref = $lock_check->data;
+            if (0 == scalar(@$key_aux_ref)) {
+                # say("DEBUG: information_schema.METADATA_LOCK_INFO: No result for " .
+                #     "`$r_schema` . " . "`$r_table`");
+            } else {
+                say("DEBUG: METADATA_LOCK_INFO thread_id<->lock_mode<->lock_duration<->lock_type");
+                foreach my $lock_check_val (@$key_aux_ref) {
+                    my $r_thread_id =     $lock_check_val->[0];
+                    $r_thread_id =        "<undef>" if not defined $r_thread_id;
+                    my $r_lock_mode =     $lock_check_val->[1];
+                    $r_lock_mode =        "<undef>" if not defined $r_lock_mode;
+                    my $r_lock_duration = $lock_check_val->[2];
+                    $r_lock_duration =    "<undef>" if not defined $r_lock_duration;
+                    my $r_lock_type =     $lock_check_val->[3];
+                    $r_lock_type =        "<undef>" if not defined $r_lock_type;
+                    say("DEBUG: METADATA_LOCK_INFO ->" . $r_thread_id . "<->" . $r_lock_mode .
+                        "<->" . $r_lock_duration . "<->" . $r_lock_type . "<-");
+                }
+            }
+        }
+        $aux_query = "SELECT lock_id,lock_trx_id,lock_mode,lock_type,lock_index,lock_space," .
+                     "lock_page,lock_rec,lock_data FROM information_schema.INNODB_LOCKS "    .
+                     "WHERE lock_table = '`$r_schema`.`$r_table`'";
+        $lock_check = $executor->execute($aux_query);
+        $lock_check_status = $lock_check->status;
+        if (STATUS_OK != $lock_check_status) {
+            my $lock_check_err    = $lock_check->err;
+            $lock_check_err =       "<undef>" if not defined $lock_check_err;
+            my $lock_check_errstr = $lock_check->errstr;
+            $lock_check_errstr =    "<undef>" if not defined $lock_check_errstr;
+            $executor->disconnect();
+            say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $lock_check_err : " .
+                $lock_check_errstr . " " . Auxiliary::build_wrs($lock_check_status));
+            return $lock_check_status;
+        } else {
+            my $key_aux_ref = $lock_check->data;
+            if (0 == scalar(@$key_aux_ref)) {
+                # say("DEBUG: information_schema.INNODB_LOCKS: No result for " .
+                #     "`$r_schema` . " . "`$r_table`");
+            } else {
+                say("DEBUG: INNODB_LOCKS ->lock_mode<->lock_type<->lock_table<->lock_index");
+                foreach my $lock_check_val (@$key_aux_ref) {
+                    # lock_id lock_trx_id, lock_mode, lock_type, lock_table, lock_index, lock_space,
+                    # lock_page, lock_rec, lock_data
+                    my $r_lock_id =        $lock_check_val->[0];
+                    $r_lock_id =           "<undef>" if not defined $r_lock_id;
+                    my $r_lock_trx_id =    $lock_check_val->[1];
+                    $r_lock_trx_id =       "<undef>" if not defined $r_lock_trx_id;
+                    my $r_lock_mode =      $lock_check_val->[2];
+                    $r_lock_mode =         "<undef>" if not defined $r_lock_mode;
+                    my $r_lock_type =      $lock_check_val->[3];
+                    $r_lock_type =         "<undef>" if not defined $r_lock_type;
+                    my $r_lock_table =     $lock_check_val->[3];
+                    $r_lock_table =        "<undef>" if not defined $r_lock_table;
+                    my $r_lock_index =     $lock_check_val->[3];
+                    $r_lock_index =        "<undef>" if not defined $r_lock_index;
+                    say("DEBUG: INNODB_LOCKS ->" . $r_lock_mode . "<->" . $r_lock_type . "<->" .
+                        $r_lock_table . "<->" . $r_lock_index . "<-");
+                }
+            }
+        }
+        return STATUS_OK;
+    }
+
     # For experimenting
     if (0) {
-        # Generate two damaged views so that CHECK TABLE reports an error.
-        # Do not forget to uncomment the 'next if "VIEW" eq $table_type;' some lines later.
-        say("WARN: $who_am_i CREATE a table and a dangling view");
-        $executor->execute("CREATE TABLE test.extra_t1 (col1 INT)");
-        $executor->execute("CREATE TABLE test.extra_t2 (col1 INT, col2 INT)");
+        say("WARN: $who_am_i CREATE tables and damaged views");
+        # test.extra_v2 is damaged, base table/view missing
         $executor->execute("CREATE TABLE test.extra_t1 (col1 INT)");
         $executor->execute("CREATE VIEW test.extra_v1 AS SELECT * FROM test.extra_t1");
+        $executor->execute("DROP TABLE test.extra_t1");
+
+        # test.extra_v2 is damaged, column missing
+        $executor->execute("CREATE TABLE test.extra_t2 (col1 INT, col2 INT)");
         $executor->execute("CREATE VIEW test.extra_v2 AS SELECT * FROM test.extra_t2");
         $executor->execute("ALTER TABLE test.extra_t2 DROP COLUMN col2");
+
+        # test.extra_v3 is recursive
+        $executor->execute("CREATE TABLE test.extra_t3 (col1 INT)");
+        $executor->execute("CREATE VIEW test.extra_v3 AS SELECT * FROM test.extra_t3");
+        $executor->execute("CREATE VIEW test.extra_v4 AS SELECT * FROM test.extra_v3");
+        $executor->execute("DROP TABLE test.extra_t3");
+        $executor->execute("RENAME TABLE v4 test.extra_t3");
     }
 
     #
@@ -1881,15 +1974,16 @@ sub checkDatabaseIntegrity {
 
         # SHOW CREATE TABLE/VIEW
         # ----------------------
+        # MTR: SHOW CREATE on damaged view gives no failure but a warning.
         $aux_query = "SHOW CREATE TABLE " . $table_to_check;
         my $res_tables = $executor->execute($aux_query);
         $status = $res_tables->status;
         if (STATUS_OK != $status) {
             $executor->disconnect();
             my $err    = $res_tables->err;
-            $err = "<undef>" if not defined $err;
+            $err =       "<undef>" if not defined $err;
             my $errstr = $res_tables->errstr;
-            $errstr = "<undef>" if not defined $errstr;
+            $errstr =    "<undef>" if not defined $errstr;
             say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err: $errstr");
             if (STATUS_SEMANTIC_ERROR == $status) {
                 # The list of tables is determined from the server data dictionary.
@@ -1943,13 +2037,22 @@ sub checkDatabaseIntegrity {
         $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
         if (STATUS_OK != $status) {
             my $err    = $res_check->err;
-            $err = "<undef>" if not defined $err;
+            $err =       "<undef>" if not defined $err;
             my $errstr = $res_check->errstr;
-            $errstr = "<undef>" if not defined $errstr;
+            $errstr =    "<undef>" if not defined $errstr;
             if (STATUS_SKIP == $status) {
-                say("INFO: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
+                say("INFO: $who_am_i Query ->" . $aux_query . "<- harvested STATUS_SKIP");
                 $omit_walk_queries = 1 if $r_table_type eq "VIEW" or $r_table_type eq "SYSTEM VIEW";
-                $status = STATUS_OK;
+                $status =            STATUS_OK;
+            } elsif (STATUS_TRANSACTION_ERROR == $status) {
+                my $sl_status = show_the_locks($executor,$r_schema, $r_table);
+                $executor->disconnect();
+                say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
+                if ($status > $sl_status) {
+                    return $status;
+                } else {
+                    return $sl_status;
+                }
             } else {
                 if ($r_engine ne 'InnoDB') {
                     my $aux_query1 = "REPAIR TABLE `$r_schema`.`$r_table` EXTENDED";
@@ -1959,15 +2062,15 @@ sub checkDatabaseIntegrity {
                         $executor->disconnect();
                         my $err    = $res_tables->err;
                         my $errstr = $res_tables->errstr;
-                        say("ERROR: $who_am_i Query ->" . $aux_query1 . "<- failed with $err : $errstr " .
-                            Auxiliary::build_wrs($status));
+                        say("ERROR: $who_am_i Query ->" . $aux_query1 . "<- failed with " .
+                            "$err : $errstr " . Auxiliary::build_wrs($status));
                         return $status;
                     }
                     # say("INFO: $who_am_i Query ->" . $aux_query . "<- passed");
                 } else {
                     $executor->disconnect();
-                    say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
-                        Auxiliary::build_wrs($status));
+                    say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with " .
+                        "$err : $errstr " . Auxiliary::build_wrs($status));
                     return $status;
                 }
             }
@@ -1982,11 +2085,11 @@ sub checkDatabaseIntegrity {
             $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
             if (STATUS_OK != $status) {
                 my $err    = $res_check->err;
-                $err = "<undef>" if not defined $err;
+                $err =       "<undef>" if not defined $err;
                 my $errstr = $res_check->errstr;
-                $errstr = "<undef>" if not defined $errstr;
+                $errstr =    "<undef>" if not defined $errstr;
                 if (STATUS_SKIP == $status) {
-                    say("INFO: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
+                    say("INFO: $who_am_i Query ->" . $aux_query . "<- harvested STATUS_SKIP");
                     $status = STATUS_OK;
                 } else {
                     $executor->disconnect();
@@ -1996,33 +2099,6 @@ sub checkDatabaseIntegrity {
                 }
             } else {
                 # say("INFO: $who_am_i $aux_query : pass");
-                # No reason to analyse the result because that was already done by MySQL.pm and
-                # we received some corresponding status.
-            }
-        }
-
-        # ANALYZE TABLE
-        # -------------
-        # I am aware that some fine grained checking of the server response is missing.
-        if ($r_table_type eq "BASE TABLE") {
-            $aux_query = "ANALYZE TABLE " . $table_to_check;
-            my $res_check = $executor->execute($aux_query);
-            $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
-            if (STATUS_OK != $status) {
-                my $err    = $res_check->err;
-                $err = "<undef>" if not defined $err;
-                my $errstr = $res_check->errstr;
-                $errstr = "<undef>" if not defined $errstr;
-                if (STATUS_SKIP == $status) {
-                    say("INFO: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
-                } else {
-                    $executor->disconnect();
-                    say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
-                        Auxiliary::build_wrs($status));
-                    return $status;
-                }
-            } else {
-                  say("INFO: $who_am_i $aux_query : pass");
                 # No reason to analyse the result because that was already done by MySQL.pm and
                 # we received some corresponding status.
             }
@@ -2079,9 +2155,8 @@ sub checkDatabaseIntegrity {
         }
 
         next if $omit_walk_queries;
-        # next if $r_schema eq 'information_schema' or $r_schema eq 'mysql' or $r_schema eq 'mariadb';
-        # There is a too high risk to get result sets of different sizes or content because of
-        # selecting on some view containing counters.
+        # 1. There is a too high risk to get result sets of different sizes or content because of
+        #    selecting on some view containing counters.
         # next if $r_schema eq 'information_schema' or $r_schema eq 'mysql' or $r_schema eq 'mariadb';
         next if $r_schema eq 'information_schema';
 
@@ -2262,7 +2337,7 @@ sub checkDatabaseIntegrity {
                 my $least_sql = $rows{$rows_sorted[0]}->[0];
                 my $most_sql  = $rows{$rows_sorted[$#rows_sorted]}->[0];
                 say("Query that returned least rows: $least_sql\n");
-                say("Query that returned most rows: $most_sql\n");
+                say("Query that returned most rows:  $most_sql\n");
 
                 my $least_result_obj = GenTest_e::Result->new(
                     data => $dbh->selectall_arrayref($least_sql)
@@ -2281,6 +2356,44 @@ sub checkDatabaseIntegrity {
 
         # Prevent rebuilding a system table or view for now.
         next if $r_schema eq 'information_schema' or $r_schema eq 'mysql' or $r_schema eq 'mariadb';
+
+        # ANALYZE TABLE
+        # -------------
+        # ANALYZE TABLE analyzes and stores the key distribution for a table (index statistics).
+        # I am aware that some fine grained checking of the server response is missing.
+        if ($r_table_type eq "BASE TABLE") {
+            $aux_query = "ANALYZE TABLE " . $table_to_check;
+            my $res_check = $executor->execute($aux_query);
+            $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
+            if (STATUS_OK != $status) {
+                my $err    = $res_check->err;
+                $err = "<undef>" if not defined $err;
+                my $errstr = $res_check->errstr;
+                $errstr = "<undef>" if not defined $errstr;
+                if (STATUS_SKIP == $status) {
+                    say("INFO: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
+                } elsif (STATUS_TRANSACTION_ERROR == $status) {
+                    say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
+                    my $sl_status = show_the_locks($executor,$r_schema, $r_table);
+                    $executor->disconnect();
+                    if ($status > $sl_status) {
+                        return $status;
+                    } else {
+                        return $sl_status;
+                    }
+                } else {
+                    $executor->disconnect();
+                    say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
+                        Auxiliary::build_wrs($status));
+                    return $status;
+                }
+            } else {
+                say("INFO: $who_am_i $aux_query : pass");
+                # FIXME:
+                # Maybe analyse the result already within the Executor like for
+                # CHECK TABLE.
+            }
+        }
 
         # REBUILD the table
         # -----------------
@@ -2314,51 +2427,9 @@ sub checkDatabaseIntegrity {
 
 #               if (STATUS_UNSUPPORTED == $status) {  ????
 
-                # What follows might look nice because it would show locks caused by some
-                # prepared XA transaction. But its most probably worthless because
-                # MDEV-24324. We get an empty result set.
-                # if (STATUS_TRANSACTION_ERROR == $status) {
-                #   my $aux_query1 = "SELECT THREAD_ID, LOCK_MODE, LOCK_DURATION, LOCK_TYPE " .
-                #                    "FROM information_schema.METADATA_LOCK_INFO " .
-                #                    "WHERE TABLE_SCHEMA = '$r_schema' AND TABLE_NAME = '$r_table'";
-                #   my $lock_check = $executor->execute($aux_query1);
-                #   my $lock_check_status = $lock_check->status;
-                #   if (STATUS_OK != $lock_check_status) {
-                #       my $lock_check_err    = $lock_check->err;
-                #       $lock_check_err =       "<undef>" if not defined $lock_check_err;
-                #       my $lock_check_errstr = $lock_check->errstr;
-                #       $lock_check_errstr =    "<undef>" if not defined $lock_check_errstr;
-                #       $executor->disconnect();
-                #       say("ERROR: $who_am_i Query ->" . $aux_query1 . "<- failed with $lock_check_err : $lock_check_errstr " .
-                #           Auxiliary::build_wrs($lock_check_status));
-                #       return $lock_check_status;
-                #   } else {
-                #       my $key_aux_ref = $lock_check->data;
-                #       if (not defined $key_aux_ref) {
-                #           say("DEBUG: key_aux_ref is undef");
-                #       } else {
-                #           say("DEBUG: key_aux_ref is defined and # of elements: " . scalar(@$key_aux_ref));
-                #       }
-                #       foreach my $lock_check_val (@$key_aux_ref) {
-                #           my $r_thread_id =     $lock_check_val->[0];
-                #           $r_thread_id =        "<undef>" if not defined $r_thread_id;
-                #           my $r_lock_mode =     $lock_check_val->[1];
-                #           $r_lock_mode =        "<undef>" if not defined $r_lock_mode;
-                #           my $r_lock_duration = $lock_check_val->[2];
-                #           $r_lock_duration =    "<undef>" if not defined $r_lock_duration;
-                #           my $r_lock_type =     $lock_check_val->[3];
-                #           $r_lock_type =        "<undef>" if not defined $r_lock_type;
-                #           say("DEBUG: METADATA_LOCK_INFO ->" . $r_thread_id . "<->" .
-                #               $r_lock_mode . "<->" . $r_lock_duration . "<->" .
-                #           $r_lock_type . "<-");
-                #       }
-                #   }
-                # }
-
                 if (STATUS_TRANSACTION_ERROR == $status and $r_engine = "InnoDB") {
-                    # InnoDB supports XA transactions and is transactional.
-                    my $msg_snip =    "$who_am_i Query ->" . $aux_query .
-                                      "<- failed with $err : $errstr";
+                    my $msg_snip =     "$who_am_i Query ->" . $aux_query .
+                                       "<- failed with $err : $errstr";
                     my $aux_query14 =  "XA RECOVER";
                     my $res_check14 =  $executor->execute($aux_query14);
                     my $status14    =  $res_check14->status;
@@ -2401,6 +2472,7 @@ sub checkDatabaseIntegrity {
                         }
                     }
                 } else {
+                    # Either engine != InnoDB or status == STATUS_TRANSACTION_ERROR
                     $executor->disconnect();
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
                         Auxiliary::build_wrs($status));
