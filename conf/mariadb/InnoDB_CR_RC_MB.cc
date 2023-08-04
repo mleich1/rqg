@@ -203,6 +203,11 @@ $combinations = [ $grammars,
     '--mysqld=--loose-innodb_fast_shutdown=0' ,
   ],
   [
+    '--mysqld=--sql_mode=traditional' ,
+    # Below the default since 10.2.4
+    '--mysqld=--sql_mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' ,
+  ],
+  [
     # innodb_file_per_table
     # ...
     # Page compression is only available with file-per-table tablespaces.
