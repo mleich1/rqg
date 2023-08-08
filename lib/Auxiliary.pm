@@ -1675,7 +1675,10 @@ sub report_max_sizes {
     if (STATUS_OK != $status) {
         return $status;
     }
-    say("Space comsumption in KB");
+    say("Maximum resource comsumption (different points of time) in KB");
+    # This means
+    #    $max_total_size < $max_fast_dir_size + $max_slow_dir_size
+    # is to to be expected.
     say("Maximum total(fast_dir+slow_dir): $max_total_size");
     say("Maximum in fast_dir: $max_fast_dir_size");
     say("Maximum in slow_dir: $max_slow_dir_size");

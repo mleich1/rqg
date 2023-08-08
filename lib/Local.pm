@@ -347,6 +347,8 @@ sub check_and_set_local_config {
         my $replacement = $major_runid;
         $replacement = '<undef --> not used>' if not defined $major_runid;
         my $message = "Local Properties after processing '$local_config' and parameters assigned";
+        my $build_thread_message = "$build_thread";
+        $build_thread_message = $build_thread_message . " (begin of range used)" if (2 == $batch);
         say(Auxiliary::dash_line(length($message)) . "\n"                                          .
             $message . "\n"                                                                        .
             "INFO: major_runid           : '$replacement'\n"                                       .
@@ -361,7 +363,7 @@ sub check_and_set_local_config {
             "INFO: binarch_dir           : '$binarch_dir'\n"                                       .
             "INFO: results_dir           : '$results_dir'\n"                                       .
             "INFO: vardir                : '$vardir'\n"                                            .
-            "INFO: build_thread          : '$build_thread'\n"                                      .
+            "INFO: build_thread          : '$build_thread_message'\n"                                      .
             Auxiliary::dash_line(length($message)))                                                ;
     }
     # For debugging

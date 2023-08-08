@@ -103,7 +103,7 @@ use constant PREPARE_TIMEOUT => 600;
 my $first_reporter;
 my $client_basedir;
 
-my $script_debug = 1;
+my $script_debug = 0;
 my $last_call    = time() - 16;
 $|=1;
 

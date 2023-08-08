@@ -309,7 +309,7 @@ $max_gd_duration = $default_max_gd_duration if not defined $max_gd_duration;
 
 $batch = 0 if not defined $batch;
 if (defined $batch and $batch != 0) {
-    say("DEBUG: The RQG run seems to be under control of RQG Batch.");
+    # say("DEBUG: The RQG run seems to be under control of RQG Batch.");
     if (not defined $major_runid) {
         say("ERROR: \$batch : $batch but major_runid is not defined.");
         run_end(STATUS_INTERNAL_ERROR);
@@ -522,15 +522,15 @@ if (not defined $grammar_file) {
 #    $mask       is defined
 if (not defined $no_mask) {
     if (defined $mask and $mask > 0 and not defined $mask_level) {
-        say("DEBUG: mask is > 0 and mask_level is not defined. Therefore setting mask_level=1.");
+        say("INFO: mask is > 0 and mask_level is not defined. Therefore setting mask_level=1.");
         $mask_level = 1;
     } elsif (not defined $mask) {
-        say("DEBUG: mask is not defined. Therefore setting mask_level = 0 and mask = 0.");
+        # say("DEBUG: mask is not defined. Therefore setting mask_level = 0 and mask = 0.");
         $mask_level = 0;
         $mask       = 0;
     }
 } else {
-    say("DEBUG: no_mask is defind. Therefore setting mask_level=0 , mask=0 and no_mask=undef.");
+    # say("DEBUG: no_mask is defind. Therefore setting mask_level=0 , mask=0 and no_mask=undef.");
     $mask_level = 0;
     $mask       = 0;
     $no_mask    = undef;
@@ -988,7 +988,7 @@ if (STATUS_OK != $status) {
 Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_PREPARE);
 
 my $max_id = $number_of_servers - 1;
-say("DEBUG: max_id is $max_id");
+# say("DEBUG: max_id is $max_id");
 
 # Generate the infrastructure for all required servers.
 # -----------------------------------------------------
@@ -1013,7 +1013,7 @@ foreach my $server_id (0.. $max_id) {
 #
 
 my $rplsrv;
-say("DEBUG: rpl_mode is '$rpl_mode'");
+# say("DEBUG: rpl_mode is '$rpl_mode'");
 # FIXME: Let a routine in Auxiliary figure that out or figure out once and memorize result.
 if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
     (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)        or
@@ -1023,7 +1023,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
      ($rpl_mode eq Auxiliary::RQG_RPL_ROW)              or
      ($rpl_mode eq Auxiliary::RQG_RPL_ROW_NOSYNC)         )) {
 
-    say("DEBUG: We run with MariaDB replication");
+    say("INFO: We run with MariaDB replication. rpl_mode: $rpl_mode");
 
     $rplsrv = DBServer_e::MySQL::ReplMySQLd->new(
                  master_basedir      => $basedirs[1],
@@ -1081,7 +1081,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
     # - it must exist
     my $wsrep_provider = $ENV{'WSREP_PROVIDER'};
 
-    say("DEBUG: We run with Galera replication: $galera");
+    say("INFO: We run with Galera replication: $galera");
 
     $rplsrv = DBServer_e::MySQL::GaleraMySQLd1->new(
         basedir            => $basedirs[0],
@@ -1133,7 +1133,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
 
 } elsif (defined $upgrade_test) {
 
-    say("DEBUG: We are running an upgrade test.");
+    say("INFO: We are running an upgrade test.");
 
     # There are 'normal', 'crash', 'recovery' and 'undo' modes.
     # 'normal' will be used by default
@@ -1259,7 +1259,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
     #      and transformed SELECTs on some other server
     #
     my $max_id = $number_of_servers - 1;
-    say("DEBUG: max_id is $max_id");
+    # say("DEBUG: max_id is $max_id");
 
     foreach my $server_id (0.. $max_id) {
 
@@ -1304,7 +1304,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         # - the branches != "Simple" test ... need that too.
 
         $dsns[$server_id] = $server[$server_id]->dsn($database, $user);
-        say("DEBUG: dsns[$server_id] defined.");
+        # say("DEBUG: dsns[$server_id] defined.");
 
         if ((defined $dsns[$server_id]) and
             (defined $engine[$server_id] and $engine[$server_id] ne '')) {
@@ -1356,7 +1356,7 @@ if ($wait_debugger) {
     foreach my $srv (@server) {
         $server_num++;
         if (not defined $srv) {
-            say("DEBUG: server[$server_num] is not defined.");
+            # say("DEBUG: server[$server_num] is not defined.");
             next;
         } else {
             push @pids, $server[$server_num - 1]->serverpid;
@@ -1514,7 +1514,7 @@ $server_num = 0;
 foreach my $srv (@server) {
     $server_num++;
     if (not defined $srv) {
-        say("DEBUG: server[$server_num] is not defined.");
+        # say("DEBUG: server[$server_num] is not defined.");
         next;
     }
     my $varname = "SERVER_PID" . ($server_num);
@@ -1665,6 +1665,9 @@ if (STATUS_INTERNAL_ERROR == $final_result) {
 
 if (STATUS_OK != Auxiliary::update_sizes()) {
     my $return = STATUS_ENVIRONMENT_FAILURE;
+    # update_sizes can fail because of files being deleted or renamed because of SQL.
+    # But that must not happen after GenTest is finished.
+    # Hence aborting the test is most probably ok.
     exit_test($return);
 }
 
@@ -1674,7 +1677,7 @@ $final_result = $check_status if $check_status > $final_result;
 if ($final_result > STATUS_OK) {
     say("INFO: The testing will go on even though GenTest+Servercheck ended with status " .
         status2text($final_result) . "($final_result). Need to look for corruptions.");
-    say("DEBUG: No reduction of final status.");
+    # say("DEBUG: No reduction of final status.");
 }
 
 # For experimenting:
@@ -1684,7 +1687,7 @@ $server_num = 0;
 foreach my $srv (@server) {
     $server_num++;
     if (not defined $srv) {
-        say("DEBUG: server[$server_num] is not defined.");
+        # say("DEBUG: server[$server_num] is not defined.");
         next;
     }
     my $status = STATUS_OK;
@@ -1814,7 +1817,7 @@ if (($final_result == STATUS_OK)                         and
         foreach my $srv (@server) {
             $server_num++;
             if (not defined $srv) {
-                say("DEBUG: Comparison of servers: server[$server_num] is not defined.");
+                # say("DEBUG: Comparison of servers: server[$server_num] is not defined.");
                 next;
             } else {
                 $first_server_num = $server_num if not defined $first_server_num;
@@ -1843,7 +1846,7 @@ if (($final_result == STATUS_OK)                         and
                         }
                     } else {
                         my $schema_listing = join (' ', @schema_list);
-                        say("DEBUG: $server_name schema_listing for mysqldump ->$schema_listing<-");
+                        # say("DEBUG: $server_name schema_listing for mysqldump ->$schema_listing<-");
                         if ($schema_listing eq '') {
                             say("ERROR: Schemalisting for $server_name is empty. " .
                                 "Will exit with STATUS_ALARM");
@@ -1871,7 +1874,7 @@ if (($final_result == STATUS_OK)                         and
             foreach my $srv (@server) {
                 $server_num++;
                 if (not defined $srv) {
-                    say("DEBUG: Comparison of servers: server[$server_num] is not defined.");
+                    # say("DEBUG: Comparison of servers: server[$server_num] is not defined.");
                     next;
                 } elsif ($first_server_num == $server_num) {
                     next;
@@ -1946,9 +1949,9 @@ if ($final_result >= STATUS_CRITICAL_FAILURE) {
         say("ERROR: Stopping the server(s) failed with status $stop_status.");
         say("       Server already no more running or no reaction on admin shutdown or ...");
         if ($final_result > STATUS_CRITICAL_FAILURE) {
-            say("DEBUG: The current status is already high enough. So it will be not modified.");
+            say("INFO: The current status is already high enough. So it will be not modified.");
         } else {
-            say("DEBUG: Raising status from " . $final_result . " to " . $stop_status);
+            say("INFO: Raising status from " . $final_result . " to " . $stop_status);
             $final_result = $stop_status;
         }
     }
@@ -1978,7 +1981,7 @@ sub checkServers {
     foreach my $srv (@server) {
         $server_num++;
         if (not defined $srv) {
-            say("DEBUG: $who_am_i server[$server_num] is not defined.");
+            # say("DEBUG: $who_am_i server[$server_num] is not defined.");
             next;
         }
         # For debugging
@@ -2045,7 +2048,7 @@ sub stopServers {
     my $status =   shift;
     my $who_am_i = Basics::who_am_i;
 
-    say("DEBUG: $who_am_i Entering stopServers with assigned status $status");
+    # say("DEBUG: $who_am_i Entering stopServers with assigned status $status");
 
     if ($skip_shutdown) {
         say("INFO: $who_am_i Server shutdown is skipped upon request");
@@ -2073,7 +2076,7 @@ sub stopServers {
         foreach my $srv (@server) {
             $server_num++;
             if (not defined $srv) {
-                say("DEBUG: $who_am_i server[$server_num] is not defined.");
+                # say("DEBUG: $who_am_i server[$server_num] is not defined.");
                 next;
             } else {
                 my $single_ret = $srv->stopServer;
@@ -2087,7 +2090,7 @@ sub stopServers {
         }
     }
     if ($ret != STATUS_OK) {
-        say("DEBUG: $who_am_i returned status $ret");
+        # say("DEBUG: $who_am_i returned status $ret");
     }
     return $ret;
 }
@@ -2135,7 +2138,7 @@ sub killServers {
         foreach my $srv (@server) {
             $server_num++;
             if (not defined $srv) {
-                say("DEBUG: $who_am_i server[$server_num] is not defined.");
+                # say("DEBUG: $who_am_i server[$server_num] is not defined.");
                 next;
             } else {
                 my $single_ret = STATUS_OK;
@@ -2156,7 +2159,7 @@ sub killServers {
         }
     }
     if ($ret != STATUS_OK) {
-        say("DEBUG: $who_am_i failed with : ret : $ret");
+        # say("DEBUG: $who_am_i failed with : ret : $ret");
     }
 }
 
