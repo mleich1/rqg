@@ -250,7 +250,7 @@ set -o pipefail
 # --rr_options='--chaos --wait --microarch=\"Intel Skylake\"'          \
 #
 # 9. SQL tracing within RQG (Client side tracing)
-# --sql_trace=Simple                                                   \
+# --sqltrace=Simple                                                    \
 #
 #
 
