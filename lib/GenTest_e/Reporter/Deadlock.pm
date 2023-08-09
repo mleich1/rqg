@@ -234,6 +234,10 @@ sub monitor_nonthreaded {
     # a more civilized manner does not work for some reason -- the read() call from the server gets
     # restarted instead.
 
+    # Attention:
+    # DBServer_e::MySQL::MySQL::server_is_operable cannot replace functionality of the current sub
+    # because the criterions for declaring a Deadlock/Freeze differ.
+
     my $exit_msg      = '';
     my $alarm_timeout = 0;
     my $query         = 'INIT';
