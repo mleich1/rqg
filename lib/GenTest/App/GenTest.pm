@@ -58,28 +58,27 @@ use GenTest::ReporterManager;
 use GenTest::Filter::Regexp;
 use GenTest::Incident;
 
-use constant PROCESS_TYPE_PARENT	=> 0;
-use constant PROCESS_TYPE_PERIODIC	=> 1;
-use constant PROCESS_TYPE_CHILD		=> 2;
+use constant PROCESS_TYPE_PARENT    => 0;
+use constant PROCESS_TYPE_PERIODIC  => 1;
+use constant PROCESS_TYPE_CHILD     => 2;
 
-use constant GT_CONFIG => 0;
-use constant GT_XML_TEST => 3;
-use constant GT_XML_REPORT => 4;
-use constant GT_CHANNEL => 5;
+use constant GT_CONFIG              => 0;
+use constant GT_XML_TEST            => 3;
+use constant GT_XML_REPORT          => 4;
+use constant GT_CHANNEL             => 5;
 
-use constant GT_GRAMMAR => 6;
-use constant GT_GENERATOR => 7;
-use constant GT_REPORTER_MANAGER => 8;
-use constant GT_TEST_START => 9;
-use constant GT_TEST_END => 10;
-use constant GT_QUERY_FILTERS => 11;
+use constant GT_GRAMMAR             => 6;
+use constant GT_GENERATOR           => 7;
+use constant GT_REPORTER_MANAGER    => 8;
+use constant GT_TEST_START          => 9;
+use constant GT_TEST_END            => 10;
+use constant GT_QUERY_FILTERS       => 11;
 use constant GT_LOG_FILES_TO_REPORT => 12;
 
 sub new {
     my $class = shift;
     
-    my $self = $class->SUPER::new({
-        'config' => GT_CONFIG},@_);
+    my $self = $class->SUPER::new({'config' => GT_CONFIG}, @_);
     
     croak ("Need config") if not defined $self->config;
 
@@ -127,7 +126,7 @@ sub run {
 
     $SIG{TERM} = sub { exit(0) };
     $SIG{CHLD} = "IGNORE" if osWindows();
-    $SIG{INT} = "IGNORE";
+    $SIG{INT} =  "IGNORE";
     
     if (defined $ENV{RQG_HOME}) {
         $ENV{RQG_HOME} = osWindows() ? $ENV{RQG_HOME}.'\\' : $ENV{RQG_HOME}.'/';
@@ -138,8 +137,8 @@ sub run {
     $self->initSeed();
 
     my $queries = $self->config->queries;
-    $queries =~ s{K}{000}so;
-    $queries =~ s{M}{000000}so;
+    $queries =~   s{K}{000}so;
+    $queries =~   s{M}{000000}so;
     $self->config->property('queries', $queries);
 
     say("-------------------------------\nConfiguration");
@@ -149,7 +148,7 @@ sub run {
     return $gendata_result if $gendata_result != STATUS_OK;
 
     $self->[GT_TEST_START] = time();
-    $self->[GT_TEST_END] = $self->[GT_TEST_START] + $self->config->duration;
+    $self->[GT_TEST_END] =   $self->[GT_TEST_START] + $self->config->duration;
 
     $self->[GT_CHANNEL] = GenTest::IPC::Channel->new();
 
@@ -167,7 +166,8 @@ sub run {
     foreach my $i (0..2) {
         next if $self->config->dsn->[$i] eq '';
         next if $self->config->dsn->[$i] !~ m{mysql}sio;
-        my $metadata_executor = GenTest::Executor->newFromDSN($self->config->dsn->[$i], osWindows() ? undef : $self->channel());
+        my $metadata_executor = GenTest::Executor->newFromDSN($self->config->dsn->[$i],
+                                                       osWindows() ? undef : $self->channel());
         $metadata_executor->init();
         $metadata_executor->cacheMetaData() if defined $metadata_executor->dbh();
         
@@ -213,7 +213,7 @@ sub run {
     
     ### Start central reporting thread ####
     
-    my $errorfilter = GenTest::ErrorFilter->new(channel => $self->channel());
+    my $errorfilter =   GenTest::ErrorFilter->new(channel => $self->channel());
     my $errorfilter_p = GenTest::IPC::Process->new(object => $errorfilter);
     if (!osWindows()) {
         $errorfilter_p->start($self->config->servers);
@@ -266,7 +266,7 @@ sub run {
                 delete $worker_pids{$child_pid};
             }
             
-            say("Process with pid $child_pid ended with status ".status2text($child_exit_status));
+            say("Process with pid $child_pid ended with status " . status2text($child_exit_status));
             last OUTER if $child_exit_status >= STATUS_CRITICAL_FAILURE;
             last OUTER if keys %worker_pids == 0;
             last OUTER if $child_pid == -1;
@@ -341,7 +341,7 @@ sub reportResults {
         say("Test completed successfully.");
         return STATUS_OK;
     } else {
-        say("Test completed with failure status ".status2text($total_status)." ($total_status)");
+        say("Test completed with failure status " .status2text($total_status) . " ($total_status)");
         return $total_status;
     }
 }
@@ -432,11 +432,12 @@ sub workerProcess {
 
     foreach my $i (1..$self->config->queries) {
         my $query_result = $mixer->next();
-        $worker_result = $query_result if $query_result > $worker_result && $query_result > STATUS_TEST_FAILURE;
+        $worker_result =   $query_result
+            if $query_result > $worker_result && $query_result > STATUS_TEST_FAILURE;
 
         if ($query_result > STATUS_CRITICAL_FAILURE) {
-				say("GenTest: Server crash or critical failure (". status2text($query_result) . ") reported, the child will be stopped");
-            undef $mixer;	# so that destructors are called
+            say("GenTest: Server crash or critical failure (". status2text($query_result) . ") reported, the child will be stopped");
+            undef $mixer;    # so that destructors are called
             $self->stopChild($query_result);
         }
 
@@ -476,28 +477,28 @@ sub doGenData {
         my $gendata_result;
         if ($self->config->gendata eq '') {
             $gendata_result = GenTest::App::GendataSimple->new(
-               dsn => $dsn,
-               views => ${$self->config->views}[$i],
-               engine => $self->config->engine,
-               sqltrace=> $self->config->sqltrace,
-               notnull => $self->config->notnull,
-               rows => $self->config->rows,
-               varchar_length => $self->config->property('varchar-length')
+               dsn                  => $dsn,
+               views                => ${$self->config->views}[$i],
+               engine               => $self->config->engine,
+               sqltrace             => $self->config->sqltrace,
+               notnull              => $self->config->notnull,
+               rows                 => $self->config->rows,
+               varchar_length       => $self->config->property('varchar-length')
             )->run();
         } else {
             $gendata_result = GenTest::App::Gendata->new(
-               spec_file => $self->config->gendata,
-               dsn => $dsn,
-               engine => $self->config->engine,
-               seed => $self->config->seed(),
-               debug => $self->config->debug,
-               rows => $self->config->rows,
-               views => ${$self->config->views}[$i],
-               varchar_length => $self->config->property('varchar-length'),
-               sqltrace => $self->config->sqltrace,
-               short_column_names => $self->config->short_column_names,
-               strict_fields => $self->config->strict_fields,
-               notnull => $self->config->notnull
+               spec_file            => $self->config->gendata,
+               dsn                  => $dsn,
+               engine               => $self->config->engine,
+               seed                 => $self->config->seed(),
+               debug                => $self->config->debug,
+               rows                 => $self->config->rows,
+               views                => ${$self->config->views}[$i],
+               varchar_length       => $self->config->property('varchar-length'),
+               sqltrace             => $self->config->sqltrace,
+               short_column_names   => $self->config->short_column_names,
+               strict_fields        => $self->config->strict_fields,
+               notnull              => $self->config->notnull
             )->run();
         }
             
@@ -536,15 +537,21 @@ sub initSeed {
 
 sub initGenerator {
     my $self = shift;
+    my $who_am_i = Basics::who_am_i();
 
-    my $generator_name = "GenTest::Generator::".$self->config->generator;
+    my $generator_name = "GenTest::Generator::" . $self->config->generator;
     say("Loading Generator $generator_name.") if rqg_debug();
     eval("use $generator_name");
-    croak($@) if $@;
+    if ('' ne $@) {
+        say("ERROR: $who_am_i Loading Generator '$generator_name' failed : $@");
+        say("ERROR: $who_am_i Will return status STATUS_ENVIRONMENT_FAILURE.");
+        return STATUS_ENVIRONMENT_FAILURE;
+    }
 
     if ($generator_name eq 'GenTest::Generator::FromGrammar') {
         if (not defined $self->config->grammar) {
-            say("ERROR: --grammar not specified but Generator is $generator_name, status will be set to ENVIRONMENT_FAILURE");
+            say("ERROR: $who_am_i --grammar not specified but Generator is '$generator_name', " .
+                "status will be set to ENVIRONMENT_FAILURE");
             return STATUS_ENVIRONMENT_FAILURE;
         }
 
@@ -554,26 +561,26 @@ sub initGenerator {
         ) if defined $self->config->grammar;
 
         if (not defined $self->grammar()) {
-            say("ERROR: Could not initialize the grammar, status will be set to ENVIRONMENT_FAILURE");
+            say("ERROR: $who_am_i Could not initialize the grammar, status will be set to ENVIRONMENT_FAILURE");
             return STATUS_ENVIRONMENT_FAILURE;
         }
 
-        if (not defined $self->grammar()) {
-            say("ERROR: Could not redefine the grammar, status will be set to ENVIRONMENT_FAILURE");
-            return STATUS_ENVIRONMENT_FAILURE;
-        }
+    #   if (not defined $self->grammar()) {
+    #       say("ERROR: Could not redefine the grammar, status will be set to ENVIRONMENT_FAILURE");
+    #       return STATUS_ENVIRONMENT_FAILURE;
+    #   }
     }
 
     $self->[GT_GENERATOR] = $generator_name->new(
-        grammar => $self->grammar(),
-        varchar_length => $self->config->property('varchar-length'),
-        mask => $self->config->mask,
-        mask_level => $self->config->property('mask-level'),
-        annotate_rules => $self->config->property('annotate-rules')
+        grammar         => $self->grammar(),
+        varchar_length  => $self->config->property('varchar-length'),
+        mask            => $self->config->mask,
+        mask_level      => $self->config->property('mask-level'),
+        annotate_rules  => $self->config->property('annotate-rules')
     );
 
     if (not defined $self->generator()) {
-        say("ERROR: Could not initialize the generator, status will be set to ENVIRONMENT_FAILURE");
+        say("ERROR: $who_am_i Could not initialize the generator, status will be set to ENVIRONMENT_FAILURE");
         return STATUS_ENVIRONMENT_FAILURE;
     }
 }
@@ -621,12 +628,12 @@ sub initReporters {
         next if $self->config->dsn->[$i] eq '';
         foreach my $reporter (@{$self->config->reporters}) {
             my $add_result = $reporter_manager->addReporter($reporter, {
-                dsn => $self->config->dsn->[$i],
-                test_start => $self->[GT_TEST_START],
-                test_end => $self->[GT_TEST_END],
-                test_duration => $self->config->duration,
-                debug_server => $self->config->debug_server->[$i],
-                properties => $self->config
+                dsn             => $self->config->dsn->[$i],
+                test_start      => $self->[GT_TEST_START],
+                test_end        => $self->[GT_TEST_END],
+                test_duration   => $self->config->duration,
+                debug_server    => $self->config->debug_server->[$i],
+                properties      => $self->config
             });
 
             return $add_result if $add_result > STATUS_OK;
