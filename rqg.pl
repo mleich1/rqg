@@ -396,17 +396,6 @@ say("INFO: RQG workdir : '$workdir' and infrastructure is prepared.");
 #   run_end($status);
 # and never
 #   exit_test($status);
-# as long as
-# - it is not decided if the current script (rqg.pl) or a different one (run-scenario.pl?) runs
-#   the test.
-#   Reason: The other scripts do not write the entries required for unwanted/replay matching.
-# - say(Verdict::MATCHING_START) was not run.
-#   Reason:
-#   The unwanted/replay matching borders are missing.
-#   It might be that the help text including
-#      print "\n$0 arguments were: " . join(' ', @ARGV_saved) . "\n";
-#   or whatever else was printed. And this text could contain some of the search patterns which
-#   than leads to phantom matches.
 #
 
 # Shift from init -> start
@@ -433,7 +422,7 @@ say("Please see http://forge.mysql.com/wiki/Category:RandomQueryGenerator for mo
 # Note:
 # We print here a roughly correct command line call like
 # 2018-11-16T10:28:26 [200006] Starting
-# 2018-11-16T10:28:26 [200006] # /mnt/r0/mleich/RQG_new/rqg.pl \
+# 2018-11-16T10:28:26 [200006] # ./rqg.pl \
 # 2018-11-16T10:28:26 [200006] # --gendata=conf/mariadb/concurrency.zz \
 # 2018-11-16T10:28:26 [200006] # --gendata_sql=conf/mariadb/concurrency.sql \
 # 2018-11-16T10:28:26 [200006] # --grammar=conf/mariadb/concurrency.yy \
@@ -979,8 +968,6 @@ $status = SQLtrace::check_and_set_sqltracing($sqltrace, $workdir);
 if (STATUS_OK != $status) {
     run_end($status);
 };
-
-# say(Verdict::MATCHING_START);
 
 #
 # Final preparations followed by start servers.
@@ -1647,11 +1634,11 @@ if (STATUS_OK != $return) {
 # Set an alarm for exceeding the RQG runtime
 # If exceeding
 # 1. SIGSEGV the first DB server
-#    SIGKILL the other DB server
+#    SIGKILL any other DB server belonging to the run
 #    declare STATUS_SERVER_DEADLOCKED
 # 2. Reap the processes now or already in 1.
 # 3. Initiate making a backtrace
-# 4. Exit with STATUS_SERVER_DEADLOCKED
+# 4. Exit with STATUS_SERVER_DEADLOCKED?
 $gentest_result = $gentest->doGenTest();
 say("GenTest returned status " . status2text($gentest_result) . " ($gentest_result)");
 $final_result = $gentest_result;
@@ -2326,8 +2313,6 @@ sub exit_test {
     my ($status, $silent) = @_;
     $silent = 0 if not defined $silent;
     $silent = 1 if $status == STATUS_OK;
-
-#   say(Verdict::MATCHING_END);
 
     # Variants
     # 1.  Around end of test

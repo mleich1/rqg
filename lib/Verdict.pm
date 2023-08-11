@@ -1,4 +1,5 @@
 #  Copyright (c) 2018, 2022 MariaDB Corporation Ab.
+#  Copyright (c) 2023 MariaDB plc
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -134,14 +135,6 @@ sub check_verdict_infrastructure {
 # 3. Perform a batch of RQG runs managed by some RQG tool having a goal like
 #    - simplify a grammar for some effect we are searching for
 #    - hunt bugs but not bad effects we already know
-#
-# Complete RQG logs contain two 'marker' lines which define the region in which pattern matching
-# should be applied. This serves for avoiding of self matches like
-#    There is a line telling that some black_list_pattern is set to 'abc'.
-#    The pattern matching mechanism at test end detects this line and assumes a hit.
-# Currently no more important. Please keep.
-use constant MATCHING_START    => 'MATCHING: Region start =====================';
-use constant MATCHING_END      => 'MATCHING: Region end   =====================';
 #
 # Constants defined in Auxiliary.pm with frequent use here too.
 # The pattern list was empty.
@@ -503,19 +496,6 @@ sub calculate_verdict {
         say("DEBUG: $who_am_i Auxiliary::getFileSlice got content : ->$content<-")
             if Auxiliary::script_debug("V4");
     }
-
-#   my $cut_position;
-#   $cut_position = index($content, MATCHING_START);
-#   if ($cut_position >= 0) {
-#       $content = substr($content, $cut_position);
-#       say("DEBUG: $who_am_i cut_position : $cut_position") if Auxiliary::script_debug("V3");
-#   }
-
-#   $cut_position = index($content, MATCHING_END);
-#   if ($cut_position >= 0) {
-#       $content = substr($content, 0, $cut_position);
-#       say("DEBUG: $who_am_i cut_position : $cut_position") if Auxiliary::script_debug("V3");
-#   }
 
     if (not defined $content or $content eq '') {
         say("INFO: $who_am_i No RQG log content left over after cutting. Will return undef.");
