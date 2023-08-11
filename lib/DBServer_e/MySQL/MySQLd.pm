@@ -937,6 +937,8 @@ sub startServer {
                         # The status reported by cleanup_dead_server does not matter.
                         $self->cleanup_dead_server;
                         $self->make_backtrace();
+                        # Check if the port was occupied if observing the corresponding message.
+                        # lsof -n -i :24600 | grep LISTEN
                         return $status;
                     }
                 }
@@ -1200,7 +1202,7 @@ sub startServer {
                 Auxiliary::build_wrs($status));
             return $status;
         } else {
-            say("DEBUG: $who_am_i ->" . $query . "<- passed");
+            # say("DEBUG: $who_am_i ->" . $query . "<- passed");
         }
         ####### Experiment end ##########
 
@@ -1643,7 +1645,7 @@ sub stopServer {
     $shutdown_timeout =  DEFAULT_SHUTDOWN_TIMEOUT unless defined $shutdown_timeout;
     $shutdown_timeout =  $shutdown_timeout * Runtime::get_runtime_factor()
                          * $innodb_fast_shutdown_factor;
-    say("DEBUG: $who_am_i Effective shutdown_timeout: $shutdown_timeout" . "s.");
+    # say("DEBUG: $who_am_i Effective shutdown_timeout: $shutdown_timeout" . "s.");
     my $errorlog =       $self->errorlog;
     my $check_shutdown = 0;
     my $res;
@@ -1651,9 +1653,9 @@ sub stopServer {
     if (not $self->running) {
         my $message_part = $self->serverpid;
         $message_part =    '<never known or now already unknown pid>' if not defined $message_part;
-        say("DEBUG: $who_am_i with process [" . $message_part . "] is already no more running.");
+        # say("DEBUG: $who_am_i with process [" . $message_part . "] is already no more running.");
         $self->make_backtrace;
-        say("DEBUG: $who_am_i Omitting shutdown attempt. Will clean up and return STATUS_OK.");
+        # say("DEBUG: $who_am_i Omitting shutdown attempt. Will clean up and return STATUS_OK.");
         $self->cleanup_dead_server;
         return STATUS_SERVER_CRASHED;
     }
@@ -1815,7 +1817,6 @@ sub checkDatabaseIntegrity {
 #
 # FIXME maybe: What about some error log checking?
 
-
     my $self = shift;
 
     # Prepending the package costs too much space per line reported.
@@ -1858,8 +1859,7 @@ sub checkDatabaseIntegrity {
         } else {
             my $key_aux_ref = $lock_check->data;
             if (0 == scalar(@$key_aux_ref)) {
-                # say("DEBUG: information_schema.METADATA_LOCK_INFO: No result for " .
-                #     "`$r_schema` . " . "`$r_table`");
+                say("DEBUG: No MDL locks on `$r_schema` . " . "`$r_table` found.");
             } else {
                 say("DEBUG: METADATA_LOCK_INFO thread_id<->lock_mode<->lock_duration<->lock_type");
                 foreach my $lock_check_val (@$key_aux_ref) {
@@ -1893,8 +1893,7 @@ sub checkDatabaseIntegrity {
         } else {
             my $key_aux_ref = $lock_check->data;
             if (0 == scalar(@$key_aux_ref)) {
-                # say("DEBUG: information_schema.INNODB_LOCKS: No result for " .
-                #     "`$r_schema` . " . "`$r_table`");
+                say("DEBUG: No InnoDB locks on `$r_schema` . " . "`$r_table` found.");
             } else {
                 say("DEBUG: INNODB_LOCKS ->lock_mode<->lock_type<->lock_table<->lock_index");
                 foreach my $lock_check_val (@$key_aux_ref) {
@@ -2075,7 +2074,7 @@ sub checkDatabaseIntegrity {
                 }
             }
         } else {
-            # say("INFO: $who_am_i $aux_query : pass");
+            # say("DEBUG: $who_am_i $aux_query : pass");
             # No reason to analyse the result because that was already done by MySQL.pm and
             # we received some corresponding status.
         }
@@ -2098,7 +2097,7 @@ sub checkDatabaseIntegrity {
                     return $status;
                 }
             } else {
-                # say("INFO: $who_am_i $aux_query : pass");
+                # say("DEBUG: $who_am_i $aux_query : pass");
                 # No reason to analyse the result because that was already done by MySQL.pm and
                 # we received some corresponding status.
             }
@@ -2120,14 +2119,14 @@ sub checkDatabaseIntegrity {
                     Auxiliary::build_wrs($status));
                 return $status;
             } else {
-                # say("INFO: $who_am_i $aux_query : pass");
+                # say("DEBUG: $who_am_i $aux_query : pass");
                 # No reason to analyse the result because that was already done by MySQL.pm and
                 # we received some corresponding status.
             }
         }
 
-        # SELECT * for tables/views in system schemas
-        # -------------------------------------------
+        # For tables/views in system schemas at least SELECT *
+        # ----------------------------------------------------
         # I fear that walk queries on certain system tables/views deliver result sets influenced
         # by the number of walk queries executed and similar. Hence no walk queries with result
         # set comparison on such tables/views.
@@ -2148,7 +2147,7 @@ sub checkDatabaseIntegrity {
                     Auxiliary::build_wrs($status));
                 return $status;
             } else {
-                # say("INFO: $who_am_i $aux_query : pass");
+                # say("DEBUG: $who_am_i $aux_query : pass");
                 # No reason to analyse the result because that was already done by MySQL.pm and
                 # we received some corresponding status.
             }
@@ -2202,7 +2201,7 @@ sub checkDatabaseIntegrity {
                 Auxiliary::build_wrs($status));
             return $status;
         } else {
-              say("INFO: $who_am_i $aux_query : pass");
+            # say("DEBUG: $who_am_i $aux_query : pass");
         }
         my $key_ref1 = $res_indexes->data;
         foreach my $val (@$key_ref1) {
@@ -2319,7 +2318,7 @@ sub checkDatabaseIntegrity {
                     return $status;
                 }
             } else {
-                say("DEBUG: $who_am_i Query ->" . $walk_query . "<- passed");
+                # say("DEBUG: $who_am_i Query ->" . $walk_query . "<- passed");
             }
 
             my $rows = $sth_rows->rows();
@@ -2388,7 +2387,7 @@ sub checkDatabaseIntegrity {
                     return $status;
                 }
             } else {
-                say("INFO: $who_am_i $aux_query : pass");
+                # say("DEBUG: $who_am_i $aux_query : pass");
                 # FIXME:
                 # Maybe analyse the result already within the Executor like for
                 # CHECK TABLE.
@@ -2479,7 +2478,7 @@ sub checkDatabaseIntegrity {
                     return $status;
                 }
             } else {
-                say("INFO: $who_am_i $aux_query : pass");
+                # say("DEBUG: $who_am_i $aux_query : pass");
                 # No reason to analyse the result because that was already done by MySQL.pm and
                 # we received some corresponding status.
             }
@@ -3410,7 +3409,7 @@ my @end_line_patterns = (
     'core dumped',
     '^Segmentation fault$',
     '(mariadbd|mysqld): Shutdown complete$',
-    '^Killed$',                     # SIGKILL by RQG or OS or user
+    '^Killed$',                              # SIGKILL by RQG or OS or user
     '(mariadbd|mysqld) got signal',          # SIG(!=KILL) by DB server or RQG or OS or user
 );
 
@@ -3443,6 +3442,7 @@ my @end_line_patterns = (
         say("ERROR: $who_am_i with process [" . $pid . "] is no more running.");
         $status = $self->make_backtrace();
         say("INFO: $who_am_i make_backtrace reported status $status. Will return that.");
+        # What if '(mariadbd|mysqld): Shutdown complete$', no trouble + server dead?
         return $status;
     } else {
         # The main DB server process is running. But maybe the DB server is around dying.
@@ -3457,6 +3457,8 @@ my @end_line_patterns = (
         if      ($return eq Auxiliary::MATCH_YES) {
             say("INFO: $who_am_i end_line_pattern in server error log found.");
             say("INFO: $who_am_i Setting the status to STATUS_SERVER_CRASHED.");
+            # FIXME:
+            # What if '(mariadbd|mysqld): Shutdown complete$', trouble + server not dead?
             $status = STATUS_SERVER_CRASHED;
             # Do we wait here and than make_backtrace waits again?
             say("INFO: $who_am_i Will poll up to 30s if the server process finishes before " .
@@ -3564,8 +3566,12 @@ my @end_line_patterns = (
                     }
                 }
             } else {
+                # https://mariadb.com/kb/en/show-processlist/ about the column TIME:
+                # The amount of time, in seconds, the process has been in its current state.
                 my $processlist_report = "$who_am_i Content of processlist ---------- begin\n";
-                $processlist_report .= "$who_am_i ID -- COMMAND -- TIME -- INFO -- state\n";
+                $processlist_report .=   "$who_am_i ID -- COMMAND -- TIME -- STATE -- INFO -- " .
+                                         "RQG_guess\n";
+                my $suspicious = 0;
                 foreach my $process (@$processlist) {
                     my $process_command = $process->[PROCESSLIST_PROCESS_COMMAND];
                     $process_command = "<undef>" if not defined $process_command;
@@ -3577,13 +3583,45 @@ my @end_line_patterns = (
                     $process_time    = "<undef>" if not defined $process_time;
                     my $process_state= $process->[PROCESSLIST_PROCESS_STATE];
                     $process_state   = "<undef>" if not defined $process_state;
-                    $processlist_report .= "$who_am_i " . $process_id . " -- " . $process_command .
-                                " -- " . $process_time . " -- " . $process_state . " -- " .
-                                $process_info . "\n";
+                    my $rqg_guess    = "<undef>";
+
+                    if ($process_info ne "<undef>" and
+                        $process_time ne "<undef>" and $process_time > 30) {
+                        $suspicious++;
+                        $rqg_guess    = "suspicious";
+                        $processlist_report .=
+                                "$who_am_i " . $rqg_guess . "--" . $process_id . " -- " .
+                                $process_command . " -- " . $process_time . " -- " .
+                                $process_state . " -- " . $process_info . "\n";
+                     }
                  }
                  $processlist_report .= "$who_am_i Content of processlist ---------- end";
                  say($processlist_report);
-                 $dbh->disconnect;
+                 if ($suspicious) {
+                     say("INFO: $who_am_i $suspicious suspicious result(s) detected.");
+                     my $query = "SHOW ENGINE INNODB STATUS";
+                     say("INFO: $who_am_i Executing query '$query'");
+                     my $status_result = $dbh->selectall_arrayref($query);
+                     if (not defined $status_result) {
+                         say("ERROR: $who_am_i The query '$query' failed with " . $DBI::err);
+                         my $return = GenTest_e::Executor::MySQL::errorType($DBI::err);
+                         if (not defined $return) {
+                             say("ERROR: $who_am_i The type of the error got is unknown. " .
+                                 "Will crash the server, make backtrace and return " .
+                                 "STATUS_CRITICAL_FAILURE instead of STATUS_SERVER_DEADLOCKED");
+                             $dbh->disconnect;
+                             $status = STATUS_CRITICAL_FAILURE;
+                         }
+                     } else {
+                         print Dumper $status_result;
+                         say("ERROR: $who_am_i Will crash the server, make backtrace and " .
+                             "return STATUS_SERVER_DEADLOCKED");
+                         $dbh->disconnect;
+                         $self->crashServer;
+                         $self->make_backtrace;
+                         $status = STATUS_SERVER_DEADLOCKED;
+                     }
+                 }
             }
         }
     }
