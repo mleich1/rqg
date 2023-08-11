@@ -2938,11 +2938,14 @@ sub report_replay {
         }
     } elsif (PHASE_FIRST_REPLAY eq $phase or PHASE_THREAD1_REPLAY eq $phase or
              PHASE_FINAL_REPLAY eq $phase) {
-        # Its a phase with end (after register_result) ahead.
-        my $stop_count = Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA,
-                                                       Batch::STOP_REASON_WORK_FLOW . ' 13');
-        Batch::stop_worker_on_order_except($order_id);
-        Batch::add_to_try_never($order_id);
+        # Most time the end of the phase (after register_result) is ahead.
+        # Exception: --stop_on_match=<value > 1> set in commandline.
+        if (not $stop_on_replay > 1) {
+            my $stop_count = Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_GENDATA,
+                                                           Batch::STOP_REASON_WORK_FLOW . ' 13');
+            Batch::stop_worker_on_order_except($order_id);
+            Batch::add_to_try_never($order_id);
+        }
     } else {
         Carp::cluck("INTERNAL ERROR: report_replay: Handling for phase '$phase' is missing.");
         my $status = STATUS_INTERNAL_ERROR;
