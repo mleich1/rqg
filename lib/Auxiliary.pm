@@ -1631,6 +1631,10 @@ sub update_sizes {
             $max_fast_dir_size = $fast_dir_size;
         }
     }
+    if ($max_total_size < $max_fast_dir_size) {
+        # Observed. The time of measurement differs + frequent some measurement fails.
+        $max_total_size = $max_fast_dir_size;
+    }
 
     ($status, $slow_dir_size) = run_cmd("du -sk " . Local::get_rqg_slow_dir);
     if (not defined $slow_dir_size) {
