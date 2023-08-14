@@ -130,10 +130,10 @@ sub addReporter {
         } else {
             say("INFO: Reporter '$reporter_name' added.");
         }
-   }
+    }
 
-   push @{$manager->[MANAGER_REPORTERS]}, $reporter;
-   return STATUS_OK;
+    push @{$manager->[MANAGER_REPORTERS]}, $reporter;
+    return STATUS_OK;
 }
 
 sub reporters {
