@@ -240,8 +240,8 @@ $combinations = [ $grammars,
 # Need to fix the problem with the views  ' --reporters=RestartConsistency --duration=100 ',
 # Need to fix the problem with the views  ' --reporters=RestartConsistency --duration=300 ',
     # Avoid '[00] FATAL ERROR: .{1,100} xtrabackup_copy_logfile() failed: redo log block is overwritten, please increase redo log size'
-    ' --reporters=Mariabackup_linux --duration=300 --mysqld=--loose-innodb-log-file-size='200M',
-    ' --reporters=Mariabackup_linux --duration=300 --mysqld=--loose-innodb-log-file-size='200M',
+    ' --reporters=Mariabackup_linux --duration=300 --mysqld=--loose-innodb-log-file-size=200M',
+    ' --reporters=Mariabackup_linux --duration=300 --mysqld=--loose-innodb-log-file-size=200M,'
   ],
   [
     # No more supported since 10.6
