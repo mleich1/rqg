@@ -1124,8 +1124,9 @@ sub init {
             return $status if $status != STATUS_OK;
             my $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
                              $executor->connectionId() . ' */ ';
-            my $aux_query = 'SET @@innodb_lock_wait_timeout = 10 ' . $trace_addition;
-            my $status = GenTest_e::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
+            my $aux_query = 'SET @@innodb_lock_wait_timeout = 30 ' . $trace_addition;
+            my $status = GenTest_e::Executor::MySQL::run_do($executor->dbh, $executor->role,
+                                                            $aux_query);
             if (STATUS_OK != $status) {
                 say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
                 return $status;
