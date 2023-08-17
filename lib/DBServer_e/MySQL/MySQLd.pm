@@ -436,8 +436,8 @@ sub addServerOptions {
 }
 
 sub getServerOptions {
-  my $self= shift;
-  return $self->[MYSQLD_SERVER_OPTIONS];
+    my $self= shift;
+    return $self->[MYSQLD_SERVER_OPTIONS];
 }
 
 sub printServerOptions {
@@ -1260,8 +1260,10 @@ sub killServer {
             } else {
                 kill KILL => $serverpid;
                 # There is no guarantee that the OS has already killed the process when
-                # kill KILL returns. This is especially valid for boxes with currently
-                # extreme CPU load.
+                # kill KILL returns.
+                # This is especially valid
+                # - for boxes with currently extreme CPU load
+                # - if rr is involved
                 if ($self->waitForServerToStop($kill_timeout) != STATUS_OK) {
                     say("ERROR: $who_am_i Unable to kill the server process " . $serverpid);
                 } else {
@@ -1765,7 +1767,10 @@ sub stopServer {
             return $res;
         }
         my $content_slice;
-        seek($file_handle, $file_size_before, 1);
+        # There could be some huge amount of messages like
+        #    [Warning] InnoDB: Open files 21 exceeds the limit 10
+        # Hence we read a slice from the end.
+        seek($file_handle, $file_size_after, 1);
         read($file_handle, $content_slice, 100000);
         # say("DEBUG: $who_am_i Written by shutdown attempt ->" . $content_slice . "<-");
         close ($file_handle);
@@ -2414,6 +2419,21 @@ sub checkDatabaseIntegrity {
         # EXECUTOR_TASK_CHECKER ensures that innodb_lock_timeout is small.
         # Hence no extreme long waiting if ther are locks on the table. So there is some good
         # chance to not run into whatever RQG timeouts followed by false status and similar.
+        #
+        # 2023-08-16
+        # Start the server with some quite strict sql_mode like 'traditional'.
+        #   connect of session 1
+        #   SET SESSION SQL_MODE= '';
+        #   CREATE TABLE `table100_innodb_int_autoinc` (tscol2 TIMESTAMP DEFAULT 0);
+        #      pass but harvest ER_INVALID_DEFAULT (1067) if SESSION SQL_MODE= 'traditional'
+        #   disconnect:
+        #   connect of session 2:
+        #   ALTER TABLE `test` . `table100_innodb_int_autoinc` FORCE;
+        #      and harvest ER_INVALID_DEFAULT (1067): Invalid default value for 'tscol2'
+        #      --> status STATUS_SEMANTIC_ERROR
+        # So assuming that a failing ALTER TABLE ... FORCE might reveal some faulty maintenance
+        # of the server and/or InnoDB data dictionary is wrong in case of sql mode switching.
+        # Fixed by removing sql_mode.yy from any test setup.
         if ($r_table_type eq "BASE TABLE") {
             $aux_query = "ALTER TABLE " . $table_to_check . " FORCE";
             my $res_check = $executor->execute($aux_query);
@@ -2591,9 +2611,9 @@ sub waitForServerToStart {
 
 
 sub backupDatadir {
-    my $server =     shift;
+    my $server =    shift;
 
-    my $who_am_i = Basics::who_am_i();
+    my $who_am_i =  Basics::who_am_i();
 
     if ($server->running) {
         say("ERROR: $who_am_i Routine was called even though the server is running.");
@@ -3080,7 +3100,7 @@ sub waitForAuxpidGone {
     }
     my $status = STATUS_FAILURE;
     say("ERROR: $who_am_i The auxiliary process has not disappeared within $wait_timeout" .
-         "s waiting. Will send SIGKILL and return status STATUS_FAILURE($status) later.");
+         "s waiting. Will send SIGTERM and return status STATUS_FAILURE($status) later.");
     # kill KILL => $pid;
     kill TERM => $pid;
     $wait_end = time() + 10;
@@ -3102,7 +3122,7 @@ sub waitForAuxpidGone {
             Time::HiRes::sleep($wait_time);
         }
     }
-    say("ERROR: $who_am_i Even after SIGKILL and some waiting the auxiliary process has not " .
+    say("ERROR: $who_am_i Even after SIGTERM and some waiting the auxiliary process has not " .
         "disappeared.");
     return $status;
 } # End sub waitForAuxpidGone
@@ -3143,16 +3163,25 @@ sub make_backtrace {
 
     my $self = shift;
 
-    # my $server_running = kill (0, serverpid());
     my $who_am_i =  Basics::who_am_i;
     my $server_id = $self->server_id();
     $who_am_i .=    " server[" . $server_id . "]";
+
+    my $rqg_homedir = Local::get_rqg_home();
+    # For testing:
+    # $rqg_homedir = undef;
+    if (not defined $rqg_homedir) {
+        say("ERROR: $who_am_i The RQG runner has not set RQG_HOME in environment." .
+            "Will exit with exit status STATUS_INTERNAL_ERROR.");
+        exit STATUS_INTERNAL_ERROR;
+    }
+
     my $vardir =    $self->vardir();
     my $error_log = $self->errorlog();
     my $booterr   = $self->vardir . "/" . MYSQLD_BOOTERR_FILE;
 
+    # (temporary) Hunt superfluous calls of make_backtrace.
     Carp::cluck("INFO: About who called $who_am_i");
-    # my $server_pid  = $self->serverpid();
 
     my $status = STATUS_SERVER_CRASHED;
 
@@ -3178,21 +3207,14 @@ sub make_backtrace {
         # cleanup_dead_server waits till the aux/fork pid is gone.
         $self->cleanup_dead_server;
     } elsif (-e $booterr) {
+        # The stuff in cleanup_dead_server is NOT for failing bootstraps.
         sayFile($booterr);
     } else {
         say("ERROR: $who_am_i Neither '$booterr' nor '$error_log' exist.");
         return STATUS_ENVIRONMENT_FAILURE;
     }
 
-    my $rqg_homedir = Local::get_rqg_home();
-    # For testing:
-    # $rqg_homedir = undef;
-    if (not defined $rqg_homedir) {
-        $status = STATUS_INTERNAL_ERROR;
-        say("ERROR: $who_am_i The RQG runner has not set RQG_HOME in environment." .
-            "Will exit with exit status STATUS_INTERNAL_ERROR.");
-        exit $status;
-    }
+    # The server should be now dead.
     say("INFO: $who_am_i ------------------------------ Begin");
 
     # Auxiliary::print_ps_tree($$);
@@ -3220,7 +3242,6 @@ sub make_backtrace {
         return $status;
     }
 
-
     # Note:
     # The server error log might contain lines saying
     # - core dumped
@@ -3232,7 +3253,6 @@ sub make_backtrace {
 
     $status = STATUS_SERVER_CRASHED;
 
-    # FIXME MAYBE: Is that timeout reasonable?
     my $core;
     my $datadir        = $self->datadir();
     my $start_time     = Time::HiRes::time();
@@ -3435,8 +3455,6 @@ my @end_line_patterns = (
     }
     $who_am_i .=        " $server_name";
 
-    # my $pid = $self->serverpid;
-    # $pid = "<unknown>" if not defined $pid;
     my $pid = $self->find_server_pid;
     if (not $self->running) {
         say("ERROR: $who_am_i with process [" . $pid . "] is no more running.");
@@ -3460,7 +3478,7 @@ my @end_line_patterns = (
             # FIXME:
             # What if '(mariadbd|mysqld): Shutdown complete$', trouble + server not dead?
             $status = STATUS_SERVER_CRASHED;
-            # Do we wait here and than make_backtrace waits again?
+            # FIXME: Do we wait here and than make_backtrace waits again?
             say("INFO: $who_am_i Will poll up to 30s if the server process finishes before " .
                 "calling 'make_backtrace'.");
             my $end_time = time() + 30;
@@ -3485,6 +3503,7 @@ my @end_line_patterns = (
             say("INFO: $who_am_i make_backtrace reported status $mbt_status.");
             say("ERROR: $who_am_i Will stick to status $status and return that because of " .
                 "previous errors.");
+            return $status;
         } elsif ($return eq Auxiliary::MATCH_NO) {
             # Do nothing
         } else {
@@ -3525,7 +3544,7 @@ my @end_line_patterns = (
                 } else {
                     say("ERROR: $who_am_i with process [" . $pid . "] stays running.");
                     say("DEBUG: $who_am_i Will call 'make_backtrace' which will kill the server " .
-                        "process if running.");
+                        "process if running + switch to STATUS_SERVER_DEADLOCKED.");
                     $status = STATUS_SERVER_DEADLOCKED;
                 }
             } else {
@@ -3536,6 +3555,7 @@ my @end_line_patterns = (
             say("INFO: $who_am_i make_backtrace reported status $mbt_status.");
             say("ERROR: $who_am_i Will stick to status $status and return that because of " .
                 "previous errors.");
+            return $status;
         } else {
             # $self->dbh connects if required and sets @@max_statement_time = 0.
             my $dbh =         $self->dbh;
@@ -3550,6 +3570,7 @@ my @end_line_patterns = (
                     $status = $self->make_backtrace();
                     say("INFO: $who_am_i make_backtrace reported status $status. " .
                         "Will return that.");
+                    return $status;
                 } else {
                     say("ERROR: $who_am_i The query '$query' failed with " . $DBI::err);
                     my $return = GenTest_e::Executor::MySQL::errorType($DBI::err);
@@ -3559,10 +3580,12 @@ my @end_line_patterns = (
                         $dbh->disconnect;
                         $status = STATUS_INTERNAL_ERROR;
                         # $status = STATUS_UNKNOWN_ERROR;
+                        return $status;
                     } else {
                         say("ERROR: $who_am_i Will return status $return" . ".");
                         $dbh->disconnect;
                         $status = $return;
+                        return $status;
                     }
                 }
             } else {
@@ -3583,16 +3606,15 @@ my @end_line_patterns = (
                     $process_time    = "<undef>" if not defined $process_time;
                     my $process_state= $process->[PROCESSLIST_PROCESS_STATE];
                     $process_state   = "<undef>" if not defined $process_state;
-                    my $rqg_guess    = "<undef>";
 
-                    if ($process_info ne "<undef>" and
-                        $process_time ne "<undef>" and $process_time > 30) {
+                    if ($process_info ne "<undef>" and $process_time ne "<undef>" and
+                        ($process_command ne "Slave_SQL" and $process_time > 30) or
+                        ($process_command eq "Slave_SQL" and $process_time > 60)) {
                         $suspicious++;
-                        $rqg_guess    = "suspicious";
                         $processlist_report .=
-                                "$who_am_i " . $rqg_guess . "--" . $process_id . " -- " .
+                                "$who_am_i -->" . $process_id . " -- " .
                                 $process_command . " -- " . $process_time . " -- " .
-                                $process_state . " -- " . $process_info . "\n";
+                                $process_state . " -- " . $process_info . " <--suspicious\n";
                      }
                  }
                  $processlist_report .= "$who_am_i Content of processlist ---------- end";
@@ -3724,16 +3746,14 @@ sub server_pid_per_errorlog {
     #   [Note] <path>/bin/mysqld (server 10.6.12-MariaDB-debug-log) starting as process 1794271 ...
     # - since mid 2023-01
     #   [Note] Starting MariaDB 10.7.8-MariaDB-debug-log source revision ... as process 3283580
-    my $pid = Auxiliary::get_string_after_pattern($errorlog,
-                   "Starting .{1,500} as process ");
+    my $pid = Auxiliary::get_string_after_pattern($errorlog, "Starting .{1,500} as process ");
     if (not defined $pid) {
         # File does not exist and similar.
         say("ERROR: $who_am_i Trouble with '$errorlog'. Will return undef.");
         return undef;
     } elsif ('' eq $pid) {
         # No such line found or line found but no value.
-        $pid = Auxiliary::get_string_after_pattern($errorlog,
-                   " starting as process ");
+        $pid = Auxiliary::get_string_after_pattern($errorlog, " starting as process ");
     }
     $pid = Auxiliary::check_if_reasonable_pid($pid);
     if (defined $pid) {
