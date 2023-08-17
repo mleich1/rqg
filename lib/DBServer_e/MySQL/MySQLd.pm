@@ -1770,7 +1770,7 @@ sub stopServer {
         # There could be some huge amount of messages like
         #    [Warning] InnoDB: Open files 21 exceeds the limit 10
         # Hence we read a slice from the end.
-        seek($file_handle, $file_size_after, 1);
+        seek($file_handle, $file_size_after - 100000, 1);
         read($file_handle, $content_slice, 100000);
         # say("DEBUG: $who_am_i Written by shutdown attempt ->" . $content_slice . "<-");
         close ($file_handle);
