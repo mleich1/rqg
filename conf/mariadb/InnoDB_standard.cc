@@ -305,7 +305,7 @@ $combinations = [ $grammars,
   ],
   [
     # Since 11.2 (MDEV-14795) + it's complex + customers need it a lot.
-    '--mysqld=--loose-innodb_data_file_path=ibdata1:1M:autoextend:autoshrink' ,
+    # '--mysqld=--loose-innodb_data_file_path=ibdata1:1M:autoextend:autoshrink' ,
     '' ,
   ],
   [
