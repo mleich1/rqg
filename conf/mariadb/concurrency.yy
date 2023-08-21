@@ -1,5 +1,6 @@
 # Copyright (c) 2011,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2015, 2020 MariaDB Corporation Ab.
+# Copyright (c) 2023 MariaDB plc
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -341,9 +342,9 @@ query_connect:
 
 init_basics1:
    # 1. $life_time_unit = maximum lifetime of a table created within a CREATE, wait, DROP sequence.
-    #
-    #    Attention: This is some "planned" lifetime because we cannot guarantee that
-    #               that the CREATE or the DROP ends with success.
+   #
+   #    Attention: This is some "planned" lifetime because we cannot guarantee that
+   #               that the CREATE or the DROP ends with success.
    #
    #    A reasonable value is bigger than any "wait for <whatever> lock" timeout.
    #
@@ -632,7 +633,7 @@ table_list:
    # - cause a higher likelihood of "table does not exist" errors.
    table_item | table_item | table_item | table_item | table_item | table_item | table_item | table_item | table_item |
    table_item , table_item ;
-   
+
 
 # 7.2 All tables but no views #######################################################################
 table_no_view_item_s:
@@ -818,7 +819,7 @@ rollback:
 set_autocommit:
    SET AUTOCOMMIT = zero_or_one ;
 
-#-------------------------------------------------------------------- 
+#--------------------------------------------------------------------
 
 kill_query_or_session:
 # We are here interested on the impact of
@@ -897,8 +898,9 @@ ddl:
    dump_load_data_sequence    |
    grant_revoke               |
    rare_ddl                   |
-   backup_stage               |
-   sql_mode                   ;
+   # This had to be disabled because very important checks tend to false alarms.
+   # sql_mode                   |
+   backup_stage               ;
    # "dump_load_data_sequence" with SELECT ... INTO OUTFILE ...; LOAD DATA ... INFILE
    # consists more of DML statements, but we place this here under "ddl" because the
    # statements in "dml" are often executed as prepared statements. And the text after
@@ -1062,7 +1064,7 @@ show_events:
 
 show_create_event:
    SHOW CREATE EVENT event_item_s ;
-   
+
 ########## SELECTS ON THE INFORMATION_SCHEMA ####################
 # We run here only object related SELECTs.
 is_selects:
@@ -1706,7 +1708,7 @@ view_ddl:
    create_view   | create_view | create_view | create_view | create_view | create_view | create_view | create_view |
    drop_view     | alter_view  | rename_view |
    view_sequence ;
-   
+
 create_view:
    CREATE view_replace ALGORITHM = view_algoritm VIEW view_table_item_n AS used_select ;
 view_replace:
@@ -1778,7 +1780,7 @@ trigger_ddl:
    create_trigger   | create_trigger |
    drop_trigger     |
    trigger_sequence ;
-   
+
 create_trigger:
    CREATE TRIGGER trigger_item_n trigger_time trigger_event ON base_table_name_n FOR EACH ROW BEGIN trigger_action ; END ;
 trigger_time:
