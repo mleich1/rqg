@@ -85,12 +85,13 @@ our $grammars =
   #   connect of session 1
   #   SET SESSION SQL_MODE= '';
   #   CREATE TABLE `table100_innodb_int_autoinc` (tscol2 TIMESTAMP DEFAULT 0);
-  #      pass but harvest ER_INVALID_DEFAULT (1067) if SESSION SQL_MODE= 'traditional'
+  #      passes but harvests ER_INVALID_DEFAULT (1067) if SESSION SQL_MODE= 'traditional'
   #   disconnect:
   #   connect of session 2:
   #   ALTER TABLE `test` . `table100_innodb_int_autoinc` FORCE;
-  #      and harvest ER_INVALID_DEFAULT (1067): Invalid default value for 'tscol2'
+  #      harvests ER_INVALID_DEFAULT (1067): Invalid default value for 'tscol2'
   #      --> status STATUS_SEMANTIC_ERROR
+  #
   # So assuming that a failing ALTER TABLE ... FORCE might reveal some faulty maintenance
   # of the server and/or InnoDB data dictionary is wrong in case of sql mode switching.
   # Hence I removed sql_mode.yy from any test setup because the assumption is more important.
@@ -305,19 +306,21 @@ $combinations = [ $grammars,
   ],
   [
     # Since 11.2 (MDEV-14795) + it's complex + customers need it a lot.
+    #     If 'autoshrink' is not supported than already bootstrap will fail.
+    #     'loose' does not seem to help if the value assigned is unknown.
     # '--mysqld=--loose-innodb_data_file_path=ibdata1:1M:autoextend:autoshrink' ,
     '' ,
   ],
   [
     # 2023-06
     # The combination lock-wait-timeout=<small> -- innodb-lock-wait-timeout=<a bit bigger>
-    # seems to be important too.
+    # seems to be important for catching problems too.
     '--mysqld=--lock-wait-timeout=15    --mysqld=--innodb-lock-wait-timeout=10' ,
     # The defaults 2023-06
     '--mysqld=--lock-wait-timeout=86400 --mysqld=--innodb-lock-wait-timeout=50' ,
   ],
   [
-    # The default is innodb_fast_shutdown=1.
+    # The default is innodb_fast_shutdown=1. The value 0 is important for upgrade tests too.
     '--mysqld=--loose-innodb_fast_shutdown=1' ,
     '' ,
     '' ,
@@ -325,9 +328,12 @@ $combinations = [ $grammars,
     '--mysqld=--loose-innodb_fast_shutdown=0' ,
   ],
   [
-    '--mysqld=--sql_mode=traditional' ,
-    # Below the default since 10.2.4
+    # Th default since 10.2.4 is
     '--mysqld=--sql_mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' ,
+    # TRADITIONAL is the same as:
+    # STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,STRICT_ALL_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,TRADITIONAL
+    # == The default + (STRICT_ALL_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,TRADITIONAL) - NO_ENGINE_SUBSTITUTION
+    '--mysqld=--sql_mode=traditional' ,
   ],
   [
     # innodb_file_per_table
@@ -335,6 +341,7 @@ $combinations = [ $grammars,
     # Page compression is only available with file-per-table tablespaces.
     # Note that this value is also used when a table is re-created with an ALTER TABLE which requires a table copy.
     # Scope: Global, Dynamic: Yes, Data Type: boolean, Default Value: ON
+    # Deprecated in MariaDB 11.0.1
     '',
     ' --mysqld=--innodb_file_per_table=0 ',
     ' --mysqld=--innodb_file_per_table=1 ',
@@ -385,9 +392,39 @@ $combinations = [ $grammars,
     '',
     '',
     '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
   ],
   [
     ' --redefine=conf/mariadb/redefine_checks_off.yy ',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
     '',
     '',
     '',
@@ -405,7 +442,7 @@ $combinations = [ $grammars,
     #
     # Binary logging is less likely disabled.
     # But this has to be checked too.
-    # In adition certain bugs replay better if binary logging is not enabled.
+    # In adition certain bugs replay better or faster if binary logging is not enabled.
     '',
   ],
   [
@@ -483,7 +520,7 @@ $combinations = [ $grammars,
     #   >= MariaDB 10.5.15, MariaDB 10.6.7, MariaDB 10.7.3, MariaDB 10.8.2: none
     #   <= MariaDB 10.5.14, MariaDB 10.6.6, MariaDB 10.7.2, MariaDB 10.8.1: all
     # Valid Values: inserts, none, deletes, purges, changes, all
-    # Deprecated: MariaDB 10.9.0
+    # Deprecated: MariaDB 10.9.0 Removed: MariaDB 11.0.0
     '',
     '',
     '',
