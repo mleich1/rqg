@@ -1182,8 +1182,8 @@ sub execute {
       exit STATUS_INTERNAL_ERROR;
    }
 
-   if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD or
-       $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_UNKNOWN) {
+#   if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD or
+    if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_UNKNOWN) {
        # Observation from the early days of RQG more or less up till today:
        # ------------------------------------------------------------------
        # 1. A query gets generated because current time < end_time.
@@ -1209,6 +1209,8 @@ sub execute {
           );
        }
    }
+   # If $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD and
+   # we are running a plain SELECT than we can bail out.
 
    my $dbh = $executor->dbh();
    if (not defined $dbh) {
