@@ -1182,8 +1182,9 @@ sub execute {
       exit STATUS_INTERNAL_ERROR;
    }
 
-#   if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD or
-    if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_UNKNOWN) {
+    if (($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_UNKNOWN) or
+        ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD and
+         $query =~ m{^\s*(select|show|check)}sio )) {
        # Observation from the early days of RQG more or less up till today:
        # ------------------------------------------------------------------
        # 1. A query gets generated because current time < end_time.
@@ -1194,11 +1195,23 @@ sub execute {
        #    During one of these actions some RQG timeout (threshold of reporter Deadlock,
        #    alarm in rqg.pl, rqg_batch.pl, ...) kicks in and claims to have caught a problem
        #    which might be a server deadlock or freeze or whatever.
+       #    Some typical candidate where this happened frequent are optimizer tests and
+       #    the query is some SELECT.
        # Worker threads get the end time assigned. So check that limit here.
+       #
        # Warning:
        # In case the "give up" of the worker thread is not handled perfect than tests
        # running some kind of replication might end with content diff between servers.
+       #    Typical bad scenario from the RQG builtin statement based replication:
+       #    Run on server m a data modifying statement with success.
+       #    Omit doing that on server m+1 because $give_up_time exceeded and exit.
+       #    Get finally a conttent diff between the servers.
+       #
+       #    Changing some global server parameter like SQL mode might have some similar bad
+       #    effect.
+       #
        # This all is not relevant for: Gendata*, MetadataCacher, Reporter
+       #
        my $give_up_time = $executor->end_time();
        if (defined $give_up_time and time() > $give_up_time) {
               say("INFO: $who_am_i $executor_role has already exceeded " .
@@ -1209,8 +1222,6 @@ sub execute {
           );
        }
    }
-   # If $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD and
-   # we are running a plain SELECT than we can bail out.
 
    my $dbh = $executor->dbh();
    if (not defined $dbh) {
