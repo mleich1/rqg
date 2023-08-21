@@ -16,6 +16,9 @@
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301
 # USA
 
+# conf/mariadb/concurrency_innodb.yy is a derivate or conf/mariadb/concurrency.yy
+# and focused on checking InnoDB only.
+
 # Grammar for testing
 # - concurrent DML, DDL, FLUSH, LOCK/UNLOCK, transactions
 #   The main focus is on anything which has to do with locking
@@ -2138,9 +2141,9 @@ digit_or_null:
 engine:
    # Storage engines to be used for "simple" base tables.
    # FIXME: Dicing with Aria related options is missing.
-   MyISAM                   |
-   MEMORY                   |
-   Aria                     |
+#  MyISAM                   |
+#  MEMORY                   |
+#  Aria                     |
    InnoDB innodb_row_format ;
 
 engine_for_part:
