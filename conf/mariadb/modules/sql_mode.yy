@@ -1,4 +1,5 @@
 #  Copyright (c) 2018,2021 MariaDB
+#  Copyright (c) 2023 MariaDB plc
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -12,7 +13,22 @@
 #  You should have received a copy of the GNU General Public License
 #  along with this program; if not, write to the Free Software
 #  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA */
-
+#
+# Use in special cases only
+# -------------------------
+# Start the server with some quite strict sql_mode like 'traditional'.
+#   connect of session 1
+#   SET SESSION SQL_MODE= '';
+#   CREATE TABLE `table100_innodb_int_autoinc` (tscol2 TIMESTAMP DEFAULT 0);
+#      pass but harvest ER_INVALID_DEFAULT (1067) if SESSION SQL_MODE= 'traditional'
+#   disconnect:
+#   connect of session 2:
+#   ALTER TABLE `test` . `table100_innodb_int_autoinc` FORCE;
+#      and harvest ER_INVALID_DEFAULT (1067): Invalid default value for 'tscol2'
+#      --> status STATUS_SEMANTIC_ERROR
+# == Its something to be expected and not some defect in the data dictionary of
+#    server and/or InnoDB.
+#
 
 query_add:
   query | query | query | query | query | query | query | sql_mode_set
