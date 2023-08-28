@@ -180,7 +180,7 @@ sub validate {
         return STATUS_OK;
     }
     # We cannot intercept all dangerous functions. But at least some frequent used.
-    if ($orig_query =~ m{now\s*()}io or m{UNIX_TIMESTAMP\s*()}io) {
+    if ($orig_query =~ m{now\s*()}io or $orig_query =~ m{UNIX_TIMESTAMP\s*()}io) {
         say("DEBUG: $who_am_i No repetition for ->$orig_query<- which contains a " .
             "current time related function. Will return STATUS_OK.") if $debug_here;
         return STATUS_OK;
