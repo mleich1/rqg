@@ -26,7 +26,7 @@
 #
 # History
 # -------
-# 1. The initial set of tests (2018-05) was developed by Elena and covers roughly everything of
+# 1. The initial set of tests (2018-05) was developed by Elena and covered roughly everything of
 #    MariaDB. When testing MDEVs fixing or enhancing features usually a sub set of tests were used.
 # 2. I disabled certain tests, added some new one and shifted the focus towards InnoDB.
 #
@@ -50,10 +50,11 @@
 # Section Verdict setup ------------------------------------------------------------------------ end
 
 our $test_compression_encryption =
-  '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz --max_gd_duration=1800 ';
-
+  "--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz --max_gd_duration=1800 ";
 our $encryption_setup =
   '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
+our $encrypt_tables_and_log =
+  "--mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables ";
 
 our $compression_setup =
   # The availability of the plugins depends on 1. build mechanics 2. Content of OS install
@@ -67,8 +68,31 @@ our $compression_setup =
   # Use the smallest which is 1 instead of 6 (default).
   # The hope is that it raises the throughput and/or reduces the fraction of max_gd_timeout exceeded
   # and/or false alarms when running a test with compression.
-  '--mysqld=--plugin-load-add=provider_lzo.so --mysqld=--plugin-load-add=provider_bzip2.so --mysqld=--plugin-load-add=provider_lzma.so ' .
-  '--mysqld=--plugin-load-add=provider_snappy.so --mysqld=--plugin-load-add=provider_lz4.so --mysqld=--loose-innodb_compression_level=1';
+  "--mysqld=--plugin-load-add=provider_lzo.so --mysqld=--plugin-load-add=provider_bzip2.so --mysqld=--plugin-load-add=provider_lzma.so " .
+  "--mysqld=--plugin-load-add=provider_snappy.so --mysqld=--plugin-load-add=provider_lz4.so --mysqld=--loose-innodb_compression_level=1 ";
+
+our $full_text_gendata =
+  "--gendata=conf/engines/innodb/full_text_search.zz --max_gd_duration=1200 --short_column_names ";
+
+our $many_indexes_gendata =
+  "--gendata=conf/engines/many_indexes.zz --max_gd_duration=900 ";
+
+our $oltp_gendata =
+  "--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 ";
+
+our $table_stress_gendata =
+  "--gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql ";
+
+our $select_stability_rr =
+  "--mysqld=--transaction-isolation=REPEATABLE-READ --validator=SelectStability ";
+our $select_stability_ser =
+  "--mysqld=--transaction-isolation=SERIALIZABLE    --validator=SelectStability ";
+
+our $mariabackup =
+  # Default log_size is 100MB. Mariabackup --backup fails sometimes with
+  #    [ 'TBR-934', '\[00\] FATAL ERROR: .{1,100} xtrabackup_copy_logfile\(\) failed: redo log block is overwritten, ...
+  #     please increase redo log size.+RESULT: The RQG run ended with status STATUS_BACKUP_FAILURE' ],
+  "--reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M ";
 
 our $duration = 300;
 our $grammars =
@@ -107,135 +131,161 @@ our $grammars =
   #    compared to using more lean tests.
   #    So better run that crowd but use rather lean or hand crafted tests for simplification
   #    or specific features if possible.
-  # DDL-DDL, DDL-DML, DML-DML
-  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy',
-  # Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
-  '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --max_gd_duration=900 --grammar=conf/percona_qa/BT-16274/BT-16274.yy ' .
-      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
-  # Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
-  '--gendata=conf/percona_qa/percona_qa.zz --max_gd_duration=900 --grammar=conf/percona_qa/percona_qa.yy ' .
-      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
-  '--views --grammar=conf/mariadb/partitions_innodb.yy ' .
-      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy',
-  '--gendata=conf/engines/innodb/full_text_search.zz --max_gd_duration=1200 --short_column_names --grammar=conf/engines/innodb/full_text_search.yy ' .
-      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/redefine_temporary_tables.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy',
-  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy ' .
-      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy',
+  #
+  # conf/mariadb/modules/locks-10.4-extra.yy --> Backup stage
+  #
+  # DDL-DDL, DDL-DML, DML-DML                                                                                                      #
+  # -------------------------                                                                                                      #
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy "                                           ,
+  # Heavy space consumption                                                                                                        #
+  "--gendata=conf/percona_qa/BT-16274/BT-16274.zz --max_gd_duration=900 --grammar=conf/percona_qa/BT-16274/BT-16274.yy "       .
+      "--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy "  .
+      "--redefine=conf/mariadb/redefine_temporary_tables.yy "                                                                      ,
+  # Heavy space consumption                                                                                                        #
+  "--gendata=conf/percona_qa/percona_qa.zz --max_gd_duration=900 --grammar=conf/percona_qa/percona_qa.yy "                     .
+      "--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy "                                         .
+      "--redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy "     .
+      "--redefine=conf/mariadb/redefine_temporary_tables.yy "                                                                      ,
+  "--views --grammar=conf/mariadb/partitions_innodb.yy "                                                                       .
+      "--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy "                                         .
+      "--redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy "                         .
+      "--redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy "                              .
+      "--redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy "                                            .
+      "--redefine=conf/mariadb/modules/locks-10.4-extra.yy "                                                                       ,
+  "$full_text_gendata --grammar=conf/engines/innodb/full_text_search.yy "                                                      .
+      "--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy "                                         .
+      "--redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy "                         .
+      "--redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy "                              .
+      "--redefine=conf/mariadb/redefine_temporary_tables.yy --redefine=conf/mariadb/versioning.yy "                            .
+      "--redefine=conf/mariadb/sequences.yy "                                                                                      ,
+  "--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy "                                   .
+      "--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy "                                         .
+      "--redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy "                         .
+      "--redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy "                              .
+      "--redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy "                                            .
+      "--redefine=conf/mariadb/modules/locks-10.4-extra.yy "                                                                   ,
 
-  # This can run even without "extra" main grammar
-  '--gendata --vcols --views --grammar=conf/mariadb/instant_add.yy',
+  # This can run even without "extra" main grammar                                                                                 #
+  "--gendata --vcols --views --grammar=conf/mariadb/instant_add.yy "                                                               ,
 
-  '--grammar=conf/runtime/metadata_stability.yy --gendata=conf/runtime/metadata_stability.zz',
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --max_gd_duration=900',
-  '--grammar=conf/mariadb/partitions_innodb.yy',
-  '--grammar=conf/mariadb/partitions_innodb.yy --gendata-advanced --skip-gendata',
-  '--grammar=conf/replication/replication.yy --gendata=conf/replication/replication-5.1.zz --max_gd_duration=1200', # rr on asan_Og exceeded 900 * 1.5
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 ',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata-advanced --skip-gendata',
-  '--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz',
+  "--grammar=conf/runtime/metadata_stability.yy --gendata=conf/runtime/metadata_stability.zz "                                     ,
+  "$many_indexes_gendata --grammar=conf/engines/many_indexes.yy "                                                                  ,
+  "--grammar=conf/mariadb/partitions_innodb.yy "                                                                                   ,
+  "--grammar=conf/mariadb/partitions_innodb.yy --gendata-advanced --skip-gendata "                                                 ,
+  "--grammar=conf/replication/replication.yy --gendata=conf/replication/replication-5.1.zz --max_gd_duration=1200 "                ,
+  "$oltp_gendata --grammar=conf/mariadb/oltp-transactional.yy "                                                                    ,
+  "--grammar=conf/mariadb/oltp-transactional.yy --gendata-advanced --skip-gendata "                                                ,
+  "--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz "                                                 ,
 
-  # DDL-DDL, DDL-DML, DML-DML, syntax   stress test   for several storage engines
-  # Certain new SQL features might be not covered.
-  # Rather small tables with short lifetime.
-  '--gendata=conf/mariadb/concurrency.zz --gendata_sql=conf/mariadb/concurrency.sql --grammar=conf/mariadb/concurrency.yy',
+  # DDL-DDL, DDL-DML, DML-DML, syntax   stress test   for several storage engines                                                  #
+  # Certain new SQL features might be not covered. Rather small tables with short lifetime.                                        #
+  # ---------------------------------------------------------------------------------------                                        #
+  "--gendata=conf/mariadb/concurrency.zz --gendata_sql=conf/mariadb/concurrency.sql --grammar=conf/mariadb/concurrency.yy "        ,
 
-  # heavy DML-DML
-  '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
-  # heavy DML-DML and FOREIGN KEYs
-  '--grammar=conf/mariadb/table_stress_innodb_fk_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
+  # Heavy DML-DML                                                                                                                  #
+  # -------------                                                                                                                  #
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_dml.yy    "                                                    ,
+  # Heavy DML-DML and FOREIGN KEYs                                                                                                 #
+  # -------------                                                                                                                  #
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_fk_dml.yy "                                                    ,
 
-  # Main DDL-DDL, DDL-DML, DML-DML stress work horse   with generated virtual columns, fulltext indexes, KILL QUERY/SESSION, BACKUP STAGE
-  '--grammar=conf/mariadb/table_stress_innodb.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
-  '--grammar=conf/mariadb/table_stress_innodb.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=CrashRecovery',
-  '--grammar=conf/mariadb/table_stress_innodb.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=CrashRecovery',
-  # Derivate of above which tries to avoid any DDL rebuilding the table, also without BACKUP STAGE
-  #     IMHO this fits more likely to the average fate of production applications.
-  #     No change of PK, get default ALGORITHM which is NOCOPY if doable, no BACKUP STAGE because too new or rare and RPL used instead.
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy  --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --redefine=conf/mariadb/redefine_innodb_sys_ddl.yy',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=RestartConsistency',
-  # Avoid '[00] FATAL ERROR: .{1,100} xtrabackup_copy_logfile() failed: redo log block is overwritten, please increase redo log size'
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=CrashRecovery',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--log-bin --rpl_mode=statement',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--log-bin --rpl_mode=mixed',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--log-bin --rpl_mode=row',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --redefine=conf/mariadb/xa.yy',
+  # Main DDL-DDL, DDL-DML, DML-DML stress work horse with generated columns, fulltext indexes, KILL QUERY/SESSION, BACKUP STAGE    #
+  # ---------------------------------------------------------------------------------------------------------------------------    #
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb.yy "                                                           ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb.yy --reporters=CrashRecovery "                                 ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb.yy --reporters=CrashRecovery "                                 ,
+  # Derivates of above which tries to avoid any DDL rebuilding the table, also without BACKUP STAGE                                #
+  #     IMHO this fits more likely to the average fate of production applications.                                                 #
+  #     No change of PK, get default ALGORITHM which is NOCOPY if doable, no BACKUP STAGE because RPL used instead.                #
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy "                                                   ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --reporters=RestartConsistency "                    ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy $mariabackup "                                      ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --reporters=CrashRecovery "                         ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --mysqld=--log-bin --rpl_mode=statement "           ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --mysqld=--log-bin --rpl_mode=mixed "               ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --mysqld=--log-bin --rpl_mode=row "                 ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --redefine=conf/mariadb/xa.yy "                     ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy.yy  --redefine=conf/mariadb/redefine_innodb_sys_ddl.yy ",
 
-  # Fiddle with FOREIGN KEYs and
-  # - especially TRUNCATE
-  '--gendata=conf/mariadb/fk_truncate.zz --grammar=conf/mariadb/fk_truncate.yy',
-  # - the full set of DDL like in the other table_stress_innodb*
-  '--grammar=conf/mariadb/table_stress_innodb_fk.yy      --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
+  # Fiddle with FOREIGN KEYs and                                                                                                   #
+  # ----------------------------                                                                                                   #
+  # - especially TRUNCATE                                                                                                          #
+  "--gendata=conf/mariadb/fk_truncate.zz --grammar=conf/mariadb/fk_truncate.yy "                                                   ,
+  # - the full set of DDL like in the other table_stress_innodb*                                                                   #
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_fk.yy "                                                        ,
 
-  # DML only together with Mariabackup
-  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --max_gd_duration=900 --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
-  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
-  '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
-  '--grammar=conf/mariadb/table_stress_innodb_fk_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
-  # DML only together with RestartConsistency
-  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --reporters=RestartConsistency ',
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --max_gd_duration=900 --reporters=RestartConsistency ',
-  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --reporters=RestartConsistency ',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --reporters=RestartConsistency ',
-  '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=RestartConsistency ',
-  '--grammar=conf/mariadb/table_stress_innodb_fk_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=RestartConsistency ',
-  # DML only together with CrashRecovery
-  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --reporters=CrashRecovery ',
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --max_gd_duration=900 --reporters=CrashRecovery ',
-  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --reporters=CrashRecovery ',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --reporters=CrashRecovery ',
-  '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=CrashRecovery ',
-  '--grammar=conf/mariadb/table_stress_innodb_fk_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --reporters=CrashRecovery ',
-  # DDL+DML together with Mariabackup
-  '--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz --reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M',
+  # DML only together with Mariabackup                                                                                             #
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy                               $mariabackup "                                       ,
+  "$oltp_gendata --grammar=conf/mariadb/oltp-transactional.yy                 $mariabackup "                                       ,
+  "$many_indexes_gendata --grammar=conf/engines/many_indexes.yy               $mariabackup "                                       ,
+  "--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy "                                   .
+      "--redefine=conf/mariadb/modules/locks.yy                               $mariabackup "                                       ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_dml.yy    $mariabackup "                                       ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_fk_dml.yy $mariabackup "                                       ,
+  # DML only together with RestartConsistency                                                                                      #
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy                               --reporters=RestartConsistency "                     ,
+  "$oltp_gendata --grammar=conf/mariadb/oltp-transactional.yy                 --reporters=RestartConsistency "                     ,
+  "$many_indexes_gendata --grammar=conf/engines/many_indexes.yy               --reporters=RestartConsistency "                     ,
+  "--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy "                                   .
+      "--redefine=conf/mariadb/modules/locks.yy                               --reporters=RestartConsistency "                     ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_dml.yy    --reporters=RestartConsistency "                     ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_fk_dml.yy --reporters=RestartConsistency "                     ,
+  # DML only together with CrashRecover                                                                                            #
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy                               --reporters=CrashRecovery "                          ,
+  "$oltp_gendata --grammar=conf/mariadb/oltp-transactional.yy                 --reporters=CrashRecovery "                          ,
+  "$many_indexes_gendata --grammar=conf/engines/many_indexes.yy               --reporters=CrashRecovery "                          ,
+  "--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy "                                   .
+      "--redefine=conf/mariadb/modules/locks.yy                               --reporters=CrashRecovery "                          ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_dml.yy    --reporters=CrashRecovery "                          ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_fk_dml.yy --reporters=CrashRecovery "                          ,
+  # DDL+DML together with Mariabackup                                                                                              #
+  "--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz $mariabackup "                                    ,
 
   # Tests checking transactional properties
   # =======================================
-  # READ-UNCOMMITTED and READ-COMMITTED will be not assigned because they guarantee less than
-  # we can check in the moment.
+  # READ-UNCOMMITTED and READ-COMMITTED will be not assigned because they guarantee less than we can check in the moment.
+  #
   # Disabled because not compatible with max_statement_timeout and other timeouts etc.
-  # ' --grammar=conf/transactions/transactions.yy --gendata=conf/transactions/transactions.zz --validators=DatabaseConsistency ',
-  ' --grammar=conf/transactions/repeatable_read.yy --gendata=conf/transactions/transactions.zz --validators=RepeatableRead ',
+  # "--grammar=conf/transactions/transactions.yy  --gendata=conf/transactions/transactions.zz --validators=DatabaseConsistency "   ,
+  "--grammar=conf/transactions/repeatable_read.yy --gendata=conf/transactions/transactions.zz --validators=RepeatableRead "        ,
   ###
-  # DML only together with --validator=SelectStability ----------------
-  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --mysqld=--transaction-isolation=REPEATABLE-READ --validator=SelectStability ',
-  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --mysqld=--transaction-isolation=SERIALIZABLE    --validator=SelectStability ',
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --max_gd_duration=900 --mysqld=--transaction-isolation=REPEATABLE-READ --validator=SelectStability ',
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz --max_gd_duration=900 --mysqld=--transaction-isolation=SERIALIZABLE    --validator=SelectStability ',
-  #     conf/engines/engine_stress.yy switches the ISOLATION LEVEL around and that does not fit to the capabilities of SelectStability
-  # '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --validator=SelectStability ',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --mysqld=--transaction-isolation=REPEATABLE-READ --validator=SelectStability ',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --mysqld=--transaction-isolation=SERIALIZABLE    --validator=SelectStability ',
-  # DDL-DDL, DDL-DML, DML-DML and KILL QUERY/SESSION etc.
-  '--grammar=conf/mariadb/table_stress_innodb.yy         --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--transaction-isolation=REPEATABLE-READ  --validator=SelectStability ',
-  '--grammar=conf/mariadb/table_stress_innodb.yy         --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--transaction-isolation=SERIALIZABLE     --validator=SelectStability ',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--transaction-isolation=REPEATABLE-READ  --validator=SelectStability ',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --mysqld=--transaction-isolation=SERIALIZABLE     --validator=SelectStability ',
+  # DML only together with --validator=SelectStability ----------------                                                            #
+  #     Hint: conf/engines/engine_stress.yy switches the ISOLATION LEVEL around.                                                   #
+  #           This does not fit to the capabilities of SelectStability                                                             #
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy                 $select_stability_rr "                                             ,
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy                 $select_stability_ser "                                            ,
+  "$many_indexes_gendata --grammar=conf/engines/many_indexes.yy $select_stability_rr "                                             ,
+  "$many_indexes_gendata --grammar=conf/engines/many_indexes.yy $select_stability_ser "                                            ,
+  "$oltp_gendata --grammar=conf/mariadb/oltp-transactional.yy   $select_stability_rr "                                             ,
+  "$oltp_gendata --grammar=conf/mariadb/oltp-transactional.yy   $select_stability_ser "                                            ,
+  # DDL-DDL, DDL-DML, DML-DML and KILL QUERY/SESSION etc.                                                                          #
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb.yy           $select_stability_rr "                            ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb.yy         $select_stability_ser "                             ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy   $select_stability_rr "                            ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy $select_stability_ser "                             ,
 
   # Most probably not relevant for InnoDB testing
-  # '--grammar=conf/runtime/performance_schema.yy  --mysqld=--performance-schema --gendata-advanced --skip-gendata',
-  # '--grammar=conf/runtime/information_schema.yy --gendata-advanced --skip-gendata',
-  # '--grammar=conf/partitioning/partition_pruning.yy --gendata=conf/partitioning/partition_pruning.zz',
-  # '--grammar=conf/replication/replication-ddl_sql.yy --gendata=conf/replication/replication-ddl_data.zz',
-  # '--grammar=conf/replication/replication-dml_sql.yy --gendata=conf/replication/replication-dml_data.zz',
-  # '--grammar=conf/runtime/connect_kill_sql.yy --gendata=conf/runtime/connect_kill_data.zz',
-  # '--grammar=conf/mariadb/optimizer.yy --gendata-advanced --skip-gendata',
+  # "--grammar=conf/runtime/performance_schema.yy  --mysqld=--performance-schema --gendata-advanced --skip-gendata ",
+  # "--grammar=conf/runtime/information_schema.yy --gendata-advanced --skip-gendata ",
+  # "--grammar=conf/partitioning/partition_pruning.yy --gendata=conf/partitioning/partition_pruning.zz ",
+  # "--grammar=conf/replication/replication-ddl_sql.yy --gendata=conf/replication/replication-ddl_data.zz ",
+  # "--grammar=conf/replication/replication-dml_sql.yy --gendata=conf/replication/replication-dml_data.zz ",
+  # "--grammar=conf/runtime/connect_kill_sql.yy --gendata=conf/runtime/connect_kill_data.zz ",
+  # "--grammar=conf/mariadb/optimizer.yy --gendata-advanced --skip-gendata ",
   # '--grammar=conf/optimizer/updateable_views.yy --mysqld=--init-file='.$ENV{RQG_HOME}.'/conf/optimizer/updateable_views.init',
-  # '--grammar=conf/mariadb/functions.yy --gendata-advanced --skip-gendata',
+  # "--grammar=conf/mariadb/functions.yy --gendata-advanced --skip-gendata ",
 
-  "$test_compression_encryption                                                                --mysqld=--loose-innodb-encryption-threads=1 ",
-  "$test_compression_encryption                                                                --mysqld=--loose-innodb-encryption-threads=7 ",
-  "$test_compression_encryption                                                                --mysqld=--loose-innodb_encryption_rotate_key_age=1 ",
-  "$test_compression_encryption                                                                --mysqld=--loose-innodb_encryption_rotate_key_age=2 ",
-  "$test_compression_encryption                                                                --reporters=RestartConsistency ",
-  "$test_compression_encryption                                                                --reporters=CrashRecovery     ",
-  "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables                                ",
-  "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables --reporters=RestartConsistency ",
-  "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables --reporters=CrashRecovery     ",
-  "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables --reporters=CrashRecovery --redefine=conf/mariadb/redefine_innodb_undo.yy --mysqld=--innodb-immediate-scrub-data-uncompressed=1 ",
+  "$test_compression_encryption                         --mysqld=--loose-innodb-encryption-threads=1 "                             ,
+  "$test_compression_encryption                         --mysqld=--loose-innodb-encryption-threads=7 "                             ,
+  "$test_compression_encryption                         --mysqld=--loose-innodb_encryption_rotate_key_age=1 "                      ,
+  "$test_compression_encryption                         --mysqld=--loose-innodb_encryption_rotate_key_age=2 "                      ,
+  "$test_compression_encryption                         --reporters=RestartConsistency "                                           ,
+  "$test_compression_encryption                         --reporters=CrashRecovery "                                                ,
+  "$test_compression_encryption $encrypt_tables_and_log $mariabackup "                                                             ,
+  "$test_compression_encryption $encrypt_tables_and_log --reporters=RestartConsistency "                                           ,
+  "$test_compression_encryption $encrypt_tables_and_log --reporters=CrashRecovery "                                                ,
+  "$test_compression_encryption $encrypt_tables_and_log --reporters=CrashRecovery "                                            .
+      "--redefine=conf/mariadb/redefine_innodb_undo.yy  --mysqld=--innodb-immediate-scrub-data-uncompressed=1 "                    ,
 ];
 
 
@@ -245,15 +295,9 @@ our $grammars =
 #   --vcols
 #
 # Avoid to hit known open or already fixed bugs:
-# - MDEV-16664
+#   MDEV-16664
 #   InnoDB: Failing assertion: !other_lock || wsrep_thd_is_BF(lock->trx->mysql_thd, FALSE) || wsrep_thd_is_BF(other_lock->trx->mysql_thd, FALSE) for DELETE
 #   --mysqld=innodb_lock_schedule_algorithm=fcfs
-# - MDEV-16136
-#   Various ASAN failures when testing 10.2/10.3
-#   --mysqld=--innodb_stats_persistent=off
-#
-# - The server default "on" made trouble somewhere 2018 July/August
-#   --mysqld=--innodb_adaptive_hash_index=off
 #
 # Avoid to hit known OS config limits in case the OS resource is too small (usually valid)
 # and the MariaDB version is too old (< 10.0?). Newer versions can handle a shortage.
@@ -263,7 +307,7 @@ our $grammars =
 # I prefer to set the timeouts even if its only the current default because defaults could be changed over time.
 # When needing small timeouts within the test set it in the grammar.
 #
-# Excessive sql tracing via RQG makes the RQG logs rather fat and is frequent of low value only.
+# Excessive sql tracing via RQG makes the RQG logs rather fat and the content is frequent of low value only.
 #     --sqltrace=MarkErrors
 #
 
@@ -328,7 +372,7 @@ $combinations = [ $grammars,
     '--mysqld=--loose-innodb_fast_shutdown=0' ,
   ],
   [
-    # Th default since 10.2.4 is
+    # The default since 10.2.4 is
     '--mysqld=--sql_mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' ,
     # TRADITIONAL is the same as:
     # STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,STRICT_ALL_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,TRADITIONAL
