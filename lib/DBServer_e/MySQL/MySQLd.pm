@@ -133,11 +133,93 @@ use constant DEFAULT_SERVER_KILL_TIMEOUT         => 30;
 # Maybe the time required for rr writing the rr trace till end is in that timespan.
 use constant DEFAULT_SERVER_ABRT_TIMEOUT         => 60;
 
+our @end_line_patterns = (
+    '^Aborted$',
+    'core dumped',
+    '^Segmentation fault$',
+    '(mariadbd|mysqld): Shutdown complete$',
+    '^Killed$',                              # SIGKILL by RQG or OS or user
+    '(mariadbd|mysqld) got signal',          # SIG(!=KILL) by DB server or RQG or OS or user
+);
+
+# I cannot exclude that some patterns will be never written into the server error log.
+# Patterns for MyISAM, Aria, Memory are missing.
+our @corruption_patterns = (
+    '\[ERROR\]( \[FATAL\]|) InnoDB: FIL_PAGE_TYPE=.{1,10} on BLOB',
+    '\[ERROR\]( \[FATAL\]|) InnoDB: Trying to read',
+    '\[ERROR\]( \[FATAL\]|) InnoDB: Apparent corruption',
+    '\[ERROR\] InnoDB: Corruption of an index tree',
+    '\[ERROR\] InnoDB: Flagged corruption of',
+    '\[ERROR\] InnoDB: The compressed page to be',
+    # [Warning] InnoDB: CHECK TABLE on index `MarvÃ£o_idx1` of table `test`.`t1` returned Data structure corruption
+    # [ERROR] InnoDB: Plugin initialization aborted at srv0start.cc[1484] with error Data structure corruption
+    '\[ERROR\] InnoDB: Plugin initialization aborted at .* with error Data structure corruption',
+    'Data structure corruption',
+    '\[ERROR\] InnoDB: File .{1,300} is corrupted',
+    '\[ERROR\] InnoDB: Your database may be corrupt',
+    '\[ERROR\] \[FATAL\] InnoDB: Rec offset ',
+    '\[ERROR\] InnoDB: We detected index corruption',
+    '\[ERROR]\ \[FATAL\] InnoDB: Aborting because of a corrupt database page',
+    # '??'   -- looks like a problem during crash recovery or mariabackup --> status should be not CORRUPTION
+    # '????' -- looks like data import problem   In the import data?
+    # ?? [ERROR] InnoDB: Trying to load index `FTS_INDEX_TABLE_IND` for table `test`.`FTS_00000000000002b5_00000000000003aa_INDEX_1`, but the index tree has been freed!
+    # ?? [Note] InnoDB: Index is corrupt but forcing load into data dictionary
+    # ?? [ERROR] InnoDB: Corrupted page identifier at 2837320893; set innodb_force_recovery=1 to ignore the record.
+    # ?? [ERROR] InnoDB: n recs wrong 2817 2816
+    # ?? \[ERROR\] InnoDB: Cannot apply log to .{1,100} of corrupted file .{1,200}\.ibd' .
+    # ?? [ERROR] InnoDB: Not applying INSERT_HEAP_REDUNDANT due to corruption on [page id: space=26, page number=49]
+    # ?? [ERROR] InnoDB: Cannot apply log to [page id: space=178, page number=0] of corrupted file './test/#sql-alter-271a94-2f.ibd'
+    # ????[ERROR] [FATAL] InnoDB: Page old data size 1917 new data size 2278, page old max ins size 1940 new max ins size 1579
+    # ?? [ERROR] InnoDB: Cannot find the dir slot for this record on that page;
+    # ?? [ERROR] InnoDB: Encrypted page [page id: space=12, page number=100] in file ./test/t8.ibd looks corrupted; key_version=1
+    # ?? [ERROR] InnoDB: Missing FILE_CREATE, FILE_DELETE or FILE_MODIFY before FILE_CHECKPOINT for tablespace 1501
+    # ?? [ERROR] InnoDB: Page [page id: space=9, page number=8] log sequence number 13603113 is in the future! Current system log sequence number 13123566.
+    # ?? [ERROR] InnoDB: OPT_PAGE_CHECKSUM mismatch on [page id: space=0, page number=417]
+    # ?? [ERROR] InnoDB: Cannot apply log to [page id: space=5, page number=0] of corrupted file './test/oltp1.ibd'
+    # ?? [ERROR] InnoDB: Failed to read page 291 from file './/undo001': Page read from tablespace is corrupted.
+    # ?? [ERROR] InnoDB: Summed data size 1859, returned by func 30316
+    # ?? [ERROR] InnoDB: Apparent corruption in space 0 page 1460 of index `IBUF_DUMMY` of table `IBUF_DUMMY`
+    # ?? [ERROR] InnoDB: Unable to decompress ./test/t2.ibd[page id: space=38, page number=31]
+);
+our @disk_full_patterns = (
+    '(device full error|no space left on device)',
+    '\[ERROR\] InnoDB: The InnoDB system tablespace ran out of space',
+    'Error writing file .{1,300} \(Errcode: 28 "No space left on device"\)',
+    'ERROR: Creating the directory .{1,1000} failed : No space left on device',
+);
+
+our @pattern_matrix;
+use constant NO_SPACE               => 'no_space';
+use constant CORRUPT                => 'corrupt';
+use constant SERVER_END             => 'end';
+use constant MATRIX_PATTERN_TYPE    => 0;
+use constant MATRIX_PATTERN         => 1;
+
+sub fill_pattern_matrix {
+    foreach my $pattern (@disk_full_patterns) {
+        my @rec = ( NO_SPACE, $pattern );
+        push @pattern_matrix, \@rec;
+    }
+    foreach my $pattern (@corruption_patterns) {
+        my @rec = ( CORRUPT, $pattern );
+        push @pattern_matrix, \@rec;
+    }
+    foreach my $pattern (@end_line_patterns) {
+        my @rec = ( SERVER_END, $pattern );
+        push @pattern_matrix, \@rec;
+    }
+#   foreach my $rec_ref (@pattern_matrix) {
+#       my ( $pattern_type, $pattern) = @{$rec_ref};
+#       say("$rec_ref ->" . $pattern_type . '--' . $pattern . "<-");
+#   }
+}
 
 our %aux_pids;
 
 sub new {
     my $class = shift;
+
+    fill_pattern_matrix() if 0 == scalar @pattern_matrix;
 
     my $self = $class->SUPER::new({
                 'basedir'               => MYSQLD_BASEDIR,
@@ -1188,7 +1270,6 @@ sub startServer {
             "Will return STATUS_FAILURE" . "($status)");
         return $status;
     } else {
-        ####### Experiment begin ##########
         # Attempt to catch problems similar to https://jira.mariadb.org/browse/MDEV-31386
         # Its essential that the SQL is executed as early as possible.
         my $query = "SELECT * FROM `information_schema`.`INNODB_BUFFER_PAGE` /* server starter */";
@@ -1204,7 +1285,6 @@ sub startServer {
         } else {
             # say("DEBUG: $who_am_i ->" . $query . "<- passed");
         }
-        ####### Experiment end ##########
 
         # Rare occuring scenario:
         # Start server, have load, shutdown, restart with modified system variables without
@@ -1811,7 +1891,7 @@ sub stopServer {
 
 sub checkDatabaseIntegrity {
 # checkDatabaseIntegrity needs to be executed without
-# - concurrent sessions running DDL or kill random queries or sessions
+# - concurrent sessions running DDL/DML or kill random queries or sessions
 # - busy replication repeating DDL on slave
 # otherwise failures like
 #   action 1 on table A passes
@@ -2431,6 +2511,7 @@ sub checkDatabaseIntegrity {
         #   ALTER TABLE `test` . `table100_innodb_int_autoinc` FORCE;
         #      and harvest ER_INVALID_DEFAULT (1067): Invalid default value for 'tscol2'
         #      --> status STATUS_SEMANTIC_ERROR
+        #
         # So assuming that a failing ALTER TABLE ... FORCE might reveal some faulty maintenance
         # of the server and/or InnoDB data dictionary is wrong in case of sql mode switching.
         # Fixed by removing sql_mode.yy from any test setup.
@@ -2650,6 +2731,7 @@ sub backupDatadir {
 # Extract important messages from the error log.
 # The check starts from the provided marker or from the beginning of the log
 
+# Used by lib/GenTest_e/Scenario.pm only
 sub checkErrorLogForErrors {
   my ($self, $marker)= @_;
 
@@ -2704,6 +2786,61 @@ sub checkErrorLogForErrors {
   close(ERRLOG);
   return (\@crashes, \@errors);
 }
+
+
+sub checkErrorLog {
+# $marker
+# $marker not in call --> search in server error log from begin.
+#
+# Functionality:
+# Read the server error log starting from begin or marker line by line.
+# In case a pattern matches a line than return a status which fits to the pattern_type.
+#
+    my ($self, $marker)= @_;
+
+    my $who_am_i = Basics::who_am_i;
+
+    my $found_marker= 0;
+    say("Checking server log for important errors starting from " . ($marker ? "marker $marker" : 'the beginning'));
+
+    my $errorlog_status = STATUS_OK;
+
+    open(ERRLOG, $self->errorlog);
+    while (<ERRLOG>)
+    {
+        next unless !$marker or $found_marker or /^$marker$/;
+        $found_marker= 1;
+        $_ =~ s{[\r\n]}{}siog;
+
+        foreach my $rec_ref (@pattern_matrix) {
+        my ( $pattern_type, $pattern) = @{$rec_ref};
+        if ( $_ =~ /$pattern/sio ) {
+            # say("MATCH: ->" . $pattern . "<- in ->" . $_ . "<-");
+            if      ( NO_SPACE eq $pattern_type ) {
+                    say("ERROR: $who_am_i Found ->" . $_ .
+                        "<- Will return STATUS_ENVIRONMENT_FAILURE later.");
+                    $errorlog_status = STATUS_ENVIRONMENT_FAILURE;
+                    last;
+                } elsif ( CORRUPT eq $pattern_type ) {
+                    say("ERROR: $who_am_i Found ->" . $_ .
+                        "<- Will return STATUS_DATABASE_CORRUPTION later.");
+                    $errorlog_status = STATUS_DATABASE_CORRUPTION;
+                    last;
+                } elsif (SERVER_END eq $pattern_type ) {
+                    say("ERROR: $who_am_i Found ->" . $_ .
+                        "<- Will return STATUS_CRITICAL_FAILURE later.");
+                    $errorlog_status = STATUS_CRITICAL_FAILURE;
+                    last;
+                }
+            } else {
+                # say("NO MATCH: ->" . $pattern . "<- in ->" . $_ . "<-");
+            }
+        }
+    }
+    close(ERRLOG);
+    return $errorlog_status;
+} # End sub checkErrorLog
+
 
 sub serverVariables {
     my $self = shift;
@@ -3408,7 +3545,10 @@ sub server_is_operable {
 # 1. Check if the server is running
 #    No  --> make_backtrace return STATUS_SERVER_CRASHED
 #    Yes --> go on
-# 2. Try to connect (Supervised with timeout? But load by sessions should be ~ 0.)
+# 2. Check for suspicious messages in server error log
+#    Yes --> Get the server to finish, make_backtrace, return status which fits to the observation
+#    No  --> go on
+# 3. Try to connect (Supervised with timeout? But load by sessions should be ~ 0.)
 #    Fail    --> kill server with SIGABRT, make_backtrace, return STATUS_SERVER_DEADLOCKED
 #    Success --> SHOW PROCESSLIST, print result, disconnect, return STATUS_OK
 #
@@ -3424,16 +3564,7 @@ use constant PROCESSLIST_PROCESS_TIME        => 5;
 use constant PROCESSLIST_PROCESS_STATE       => 6;
 use constant PROCESSLIST_PROCESS_INFO        => 7;
 
-my @end_line_patterns = (
-    '^Aborted$',
-    'core dumped',
-    '^Segmentation fault$',
-    '(mariadbd|mysqld): Shutdown complete$',
-    '^Killed$',                              # SIGKILL by RQG or OS or user
-    '(mariadbd|mysqld) got signal',          # SIG(!=KILL) by DB server or RQG or OS or user
-);
-
-    my $self = shift;
+    my $self =          shift;
 
     my $status =        STATUS_OK;
     my $who_am_i =      Basics::who_am_i;
@@ -3455,6 +3586,13 @@ my @end_line_patterns = (
     }
     $who_am_i .=        " $server_name";
 
+    # $backtrace_timeout
+    # Value | Action
+    # ------+------------------------------------------------------------------
+    #     0 | Do not make a backtrace at all.
+    # n > 0 | Wait up till n seconds if the DB server process disappears before
+    #       | calling make_backtrace which crashes the server if running.
+    my $backtrace_timeout = 0; # 0 --> Do not make
     my $pid = $self->find_server_pid;
     if (not $self->running) {
         say("ERROR: $who_am_i with process [" . $pid . "] is no more running.");
@@ -3463,7 +3601,17 @@ my @end_line_patterns = (
         # What if '(mariadbd|mysqld): Shutdown complete$', no trouble + server dead?
         return $status;
     } else {
-        # The main DB server process is running. But maybe the DB server is around dying.
+        # The main DB server process is running.
+        # But maybe a some inspection of the server error log tells that the DB server
+        # a) has a data corruption
+        #    Give him some time to die from subsequent
+        #    - errors like MariaDB aborts etc.
+        #    - reactions like RQG or the OS stops the server
+        #    After that take care that the server is stopped and make a backtrace.
+        # b) has storage space problems
+        #    Abort the test.
+        # c) is already around dying (might be a subsequent effect of a corruption)
+        #    Act like in a)
         my $error_log = $self->errorlog();
         my $content =   Auxiliary::getFileSlice($error_log, 1000000);
         if (not defined $content or '' eq $content) {
@@ -3471,17 +3619,40 @@ my @end_line_patterns = (
                 "Will return STATUS_ENVIRONMENT_FAILURE.");
             return STATUS_ENVIRONMENT_FAILURE;
         }
+        # Look for first suspicious error log entry and get corresponding status.
+        # This status is usually more nearby the reason
+        #    Example: No more space on device or some corruption followed by
+        #             crash (SEGV, assert or RQG kills the server)
+        my $errorlog_status = $self->checkErrorLog;
+        return STATUS_ENVIRONMENT_FAILURE if STATUS_ENVIRONMENT_FAILURE == $errorlog_status;
+        if (STATUS_DATABASE_CORRUPTION == $errorlog_status) {
+            say("INFO: $who_am_i Setting the status to DATABASE_CORRUPTION.");
+            $status =            STATUS_DATABASE_CORRUPTION;
+            $backtrace_timeout = 60;
+        }
         my $return = Auxiliary::content_matching($content, \@end_line_patterns, '', 0);
         if      ($return eq Auxiliary::MATCH_YES) {
             say("INFO: $who_am_i end_line_pattern in server error log found.");
-            say("INFO: $who_am_i Setting the status to STATUS_SERVER_CRASHED.");
+            $backtrace_timeout = 30;
+            if ($status < $return) {
+                say("INFO: $who_am_i Setting the status to STATUS_SERVER_CRASHED.");
+                $status = STATUS_SERVER_CRASHED;
+            }
+        } elsif ($return eq Auxiliary::MATCH_NO) {
+            # Do nothing
+        } else {
+            say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. " .
+                "Will return STATUS_ENVIRONMENT_FAILURE.");
+            return STATUS_ENVIRONMENT_FAILURE;
+        }
+
+        if ($backtrace_timeout) {
             # FIXME:
             # What if '(mariadbd|mysqld): Shutdown complete$', trouble + server not dead?
-            $status = STATUS_SERVER_CRASHED;
             # FIXME: Do we wait here and than make_backtrace waits again?
-            say("INFO: $who_am_i Will poll up to 30s if the server process finishes before " .
-                "calling 'make_backtrace'.");
-            my $end_time = time() + 30;
+            say("INFO: $who_am_i Will poll up to " . $backtrace_timeout . "s if the server " .
+                "process finishes before calling 'make_backtrace'.");
+            my $end_time = time() + $backtrace_timeout;
             # say("DEBUG: Server pid is $pid");
             while (time() < $end_time) {
                 aux_pid_reaper();
@@ -3504,12 +3675,6 @@ my @end_line_patterns = (
             say("ERROR: $who_am_i Will stick to status $status and return that because of " .
                 "previous errors.");
             return $status;
-        } elsif ($return eq Auxiliary::MATCH_NO) {
-            # Do nothing
-        } else {
-            say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. " .
-                "Will return STATUS_ENVIRONMENT_FAILURE.");
-            return STATUS_ENVIRONMENT_FAILURE;
         }
 
         # say("DEBUG: The server[" . $server_id . "] with process [" . $pid . "] is running.");
