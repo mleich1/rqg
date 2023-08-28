@@ -144,14 +144,19 @@ sub report {
 
     my $datadir = $server->datadir;
     $datadir =~ s{[\\/]$}{}sgio;
-    my $orig_datadir = $datadir.'_orig';
+    my $fbackup_dir = $datadir;
+    $fbackup_dir =~ s{\/data$}{\/fbackup};
+    if ($datadir eq $fbackup_dir) {
+        say("ERROR: $who_am_i fbackup_dir equals datadir '$datadir'.");
+        exit STATUS_ENVIRONMENT_FAILURE;
+    }
 
     # FIXME: Replace with routine in lib/Auxiliary.pm
     say("INFO: $who_am_i Copying datadir... (interrupting the copy operation may cause investigation problems later)");
     if (osWindows()) {
-        system("xcopy \"$datadir\" \"$orig_datadir\" /E /I /Q");
+        system("xcopy \"$datadir\" \"$fbackup_dir\" /E /I /Q");
     } else {
-        system("cp -r $datadir $orig_datadir");
+        system("cp -r --dereference $datadir $fbackup_dir");
     }
     my $errorlog= $server->errorlog;
     move($errorlog, $server->errorlog.'_orig');

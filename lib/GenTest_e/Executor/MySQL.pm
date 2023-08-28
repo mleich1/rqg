@@ -1724,7 +1724,7 @@ sub execute {
             # View 'test.extra_v1' references invalid table(s) or column(s) or function(s) or ...
             # Corrupt
             if ($full_result =~ /View .{1,200} references invalid table\(s\)/) {
-                say("DEBUG: Executor: " . $full_result . "\nobserved. Its most probably not a bug.")
+                say("DEBUG: " . $full_result . "\nobserved. Its most probably not a bug.")
                     if $debug_here;
                 return GenTest_e::Result->new(
                         query       => $query,
@@ -1732,7 +1732,7 @@ sub execute {
                 );
             }
             if ($full_result =~ /View .{1,200} contains view recursion/) {
-                say("DEBUG: Executor: " . $full_result . "\nobserved. Its most probably not a bug.")
+                say("DEBUG: " . $full_result . "\nobserved. Its most probably not a bug.")
                     if $debug_here;
                 return GenTest_e::Result->new(
                         query       => $query,
@@ -1792,12 +1792,12 @@ sub execute {
                         # But without knowing the server process we can only request a SHUTDOWN.
                         # And during experiments that caused RQG reporting finally a DEADLOCK.
                         # $dbh->do("SHUTDOWN");
-                        say("ERROR: Executor: $full_result");
+                        say("ERROR: $full_result");
                         say("ERROR: Executor: Will exit with status STATUS_DATABASE_CORRUPTION.");
                         exit STATUS_DATABASE_CORRUPTION;
                     } else {
                         # A process like rqg.pl which should not exit without cleanup.
-                        say("ERROR: Executor: $full_result");
+                        say("ERROR: $full_result");
                         say("ERROR: Executor: Will return a result containing status STATUS_DATABASE_CORRUPTION.");
                         return GenTest_e::Result->new(
                            query       => $query,
