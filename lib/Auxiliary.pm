@@ -474,8 +474,7 @@ sub set_rqg_phase {
         return STATUS_FAILURE;
     }
     if ($old_phase eq $new_phase) {
-        Carp::cluck("INTERNAL ERROR: Auxiliary::set_rqg_phase old_phase equals new_phase.");
-        return STATUS_FAILURE;
+        return STATUS_OK;
     }
 
     my $old_name = $workdir . '/rqg_phase.' . $old_phase;
@@ -1542,7 +1541,7 @@ sub measure_space_consumption {
         Carp::cluck("ERROR: Parameter (directory or file) does not exist.");
         return -2;
     }
-    my $cmd = "du -sk --dereference $directory | cut -f1";
+    my $cmd = "du -sk --dereference $directory | cut -f1 2>/dev/null";
     my $return = `$cmd`;
     if ($? == -1) {
         say("WARNING: '$cmd' failed to execute: $!");
