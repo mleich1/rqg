@@ -207,12 +207,21 @@ sub validate {
     my $aux_info =   result_info($aux_result);
     say("DEBUG: $who_am_i " . $aux_info) if $debug_here;
 
-    if (STATUS_SKIP == $aux_status) {
-        say("DEBUG: $who_am_i ->" . $aux_query . "<- harvested status $aux_status. " .
-            "Will return STATUS_OK.") if $debug_here;
-        return STATUS_OK;
+    if (STATUS_OK != $aux_status) {
+        my $msg_snip = "DEBUG: $who_am_i ->" . $aux_query . "<- harvested status $aux_status. ";
+        if      (STATUS_SKIP == $aux_status) {
+            say($msg_snip . "Will return STATUS_OK.") if $debug_here;
+            return STATUS_OK;
+        } elsif (STATUS_SERVER_CRASHED == $aux_status) {
+            say($msg_snip . "Will return STATUS_CRITICAL_FAILURE.") if $debug_here;
+            return STATUS_CRITICAL_FAILURE;
+        } else {
+            say($msg_snip . "Will return that.");
+            return $aux_status;
+        }
     }
 
+    # ????
     if (defined $aux_err) {
         # Being victim of
         # - KILL QUERY/SESSION .... or whatever.
