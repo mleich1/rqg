@@ -2191,7 +2191,7 @@ sub checkDatabaseIntegrity {
         # CHECKSUM TABLE
         # --------------
         if ($r_table_type eq "BASE TABLE") {
-            $aux_query = "CHECKSUM TABLE " . $table_to_check;
+            $aux_query = "CHECKSUM TABLE " . $table_to_check . " EXTENDED";
             my $res_check = $executor->execute($aux_query);
             $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
             if (STATUS_OK != $status) {
@@ -3554,6 +3554,8 @@ sub server_is_operable {
 #
 # There must be never more than one process running server_is_operable.
 #
+# Using server_is_operable during GenData or GenTest leads with high likelihood to false alarms.
+#
 # Example of a SHOW PROCESSLIST result set.
 # 0   1     2          3     4        5     6      7                 8
 # Id  User  Host       db    Command  Time  State  Info              Progress
@@ -3740,18 +3742,15 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
                     say("ERROR: $who_am_i The query '$query' failed with " . $DBI::err);
                     my $return = GenTest_e::Executor::MySQL::errorType($DBI::err);
                     if (not defined $return) {
-                        say("ERROR: $who_am_i The type of the error got is unknown. " .
-                            "Will exit with STATUS_INTERNAL_ERROR");
-                        $dbh->disconnect;
                         $status = STATUS_INTERNAL_ERROR;
-                        # $status = STATUS_UNKNOWN_ERROR;
-                        return $status;
+                        say("ERROR: $who_am_i The type of the error got is unknown. " .
+                            "Will return " . status2text($status) . ".");
                     } else {
-                        say("ERROR: $who_am_i Will return status $return" . ".");
-                        $dbh->disconnect;
                         $status = $return;
-                        return $status;
+                        say("ERROR: $who_am_i Will return status " . status2text($status) . ".");
                     }
+                    $dbh->disconnect;
+                    return $status;
                 }
             } else {
                 # https://mariadb.com/kb/en/show-processlist/ about the column TIME:
@@ -3773,7 +3772,9 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
                     $process_state   = "<undef>" if not defined $process_state;
 
                     if ($process_info ne "<undef>" and $process_time ne "<undef>" and
+                        # GenTest should be finished + max_statement_time is usually 30s.
                         ($process_command ne "Slave_SQL" and $process_time > 30) or
+                        # Slave_SQL > 30s but < 60s was observed.
                         ($process_command eq "Slave_SQL" and $process_time > 60)) {
                         $suspicious++;
                         $processlist_report .=
@@ -3793,21 +3794,20 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
                          say("ERROR: $who_am_i The query '$query' failed with " . $DBI::err);
                          my $return = GenTest_e::Executor::MySQL::errorType($DBI::err);
                          if (not defined $return) {
+                             $status = STATUS_CRITICAL_FAILURE;
                              say("ERROR: $who_am_i The type of the error got is unknown. " .
                                  "Will crash the server, make backtrace and return " .
-                                 "STATUS_CRITICAL_FAILURE instead of STATUS_SERVER_DEADLOCKED");
-                             $dbh->disconnect;
-                             $status = STATUS_CRITICAL_FAILURE;
+                                 status2text($status) . " instead of STATUS_SERVER_DEADLOCKED.");
                          }
                      } else {
                          print Dumper $status_result;
-                         say("ERROR: $who_am_i Will crash the server, make backtrace and " .
-                             "return STATUS_SERVER_DEADLOCKED");
-                         $dbh->disconnect;
-                         $self->crashServer;
-                         $self->make_backtrace;
                          $status = STATUS_SERVER_DEADLOCKED;
+                         say("ERROR: $who_am_i Will crash the server, make backtrace and " .
+                             "return " . status2text($status) . ".");
                      }
+                     $dbh->disconnect;
+                     $self->crashServer;
+                     $self->make_backtrace;
                  }
             }
         }
