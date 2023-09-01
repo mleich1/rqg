@@ -1527,37 +1527,6 @@ use constant RQG_RPL_ALLOWED_VALUE_LIST => [
 
 ####################################################################################################
 
-sub measure_space_consumption {
-# Return values:
-# -2 -- The assumption of rqg_batch about the state of the system at runtime is extreme violated.
-#       Recommended: Abort the rqg_batch run.
-# -1 -- "du -sk" failed because of whatever reason, most probably command not supported
-# int > 0 -- The space consumption.
-    my ($directory) = @_;
-    if (not defined $directory) {
-        Carp::confess("INTERNAL ERROR: Parameter (directory or file) is undef.");
-    }
-    if (not -e $directory) {
-        Carp::cluck("ERROR: Parameter (directory or file) does not exist.");
-        return -2;
-    }
-    my $cmd = "du -sk --dereference $directory | cut -f1 2>/dev/null";
-    my $return = `$cmd`;
-    if ($? == -1) {
-        say("WARNING: '$cmd' failed to execute: $!");
-        return -1;
-    } elsif ($? & 127) {
-        say("WARNING: '$cmd' died with signal " . ($? & 127));
-        return -1;
-    } elsif (($? >> 8) != 0) {
-        say("WARNING: '$cmd' exited with value " . ($? >> 8));
-        return -1;
-    } else {
-        chomp $return; # Remove the '\n' at end.
-        return $return;
-    }
-}
-
 sub run_cmd {
 # Run a shell command and return return code, output.
     my ($cmd) = @_;
@@ -1599,9 +1568,9 @@ my $max_slow_dir_size   = 0;
 my $max_rs_size         = 0;
 
 sub update_sizes {
-# 2023-03-09T14:11:29 [3568724] INFO: rqg_fast_dir          : '/dev/shm/rqg/1678366173/96' -- fs_type observed: tmpfs
-# 2023-03-09T14:11:29 [3568724] INFO: rqg_slow_dir          : '/dev/shm/rqg_ext4/1678366173/96' -- fs_type observed: ext4
-# 2023-03-09T14:11:29 [3568724] INFO: vardir                : '/dev/shm/rqg/1678366173/96'
+# 2023-03-09 ... INFO: rqg_fast_dir : '/dev/shm/rqg/1678366173/96' -- fs_type observed: tmpfs
+# 2023-03-09 ... INFO: rqg_slow_dir : '/dev/shm/rqg_ext4/1678366173/96' -- fs_type observed: ext4
+# 2023-03-09 ... INFO: vardir       : '/dev/shm/rqg/1678366173/96'
 #
 # Ubuntu does not provide Filesys::DiskUsage hence I do not use it.
 #
@@ -1609,7 +1578,8 @@ sub update_sizes {
 # RC code 1 because some file disappeared
     my $who_am_i = Basics::who_am_i();
     my $status;
-    ($status, $total_size) = run_cmd("du -sk --dereference " . Local::get_rqg_fast_dir);
+    ($status, $total_size) =    run_cmd("du -sk --dereference " . Local::get_rqg_fast_dir .
+                                        " 2>/dev/null");
     if (not defined $total_size) {
         # Currently do nothing
     } else {
@@ -1620,7 +1590,8 @@ sub update_sizes {
         }
     }
 
-    ($status, $fast_dir_size) = run_cmd("du -sk " . Local::get_rqg_fast_dir);
+    ($status, $fast_dir_size) = run_cmd("du -sk " . Local::get_rqg_fast_dir .
+                                        " 2>/dev/null");
     if (not defined $fast_dir_size) {
         # Currently do nothing
     } else {
@@ -1631,11 +1602,14 @@ sub update_sizes {
         }
     }
     if ($max_total_size < $max_fast_dir_size) {
-        # Observed. The time of measurement differs + frequent some measurement fails.
+        # Observed:
+        # Just measured $max_total_size < $max_fast_dir_size.
+        # Reason is that the time of measurement differ.
         $max_total_size = $max_fast_dir_size;
     }
 
-    ($status, $slow_dir_size) = run_cmd("du -sk " . Local::get_rqg_slow_dir);
+    ($status, $slow_dir_size) = run_cmd("du -sk " . Local::get_rqg_slow_dir .
+                                        " 2>/dev/null");
     if (not defined $slow_dir_size) {
         # Currently do nothing
     } else {
