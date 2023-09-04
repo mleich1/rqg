@@ -3636,7 +3636,7 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
         if      ($return eq Auxiliary::MATCH_YES) {
             say("INFO: $who_am_i end_line_pattern in server error log found.");
             $backtrace_timeout = 30;
-            if ($status < $return) {
+            if ($status < STATUS_SERVER_CRASHED) {
                 say("INFO: $who_am_i Setting the status to STATUS_SERVER_CRASHED.");
                 $status = STATUS_SERVER_CRASHED;
             }
