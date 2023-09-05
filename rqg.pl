@@ -70,7 +70,7 @@ $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
 $Carp::MaxArgNums= 8;
 
-use constant RQG_RUNNER_VERSION  => 'Version 4.3.0 (2023-06)';
+use constant RQG_RUNNER_VERSION  => 'Version 4.4.0 (2023-08)';
 use constant STATUS_CONFIG_ERROR => 199;
 
 use strict;
@@ -122,7 +122,8 @@ my @dsns;    # To be filled around starting the servers.
 my @server;  # To be filled around starting the servers
 
 my (@basedirs, @mysqld_options, @vardirs, @engine, @vcols, @views,
-    $dbdir_type, $vardir_type, $rpl_mode, $major_runid, $minor_runid, $batch,
+    # $dbdir_type, $vardir_type, $rpl_mode, $major_runid, $minor_runid, $batch,
+    $dbdir_type, $vardir_type,            $major_runid, $minor_runid, $batch,
     $help, $help_dbdir_type, $help_sqltrace, $help_rr, $debug,
     @validators, @reporters, @transformers, $filter,
     $gendata_advanced, $skip_gendata, @gendata_sql_files, $grammar_file, @redefine_files,
@@ -135,10 +136,12 @@ my (@basedirs, @mysqld_options, @vardirs, @engine, @vcols, @views,
     $logfile, $querytimeout,
     $freeze_time,
     $skip_shutdown, $galera, $use_gtid, $annotate_rules,
-    $restart_timeout, $scenario, $upgrade_test, $variant,
+    $restart_timeout, $scenario, $upgrade_test, $max_gt_rounds,
     $gendata_dump, $config_file,
     $workdir, $script_debug_value,
     $options);
+
+our $rpl_mode;
 
 my $gendata   = ''; ## default simple gendata
 my $genconfig = ''; # if template is not set, the server will be run with --no-defaults
@@ -269,6 +272,7 @@ if (not GetOptions(
     'ps-protocol'                 => \$ps_protocol,
     'ps_protocol'                 => \$ps_protocol,
     'script_debug:s'              => \$script_debug_value,
+    'rounds=i'                    => \$max_gt_rounds,
     )) {
     if (not defined $help and not defined $help_sqltrace and
         not defined $help_dbdir_type) {
@@ -888,8 +892,8 @@ if ($genconfig) {
         run_end($status);
     }
     $cnf_array_ref = GenTest_e::App::GenConfig->new(spec_file => $genconfig,
-                                                  seed      => $seed,
-                                                  debug     => $debug
+                                                    seed      => $seed,
+                                                    debug     => $debug
     );
 }
 
@@ -968,6 +972,10 @@ $status = SQLtrace::check_and_set_sqltracing($sqltrace, $workdir);
 if (STATUS_OK != $status) {
     run_end($status);
 };
+
+if (not defined $max_gt_rounds) {
+    $max_gt_rounds = 1;
+}
 
 #
 # Final preparations followed by start servers.
@@ -1570,6 +1578,9 @@ if (STATUS_INTERNAL_ERROR == $final_result) {
 my $check_status = STATUS_OK;
 
 # Catch if some server is no more operable.
+# ----------------------------------------
+# checkServers runs for any server involved DBServer_e::MySQL::MySQLd::server_is_operable.
+# server_is_operable checks server process, error log, connectability and processlist.
 $check_status = checkServers($final_result); # Exits if status >= STATUS_CRITICAL_FAILURE
 $final_result = $check_status if $check_status > $final_result;
 if ($final_result > STATUS_OK) {
@@ -1613,334 +1624,207 @@ if ($gendata_dump) {
     # }
 }
 
-if (STATUS_OK != Auxiliary::update_sizes()) {
-    my $return = STATUS_ENVIRONMENT_FAILURE;
-    exit_test($return);
-}
+Auxiliary::update_sizes();
 
 # FIXME maybe:
-# Shutdown, maybe file backup, Restart
+# Shutdown, maybe make a file backup, Restart
 # Hint for the case that files should be copied.
 #### if (STATUS_OK != Basics::copy_dir_to_newdir($clone_datadir, $rqg_backup_dir . "/data")) {
 
+my $gentest_start_time;
 # GenTest -- Generate load based on processing the YY grammar --------------------------------------
-my $gentest_start_time = time();
-$return =                Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENTEST);
-if (STATUS_OK != $return) {
-    my $status = STATUS_ENVIRONMENT_FAILURE;
-    exit_test($status);
-}
-#FIXME:
+my $gt_round      = 1;
+
+# Use case for more than one GenTest+Checks round:
+#    One or more redefine files referring to cached metadata should be used
+#    but the main working tables get created by the GenTest (YY grammar processing round).
+# The reason for more than one GenTest+Checks round:
+#    The meta data cacher runs his first time at begin of the first GenTest round.
+#    Caused by the facts that
+#    - the main working tables do not exist yet
+#    - worker threads will never rerun the metadata caching
+#      The load caused by other threads leads to a big runtime for the caching and short timeouts
+#      make a lot problems.
+#    the cached meta data will not contain data about the main working tables.
+#    Hence redefines using cached data will be valueless.
+#    Within some additional GenTest+Checks round the metadata cacher will run again and
+#    catch data of many of the now existing main working tables.
+# And the cacher "sees" now the tables of the first Gentest (YY grammar processing round).
+while ( $gt_round <= $max_gt_rounds) {
+# Important: Place Auxiliary::update_sizes before exiting because of bad status.
+#
+#FIXME maybe:
 # Set an alarm for exceeding the RQG runtime
 # If exceeding
-# 1. SIGSEGV the first DB server
-#    SIGKILL any other DB server belonging to the run
-#    declare STATUS_SERVER_DEADLOCKED
+# 1. SIGSEGV the first DB server, SIGKILL any other DB server belonging to the run
+#    maybe declare STATUS_SERVER_DEADLOCKED
 # 2. Reap the processes now or already in 1.
 # 3. Initiate making a backtrace
 # 4. Exit with STATUS_SERVER_DEADLOCKED?
-$gentest_result = $gentest->doGenTest();
-say("GenTest returned status " . status2text($gentest_result) . " ($gentest_result)");
-$final_result = $gentest_result;
-$message =      "RQG GenTest runtime in s : " . (time() - $gentest_start_time);
-$summary .=     "SUMMARY: $message\n";
-say("INFO: " . $message);
-if (STATUS_INTERNAL_ERROR == $final_result) {
-    # There is nothing which we can do automatic except aborting.
-    exit_test($final_result);
-}
-
-if (STATUS_OK != Auxiliary::update_sizes()) {
-    my $return = STATUS_ENVIRONMENT_FAILURE;
-    # update_sizes can fail because of files being deleted or renamed because of SQL.
-    # But that must not happen after GenTest is finished.
-    # Hence aborting the test is most probably ok.
-    exit_test($return);
-}
-
-# Catch if some server is no more operable.
-$check_status = checkServers($final_result); # Exits if status >= STATUS_CRITICAL_FAILURE
-$final_result = $check_status if $check_status > $final_result;
-if ($final_result > STATUS_OK) {
-    say("INFO: The testing will go on even though GenTest+Servercheck ended with status " .
-        status2text($final_result) . "($final_result). Need to look for corruptions.");
-    # say("DEBUG: No reduction of final status.");
-}
-
-# For experimenting:
-# killServers();
-# system('kill -11 $SERVER_PID1; sleep 10'); # Not suitable for crash recovery tests
-$server_num = 0;
-foreach my $srv (@server) {
-    $server_num++;
-    if (not defined $srv) {
-        # say("DEBUG: server[$server_num] is not defined.");
-        next;
+    $gentest_start_time = time();
+    $return =             Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENTEST);
+    if (STATUS_OK != $return) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
+        exit_test($status);
     }
-    my $status = STATUS_OK;
-    if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)   or
-        ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)       or
-        ($rpl_mode eq Auxiliary::RQG_RPL_ROW)           ) {
-        $status = $rplsrv->waitForSlaveSync;
-        if ($status != STATUS_OK) {
-            # FIXME: We get only STATUS_FAILURE or STATUS_OK returned!
-            # STATUS_REPLICATION_FAILURE is a guess.
-            say("ERROR: waitForSlaveSync failed with $status. ".
-                "Setting final_result to STATUS_REPLICATION_FAILURE.");
-            $final_result = STATUS_REPLICATION_FAILURE ;
+
+    $gentest_result = $gentest->doGenTest();
+    say("GenTest returned status " . status2text($gentest_result) . " ($gentest_result)");
+    $final_result = $gentest_result;
+    $message =      "RQG GenTest runtime in s : " . (time() - $gentest_start_time);
+    $summary .=     "SUMMARY: $message\n";
+    say("INFO: " . $message);
+    Auxiliary::update_sizes();
+    if (STATUS_INTERNAL_ERROR == $final_result) {
+        # There is nothing which we can do automatic except aborting.
+        exit_test($final_result);
+    }
+
+    # Catch if some server is no more operable.
+    # ----------------------------------------
+    $check_status = checkServers($final_result); # Exits if status >= STATUS_CRITICAL_FAILURE
+    $final_result = $check_status if $check_status > $final_result;
+    if ($final_result > STATUS_OK) {
+        say("INFO: The testing will go on even though GenTest+Servercheck ended with status " .
+            status2text($final_result) . "($final_result). Need to look for corruptions.");
+        # say("DEBUG: No reduction of final status.");
+    }
+
+    # For experimenting:
+    # killServers();
+    # system('kill -11 $SERVER_PID1; sleep 10'); # Not suitable for crash recovery tests
+
+    $server_num = 0;
+    foreach my $srv (@server) {
+        $server_num++;
+        if (not defined $srv) {
+            # say("DEBUG: server[$server_num] is not defined.");
+            next;
         }
-    } elsif ($rpl_mode eq Auxiliary::RQG_RPL_GALERA) {
-        $status = $rplsrv->waitForNodeSync();
-        if ($status != STATUS_OK) {
-            # FIXME: We get only STATUS_FAILURE or STATUS_OK returned!
-            # STATUS_REPLICATION_FAILURE is a guess.
-            say("ERROR: waitForNodeSync Some Galera cluster nodes were not in sync. " .
-                "Setting final_result to STATUS_REPLICATION_FAILURE.");
-            $final_result = STATUS_REPLICATION_FAILURE ;
-        }
-    } else {
-        # There is nothing to do for
-        # - RQG builtin statement based replication.
-        # - no kind of replication
-    }
-
-    if (STATUS_OK != Auxiliary::update_sizes()) {
-        my $return = STATUS_ENVIRONMENT_FAILURE;
-        exit_test($return);
-    }
-
-    my $check_status = $server[$server_num - 1]->checkDatabaseIntegrity();
-    if ($check_status != STATUS_OK) {
-        say("ERROR: Database Integrity check for server[$server_num] failed " .
-            "with status $check_status.");
-        # Maybe we crashed just now.
-        my $is_operable = $server[$server_num - 1]->server_is_operable;
-        if (STATUS_OK != $is_operable) {
-            say("ERROR: server_is_operable server[$server_num] reported status $is_operable.");
-            if ($is_operable > $check_status) {
-                say("ERROR: Raising check_status from $check_status to $is_operable.");
-                $check_status = $is_operable;
+        my $status = STATUS_OK;
+        if ($server_num > 1) {
+            # checkDatabaseIntegrity will follow soon.
+            # In case of any type of synchronous replication (MariaDB RPL of Galera?) finished
+            # synchronization must be guaranteed. Otherwise objects (schemas, tables, ...) or
+            # rows in tables within slave might disappear, show up first time, get altered etc.
+            # during the checks and cause false alarms.
+            # Example:
+            # There is some replication lag from whatever reason.
+            # checkDatabaseIntegrity on slave runs its m'th walkquery on table t1 and gets 100 rows.
+            # The SQL thread on slave runs some SQL from the master.
+            # checkDatabaseIntegrity on slave runs its m+1'th walkquery on table t1 and gets
+            # "no such table" or 83 rows.
+            #
+            # Do not abort immediate if waitForSlaveSync or waitForNodeSync deliver a bad status.
+            # The checkDatabaseIntegrity and checkServers which follow later might give valuable
+            # information.
+            if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)   or
+                ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)       or
+                ($rpl_mode eq Auxiliary::RQG_RPL_ROW)           ) {
+                $status = $rplsrv->waitForSlaveSync;
+                if ($status != STATUS_OK) {
+                    # FIXME: We get only STATUS_FAILURE or STATUS_OK returned!
+                    # STATUS_REPLICATION_FAILURE is a guess.
+                    say("ERROR: waitForSlaveSync failed with $status. ".
+                        "Setting final_result to STATUS_REPLICATION_FAILURE.");
+                    $final_result = STATUS_REPLICATION_FAILURE ;
+                }
             }
-            if ($server_num > 1 and
-                defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE and
-                $check_status < STATUS_ENVIRONMENT_FAILURE) {
-                say("ERROR: Setting check_status STATUS_REPLICATION_FAILURE because its not the " .
-                    "first server and some kind of replication ($rpl_mode) is involved.");
-                $check_status = STATUS_REPLICATION_FAILURE;
+            if ($rpl_mode eq Auxiliary::RQG_RPL_GALERA) {
+                $status = $rplsrv->waitForNodeSync();
+                if ($status != STATUS_OK) {
+                    # FIXME: We get only STATUS_FAILURE or STATUS_OK returned!
+                    # STATUS_REPLICATION_FAILURE is a guess.
+                    say("ERROR: waitForNodeSync Some Galera cluster nodes were not in sync. " .
+                        "Setting final_result to STATUS_REPLICATION_FAILURE.");
+                    $final_result = STATUS_REPLICATION_FAILURE ;
+                }
+            }
+            # RQG builtin statement based replication is per se synchronized.
+        }
+
+        Auxiliary::update_sizes();
+
+        # Do not abort immediate if checkDatabaseIntegrity delivers a bad status.
+        # The checkServers which follows later might give valuable information.
+        my $check_status = $server[$server_num - 1]->checkDatabaseIntegrity();
+        if ($check_status != STATUS_OK) {
+            say("ERROR: Database Integrity check for server[$server_num] failed " .
+                "with status $check_status.");
+            # Maybe we crashed just now.
+            my $is_operable = $server[$server_num - 1]->server_is_operable;
+            if (STATUS_OK != $is_operable) {
+                say("ERROR: server_is_operable server[$server_num] reported status $is_operable.");
+                if ($is_operable > $check_status) {
+                    say("ERROR: Raising check_status from $check_status to $is_operable.");
+                    $check_status = $is_operable;
+                }
+                if ($server_num > 1 and
+                    defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE and
+                    $check_status < STATUS_ENVIRONMENT_FAILURE) {
+                    say("ERROR: Setting check_status STATUS_REPLICATION_FAILURE because its not " .
+                        "the first server and some kind of replication ($rpl_mode) is involved.");
+                    $check_status = STATUS_REPLICATION_FAILURE;
+                }
             }
         }
+        Auxiliary::update_sizes();
+        if ($check_status > $final_result) {
+            say("ERROR: Raising final_result from $final_result to $check_status.");
+            $final_result = $check_status;
+        }
     }
+
+    # Catch if some server is no more operable.
+    # ----------------------------------------
+    $check_status = checkServers($final_result); # Exits if status >= STATUS_CRITICAL_FAILURE
     if ($check_status > $final_result) {
         say("ERROR: Raising final_result from $final_result to $check_status.");
         $final_result = $check_status;
     }
-}
-if ($final_result > STATUS_OK) {
-    say("RESULT: The core of the RQG run ended with status " . status2text($final_result) .
-        " ($final_result)");
-    exit_test($final_result);
-}
 
-# Disabled sample code (used for some MDEV) about how to do some additional checks.
-# 1. Doing that or similar stuff via some reporter would be also possible.
-# 2. Checking all non system databases could be performed by using $server[$i]->nonSystemDatabases1
-#    like above.
-if (0) {
-    if ($final_result == STATUS_OK) {
-        $cmd = "$client_basedir/mysqlcheck --user=root --protocol=tcp --port=$ports[0] -o test " .
-               "1>$workdir/mysqlcheck.out 2>$workdir/mysqlcheck.err";
-        system($cmd);
-        if(0 != ($? >> 8)) {
-            my $status = STATUS_CRITICAL_FAILURE;
-            say("ERROR: 'mysqlcheck' failed. Will exit with status : " .
-                status2text($status) . "($status).");
-            sayFile("$workdir/mysqlcheck.err");
-            exit_test($status);    # Better do not exit here
-        } else {
-            sayFile("$workdir/mysqlcheck.out");
+    if ($final_result > STATUS_OK) {
+        say("RESULT: The core of the RQG run ended with status " . status2text($final_result) .
+            " ($final_result)");
+        exit_test($final_result);
+    }
+
+    if (($final_result == STATUS_OK)                         and
+        ($number_of_servers > 1)                             and
+        (not defined $upgrade_test or $upgrade_test eq '')   and
+        # FIXME: Couldn't some slightly modified $rplsrv->waitForSlaveSync solve that?
+        ($rpl_mode ne Auxiliary::RQG_RPL_STATEMENT_NOSYNC)   and
+        ($rpl_mode ne Auxiliary::RQG_RPL_MIXED_NOSYNC)       and
+        ($rpl_mode ne Auxiliary::RQG_RPL_ROW_NOSYNC)            ) {
+        $check_status = compare_servers();
+        # ??? Auxiliary::update_sizes();
+        if ($check_status > $final_result) {
+            say("ERROR: Raising final_result from $final_result to $check_status.");
+            $final_result = $check_status;
         }
     }
-}
-
-# If
-# - none of the GenTest work phases produced a failure
-# and
-# - the test goes with whatever kind of replication which could be synchronized
-# than compare the server dumps for any differences.
-
-# Galera?
-if (($final_result == STATUS_OK)                         and
-    ($number_of_servers > 1)                             and
-    (not defined $upgrade_test or $upgrade_test eq '')   and
-    # FIXME: Couldn't some slightly modified $rplsrv->waitForSlaveSync solve that?
-    ($rpl_mode ne Auxiliary::RQG_RPL_STATEMENT_NOSYNC)   and
-    ($rpl_mode ne Auxiliary::RQG_RPL_MIXED_NOSYNC)       and
-    ($rpl_mode ne Auxiliary::RQG_RPL_ROW_NOSYNC)            ) {
-
-    # Compare the content of all servers
-    $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_SERVER_COMPARE);
-
-    # The facts that
-    # - the servers are alive
-    # - reporters and validators did not detect trouble during gentest runtime
-    #   But not all setups   (can have) or (can have and than also use) sensitive reporters ...
-    # - waitForSlaveSync for synchronous MariaDB replication passed
-    # - waitForNodeSync  for Galera replication passed
-    # do not reveal/imply that the data content of masters and slaves is in sync.
-    my $diff_result = STATUS_OK;
-    if ($status == STATUS_OK) {
-        my @dump_files;
-        # For testing:
-        # system("killall -9 mysqld mariadbd; sleep 3");
-        my $server_num = 0;
-        my $first_server_num;
-        # FIXME maybe:
-        # Save storage space by
-        # 1. Dump the first server.
-        # 2. For server in (second to last server)
-        #       Dump that server
-        #       Compare that dump to the dunp of the first server
-        #       delete the dump of the server if equal to dump of first server
-        foreach my $srv (@server) {
-            $server_num++;
-            if (not defined $srv) {
-                # say("DEBUG: Comparison of servers: server[$server_num] is not defined.");
-                next;
-            } else {
-                $first_server_num = $server_num if not defined $first_server_num;
-                # The numbering of servers -> name of subdir for data etc. starts with 1!
-                # Example:
-                # Workdir of RQG run: /data/results/<TS>/<No of RQG runner>
-                # Vardir of first DB server: /data/results/<TS>/<No of RQG runner>/1
-                # /data/results/<TS>/1 points to /dev/shm/rqg/<No of RQG runner>/1
-                # So the dump file is on tmpfs.
-                $dump_files[$server_num] = $vardirs[$server_num] . "/DB.dump";
-                # Experiment
-                # $dump_files[$server_num] = $vardirs[$server_num] . "/Data";
-                my $result = $server[$server_num - 1]->nonSystemDatabases1;
-                my $server_name = "server[$server_num]";
-                if (not defined $result) {
-                    say("ERROR: Trouble running SQL on $server_name. Will exit with STATUS_ALARM");
-                    exit_test(STATUS_ALARM);
-                } else {
-                    my @schema_list = @{$result};
-                    if (0 == scalar @schema_list) {
-                        say("WARN: $server_name does not contain non system SCHEMAs. " .
-                            "Will create a dummy dump file.");
-                        if (STATUS_OK != Basics::make_file($dump_files[$server_num], 'Dummy')) {
-                            say("ERROR: Will exit with STATUS_ALARM because of previous failure.");
-                            exit_test(STATUS_ALARM);
-                        }
-                    } else {
-                        my $schema_listing = join (' ', @schema_list);
-                        # say("DEBUG: $server_name schema_listing for mysqldump ->$schema_listing<-");
-                        if ($schema_listing eq '') {
-                            say("ERROR: Schemalisting for $server_name is empty. " .
-                                "Will exit with STATUS_ALARM");
-                            exit_test(STATUS_ALARM);
-                        } else {
-                            my $dump_result = $server[$server_num - 1]->dumpdb("--databases $schema_listing",
-                                                                        $dump_files[$server_num]);
-                            if ( $dump_result > 0 ) {
-                                $final_result = $dump_result >> 8;
-                                last;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if (STATUS_OK != Auxiliary::update_sizes()) {
-            my $return = STATUS_ENVIRONMENT_FAILURE;
-            exit_test($return);
-        }
-        if ($final_result == STATUS_OK) {
-            say("INFO: Comparing SQL dumps...");
-            my $server_num = 0;
-            my $first_server = "server[$first_server_num]";
-            foreach my $srv (@server) {
-                $server_num++;
-                if (not defined $srv) {
-                    # say("DEBUG: Comparison of servers: server[$server_num] is not defined.");
-                    next;
-                } elsif ($first_server_num == $server_num) {
-                    next;
-                } else {
-                    ### 1 vs. 2 , 1 vs. 3 ...
-                    my $other_server = "server[$server_num]";
-                    my $diff = system("diff -u $dump_files[$first_server_num] $dump_files[$server_num]");
-                    if ($diff == STATUS_OK) {
-                        say("INFO: No differences were found between $first_server and $other_server.");
-                        # Make free space as soon ass possible.
-                        # say("DEBUG: Deleting the dump file of $other_server.");
-                        unlink($dump_files[$server_num]);
-                    } else {
-                        say("ERROR: Found differences between $first_server and $other_server. " .
-                            "Setting final_result to STATUS_CONTENT_MISMATCH.");
-                        $diff_result  = STATUS_CONTENT_MISMATCH;
-                        $final_result = $diff_result;
-                    }
-                }
-            }
-            if ($final_result == STATUS_OK) {
-                # In case we have no diffs than even the dump of the first server is no more needed.
-                say("INFO: No differences between the SQL dumps of the servers detected.");
-                # say("DEBUG: Deleting the dump file of $first_server.");
-                unlink($dump_files[$first_server_num]);
-            } else {
-                # FIXME maybe:
-                # ok we have a diff. But maybe the dumps of the second and third server are equal
-                # and than we could remove one.
-            }
-        }
+    if ($final_result > STATUS_OK) {
+        say("RESULT: The core of the RQG run ended with status " . status2text($final_result) .
+            " ($final_result)");
+        exit_test($final_result);
     }
+
+    say("INFO: GenTest + check round $gt_round achieved a 'pass'.");
+    $gt_round++;
+
 }
 
-say("RESULT: The core of the RQG run ended with status " . status2text($final_result) .
-    " ($final_result)");
-
-# For debugging
-# killServers();
-# $server[0]->crashServer;
-
-if ($final_result >= STATUS_CRITICAL_FAILURE) {
-    # Optimization:
-    # The status is already very bad and so its very unlikely that some maybe failing shutdown
-    # attempt in addition is of interest at all. --> Neither SHUTDOWN nor SIGTERM
-    #
-    # A fast killing of all servers + cleanup would reduce the current resource
-    # consumption significant.
-    #
-    # In case the server is already no more running than a harsh kill routine should not consume
-    # significant time or damage already collected information.
-    #
-    # In case of a running server
-    # - with rr tracing
-    #   SIGKILL causes some incomplete trace. --> Use SIGABRT or SIGSEGV
-    # - without rr tracing
-    #   SIGKILL will most probably not destroy important reachable information because there is
-    #   a too big timespan between detection of bad state and some SIGABRT or SIGSEGV sent followed
-    #   by the generation of a core file
-    #
-    my $kill_status = killServers();
-    if ($kill_status != STATUS_OK) {
-        say("ERROR: Killing the server(s) failed with status $kill_status.");
+my $stop_status = stopServers($final_result);
+if ($stop_status != STATUS_OK) {
+    # stopServer has probably made a backtrace.
+    # Are ther missing cases.
+    say("ERROR: Stopping the server(s) failed with status $stop_status.");
+    say("       Server already no more running or no reaction on admin shutdown or ...");
+    if ($final_result > STATUS_CRITICAL_FAILURE) {
+        say("INFO: The current status is already high enough. So it will be not modified.");
     } else {
-        say("INFO: Any remaining servers were killed because of bad status.");
-    }
-} else {
-    my $stop_status = stopServers($final_result);
-    if ($stop_status != STATUS_OK) {
-        # stopServer has probably made a backtrace.
-        # Are ther missing cases.
-        say("ERROR: Stopping the server(s) failed with status $stop_status.");
-        say("       Server already no more running or no reaction on admin shutdown or ...");
-        if ($final_result > STATUS_CRITICAL_FAILURE) {
-            say("INFO: The current status is already high enough. So it will be not modified.");
-        } else {
-            say("INFO: Raising status from " . $final_result . " to " . $stop_status);
-            $final_result = $stop_status;
-        }
+        say("INFO: Raising status from " . $final_result . " to " . $stop_status);
+        $final_result = $stop_status;
     }
 }
 
@@ -1959,6 +1843,8 @@ sub checkServers {
 
     # Catch if some server is no more operable.
     # -----------------------------------------
+    # Check based on server_is_operable: DB server process, error log, processlist.
+    #
     # In case of $current_status in (STATUS_SERVER_CRASHED, STATUS_CRITICAL_FAILURE) give the
     # corresponding servers more time to finish the crash.
     if (STATUS_SERVER_CRASHED == $current_status or STATUS_CRITICAL_FAILURE == $current_status) {
@@ -2024,6 +1910,129 @@ sub checkServers {
     return $current_status;
 
 } # End of sub checkServers
+
+#################################################
+
+
+# Return if STATUS_OK!
+sub compare_servers {
+    # Compare the content of all servers
+    $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_SERVER_COMPARE);
+    if (STATUS_OK != $return) {
+        exit_test(STATUS_ENVIRONMENT_FAILURE);
+    }
+    # The facts that
+    # - the servers are alive + server error log free of suspicious entries
+    # - reporters and validators did not detect trouble during gentest runtime
+    #   But not all setups   (can have) or (can have and than also use) sensitive reporters ...
+    # - waitForSlaveSync for synchronous MariaDB replication passed
+    # - waitForNodeSync  for Galera replication passed
+    # do not reveal/imply that the data content of masters and slaves is in sync.
+    my $diff_result = STATUS_OK;
+    my @dump_files;
+    # For testing:
+    # system("killall -9 mysqld mariadbd; sleep 3");
+    my $server_num = 0;
+    my $first_server_num;
+    # FIXME maybe:
+    # Save storage space by
+    # 1. Dump the first server.
+    # 2. For server in (second to last server)
+    #       Dump that server
+    #       Compare that dump to the dump of the first server
+    #       delete the dump of the server if equal to dump of first server
+    foreach my $srv (@server) {
+        $server_num++;
+        if (not defined $srv) {
+            # say("DEBUG: Comparison of servers: server[$server_num] is not defined.");
+            next;
+        } else {
+            $first_server_num = $server_num if not defined $first_server_num;
+            # The numbering of servers -> name of subdir for data etc. starts with 1!
+            # Example:
+            # Workdir of RQG run: /data/results/<TS>/<No of RQG runner>
+            # Vardir of first DB server: /data/results/<TS>/<No of RQG runner>/1
+            # /data/results/<TS>/1 points to /dev/shm/rqg/<No of RQG runner>/1
+            # So the dump file is on tmpfs.
+            $dump_files[$server_num] = $vardirs[$server_num] . "/DB.dump";
+            # Experiment
+            # $dump_files[$server_num] = $vardirs[$server_num] . "/Data";
+            my $result = $server[$server_num - 1]->nonSystemDatabases1;
+            my $server_name = "server[$server_num]";
+            if (not defined $result) {
+                say("ERROR: Trouble running SQL on $server_name. Will exit with STATUS_ALARM");
+                exit_test(STATUS_ALARM);
+            } else {
+                my @schema_list = @{$result};
+                if (0 == scalar @schema_list) {
+                    say("WARN: $server_name does not contain non system SCHEMAs. " .
+                        "Will create a dummy dump file.");
+                    if (STATUS_OK != Basics::make_file($dump_files[$server_num], 'Dummy')) {
+                        say("ERROR: Will exit with STATUS_ALARM because of previous failure.");
+                        exit_test(STATUS_ALARM);
+                    }
+                } else {
+                    my $schema_listing = join (' ', @schema_list);
+                    # say("DEBUG: $server_name schema_listing for mysqldump ->$schema_listing<-");
+                    if ($schema_listing eq '') {
+                        say("ERROR: Schemalisting for $server_name is empty. " .
+                            "Will exit with STATUS_ALARM");
+                        exit_test(STATUS_ALARM);
+                    } else {
+                        my $dump_result = $server[$server_num - 1]->dumpdb("--databases $schema_listing",
+                                                                    $dump_files[$server_num]);
+                        if ( $dump_result > 0 ) {
+                            $final_result = $dump_result >> 8;
+                            last;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Auxiliary::update_sizes();
+    if ($final_result == STATUS_OK) {
+        say("INFO: Comparing SQL dumps...");
+        my $server_num = 0;
+        my $first_server = "server[$first_server_num]";
+        foreach my $srv (@server) {
+            $server_num++;
+            if (not defined $srv) {
+                # say("DEBUG: Comparison of servers: server[$server_num] is not defined.");
+                next;
+            } elsif ($first_server_num == $server_num) {
+                next;
+            } else {
+                ### 1 vs. 2 , 1 vs. 3 ...
+                my $other_server = "server[$server_num]";
+                my $diff = system("diff -u $dump_files[$first_server_num] $dump_files[$server_num]");
+                if ($diff == STATUS_OK) {
+                    say("INFO: No differences were found between $first_server and $other_server.");
+                    # Make free space as soon ass possible.
+                    # say("DEBUG: Deleting the dump file of $other_server.");
+                    unlink($dump_files[$server_num]);
+                } else {
+                    say("ERROR: Found differences between $first_server and $other_server. " .
+                        "Setting final_result to STATUS_CONTENT_MISMATCH.");
+                    $diff_result  = STATUS_CONTENT_MISMATCH;
+                    $final_result = $diff_result;
+                }
+            }
+        }
+        if ($final_result == STATUS_OK) {
+            # In case we have no diffs than even the dump of the first server is no more needed.
+            say("INFO: No differences between the SQL dumps of the servers detected.");
+            # say("DEBUG: Deleting the dump file of $first_server.");
+            unlink($dump_files[$first_server_num]);
+        } else {
+            # FIXME maybe:
+            # ok we have a diff. But maybe the dumps of the second and third server are equal
+            # and than we could remove one.
+        }
+    }
+    return $final_result;
+}
+#################################################
 
 sub stopServers {
     # $status is relevant for replication only.
@@ -2231,25 +2240,69 @@ $0 - Run a complete random query generation (RQG) test.
     The vardirs of the servers will be subdirectories of that vardir of the RQG run.
     The options --debug-server* are no more supported.
 
-    General options
+    General options if not explained above
+    ======================================
     In case of multiple assignments the behavior is "The last wins" except stated otherwise.
 
-    --grammar      : Grammar file to use when generating queries (REQUIRED)
-                     --grammar=A --grammar=B is equivalent to --grammar=B
-    --redefine     : Grammar file(s) to redefine and/or add rules to the given grammar (OPTIONAL)
-                     --redefine=A,B,C --redefine=C is equivalent to --redefine=A,B,C
+    All work phases
+    ---------------
     --rpl_mode     : Replication type to use (statement|row|mixed) (default: no replication).
                      The mode can contain modifier 'nosync', e.g. row-nosync. It means that at the end the test
                      will not wait for the slave to catch up with master and perform the consistency check
     --use_gtid     : Use GTID mode for replication (current_pos|slave_pos|no). Adds the MASTER_USE_GTID clause to CHANGE MASTER,
-                     (default: empty, no additional clause in CHANGE MASTER command);
+                     (default: empty, no additional clause in CHANGE MASTER command).
     --galera       : Galera topology, presented as a string of 'm' or 's' (master or slave).
                      The test flow will be executed on each "master". "Slaves" will only be updated through Galera replication
-    --engine       : Table engine to use when creating tables with gendata (default no ENGINE in CREATE TABLE);
+    --engine       : Table engine to use when creating tables with gendata (default no ENGINE in CREATE TABLE).
                      Different values can be provided to servers through --engine1 | --engine2 | --engine3
-    --threads      : Number of threads to spawn (default $default_threads);
-    --queries      : Maximum number of queries to execute per thread (default $default_queries);
-    --duration     : Maximum duration of the test in seconds (default $default_duration seconds);
+    --logfile      : Generates rqg output log at the path specified.(Requires the module Log4Perl)
+    --minor_runid  : Name of subdirectories. If not defined than its the UNIX timestamp from the start of the test.
+                     The directories containing this subdirectory get calculated from the settings in local.cfg.
+                     Examples:
+                     /data/results/<TIMETANP>     for ongoing and finished RQG runs
+                     /dev/shm/rqg/<TIMETANP>      for ongoing RQG run
+                     /dev/shm/rqg_ext4/<TIMETANP> for ongoing RQG run
+    --valgrind     : Start the DB server with valgrind, adjust timeouts to the use of valgrind
+    --valgrind_options : Use these additional options for any start under valgrind
+    --rr           : Start the DB server and mariabackup under rr including adjust timeouts to the use of rr
+    --rr_options   : Use these additional options for any start under rr
+    --wait-for-debugger: Pause and wait for keypress after server startup to allow attaching a debugger to the server process.
+    --sqltrace     : Print all generated SQL statements (tracing before execution)
+                     Optional: Specify
+                     --sqltrace=MarkErrors   with mark invalid statements. (tracing after execution)
+                     --sqltrace=Concurrency  with mark invalid statements. (tracing before and after execution)
+                     --sqltrace=File         Write a trace to <workdir>/rqg.trc (tracing before execution)
+    --mtr-build-thread: Value used for MTR_BUILD_THREAD when servers are started and accessed
+    --debug        : Debug mode (refers mostly to RQG and grammars)
+
+    Work phase GenData
+    ------------------
+    --gendata      : Generate data option. Passed to lib/GenTest_e/App/Gentest.pm. Takes a data template (.zz file)
+                     as an optional argument. Without an argument, indicates the use of GendataSimple (default).
+    --gendata-advanced: Generate the data using GendataAdvanced instead of default GendataSimple
+    --short_column_names: use short column names in gendata (Example: c1)
+    --strict_fields: Disable all AI applied to columns defined in \$fields in the gendata file. Allows for very specific column definitions
+    --gendata_sql  : Generate data option. Passed to lib/GenTest_e/App/Gentest.pm. Takes files containing SQL as argument.
+                     These files get processed after running Gendata, GendataSimple or GendataAdvanced.
+    --notnull      : Generate all fields with NOT NULL
+    --rows         : No of rows. Passed to lib/GenTest_e/App/Gentest.pm.
+    --varchar-length: length of strings. Passed to lib/GenTest_e/App/Gentest.pm.
+    --vcols        : Types of virtual columns (only used if data is generated by GendataSimple or GendataAdvanced)
+    --views        : Generate views. Optionally specify view type (algorithm) as option value. Passed to lib/GenTest_e/App/Gentest.pm.
+                     Different values can be provided to servers through --views1 | --views2 | --views3
+    --max_gd_duration : Abort the RQG run in case the work phase Gendata lasts longer than max_gd_duration
+    --gendata_dump : After running the work phase Gendata dump the content of the first DB server to the
+                     file 'after_gendata.dump'. (OPTIONAL)
+
+    Work phase GenTest
+    ------------------
+    --grammar      : Grammar file (extension '.yy') to use when generating queries (REQUIRED)
+                     --grammar=A --grammar=B is equivalent to --grammar=B
+    --redefine     : Grammar file(s) (extension '.yy') to redefine and/or add rules to the given grammar (OPTIONAL)
+                     --redefine=A,B,C --redefine=C is equivalent to --redefine=A,B,C
+    --threads      : Number of threads to spawn (default $default_threads).
+    --queries      : Maximum number of queries to execute per thread (default $default_queries).
+    --duration     : Maximum duration of the test in seconds (default $default_duration seconds).
     --validators   : The validators to use
                      --validators=A,B,C --validators=C is equivalent to --validators=A,B,C
     --reporters    : The reporters to use
@@ -2257,49 +2310,20 @@ $0 - Run a complete random query generation (RQG) test.
     --transformers : The transformers to use (leads to addition of --validator=transformer).
                      --transformers=A,B,C --transformers=C is equivalent to --transformers=A,B,C
     --querytimeout : The timeout to use for the QueryTimeout reporter
-    --max_gd_duration : Abort the RQG run in case the work phase Gendata lasts longer than max_gd_duration
-    --gendata      : Generate data option. Passed to lib/GenTest_e/App/Gentest.pm. Takes a data template (.zz file)
-                     as an optional argument. Without an argument, indicates the use of GendataSimple (default).
-    --gendata-advanced: Generate the data using GendataAdvanced instead of default GendataSimple
-    --gendata_sql  : Generate data option. Passed to lib/GenTest_e/App/Gentest.pm. Takes files containing SQL as argument.
-                     These files get processed after running Gendata, GendataSimple or GendataAdvanced.
-    --gendata_dump : After running the work phase Gendata dump the content of the first DB server to the
-                     file 'after_gendata.dump'. (OPTIONAL)
                      Sometimes useful for test simplification but otherwise a wasting of resources.
-    --logfile      : Generates rqg output log at the path specified.(Requires the module Log4Perl)
     --seed         : PRNG seed. Passed to lib/GenTest_e/App/Gentest.pm.
     --mask         : Grammar mask. Passed to lib/GenTest_e/App/Gentest.pm.
     --mask-level   : Grammar mask level. Passed to lib/GenTest_e/App/Gentest.pm.
-    --notnull      : Generate all fields with NOT NULL
-    --rows         : No of rows. Passed to lib/GenTest_e/App/Gentest.pm.
-    --sqltrace     : Print all generated SQL statements (tracing before execution)
-                     Optional: Specify
-                     --sqltrace=MarkErrors   with mark invalid statements. (tracing after execution)
-                     --sqltrace=Concurrency  with mark invalid statements. (tracing before and after execution)
-                     --sqltrace=File         Write a trace to <workdir>/rqg.trc (tracing before execution)
-    --varchar-length: length of strings. Passed to lib/GenTest_e/App/Gentest.pm.
-    --minor_runid  : Name of a subdirectory
-                     If not defined than its the UNIX timestamp from the start of the test.
-    --vcols        : Types of virtual columns (only used if data is generated by GendataSimple or GendataAdvanced)
-    --views        : Generate views. Optionally specify view type (algorithm) as option value. Passed to gentest.pl.
-                     Different values can be provided to servers through --views1 | --views2 | --views3
-    --valgrind     : Start the DB server with valgrind, adjust timeouts to the use of valgrind
-    --valgrind_options : Use these additional options for any start under valgrind
-    --rr           : Start the DB server and mariabackup under rr including adjust timeouts to the use of rr
-    --rr_options   : Use these additional options for any start under rr
     --filter       : File for disabling the execution of SQLs containing certain patterns. Passed to lib/GenTest_e/App/Gentest.pm.
-    --mtr-build-thread: Value used for MTR_BUILD_THREAD when servers are started and accessed
-    --debug        : Debug mode
-    --short_column_names: use short column names in gendata (c<number>)
-    --strict_fields: Disable all AI applied to columns defined in \$fields in the gendata file. Allows for very specific column definitions
     --freeze_time  : Freeze time for each query so that CURRENT_TIMESTAMP gives the same result for all transformers/validators
     --annotate-rules: Add to the resulting query a comment with the rule name before expanding each rule.
                       Useful for debugging query generation, otherwise makes the query look ugly and barely readable.
-    --wait-for-debugger: Pause and wait for keypress after server startup to allow attaching a debugger to the server process.
     --restart-timeout: If the server has gone away, do not fail immediately, but wait to see if it restarts (it might be a part of the test)
     --upgrade-test : enable Upgrade reporter and treat server1 and server2 as old/new server, correspondingly. After the test flow
                      on server1, server2 will be started on the same datadir, and the upgrade consistency will be checked
                      Non simple upgrade variants will most probably fail because of weaknesses in RQG. Sorry for that.
+    --rounds       : Number of    GenTest(execute SQL generated from grammar+redefines) + check the DB server etc.    rounds.(default 1)
+
     --help         : This help message
     --help_sqltrace : help about SQL tracing by RQG
     --help_dbdir_type   : help about the parameter dbdir_type
