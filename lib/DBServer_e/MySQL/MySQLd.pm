@@ -3775,7 +3775,8 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
                         # GenTest should be finished + max_statement_time is usually 30s.
                         ($process_command ne "Slave_SQL" and $process_time > 30) or
                         # Slave_SQL > 30s but < 60s was observed.
-                        ($process_command eq "Slave_SQL" and $process_time > 60)) {
+                        ($process_command eq "Slave_SQL" and $process_time > 60 and not
+                         $process_state =~ /has read all relay log; waiting for more updates/i)) {
                         $suspicious++;
                         $processlist_report .=
                                 "$who_am_i -->" . $process_id . " -- " .
