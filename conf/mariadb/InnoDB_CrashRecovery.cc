@@ -66,7 +66,7 @@ our $grammars =
     # DML only
     '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy ',
     '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz ',
-    '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy ',
+    '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy --redefine=conf/mariadb/modules/locks.yy ',
     '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 ',
     '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
     #               and FOREIGN KEYs
@@ -83,11 +83,11 @@ our $grammars =
     '--grammar=conf/mariadb/partitions_innodb.yy',
     '--grammar=conf/runtime/metadata_stability.yy --gendata=conf/runtime/metadata_stability.zz',
     '--views --grammar=conf/mariadb/partitions_innodb.yy ' .
-    '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy',
+    '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy',
     '--gendata=conf/engines/innodb/full_text_search.zz --max_gd_duration=1200 --short_column_names --grammar=conf/engines/innodb/full_text_search.yy ' .
-      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/redefine_temporary_tables.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy',
+      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/redefine_temporary_tables.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy',
     '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy ' .
-      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy',
+      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy',
 
     # That encryption stuff was/is error prone.
     "$test_compression_encryption                                                                ",
@@ -125,12 +125,10 @@ $combinations = [ $grammars,
     --mysqld=--net_write_timeout=60
     --mysqld=--loose-table_lock_wait_timeout=50
     --mysqld=--wait_timeout=28800
-    --mysqld=--lock-wait-timeout=86400
-    --mysqld=--innodb-lock-wait-timeout=50
     --no_mask
     --queries=10000000
     --seed=random
-    --reporters=None --reporters=ErrorLog --reporters=Deadlock --reporters=CrashRecovery
+    --reporters=None --reporters=ErrorLog --reporters=Deadlock
     --validators=None
     --mysqld=--log_output=none
     --mysqld=--log_bin_trust_function_creators=1
@@ -138,7 +136,6 @@ $combinations = [ $grammars,
     --engine=InnoDB
     --restart_timeout=900
     --rows=10000
-    --max_gd_duration=600
     ' .
     # Some grammars need encryption, file key management
     " $encryption_setup " .
@@ -146,12 +143,25 @@ $combinations = [ $grammars,
     " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=300 ",
   ],
   [
-    # The default is innodb_fast_shutdown=1.
-    '--mysqld=--loose-innodb_fast_shutdown=1' ,
-    '' ,
-    '' ,
-    '' ,
-    '--mysqld=--loose-innodb_fast_shutdown=0' ,
+    # 2023-06
+    # The combination lock-wait-timeout=<small> -- innodb-lock-wait-timeout=<a bit bigger>
+    # seems to be important too.
+    '--mysqld=--lock-wait-timeout=15    --mysqld=--innodb-lock-wait-timeout=10' ,
+    # The defaults 2023-06
+    '--mysqld=--lock-wait-timeout=86400 --mysqld=--innodb-lock-wait-timeout=50' ,
+  ],
+# [
+#   # The default is innodb_fast_shutdown=1.
+#   '--mysqld=--loose-innodb_fast_shutdown=1' ,
+#   '' ,
+#   '' ,
+#   '' ,
+#   '--mysqld=--loose-innodb_fast_shutdown=0' ,
+# ],
+  [
+    '--mysqld=--sql_mode=traditional' ,
+    # Below the default since 10.2.4
+    '--mysqld=--sql_mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' ,
   ],
   [
     # innodb_file_per_table
@@ -172,6 +182,11 @@ $combinations = [ $grammars,
     # Hence we need to enable checking of that feature by assigning innodb_read_only_compressed=OFF.
     # Forecast: ROW_FORMAT = Compressed will stay supported.
     ' --mysqld=--loose-innodb_read_only_compressed=OFF ',
+  ],
+  [
+    ' --reporters=CrashRecovery     --duration=100 ',
+    ' --reporters=CrashRecovery     --duration=100 ',
+    ' --reporters=CrashRecovery     --duration=300 ',
   ],
   [
     # No more supported since 10.6
