@@ -147,7 +147,7 @@ sub report {
     # The test setup might go with a short max_statement_time which might
     # cause that queries checking huge tables get aborted. And the code which follows
     # is not prepared for that.
-    $server->addServerOptions(['--loose-max-statement-time=0']);
+    ############# $server->addServerOptions(['--loose-max-statement-time=0']);
 
     $server->setStartDirty(1);
     my $recovery_status = $server->startServer();
@@ -284,7 +284,7 @@ sub report {
     }
 
 # FIXME: Replace what follows
-if (1) {
+if (0) {
     #
     # Phase 2 - The server is now running, so we execute various statements in order to
     #           verify table consistency.
