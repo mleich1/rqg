@@ -160,6 +160,7 @@ our @corruption_patterns = (
     '\[ERROR\] \[FATAL\] InnoDB: Rec offset ',
     '\[ERROR\] InnoDB: We detected index corruption',
     '\[ERROR]\ \[FATAL\] InnoDB: Aborting because of a corrupt database page',
+    '\[ERROR\] mariadbd: Can\'t find record in ',
     # '??'   -- looks like a problem during crash recovery or mariabackup --> status should be not CORRUPTION
     # '????' -- looks like data import problem   In the import data?
     # ?? [ERROR] InnoDB: Trying to load index `FTS_INDEX_TABLE_IND` for table `test`.`FTS_00000000000002b5_00000000000003aa_INDEX_1`, but the index tree has been freed!
