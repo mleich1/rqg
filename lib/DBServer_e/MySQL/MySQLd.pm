@@ -3682,8 +3682,10 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
 
         # say("DEBUG: The server[" . $server_id . "] with process [" . $pid . "] is running.");
         # say("DEBUG: port is " . $self->port );
-        if (not defined $self->dbh) {
-            # $self->dbh is a function which tries to make a connect(with timeout).
+
+        # $self->dbh connects (with timeout) if required and sets @@max_statement_time = 0.
+        my $dbh = $self->dbh;
+        if (not defined $dbh) {
             say("ERROR: $who_am_i Getting a connection to the running server[" .
                 $server_id . "] failed with " . $DBI::errstr);
             # Experimental code based on the rare observation 2023-01:
@@ -3725,8 +3727,6 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
                 "previous errors.");
             return $status;
         } else {
-            # $self->dbh connects if required and sets @@max_statement_time = 0.
-            my $dbh =         $self->dbh;
             my $query =       "SHOW FULL PROCESSLIST";
             my $processlist = $dbh->selectall_arrayref($query);
             # The query could have failed.
