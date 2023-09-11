@@ -2480,8 +2480,8 @@ sub checkDatabaseIntegrity {
             }
         }
 
-        # REBUILD the table
-        # -----------------
+        # REBUILD (only most time) the table
+        # ----------------------------------
         # The hope is to detect
         # - diffs between metadata and data in whatever btree
         # - diffs between server and InnoDB data dictionary
@@ -2497,9 +2497,19 @@ sub checkDatabaseIntegrity {
         #    And in case that session gets killed or disconnects none of these locks should
         #    get released. (MDEV-24324 .... error that the MDL locks get released)
         #    Btw. Other sessions could run XA COMMIT 'xid175' as soon as its prepared.
+        #
         # EXECUTOR_TASK_CHECKER ensures that innodb_lock_timeout is small.
         # Hence no extreme long waiting if ther are locks on the table. So there is some good
         # chance to not run into whatever RQG timeouts followed by false status and similar.
+        #
+        # Warning:
+        # Switching checks off could cause ALTER TABLE `test` . `t5` FORCE<- failed with 1062 : Duplicate entry ...
+        #
+        # The docu says:
+        # With InnoDB, the table rebuild will only reclaim unused space (i.e. the space previously
+        # used for deleted rows) if the innodb_file_per_table system variable is set to ON (default).
+        # If the system variable is OFF, then the space will not be reclaimed, but it will
+        # be-re-used for new data that's later added.
         #
         # 2023-08-16
         # Start the server with some quite strict sql_mode like 'traditional'.
@@ -2551,8 +2561,9 @@ sub checkDatabaseIntegrity {
                         my $key_ref1 = $res_check14->data;
                         # Empty result set --> $key_ref1 defined and key_ref1 with 0 elements.
                         if (scalar(@$key_ref1 > 0)) {
-                            say("WARN: $msg_snip seems to be caused by existing XA " .
+                            say("INFO: $msg_snip seems to be caused by existing XA " .
                                 "transaction(s) in prepared state.");
+                            $status = STATUS_OK;
                             if(0) {
                                 foreach my $val (@$key_ref1) {
                                     my $formatID =     $val->[0];
@@ -2566,14 +2577,89 @@ sub checkDatabaseIntegrity {
                                 }
                             }
                         } else {
+                            say("DEBUG: No XA transaction(s) in prepared state found.");
                             $executor->disconnect();
                             $status = STATUS_CRITICAL_FAILURE;
                             say("ERROR: $msg_snip " . Auxiliary::build_wrs($status));
                             return $status;
                         }
                     }
+                } elsif ((STATUS_SEMANTIC_ERROR == $status or STATUS_UNSUPPORTED == $status)
+                         and $r_engine = "InnoDB") {
+                    # The test might have run temporary with GLOBAL/SESSION innodb_strict_mode=OFF.
+                    # https://mariadb.com/kb/en/innodb-strict-mode/
+                    # In case innodb_strict_mode is now off than we could get ugly responses.
+                    # https://jira.mariadb.org/browse/MDEV-30563
+                    #
+                    my $msg_snip =     "$who_am_i Query ->" . $aux_query .
+                                       "<- failed with $err : $errstr";
+                    my $aux_query14 =  'SELECT @@innodb_strict_mode';
+                    my $res_check14 =  $executor->execute($aux_query14);
+                    my $status14    =  $res_check14->status;
+                    if (STATUS_OK != $status14) {
+                        my $err14 =    $res_check14->err;
+                        $err14    =    "<undef>" if not defined $err14;
+                        my $errstr14 = $res_check14->errstr;
+                        $errstr14 =    "<undef>" if not defined $errstr14;
+                        $executor->disconnect();
+                        say("ERROR: (maybe) " . $msg_snip);
+                        say("ERROR: $who_am_i Helper Query ->" . $aux_query14 . "<- failed with " .
+                            "$err14 : $errstr14 " . Auxiliary::build_wrs($status14));
+                        return $status14;
+                    } else {
+                        my $key_ref1 = $res_check14->data;
+                        my @list = @$key_ref1;
+                        my $innodb_strict_mode = $list[0][0];
+                        if (1 == $innodb_strict_mode) {
+                            # Maybe the table was created under innodb_strict_mode =0.
+                            say("INFO: $who_am_i innodb_strict_mode is 1. Maybe the table was " .
+                                "created or altered under innodb_strict_mode = 0");
+                            my $aux_query15 =  'SET @@innodb_strict_mode = 0';
+                            my $res_check15 =  $executor->execute($aux_query15);
+                            my $status15    =  $res_check15->status;
+                            if (STATUS_OK != $status15) {
+                                my $err15 =    $res_check15->err;
+                                $err15    =    "<undef>" if not defined $err15;
+                                my $errstr15 = $res_check15->errstr;
+                                $errstr15 =    "<undef>" if not defined $errstr15;
+                                $executor->disconnect();
+                                say("ERROR: (maybe) " . $msg_snip);
+                                say("ERROR: $who_am_i Helper Query ->" . $aux_query15 . "<- failed with " .
+                                    "$err15 : $errstr15 " . Auxiliary::build_wrs($status15));
+                                return $status15;
+                            }
+                            my $res_check16 =  $executor->execute($aux_query);
+                            my $status16    =  $res_check16->status;
+                            if (STATUS_OK == $status16) {
+                                say("INFO: $msg_snip seems to be caused by creating or altering " .
+                                    "the table earlier under innodb_strict_mode = 0.");
+                                say("DEBUG: $aux_query passed under innodb_strict_mode = 0.");
+                                $status = STATUS_OK;
+                                # Flip innodb_strict_mode back. We might have more base tables.
+                                my $aux_query15 = 'SET @@innodb_strict_mode = 1';
+                                my $res_check15 = $executor->execute($aux_query15);
+                                my $status15    = $res_check15->status;
+                                if (STATUS_OK != $status15) {
+                                    my $err15 =    $res_check15->err;
+                                    $err15    =    "<undef>" if not defined $err15;
+                                    my $errstr15 = $res_check15->errstr;
+                                    $errstr15 =    "<undef>" if not defined $errstr15;
+                                    $executor->disconnect();
+                                    say("ERROR: (maybe) " . $msg_snip);
+                                    say("ERROR: $who_am_i Helper Query ->" . $aux_query15 . "<- failed with " .
+                                        "$err15 : $errstr15 " . Auxiliary::build_wrs($status15));
+                                    return $status15;
+                                }
+                            }
+                        } else {
+                            $executor->disconnect();
+                            say("INFO: innodb_strict_mode is 0.");
+                            say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
+                            Auxiliary::build_wrs($status));
+                            return $status;
+                        }
+                    }
                 } else {
-                    # Either engine != InnoDB or status == STATUS_TRANSACTION_ERROR
                     $executor->disconnect();
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
                         Auxiliary::build_wrs($status));
