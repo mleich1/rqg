@@ -1745,6 +1745,12 @@ while ( $gt_round <= $max_gt_rounds) {
 
         Auxiliary::update_sizes();
 
+        if (STATUS_REPLICATION_FAILURE == $final_result) {
+            # Give up because its just likely that the checkDatabaseIntegrity which follows
+            # will fail because of that.
+            exit_test($final_result);
+        }
+
         # Do not abort immediate if checkDatabaseIntegrity delivers a bad status.
         # The checkServers which follows later might give valuable information.
         my $check_status = $server[$server_num - 1]->checkDatabaseIntegrity();
