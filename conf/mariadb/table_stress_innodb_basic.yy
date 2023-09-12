@@ -20,7 +20,7 @@
 # - focuses on DDL algorithm NOCOPY only
 # - avoids most table rebuilds which would be caused by manipulating col1
 #   or TRUNCATE TABLE, ADD/DROP PRIMARY KEY
-# - lets for DDL the server/InnoDB pick the algorithm they prefer 
+# - lets for DDL the server/InnoDB pick the algorithm they prefer
 # - avoids BLOCK STAGE because of frequent trouble
 # - avoids virtual columns because of frequent trouble
 
