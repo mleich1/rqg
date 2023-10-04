@@ -1,4 +1,5 @@
 # Copyright (C) 2016, 2021 MariaDB Corporation Ab.
+# Copyright (C) 2023 MariaDB plc
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -336,7 +337,8 @@ sub dump_database {
         return $status;
     }
     my $databases_string = join(' ', grep { $_ !~ m{^(rqg|mysql|information_schema|performance_schema)$}sgio } @all_databases );
-	
+
+    # FIXME: Replace what follows by calling a function located in lib/DBServer_e/MySQL/MySQLd.pm.
     say("INFO: $who_am_i Dumping the server $suffix restart");
     # From the manual https://mariadb.com/kb/en/library/mysqldump
     # -f, --force
@@ -347,12 +349,11 @@ sub dump_database {
     #     Log warnings and errors by appending them to the named file. The default is to do no logging.
     my $dump_file =     "$vardir/server_$suffix.dump";
     my $dump_err_file = "$vardir/server_$suffix.dump_err";
-    my $dump_result = system('"' . $reporter->serverInfo('client_bindir') . "/mysqldump\" --force ".
-                             "--hex-blob --no-tablespaces --compact --order-by-primary "           .
+    my $dump_result = system('"' . $reporter->serverInfo('client_bindir') . "/mysqldump\" "        .
+                             "--force --hex-blob --no-tablespaces --compact --order-by-primary "   .
                              "--skip-extended-insert --host=127.0.0.1 --port=$port --user=root "   .
-                             "--password='' --databases $databases_string "                        .
-                             "> $dump_file 2>$dump_err_file ");
-    # mleich1: Experiment end
+                             "--password='' --skip-ssl-verify-server-cert "                        .
+                             "--databases $databases_string > $dump_file 2>$dump_err_file ");
     $dump_result = $dump_result >> 8;
     if (0 < $dump_result) {
         say("ERROR: $who_am_i Dumping the server $suffix restart failed with $dump_result.");
@@ -365,8 +366,7 @@ sub dump_database {
 
 sub compare_dumps {
     say("INFO: $who_am_i Comparing SQL dumps between servers before and after restart...");
-    # FIXME:
-    # mleich 2019-03:
+    # FIXME: Replace what follows by calling a function located in lib/DBServer_e/MySQL/MySQLd.pm.
     # Diff in line  ) ENGINE= ... AUTO_INCREMENT=...
     # but the CREATE TABLE .... <table_name> .... line is not included.
     # - <table_name> would be important for search in server error log.
