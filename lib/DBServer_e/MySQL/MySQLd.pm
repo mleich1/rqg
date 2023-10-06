@@ -1551,7 +1551,8 @@ sub dumpdb {
     my $dump_command = '"'.$self->dumper.
                              "\" --hex-blob --skip-triggers --compact ".
                              "--order-by-primary --skip-extended-insert ".
-                             "--no-create-info --host=127.0.0.1 ".
+                             # "--no-create-info --host=127.0.0.1 ".
+                             "--no-create-info --host=127.0.0.1 --skip-ssl-verify-server-cert ".
                              "--port=".$self->port.
                              " -uroot $database";
     # --no-tablespaces option was introduced in version 5.1.14.
@@ -1568,7 +1569,8 @@ sub dumpSchema {
     my $dump_command = '"'.$self->dumper.
                              "\" --hex-blob --compact ".
                              "--order-by-primary --skip-extended-insert ".
-                             "--no-data --host=127.0.0.1 ".
+                             # "--no-data --host=127.0.0.1 ".
+                             "--no-data --host=127.0.0.1 --skip-ssl-verify-server-cert ".
                              "--port=".$self->port.
                              " -uroot $database";
     # --no-tablespaces option was introduced in version 5.1.14.
@@ -1583,7 +1585,8 @@ sub dumpSomething {
     my ($self, $options, $file_prefix) = @_;
     say("Dumping server " . $self->version . " content on port " . $self->port);
     my $dump_command = '"' . $self->dumper . "\" --host=127.0.0.1 --port=" . $self->port .
-                             " --user=root $options";
+                             # " --user=root $options";
+                             " --skip-ssl-verify-server-cert --user=root $options";
     say("DEBUG: dump_command ->" . $dump_command . "<-");
     my $dump_file =   $file_prefix . ".dump";
     my $err_file =    $file_prefix . ".err";
@@ -1901,7 +1904,7 @@ sub checkDatabaseIntegrity {
 #
 # Code uses GenTest_e::Executor.
 #
-# FIXME maybe: What about some error log checking?
+# Hint: Error log checking (sub checkErrorLog) is currently not included.
 
     my $self = shift;
 
@@ -2468,8 +2471,8 @@ sub checkDatabaseIntegrity {
                     }
                 } else {
                     $executor->disconnect();
-                    say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
-                        Auxiliary::build_wrs($status));
+                    say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with  " .
+                        "$err : $errstr . " . Auxiliary::build_wrs($status));
                     return $status;
                 }
             } else {
@@ -2490,13 +2493,14 @@ sub checkDatabaseIntegrity {
         #    ALTER TABLE <innodb table> FORCE harvests 1205 : Lock wait timeout exceeded
         #    The reason is that some session executed
         #       XA BEGIN 'xid175' ;
-        #       SQL fiddling with <innodb table>
+        #       SQL modifying the content in <innodb table>
         #       XA END 'xid175' ;
         #       XA PREPARE 'xid175' ;
         #    which causes locks on <innodb table> and MDL locks.
         #    And in case that session gets killed or disconnects none of these locks should
         #    get released. (MDEV-24324 .... error that the MDL locks get released)
         #    Btw. Other sessions could run XA COMMIT 'xid175' as soon as its prepared.
+        # ??? What about running XA ROLLBACK for all prepared XA transaction shown in XA RECOVER.
         #
         # EXECUTOR_TASK_CHECKER ensures that innodb_lock_timeout is small.
         # Hence no extreme long waiting if ther are locks on the table. So there is some good
@@ -2552,7 +2556,7 @@ sub checkDatabaseIntegrity {
                         $executor->disconnect();
                         say("ERROR: (maybe) " . $msg_snip);
                         say("ERROR: $who_am_i Helper Query ->" . $aux_query14 . "<- failed with " .
-                            "$err14 : $errstr14 " . Auxiliary::build_wrs($status14));
+                            "$err14 : $errstr14 . " . Auxiliary::build_wrs($status14));
                         return $status14;
                     } else {
                         # Sample result set of XA RECOVER:
@@ -2561,20 +2565,52 @@ sub checkDatabaseIntegrity {
                         my $key_ref1 = $res_check14->data;
                         # Empty result set --> $key_ref1 defined and key_ref1 with 0 elements.
                         if (scalar(@$key_ref1 > 0)) {
-                            say("INFO: $msg_snip seems to be caused by existing XA " .
-                                "transaction(s) in prepared state.");
-                            $status = STATUS_OK;
-                            if(0) {
-                                foreach my $val (@$key_ref1) {
-                                    my $formatID =     $val->[0];
-                                    my $gtrid_length = $val->[1];
-                                    my $bqual_length = $val->[2];
-                                    my $data =         $val->[3];
-                                    say("DEBUG: $who_am_i Helper Query ->" . $aux_query14 .
-                                        " caught formatID: " . $formatID . " , gtrid_length: " .
-                                        $gtrid_length . " , bqual_length: " . $bqual_length .
-                                        " , data: " . $data);
+                            # say("DEBUG: $msg_snip might be caused by existing XA " .
+                            #     "transaction(s) in prepared state. Trying to roll these back.");
+                            foreach my $val (@$key_ref1) {
+                                my $formatID =     $val->[0];
+                                my $gtrid_length = $val->[1];
+                                my $bqual_length = $val->[2];
+                                my $data =         $val->[3];
+                                # say("DEBUG: $who_am_i Helper Query ->" . $aux_query14 .
+                                #     " caught formatID: " . $formatID . " , gtrid_length: " .
+                                #     $gtrid_length . " , bqual_length: " . $bqual_length .
+                                #     " , data: " . $data);
+                                my $aux_query15 =  "XA ROLLBACK '$data'";
+                                my $res_check15 =  $executor->execute($aux_query15);
+                                my $status15    =  $res_check15->status;
+                                if (STATUS_OK != $status15) {
+                                    my $err15 =    $res_check15->err;
+                                    $err15    =    "<undef>" if not defined $err15;
+                                    my $errstr15 = $res_check15->errstr;
+                                    $errstr15 =    "<undef>" if not defined $errstr15;
+                                    $executor->disconnect();
+                                    say("ERROR: (maybe) " . $msg_snip);
+                                    say("ERROR: $who_am_i Helper Query ->" . $aux_query15 .
+                                        "<- failed with $err15 : $errstr15 . " .
+                                        Auxiliary::build_wrs($status15));
+                                    return $status15;
                                 }
+                            }
+                            # say("DEBUG: Trying ->" . $aux_query . "<- again");
+                            my $aux_query16 =  $aux_query;
+                            my $res_check16 =  $executor->execute($aux_query16);
+                            my $status16    =  $res_check16->status;
+                            if (STATUS_OK != $status16) {
+                                my $err16 =    $res_check16->err;
+                                $err16    =    "<undef>" if not defined $err16;
+                                my $errstr16 = $res_check16->errstr;
+                                $errstr16 =    "<undef>" if not defined $errstr16;
+                                $executor->disconnect();
+                                say("ERROR: (maybe) " . $msg_snip);
+                                say("ERROR: $who_am_i Helper Query ->" . $aux_query16 .
+                                    "<- failed with $err16 : $errstr16 . " .
+                                    Auxiliary::build_wrs($status16));
+                                return $status16;
+                            } else {
+                                say("INFO: $msg_snip \nINFO: and passed after rollback of " .
+                                    "prepared XA transactions.");
+                                $status = STATUS_OK;
                             }
                         } else {
                             say("DEBUG: No XA transaction(s) in prepared state found.");
@@ -2624,8 +2660,9 @@ sub checkDatabaseIntegrity {
                                 $errstr15 =    "<undef>" if not defined $errstr15;
                                 $executor->disconnect();
                                 say("ERROR: (maybe) " . $msg_snip);
-                                say("ERROR: $who_am_i Helper Query ->" . $aux_query15 . "<- failed with " .
-                                    "$err15 : $errstr15 " . Auxiliary::build_wrs($status15));
+                                say("ERROR: $who_am_i Helper Query ->" . $aux_query15 .
+                                    "<- failed with $err15 : $errstr15 " .
+                                    Auxiliary::build_wrs($status15));
                                 return $status15;
                             }
                             my $res_check16 =  $executor->execute($aux_query);
@@ -2646,23 +2683,24 @@ sub checkDatabaseIntegrity {
                                     $errstr15 =    "<undef>" if not defined $errstr15;
                                     $executor->disconnect();
                                     say("ERROR: (maybe) " . $msg_snip);
-                                    say("ERROR: $who_am_i Helper Query ->" . $aux_query15 . "<- failed with " .
-                                        "$err15 : $errstr15 " . Auxiliary::build_wrs($status15));
+                                    say("ERROR: $who_am_i Helper Query ->" . $aux_query15 .
+                                        "<- failed with $err15 : $errstr15 " .
+                                        Auxiliary::build_wrs($status15));
                                     return $status15;
                                 }
                             }
                         } else {
                             $executor->disconnect();
                             say("INFO: innodb_strict_mode is 0.");
-                            say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
-                            Auxiliary::build_wrs($status));
+                            say("ERROR: $who_am_i Query ->" . $aux_query .
+                                "<- failed with $err : $errstr " . Auxiliary::build_wrs($status));
                             return $status;
                         }
                     }
                 } else {
                     $executor->disconnect();
-                    say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
-                        Auxiliary::build_wrs($status));
+                    say("ERROR: $who_am_i Query ->" . $aux_query .
+                        "<- failed with $err : $errstr " . Auxiliary::build_wrs($status));
                     return $status;
                 }
             } else {
@@ -2888,7 +2926,8 @@ sub checkErrorLog {
     my $who_am_i = Basics::who_am_i;
 
     my $found_marker= 0;
-    say("Checking server log for important errors starting from " . ($marker ? "marker $marker" : 'the beginning'));
+    say("Checking server log for important errors starting from " .
+        ($marker ? "marker $marker" : 'the beginning'));
 
     my $errorlog_status = STATUS_OK;
 
