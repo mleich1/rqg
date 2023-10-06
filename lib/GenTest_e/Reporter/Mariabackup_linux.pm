@@ -265,9 +265,11 @@ sub monitor {
     #       --prepare in base backup directory, backup still contains corrupted pages and
     #       can not be considered as consistent.
     #       --log-innodb-page-corruption just gives more detailed information.
-    $backup_binary .= " --host=127.0.0.1 --user=root --password='' --log-innodb-page-corruption ";
+    $backup_binary .= " --skip-ssl-verify-server-cert --host=127.0.0.1 --user=root --password=''" .
+                      " --log-innodb-page-corruption ";
 
     if (not osWindows()) {
+    # Fake PMEM exists since MDEV-14425 in 10.8.
     # Mariabackup --backup with mmap (used on fake PMEM == /dev/shm) and rr cannot work.
     # If needing some rr trace than the following patch will help
     #
@@ -704,7 +706,7 @@ sub monitor {
     # system("find $clone_vardir -follow");
     Auxiliary::direct_to_stdout();
     unlink ($reporter_prt);
-    say("DEBUG: $who_am_i : Pass") if $script_debug;
+    say("INFO: $who_am_i : Pass");
 
     return STATUS_OK;
 }
