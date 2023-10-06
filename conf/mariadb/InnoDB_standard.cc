@@ -506,6 +506,8 @@ $combinations = [ $grammars,
     # max-statement-time and the reporter Querytimeout makes sense.
     #
     ' --mysqld=--loose-max-statement-time=30 ',
+    # mleich 2023-10: It seems that a not limited statement-time replays certain bugs better.
+    ' ',
   ],
   [
     ' --threads=1  ',
