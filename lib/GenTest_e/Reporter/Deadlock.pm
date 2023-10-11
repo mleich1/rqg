@@ -24,17 +24,13 @@
 #   - unfair scheduling within the server affecting certain sessions
 #   - server too slow up till maybe never responding
 #   - Deadlocks at whatever place (SQL, storage engine, ??)
-# - partially either vulnerable or elapsed runtime wasting because of
-#   - $query_lifetime_threshold does not depend on maybe set query timeouts
-#   - $actual_test_duration_exceed does not depend on $query_lifetime_threshold per pure math.
-#   - The settings of $query_lifetime_threshold and $query_lifetime_threshold are "too" static.
-#     Some comfortable adjustment of the setup of the RQG run (-> Variables specific to some
-#     reporter or validator) to specific properties of some test is currently not supported.
-#     Or at least I do not know how to do it.
-#   - statements being slow because the data set is extreme huge combined with heavy load on
-#     the testing box and too small timeouts
-#   - STALLED_QUERY_COUNT_THRESHOLD is also static
-#     IMHO better would be STALLED_QUERY_COUNT_THRESHOLD <= threads.
+# - partially not that reliable
+#   - QUERY_LIFETIME_THRESHOLD does not depend on server timeouts nor required work for some
+#     session (huge table or ...) nor general load on box
+#   - REPORTER_QUERY_THRESHOLD does not depend on general load on box ...
+#   - ACTUAL_TEST_DURATION_EXCEED does not depend on QUERY_LIFETIME_THRESHOLD per pure math.
+#   - STALLED_QUERY_COUNT_THRESHOLD is some guess and does not take into accoune if these
+#     suspicious queries have conflicting needs etc.
 #   - maybe network problems
 # and will report in all these cases STATUS_SERVER_DEADLOCKED.
 #
@@ -87,6 +83,7 @@ my $script_debug = 0;
 use constant PROCESSLIST_PROCESS_ID          => 0;
 use constant PROCESSLIST_PROCESS_COMMAND     => 4;
 use constant PROCESSLIST_PROCESS_TIME        => 5;
+use constant PROCESSLIST_PROCESS_STATE       => 6;
 use constant PROCESSLIST_PROCESS_INFO        => 7;
 
 # The time, in seconds, we will wait for a connect before we declare the server hanged.
@@ -116,7 +113,7 @@ use constant CONNECT_TIMEOUT_THRESHOLD       => 60;   # Seconds
 # FIXME if possible/time permits:
 # $query_lifetime_threshold should be <= assigned duration
 # $query_lifetime_threshold should be ~ QueryTimeout + ...
-use constant QUERY_LIFETIME_THRESHOLD        => 270;  # Seconds
+use constant QUERY_LIFETIME_THRESHOLD        => 180;  # Seconds
 
 # Number of suspicious queries required before a deadlock is declared.
 # use constant STALLED_QUERY_COUNT_THRESHOLD   => 5;
@@ -147,8 +144,11 @@ my $actual_test_duration_exceed;
 my $reporter_query_threshold;
 my $connect_timeout_threshold;
 
+my $reporter;
+
 sub init {
-    my $reporter = shift;
+    # my $reporter = shift;
+    $reporter = shift;
     $query_lifetime_threshold    = Runtime::get_runtime_factor() * QUERY_LIFETIME_THRESHOLD;
     $actual_test_duration_exceed = Runtime::get_runtime_factor() * ACTUAL_TEST_DURATION_EXCEED;
     $reporter_query_threshold    = Runtime::get_runtime_factor() * REPORTER_QUERY_THRESHOLD;
@@ -327,107 +327,20 @@ sub monitor_nonthreaded {
     say("DEBUG: $who_am_i '" . $query . "' runtime was " . (time() - $query_start) . "s.")
         if $script_debug;
 
-    $query    = "SHOW FULL PROCESSLIST";
-    # For testing:
-    # $query    = "SHOW FULL OMO";  # Syntax error -> STATUS_INTERNAL_ERROR
-    $exit_msg = "Got no response from server to query '$query' within " . $alarm_timeout . "s.";
-    $query_start = time();
-    alarm ($alarm_timeout);
-    my $processlist = $dbh->selectall_arrayref($query);
-    alarm (0);
-    $err = $dbh->err();
-    if (defined $err) {
-        say("ERROR: $who_am_i The query '$query' failed with $err: " . $dbh->errstr());
-        $dbh->disconnect;
-        if (STATUS_OK != server_dead($reporter)) {
-            say("ERROR: $who_am_i Will exit with STATUS_SERVER_CRASHED.");
-            exit STATUS_SERVER_CRASHED;
-        }
-        my $return = GenTest_e::Executor::MySQL::errorType($err);
-        if (not defined $return) {
-            say("ERROR: $who_am_i The type of the error got is unknown. " .
-                "Will exit with STATUS_INTERNAL_ERROR");
-            exit STATUS_INTERNAL_ERROR;
-            # return STATUS_UNKNOWN_ERROR;
-        } else {
-            say("ERROR: $who_am_i Will return status $return" . ".");
-            return $return;
-        }
-    }
-    if (not defined $processlist) {
-        say("ERROR: $who_am_i The processlist content is undef. " .
-            "Will exit with STATUS_INTERNAL_ERROR");
-        $dbh->disconnect;
-        exit STATUS_INTERNAL_ERROR;
-    }
-    say("DEBUG: $who_am_i '" . $query . "' runtime was " . (time() - $query_start) . "s.")
-        if $script_debug;
+    my $suspicious        = 0;
+    $suspicious = inspect_processlist($dbh);
+    say("INFO: $who_am_i Number of suspicious queries in first inspect_processlist run: " .
+        $suspicious);
 
-    my $stalled_queries        = 0;
-
-    # Warning:
-    # COMMAND "Killed" and TIME == n does not mean that it was n seconds with COMMAND == "Killed".
-    # --------------------------------------------------------------------------------------------
-    # 2023-05-31T11:52:01 [2884928] Reporter 'Deadlock': ID -- COMMAND -- TIME -- INFO -- state
-    # 2023-05-31T11:52:01 [2884928] Reporter 'Deadlock': 14 -- Sleep -- 261 -- <undef> -- ok
-    # 2023-05-31T11:52:01 [2884928] Reporter 'Deadlock': 15 -- Query -- 24 -- INSERT IGNORE INTO t1 ( id, k) VALUES ( NULL, -171507712 ) /* E_R Thread1 QNO 4627 CON_ID 15 */ -- ok
-    # 2023-05-31T11:52:01 [2884928] Reporter 'Deadlock': 42 -- Query -- 0 -- SHOW FULL PROCESSLIST -- ok
-    # 2023-05-31T11:52:01 [2884928] Reporter 'Deadlock': Content of processlist ---------- end
-    # 2023-05-31T11:52:11 [2884928] Reporter 'Deadlock': Content of processlist ---------- begin
-    # 2023-05-31T11:52:11 [2884928] Reporter 'Deadlock': ID -- COMMAND -- TIME -- INFO -- state
-    # 2023-05-31T11:52:11 [2884928] Reporter 'Deadlock': 14 -- Sleep -- 271 -- <undef> -- ok
-    # 2023-05-31T11:52:11 [2884928] Reporter 'Deadlock': 15 -- Killed -- 34 -- INSERT IGNORE INTO t1 ( id, k) VALUES ( NULL, -171507712 ) /* E_R Thread1 QNO 4627 CON_ID 15 */ -- ok
-    # 2023-05-31T11:52:11 [2884928] Reporter 'Deadlock': 43 -- Query -- 0 -- SHOW FULL PROCESSLIST -- ok
-    # 2023-05-31T11:52:01 [2884928] Reporter 'Deadlock': Content of processlist ---------- end
-    # ...
-    # 2023-05-31T11:54:51 [2884928] Reporter 'Deadlock': Content of processlist ---------- begin
-    # 2023-05-31T11:54:51 [2884928] Reporter 'Deadlock': ID -- COMMAND -- TIME -- INFO -- state
-    # 2023-05-31T11:54:51 [2884928] Reporter 'Deadlock': 14 -- Sleep -- 432 -- <undef> -- ok
-    # 2023-05-31T11:54:51 [2884928] Reporter 'Deadlock': 15 -- Killed -- 195 -- INSERT IGNORE INTO t1 ( id, k) VALUES ( NULL, -171507712 ) /* E_R Thread1 QNO 4627 CON_ID 15 */ -- ok
-    # 2023-05-31T11:54:51 [2884928] Reporter 'Deadlock': 59 -- Query -- 0 -- SHOW FULL PROCESSLIST -- ok
-    # 2023-05-31T11:54:51 [2884928] Reporter 'Deadlock': Content of processlist ---------- end
-
-    # FIXME:
-    # If all "worker" sessions are 'Killed' than the system is in a suspicious state.
-
-    my $processlist_report = "$who_am_i Content of processlist ---------- begin\n";
-    $processlist_report .= "$who_am_i ID -- COMMAND -- TIME -- INFO -- state\n";
-    foreach my $process (@$processlist) {
-        my $process_command = $process->[PROCESSLIST_PROCESS_COMMAND];
-        $process_command = "<undef>" if not defined $process_command;
-        # next if $process_command eq 'Daemon';
-        my $process_id   = $process->[PROCESSLIST_PROCESS_ID];
-        my $process_info = $process->[PROCESSLIST_PROCESS_INFO];
-        $process_info    = "<undef>" if not defined $process_info;
-        my $process_time = $process->[PROCESSLIST_PROCESS_TIME];
-        $process_time    = "<undef>" if not defined $process_time;
-        if (defined $process->[PROCESSLIST_PROCESS_INFO] and
-            $process->[PROCESSLIST_PROCESS_INFO] ne ''   and
-            defined $process->[PROCESSLIST_PROCESS_TIME] and
-            $process->[PROCESSLIST_PROCESS_TIME] > $query_lifetime_threshold) {
-            $stalled_queries++;
-            $processlist_report .= "$who_am_i " . $process_id . " -- " . $process_command . " -- " .
-                                   $process_time . " -- " . $process_info . " -- stalled?\n";
-        } else {
-            $processlist_report .= "$who_am_i " . $process_id . " -- " . $process_command . " -- " .
-                                   $process_time . " -- " . $process_info . " -- ok\n";
-        }
-    }
-    # In case we have a stalled query at all than we already print the content of the processlist.
-    if ($stalled_queries or $script_debug) {
-        $processlist_report .= "$who_am_i Content of processlist ---------- end";
-        say($processlist_report);
-    }
-
-    if ($stalled_queries >= STALLED_QUERY_COUNT_THRESHOLD) {
-        say("ERROR: $who_am_i $stalled_queries stalled queries detected, declaring deadlock at " .
+    if ($suspicious >= STALLED_QUERY_COUNT_THRESHOLD) {
+        say("ERROR: $who_am_i $suspicious suspicious queries detected, declaring hang at " .
             "DSN $dsn. Will exit with STATUS_SERVER_DEADLOCKED later.");
-        say($processlist_report);
+        # say($processlist_report);
 
         foreach $query (
             "SHOW PROCESSLIST",
-            "SHOW ENGINE INNODB STATUS"
-            # "SHOW OPEN TABLES" - disabled due to bug #46433
+            "SHOW ENGINE INNODB STATUS",
+            "SHOW OPEN TABLES"           # Once disabled due to bug #46433
         ) {
             say("INFO: $who_am_i Executing query '$query'");
             $exit_msg = "Got no response from server to query '$query' within " .
@@ -449,7 +362,19 @@ sub monitor_nonthreaded {
                 print Dumper $status_result;
             }
         }
+        if (not defined Runtime::get_rr()) {
+            my $command = "gdb --batch --pid=" . $reporter->serverInfo('pid') .
+                          " --se=" . $reporter->serverInfo('binary') .
+                          " --command=" . Local::get_rqg_home . "/backtrace-all.gdb";
+            my $output = `$command`;
+            say("$output");
+            $suspicious = 0;
+            $suspicious = inspect_processlist($dbh);
+            say("INFO: $who_am_i Number of suspicious queries in second inspect_processlist run: " .
+                $suspicious);
+        }
         $dbh->disconnect;
+
         $reporter->kill_with_core;
         exit STATUS_SERVER_DEADLOCKED;
     } else {
@@ -534,19 +459,19 @@ sub dbh_thread {
     my $processlist = $dbh->selectall_arrayref("SHOW FULL PROCESSLIST");
     return GenTest_e::Executor::MySQL::errorType($DBI::err) if not defined $processlist;
 
-    my $stalled_queries = 0;
+    my $suspicious = 0;
 
     foreach my $process (@$processlist) {
         if (
             ($process->[PROCESSLIST_PROCESS_INFO] ne '') &&
             ($process->[PROCESSLIST_PROCESS_TIME] > $query_lifetime_threshold)
         ) {
-            $stalled_queries++;
+            $suspicious++;
         }
     }
 
-    if ($stalled_queries >= STALLED_QUERY_COUNT_THRESHOLD) {
-        say("ERROR: $who_am_i $stalled_queries stalled queries detected, declaring deadlock at DSN $dsn.");
+    if ($suspicious >= STALLED_QUERY_COUNT_THRESHOLD) {
+        say("ERROR: $who_am_i $suspicious suspicious queries detected, declaring deadlock at DSN $dsn.");
         print Dumper $processlist;
         return STATUS_SERVER_DEADLOCKED;
     } else {
@@ -638,12 +563,7 @@ sub nativeDead {
 sub report {
     # When hitting during monitoring
     # - a situation looking like a server hang than we have already initiated that the server gets
-    #   killed with core and exited with STATUS_SERVER_DEADLOCKED.
-    #   The reporter 'Backtrace' will do or has already done
-    #   1. Detect that the server is dead
-    #   2. Search for the core and make the final analysis.
-    #   3. Return STATUS_SERVER_CRASHED
-    #   But 'Deadlock' has exited with STATUS_SERVER_DEADLOCKED before and that is the higher value.
+    #   killed and exited with STATUS_SERVER_DEADLOCKED.
     # - no suspicious situation than we have no reason to do anything.
     # Hence we report nothing and return STATUS_OK.
     return STATUS_OK;
@@ -704,6 +624,111 @@ sub nativeReport {
     }
 
     exit STATUS_SERVER_DEADLOCKED;
+}
+
+sub inspect_processlist {
+# Input: $dbh
+# Output:
+# - if whatever connection related failure: just exit
+# - if no connection related failure:       number of hanging queries
+    my ($dbh) = @_;
+
+    my $exit_msg;
+
+    sigaction SIGALRM, new POSIX::SigAction sub {
+        # Concept:
+        # 1. Check first if the server process is gone.
+        # 2. Set the error_exit_message for deadlock/freeze before setting the alarm.
+        if (STATUS_OK != server_dead($reporter)) {
+            exit STATUS_SERVER_CRASHED;
+        }
+        say("ERROR: $who_am_i $exit_msg " .
+            "Will exit with STATUS_SERVER_DEADLOCKED later.");
+        $reporter->kill_with_core;
+        exit STATUS_SERVER_DEADLOCKED;
+    } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
+
+    my $alarm_timeout = $reporter_query_threshold + OVERLOAD_ADD;
+    my $query = "SHOW FULL PROCESSLIST";
+    # For testing:
+    # $query    = "SHOW FULL OMO";  # Syntax error -> STATUS_INTERNAL_ERROR
+    $exit_msg = "Got no response from server to query '$query' within " . $alarm_timeout . "s.";
+
+    my $query_start = time();
+    my $processlist = $dbh->selectall_arrayref($query);
+    alarm (0);
+    my $err = $dbh->err();
+    if (defined $err) {
+        say("ERROR: $who_am_i The query '$query' failed with $err: " . $dbh->errstr());
+        $dbh->disconnect;
+        if (STATUS_OK != server_dead($reporter)) {
+            say("ERROR: $who_am_i Will exit with STATUS_SERVER_CRASHED.");
+            exit STATUS_SERVER_CRASHED;
+        }
+        my $return = GenTest_e::Executor::MySQL::errorType($err);
+        if (not defined $return) {
+            say("ERROR: $who_am_i The type of the error got is unknown. " .
+                "Will exit with STATUS_INTERNAL_ERROR");
+            exit STATUS_INTERNAL_ERROR;
+            # return STATUS_UNKNOWN_ERROR;
+        } else {
+            say("ERROR: $who_am_i Will return status $return" . ".");
+            return $return;
+        }
+    }
+    if (not defined $processlist) {
+        say("ERROR: $who_am_i The processlist content is undef. " .
+            "Will exit with STATUS_INTERNAL_ERROR");
+        $dbh->disconnect;
+        exit STATUS_INTERNAL_ERROR;
+    }
+    say("DEBUG: $who_am_i '" . $query . "' runtime was " . (time() - $query_start) . "s.")
+        if $script_debug;
+
+    my $suspicious        = 0;
+
+    # TIME == n means n seconds within the current state
+
+    # FIXME:
+    # If all "worker" sessions are 'Killed' than the system is in a suspicious state.
+
+    my $processlist_report = "$who_am_i Content of processlist ---------- begin\n";
+    $processlist_report .= "$who_am_i ID -- COMMAND -- TIME -- INFO -- state\n";
+    foreach my $process (@$processlist) {
+        my $process_command = $process->[PROCESSLIST_PROCESS_COMMAND];
+        $process_command = "<undef>" if not defined $process_command;
+        # next if $process_command eq 'Daemon';
+        my $process_id   = $process->[PROCESSLIST_PROCESS_ID];
+        my $process_info = $process->[PROCESSLIST_PROCESS_INFO];
+        $process_info    = "<undef>" if not defined $process_info;
+        my $process_time = $process->[PROCESSLIST_PROCESS_TIME];
+        $process_time    = "<undef>" if not defined $process_time;
+        my $process_state= $process->[PROCESSLIST_PROCESS_STATE];
+        $process_state   = "<undef>" if not defined $process_state;
+        if ($process_info ne "<undef>" and $process_time ne "<undef>" and
+           # GenTest should be finished + max_statement_time is usually 30s.
+           ($process_command ne "Slave_SQL" and $process_time > $query_lifetime_threshold) or
+           ($process_command eq "Slave_SQL" and $process_time > 60 and not
+            $process_state =~ /has read all relay log; waiting for more updates/i)) {
+           $suspicious++;
+           $processlist_report .=
+                   "$who_am_i -->" . $process_id . " -- " .
+                   $process_command . " -- " . $process_time . " -- " .
+                   $process_state . " -- " . $process_info . " <--suspicious\n";
+        } else {
+           $processlist_report .=
+                   "$who_am_i -->" . $process_id . " -- " .
+                   $process_command . " -- " . $process_time . " -- " .
+                   $process_state . " -- " . $process_info . " <--ok\n";
+        }
+    }
+    # In case we have a suspicious query at all than we already print the content of the processlist.
+    if ($suspicious or $script_debug) {
+        $processlist_report .= "$who_am_i Content of processlist ---------- end";
+        say($processlist_report);
+    }
+
+    return $suspicious;
 }
 
 sub type {
