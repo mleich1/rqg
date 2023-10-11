@@ -2765,10 +2765,12 @@ sub waitForServerToStop {
         #    n'th call  child processes/threads <A>, <B>
         #    (n + 1)'th call  child processes/threads <A>, <C>, <D>
         #               == Childprocesses/threads exit but new ones can show up
+        # So we accept a not finished shutdown for some timespan as long as the
+        # ps_tree changes within 10s.
         say("INFO: $who_am_i Being forced to give a grace period.");
         $wait_end  =        Time::HiRes::time() + 60 * Runtime::get_runtime_factor();
         my $old_ps_tree =   Auxiliary::get_ps_tree($self->pid);
-        my $next_ps_check = Time::HiRes::time() + 3;
+        my $next_ps_check = Time::HiRes::time() + 10;
         while ($self->running && Time::HiRes::time() < $wait_end) {
             aux_pid_reaper();
             if (Time::HiRes::time() > $next_ps_check) {
@@ -2779,7 +2781,7 @@ sub waitForServerToStop {
                     last;
                 } else {
                     say("DEBUG: $who_am_i Current ps_tree: '$new_ps_tree'.");
-                    $next_ps_check = Time::HiRes::time() + 3;
+                    $next_ps_check = Time::HiRes::time() + 10;
                     $new_ps_tree =   $old_ps_tree;
                 }
             }
