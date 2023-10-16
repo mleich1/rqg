@@ -277,6 +277,7 @@ use constant  ER_CANNOT_USER                                    => 1396;
 use constant  ER_XAER_NOTA                                      => 1397;
 use constant  ER_XAER_RMFAIL                                    => 1399;
 use constant  ER_XAER_OUTSIDE                                   => 1400;
+use constant  ER_XA_RBROLLBACK                                  => 1402; # XA_RBROLLBACK: Transaction branch was rolled back
 use constant  ER_NONEXISTING_PROC_GRANT                         => 1403;
 use constant  ER_DATA_TOO_LONG                                  => 1406;
 use constant  ER_SP_DUP_HANDLER                                 => 1413;
@@ -804,6 +805,7 @@ my %err2type = (
     ER_WRONG_VALUE_COUNT_ON_ROW()                       => STATUS_SEMANTIC_ERROR,
     ER_WRONG_VALUE_FOR_VAR()                            => STATUS_SEMANTIC_ERROR,
     ER_XA_RBDEADLOCK()                                  => STATUS_SEMANTIC_ERROR,
+    ER_XA_RBROLLBACK()                                  => STATUS_TRANSACTION_ERROR,
     ER_XAER_DUPID()                                     => STATUS_SEMANTIC_ERROR,
     ER_XAER_NOTA()                                      => STATUS_SEMANTIC_ERROR,
     ER_XAER_RMFAIL()                                    => STATUS_SEMANTIC_ERROR,
@@ -1208,8 +1210,8 @@ sub execute {
        # running some kind of replication might end with content diff between servers.
        #    Typical bad scenario from the RQG builtin statement based replication:
        #    Run on server m a data modifying statement with success.
-       #    Omit doing that on server m+1 because $give_up_time exceeded and exit.
-       #    Get finally a conttent diff between the servers.
+       #    Omit doing that on server m+1 and exit because $give_up_time was exceeded.
+       #    Get finally a content diff between the servers.
        #
        #    Changing some global server parameter like SQL mode might have some similar bad
        #    effect.
@@ -1413,6 +1415,7 @@ sub execute {
         }
         if ($err == ER_DUP_KEY) {
             # InnoDB: Error (Duplicate key) writing word node to FTS auxiliary index table
+            # Fixed October 2022
             if ($sth->errstr() =~ m{InnoDB: Error \(Duplicate key\) writing word node to FTS auxiliary index table}sgio) {
                 say("ERROR: MDEV-15237 hit");
                 $err_type = STATUS_CRITICAL_FAILURE;
