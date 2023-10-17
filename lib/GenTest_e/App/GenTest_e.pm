@@ -462,6 +462,20 @@ sub doGenTest {
         sleep 5;
     } # End of loop OUTER
 
+    # FIXME:
+    # In case we had 'The GenTest runtime was serious exceeded' than the reporter Deadlock
+    # (never the current process) should print the processlist.
+    # Requirement: The reporter 'Deadlock' must be loaded.
+    # if ($reporter_died == 0) {
+    #     my $last_call_border = time() + 1;
+
+
+    # Observation: 2023-10
+    # 32 of 33 threads have already disconnected.
+    # The reporter 'Deadlock' has never seen some suspicious worker within the processlist
+    # == Some value was undef or the time was below threshold.
+    # That remaining working disappeared from processlist after being terminated.
+
     foreach my $worker_pid (keys %worker_pids) {
         say("Killing (TERM) remaining worker process with pid $worker_pid...");
         kill(15, $worker_pid);
