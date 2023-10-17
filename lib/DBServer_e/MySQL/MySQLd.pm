@@ -722,7 +722,6 @@ sub startServer {
     my @defaults = ($self->[MYSQLD_CONFIG_FILE] ? ("--defaults-group-suffix=.runtime",
                    "--defaults-file=$self->[MYSQLD_CONFIG_FILE]") : ("--no-defaults"));
 
-
     my ($v1, $v2, @rest) = $self->versionNumbers;
     my $v = $v1 * 1000 + $v2;
     our $command = $self->generateCommand(
@@ -1063,17 +1062,6 @@ sub startServer {
 
                 # $self->stop_server_for_debug(5, -11, 'mariadbd mysqld', 10);
                 my $found;
-                # Several threads are working in parallel on getting the server started.
-                # Observation 2021-12-02
-                # 1. Start server on backupped data.
-                # 2. Poll till the server is connectable and run immediate a bit SQL with success.
-                # But the sever error log contains:
-                # mysqld: ... Assertion .... failed.
-                # [ERROR] mysqld got signal 6 ;
-                # Attempting backtrace. You can use the following information to find out
-                # [Note] /data/Server_bin/bb-10.6-MDEV-27111_asan/bin/mysqld: ready for connections.
-                # And the connect was possible before 'ready for connections' was observed.
-                #
                 # We search for a line like
                 # [ERROR] mysqld got signal <some signal>
                 # There seem to be
@@ -1109,10 +1097,22 @@ sub startServer {
                   # say("DEBUG: $who_am_i Up till now no '[ERROR] <DB server> got signal' observed.");
                 }
 
-                # We search for a line like
-                # [Note] /home/mleich/Server_bin/10.5_asan_Og/bin/mysqld: ready for connections.
+                # Several threads are working in parallel on getting the server started.
+                # Observation 2021-12-02
+                # 1. Start server on backupped data.
+                # 2. Poll till the server is connectable and run immediate a bit SQL with success.
+                # But the sever error log contains:
+                #    mysqld: ... Assertion .... failed.
+                #    [ERROR] mysqld got signal 6 ;
+                #    Attempting backtrace. You can use the following information to find out
+                #    [Note] /data/Server_bin/bb-10.6-MDEV-27111_asan/bin/mysqld: ready for connections.
+                # And the connect was possible before 'ready for connections' was observed.
+                #
+                # Hence run the loop with error log checking till "ready for connections" shows up.
+                # Aborting because of current bad error log content or dead server process is
+                # better/more specific than failing connect or SQL failing with whatever.
                 $found = Auxiliary::search_in_file($errorlog,
-                                                   '\[Note\].{1,150}(mariadbd|mysqld): ready for connections');
+                                    '\[Note\].{1,150}(mariadbd|mysqld): ready for connections');
                 # For testing:
                 # $found = undef;
                 if (not defined $found) {
@@ -1144,7 +1144,6 @@ sub startServer {
             # If reaching this line
             # - we have a valid pid in $pid and $self->[MYSQLD_SERVERPID]
             # - mysqld: ready for connections    was already reported
-            # - the server startup is finished
 
             # $self->stop_server_for_debug(5, 'mysqld', -6, 5);
             # $self->stop_server_for_debug(5, 'mysqld', -15, 5);
@@ -1192,6 +1191,17 @@ sub startServer {
                 return $status;
             }
             $self->printInfo;
+            # Experiment begin
+            my $errorlog_status = $self->checkErrorLog;
+            if (STATUS_OK != $errorlog_status) {
+                say("ERROR: $who_am_i Will crash the server if needed, make a backtrace and " .
+                    Auxiliary::build_wrs($errorlog_status));
+                sayFile($errorlog);
+                # $self->crashServer;
+                $self->make_backtrace();
+                return $errorlog_status;
+            }
+            # Experiment end
         } else {
             # Here is the just forked child (aux_pid) of rqg.pl or some reporter.
             # -------------------------------------------------------------------
@@ -1298,7 +1308,7 @@ sub startServer {
         # Hence other SQL with correct syntax should work too.
         return STATUS_OK;
     }
-}
+} # End sub startServer
 
 ### CHECK:
 # Any crashServer, killServer, stopServer, Term needs to cleanup pids pidfile etc.
@@ -1904,9 +1914,11 @@ sub checkDatabaseIntegrity {
 #
 # Code uses GenTest_e::Executor.
 #
-# Hint: Error log checking (sub checkErrorLog) is currently not included.
+# Hint:
+# Error log checking (sub checkErrorLog) is currently only at end of the sub.
+#
 
-    my $self = shift;
+    our $self = shift;
 
     # Prepending the package costs too much space per line reported.
     my $who_am_i =          "checkDatabaseIntegrity ";
@@ -1926,6 +1938,18 @@ sub checkDatabaseIntegrity {
     $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_CHECKER);
     $status = $executor->init();
     return $status if $status != STATUS_OK;
+
+    sub check_errorlog_and_return {
+        my ($status) = @_;
+
+        my $errorlog_status = $self->checkErrorLog;
+        if ($status < $errorlog_status) {
+            say("INFO: Raising the status from " . status2text($status) . " to " .
+                status2text($errorlog_status) . ".");
+            $status = $errorlog_status;
+        }
+        return $status;
+    }
 
     sub show_the_locks {
         my ($executor,$r_schema, $r_table) = @_;
@@ -2006,7 +2030,7 @@ sub checkDatabaseIntegrity {
             }
         }
         return STATUS_OK;
-    }
+    } # End sub show_the_locks
 
     # For experimenting
     if (0) {
@@ -2046,7 +2070,7 @@ sub checkDatabaseIntegrity {
         my $status = STATUS_CRITICAL_FAILURE;
         say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
             Auxiliary::build_wrs($status));
-        return $status;
+        return check_errorlog_and_return($status);
     }
 
     my $key_ref = $res_databases->data;
@@ -2077,10 +2101,10 @@ sub checkDatabaseIntegrity {
                 # The list of tables is determined from the server data dictionary.
                 # Hence we have a diff between server and innodb data dictionary == corruption.
                 say("ERROR: $who_am_i Raising status to STATUS_DATABASE_CORRUPTION.");
-                return STATUS_DATABASE_CORRUPTION;
+                return check_errorlog_and_return(STATUS_DATABASE_CORRUPTION);
             }
             say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
-            return $status;
+            return check_errorlog_and_return($status);
         } else {
             # say("DEBUG: $who_am_i Query ->" . $aux_query . "<- pass.");
         }
@@ -2103,10 +2127,10 @@ sub checkDatabaseIntegrity {
                     # The list of tables is determined from the server data dictionary.
                     # Hence we have a diff between server and innodb data dictionary == corruption.
                     say("ERROR: $who_am_i Raising status to STATUS_DATABASE_CORRUPTION.");
-                    return STATUS_DATABASE_CORRUPTION;
+                    return check_errorlog_and_return(STATUS_DATABASE_CORRUPTION);
                 }
                 say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
-                return $status;
+                return check_errorlog_and_return($status);
             } else {
                 $status = STATUS_OK;
             }
@@ -2136,11 +2160,8 @@ sub checkDatabaseIntegrity {
                 my $sl_status = show_the_locks($executor,$r_schema, $r_table);
                 $executor->disconnect();
                 say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
-                if ($status > $sl_status) {
-                    return $status;
-                } else {
-                    return $sl_status;
-                }
+                $status = $sl_status if $sl_status > $status;
+                return check_errorlog_and_return($status);
             } else {
                 if ($r_engine ne 'InnoDB') {
                     my $aux_query1 = "REPAIR TABLE `$r_schema`.`$r_table` EXTENDED";
@@ -2152,14 +2173,14 @@ sub checkDatabaseIntegrity {
                         my $errstr = $res_tables->errstr;
                         say("ERROR: $who_am_i Query ->" . $aux_query1 . "<- failed with " .
                             "$err : $errstr " . Auxiliary::build_wrs($status));
-                        return $status;
+                        return check_errorlog_and_return($status);
                     }
                     # say("INFO: $who_am_i Query ->" . $aux_query . "<- passed");
                 } else {
                     $executor->disconnect();
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with " .
                         "$err : $errstr " . Auxiliary::build_wrs($status));
-                    return $status;
+                    return check_errorlog_and_return($status);
                 }
             }
         } else {
@@ -2183,7 +2204,7 @@ sub checkDatabaseIntegrity {
                     $executor->disconnect();
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
                         Auxiliary::build_wrs($status));
-                    return $status;
+                    return check_errorlog_and_return($status);
                 }
             } else {
                 # say("DEBUG: $who_am_i $aux_query : pass");
@@ -2206,7 +2227,7 @@ sub checkDatabaseIntegrity {
                 $executor->disconnect();
                 say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
                     Auxiliary::build_wrs($status));
-                return $status;
+                return check_errorlog_and_return($status);
             } else {
                 # say("DEBUG: $who_am_i $aux_query : pass");
                 # No reason to analyse the result because that was already done by MySQL.pm and
@@ -2234,7 +2255,7 @@ sub checkDatabaseIntegrity {
                 $executor->disconnect();
                 say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
                     Auxiliary::build_wrs($status));
-                return $status;
+                return check_errorlog_and_return($status);
             } else {
                 # say("DEBUG: $who_am_i $aux_query : pass");
                 # No reason to analyse the result because that was already done by MySQL.pm and
@@ -2288,7 +2309,7 @@ sub checkDatabaseIntegrity {
             $executor->disconnect();
             say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
                 Auxiliary::build_wrs($status));
-            return $status;
+            return check_errorlog_and_return($status);
         } else {
             # say("DEBUG: $who_am_i $aux_query : pass");
         }
@@ -2367,7 +2388,7 @@ sub checkDatabaseIntegrity {
                 # say("DEBUG: Walkquery ==>" . $my_query . "<= added");
                 push @walk_queries, $my_query;
             }
-        }
+        } # End of loop over the indexes of a table
         if ($has_no_key) {
             my $my_query = "SELECT * FROM $table_to_check";
             push @walk_queries, $my_query;
@@ -2404,7 +2425,7 @@ sub checkDatabaseIntegrity {
                     say("ERROR: $msg_snip " . Auxiliary::build_wrs($status));
                     $sth_rows->finish();
                     $executor->disconnect();
-                    return $status;
+                    return check_errorlog_and_return($status);
                 }
             } else {
                 # say("DEBUG: $who_am_i Query ->" . $walk_query . "<- passed");
@@ -2438,7 +2459,7 @@ sub checkDatabaseIntegrity {
                 $sth_rows->finish();
                 $executor->disconnect();
                 $status = STATUS_DATABASE_CORRUPTION;
-                return $status;
+                return check_errorlog_and_return($status);
             }
         } # End of running all walk queries
 
@@ -2464,16 +2485,13 @@ sub checkDatabaseIntegrity {
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
                     my $sl_status = show_the_locks($executor,$r_schema, $r_table);
                     $executor->disconnect();
-                    if ($status > $sl_status) {
-                        return $status;
-                    } else {
-                        return $sl_status;
-                    }
+                    $status = $sl_status if $status < $sl_status;
+                    return check_errorlog_and_return($status);
                 } else {
                     $executor->disconnect();
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with  " .
                         "$err : $errstr . " . Auxiliary::build_wrs($status));
-                    return $status;
+                    return check_errorlog_and_return($status);
                 }
             } else {
                 # say("DEBUG: $who_am_i $aux_query : pass");
@@ -2557,7 +2575,7 @@ sub checkDatabaseIntegrity {
                         say("ERROR: (maybe) " . $msg_snip);
                         say("ERROR: $who_am_i Helper Query ->" . $aux_query14 . "<- failed with " .
                             "$err14 : $errstr14 . " . Auxiliary::build_wrs($status14));
-                        return $status14;
+                        return check_errorlog_and_return($status14);
                     } else {
                         # Sample result set of XA RECOVER:
                         # formatID  gtrid_length  bqual_length  data
@@ -2589,7 +2607,7 @@ sub checkDatabaseIntegrity {
                                     say("ERROR: $who_am_i Helper Query ->" . $aux_query15 .
                                         "<- failed with $err15 : $errstr15 . " .
                                         Auxiliary::build_wrs($status15));
-                                    return $status15;
+                                    return check_errorlog_and_return($status15);
                                 }
                             }
                             # say("DEBUG: Trying ->" . $aux_query . "<- again");
@@ -2606,7 +2624,7 @@ sub checkDatabaseIntegrity {
                                 say("ERROR: $who_am_i Helper Query ->" . $aux_query16 .
                                     "<- failed with $err16 : $errstr16 . " .
                                     Auxiliary::build_wrs($status16));
-                                return $status16;
+                                return check_errorlog_and_return($status16);
                             } else {
                                 say("INFO: $msg_snip \nINFO: and passed after rollback of " .
                                     "prepared XA transactions.");
@@ -2617,7 +2635,7 @@ sub checkDatabaseIntegrity {
                             $executor->disconnect();
                             $status = STATUS_CRITICAL_FAILURE;
                             say("ERROR: $msg_snip " . Auxiliary::build_wrs($status));
-                            return $status;
+                            return check_errorlog_and_return($status);
                         }
                     }
                 } elsif ((STATUS_SEMANTIC_ERROR == $status or STATUS_UNSUPPORTED == $status)
@@ -2641,7 +2659,7 @@ sub checkDatabaseIntegrity {
                         say("ERROR: (maybe) " . $msg_snip);
                         say("ERROR: $who_am_i Helper Query ->" . $aux_query14 . "<- failed with " .
                             "$err14 : $errstr14 " . Auxiliary::build_wrs($status14));
-                        return $status14;
+                        return check_errorlog_and_return($status14);
                     } else {
                         my $key_ref1 = $res_check14->data;
                         my @list = @$key_ref1;
@@ -2663,7 +2681,7 @@ sub checkDatabaseIntegrity {
                                 say("ERROR: $who_am_i Helper Query ->" . $aux_query15 .
                                     "<- failed with $err15 : $errstr15 " .
                                     Auxiliary::build_wrs($status15));
-                                return $status15;
+                                return check_errorlog_and_return($status15);
                             }
                             my $res_check16 =  $executor->execute($aux_query);
                             my $status16    =  $res_check16->status;
@@ -2686,7 +2704,7 @@ sub checkDatabaseIntegrity {
                                     say("ERROR: $who_am_i Helper Query ->" . $aux_query15 .
                                         "<- failed with $err15 : $errstr15 " .
                                         Auxiliary::build_wrs($status15));
-                                    return $status15;
+                                    return check_errorlog_and_return($status15);
                                 }
                             }
                         } else {
@@ -2694,14 +2712,14 @@ sub checkDatabaseIntegrity {
                             say("INFO: innodb_strict_mode is 0.");
                             say("ERROR: $who_am_i Query ->" . $aux_query .
                                 "<- failed with $err : $errstr " . Auxiliary::build_wrs($status));
-                            return $status;
+                            return check_errorlog_and_return($status);
                         }
                     }
                 } else {
                     $executor->disconnect();
                     say("ERROR: $who_am_i Query ->" . $aux_query .
                         "<- failed with $err : $errstr " . Auxiliary::build_wrs($status));
-                    return $status;
+                    return check_errorlog_and_return($status);
                 }
             } else {
                 # say("DEBUG: $who_am_i $aux_query : pass");
@@ -2710,8 +2728,9 @@ sub checkDatabaseIntegrity {
             }
         }
         say("INFO: $who_am_i All checks on " . $table_to_check . " were successful.");
-    }
-    return $status;
+    } # End of loop over all tables (base tables and views)
+
+    return check_errorlog_and_return($status);
 } # End of sub checkDatabaseIntegrity
 
 
@@ -2928,10 +2947,12 @@ sub checkErrorLog {
     my $who_am_i = Basics::who_am_i;
 
     my $found_marker= 0;
-    say("Checking server log for important errors starting from " .
+    say("INFO: $who_am_i Checking server log for important errors starting from " .
         ($marker ? "marker $marker" : 'the beginning'));
 
-    my $errorlog_status = STATUS_OK;
+    my $errorlog_status =   STATUS_OK;
+
+    my $basedir =           $self->basedir;
 
     open(ERRLOG, $self->errorlog);
     while (<ERRLOG>)
@@ -2940,28 +2961,43 @@ sub checkErrorLog {
         $found_marker= 1;
         $_ =~ s{[\r\n]}{}siog;
 
+        # Error log messages will contain paths. And these can contain keywords like 'corrupt' etc.
+        #    [ERROR] mariadbd: Can't open shared library '/data/Server_bin/bb-10.6-primary-corruption_asan_Og/lib/plugin/provider_lzo.so'
+        # Hence at least remove basedir from any line to look into.
+        my $shrinked =  $_;
+        $shrinked =~    s{$basedir}{<basedir>}g;
+
         foreach my $rec_ref (@pattern_matrix) {
         my ( $pattern_type, $pattern) = @{$rec_ref};
-        if ( $_ =~ /$pattern/sio ) {
-            # say("MATCH: ->" . $pattern . "<- in ->" . $_ . "<-");
+        if ( $shrinked =~ /$pattern/sio ) {
+            # say("MATCH: ->" . $pattern . "<- in ->" . $_ . "<-->" . $shrinked . "<-");
             if      ( NO_SPACE eq $pattern_type ) {
                     say("ERROR: $who_am_i Found ->" . $_ .
                         "<- Will return STATUS_ENVIRONMENT_FAILURE later.");
                     $errorlog_status = STATUS_ENVIRONMENT_FAILURE;
+                    # Leave loop immediate because its fatal for the current and concurrent tests.
+                    # Anything which follows
+                    # - might be already influenced by "no more space"
+                    # - can be read later in the error log.
                     last;
                 } elsif ( CORRUPT eq $pattern_type ) {
                     say("ERROR: $who_am_i Found ->" . $_ .
                         "<- Will return STATUS_DATABASE_CORRUPTION later.");
-                    $errorlog_status = STATUS_DATABASE_CORRUPTION;
-                    last;
+                    $errorlog_status = STATUS_DATABASE_CORRUPTION
+                        if $errorlog_status < STATUS_DATABASE_CORRUPTION;
+                    # No leave loop immediate because a more dangerous "no more space" might follow.
                 } elsif (SERVER_END eq $pattern_type ) {
                     say("ERROR: $who_am_i Found ->" . $_ .
                         "<- Will return STATUS_CRITICAL_FAILURE later.");
-                    $errorlog_status = STATUS_CRITICAL_FAILURE;
-                    last;
+                    $errorlog_status = STATUS_CRITICAL_FAILURE
+                        if $errorlog_status < STATUS_CRITICAL_FAILURE;
+                    # No leave loop immediate because a more
+                    # - dangerous <no more space>
+                    # - bad <whatever corruption>
+                    # might follow.
                 }
             } else {
-                # say("NO MATCH: ->" . $pattern . "<- in ->" . $_ . "<-");
+                # say("NO MATCH: ->" . $pattern . "<- in ->" . $_ . "<-->" . $shrinked<-");
             }
         }
     }
@@ -3722,7 +3758,7 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
     #     0 | Do not make a backtrace at all.
     # n > 0 | Wait up till n seconds if the DB server process disappears before
     #       | calling make_backtrace which crashes the server if running.
-    my $backtrace_timeout = 0; # 0 --> Do not make
+    my $backtrace_timeout = 0;
     my $pid = $self->find_server_pid;
     if (not $self->running) {
         say("ERROR: $who_am_i with process [" . $pid . "] is no more running.");
@@ -3900,7 +3936,7 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
                     $process_state   = "<undef>" if not defined $process_state;
 
                     if ($process_info ne "<undef>" and $process_time ne "<undef>" and
-                        # GenTest should be finished + max_statement_time is usually 30s.
+                        # GenData or GenTest should be finished + max_statement_time is usually 30s.
                         ($process_command ne "Slave_SQL" and $process_time > 30) or
                         # Slave_SQL > 30s but < 60s was observed.
                         ($process_command eq "Slave_SQL" and $process_time > 60 and not
