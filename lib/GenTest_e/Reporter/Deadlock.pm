@@ -113,7 +113,7 @@ use constant CONNECT_TIMEOUT_THRESHOLD       => 60;   # Seconds
 # FIXME if possible/time permits:
 # $query_lifetime_threshold should be <= assigned duration
 # $query_lifetime_threshold should be ~ QueryTimeout + ...
-use constant QUERY_LIFETIME_THRESHOLD        => 180;  # Seconds
+use constant QUERY_LIFETIME_THRESHOLD        => 270;  # Seconds
 
 # Number of suspicious queries required before a deadlock is declared.
 # use constant STALLED_QUERY_COUNT_THRESHOLD   => 5;
@@ -327,15 +327,9 @@ sub monitor_nonthreaded {
     say("DEBUG: $who_am_i '" . $query . "' runtime was " . (time() - $query_start) . "s.")
         if $script_debug;
 
-    my $suspicious        = 0;
-    $suspicious = inspect_processlist($dbh);
-    say("INFO: $who_am_i Number of suspicious queries in first inspect_processlist run: " .
-        $suspicious);
-
-    if ($suspicious >= STALLED_QUERY_COUNT_THRESHOLD) {
-        say("ERROR: $who_am_i $suspicious suspicious queries detected, declaring hang at " .
-            "DSN $dsn. Will exit with STATUS_SERVER_DEADLOCKED later.");
-        # say($processlist_report);
+    if (inspect_processlist($dbh)) {
+        say("ERROR: $who_am_i Declaring hang at DSN $dsn. " .
+            "Will exit with STATUS_SERVER_DEADLOCKED later.");
 
         foreach $query (
             "SHOW PROCESSLIST",
@@ -368,10 +362,7 @@ sub monitor_nonthreaded {
                           " --command=" . Local::get_rqg_home . "/backtrace-all.gdb";
             my $output = `$command`;
             say("$output");
-            $suspicious = 0;
-            $suspicious = inspect_processlist($dbh);
-            say("INFO: $who_am_i Number of suspicious queries in second inspect_processlist run: " .
-                $suspicious);
+            inspect_processlist($dbh);
         }
         $dbh->disconnect;
 
@@ -379,6 +370,7 @@ sub monitor_nonthreaded {
         exit STATUS_SERVER_DEADLOCKED;
     } else {
         $dbh->disconnect;
+        say("INFO: $who_am_i Nothing obvious suspicious found.");
         return STATUS_OK;
     }
 }
@@ -610,12 +602,13 @@ sub nativeReport {
         # It is intentional that we do not wait till the server process has disappeared.
         # The latter could last long (minutes!) because of writing the core on some overloaded box.
         # The risk could be that (see code in lib/GenTest_e/App/GenTest_e.pm)
-        # 1. A RQG worker thread loses his connection, retries ~ 30s and gives than up with
-        #    STATUS_SERVER_CRASHED.
+        # 1. A RQG worker thread loses his connection, retries ~ 30s and exits than with
+        #    STATUS_SERVER_CRASHED or STATUS_CRITICAL_FAILURE.
         # 2. Then the periodic reporting process (running for 'Deadlock') gets maybe killed before
         #    exiting with STATUS_SERVERDEAD_LOCKED.
-        # 3. Than we end most probably up with STATUS_SERVER_CRASHED which is misleading.
-        # FIXME:
+        # 3. Than we end most probably up with some status != STATUS_SERVERDEAD_LOCKED
+        #    which is misleading.
+        # FIXME thorough:
         # Whenever a RQG worker thread has problems with the connection than it should exit with
         # STATUS_CRITICAL_FAILURE or similar.
         # Basically:
@@ -630,9 +623,10 @@ sub inspect_processlist {
 # Input: $dbh
 # Output:
 # - if whatever connection related failure: just exit
-# - if no connection related failure:       number of hanging queries
+# - if no connection related failure:       return $declare_hang
     my ($dbh) = @_;
 
+    my $declare_hang = 0;
     my $exit_msg;
 
     sigaction SIGALRM, new POSIX::SigAction sub {
@@ -649,7 +643,7 @@ sub inspect_processlist {
     } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
 
     my $alarm_timeout = $reporter_query_threshold + OVERLOAD_ADD;
-    my $query = "SHOW FULL PROCESSLIST";
+    my $query = "SHOW FULL PROCESSLIST /* Deadlock */";
     # For testing:
     # $query    = "SHOW FULL OMO";  # Syntax error -> STATUS_INTERNAL_ERROR
     $exit_msg = "Got no response from server to query '$query' within " . $alarm_timeout . "s.";
@@ -689,9 +683,6 @@ sub inspect_processlist {
 
     # TIME == n means n seconds within the current state
 
-    # FIXME:
-    # If all "worker" sessions are 'Killed' than the system is in a suspicious state.
-
     my $processlist_report = "$who_am_i Content of processlist ---------- begin\n";
     $processlist_report .= "$who_am_i ID -- COMMAND -- TIME -- INFO -- state\n";
     foreach my $process (@$processlist) {
@@ -706,29 +697,39 @@ sub inspect_processlist {
         my $process_state= $process->[PROCESSLIST_PROCESS_STATE];
         $process_state   = "<undef>" if not defined $process_state;
         if ($process_info ne "<undef>" and $process_time ne "<undef>" and
-           # GenTest should be finished + max_statement_time is usually 30s.
-           ($process_command ne "Slave_SQL" and $process_time > $query_lifetime_threshold) or
-           ($process_command eq "Slave_SQL" and $process_time > 60 and not
-            $process_state =~ /has read all relay log; waiting for more updates/i)) {
-           $suspicious++;
-           $processlist_report .=
-                   "$who_am_i -->" . $process_id . " -- " .
-                   $process_command . " -- " . $process_time . " -- " .
-                   $process_state . " -- " . $process_info . " <--suspicious\n";
+            not $process_info =~ 'Deadlock' and
+            ($process_command ne "Slave_SQL" and $process_time > $query_lifetime_threshold) or
+            ($process_command eq "Slave_SQL" and $process_time > 60 and not
+             $process_state =~ /has read all relay log; waiting for more updates/i)) {
+            $suspicious++;
+            $processlist_report .=
+                    "$who_am_i -->" . $process_id . " -- " .
+                    $process_command . " -- " . $process_time . " -- " .
+                    $process_state . " -- " . $process_info . " <--suspicious\n";
         } else {
-           $processlist_report .=
+            $processlist_report .=
                    "$who_am_i -->" . $process_id . " -- " .
                    $process_command . " -- " . $process_time . " -- " .
                    $process_state . " -- " . $process_info . " <--ok\n";
         }
     }
-    # In case we have a suspicious query at all than we already print the content of the processlist.
-    if ($suspicious or $script_debug) {
-        $processlist_report .= "$who_am_i Content of processlist ---------- end";
+    $processlist_report .= "$who_am_i Content of processlist ---------- end";
+
+    # In case we have a suspicious query at all than we already print the processlist content.
+    if ($suspicious) {
         say($processlist_report);
+        if ($suspicious > STALLED_QUERY_COUNT_THRESHOLD) {
+            say("ERROR: $who_am_i $suspicious suspicious queries detected. Threshold is " .
+                STALLED_QUERY_COUNT_THRESHOLD . ".");
+            $declare_hang = 1;
+        }
+    } elsif ($script_debug) {
+        say($processlist_report);
+    } else {
+        # no idea
     }
 
-    return $suspicious;
+    return $declare_hang;
 }
 
 sub type {
