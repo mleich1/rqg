@@ -182,7 +182,7 @@ my ($config_file, $basedir, $vardir, $trials, $duration, $grammar, $gendata,
     $dbdir_type, $vardir_type, $fast_vardir, $slow_vardir,
     $stop_on_replay, $script_debug_value, $runid, $threads, $type, $algorithm, $resource_control);
 
-use constant DEFAULT_MAX_RQG_RUNTIME => 3600;
+use constant DEFAULT_MAX_RQG_RUNTIME => 7200;
 
 # my @basedirs    = ('', '');
 my @basedirs;

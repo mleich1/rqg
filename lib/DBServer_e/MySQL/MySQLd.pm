@@ -161,13 +161,15 @@ our @corruption_patterns = (
     '\[ERROR\] InnoDB: We detected index corruption',
     '\[ERROR]\ \[FATAL\] InnoDB: Aborting because of a corrupt database page',
     '\[ERROR\] mariadbd: Can\'t find record in ',
+    '\[ERROR\] InnoDB: Duplicate FTS_DOC_ID value on table ',
+    '\[ERROR\] InnoDB: Corrupted page identifier at ',
+    '\[ERROR\] InnoDB: Cannot apply log to .{1,100} of corrupted file .{1,200}\.ibd' ,
     # '??'   -- looks like a problem during crash recovery or mariabackup --> status should be not CORRUPTION
     # '????' -- looks like data import problem   In the import data?
     # ?? [ERROR] InnoDB: Trying to load index `FTS_INDEX_TABLE_IND` for table `test`.`FTS_00000000000002b5_00000000000003aa_INDEX_1`, but the index tree has been freed!
     # ?? [Note] InnoDB: Index is corrupt but forcing load into data dictionary
     # ?? [ERROR] InnoDB: Corrupted page identifier at 2837320893; set innodb_force_recovery=1 to ignore the record.
     # ?? [ERROR] InnoDB: n recs wrong 2817 2816
-    # ?? \[ERROR\] InnoDB: Cannot apply log to .{1,100} of corrupted file .{1,200}\.ibd' .
     # ?? [ERROR] InnoDB: Not applying INSERT_HEAP_REDUNDANT due to corruption on [page id: space=26, page number=49]
     # ?? [ERROR] InnoDB: Cannot apply log to [page id: space=178, page number=0] of corrupted file './test/#sql-alter-271a94-2f.ibd'
     # ????[ERROR] [FATAL] InnoDB: Page old data size 1917 new data size 2278, page old max ins size 1940 new max ins size 1579
@@ -939,6 +941,10 @@ sub startServer {
             # [rr 19150 <event_number>] <timestamp> might help to find the right region of
             # events where debugging should start.
             $command .= ' "--log_warnings=4" ' . Local::get_rqg_rr_add() if Local::get_rqg_rr_add() ne '';
+            # Prevent that the server writes a backtrace into the server error log.
+            # The rr replay would write that information anyway.
+            # Currently disabled because certain important messages disappear from error log.
+            # $command .= ' "--skip-stack-trace"';
         } else {
             # In case rr is not invoked than we want core files.
             $command .= ' "--core-file"';
@@ -1951,9 +1957,9 @@ sub checkDatabaseIntegrity {
         return $status;
     }
 
-    sub show_the_locks {
+    sub show_the_locks_per_table {
         my ($executor,$r_schema, $r_table) = @_;
-        my $who_am_i =  "checkDatabaseIntegrity::show_the_locks: ";
+        my $who_am_i =  "checkDatabaseIntegrity::show_the_locks_per_table: ";
         my ($aux_query, $lock_check, $lock_check_status);
         $aux_query =    "SELECT THREAD_ID, LOCK_MODE, LOCK_DURATION, LOCK_TYPE " .
                         "FROM information_schema.METADATA_LOCK_INFO " .
@@ -2030,7 +2036,7 @@ sub checkDatabaseIntegrity {
             }
         }
         return STATUS_OK;
-    } # End sub show_the_locks
+    } # End sub show_the_locks_per_table
 
     # For experimenting
     if (0) {
@@ -2157,7 +2163,7 @@ sub checkDatabaseIntegrity {
                 $omit_walk_queries = 1 if $r_table_type eq "VIEW" or $r_table_type eq "SYSTEM VIEW";
                 $status =            STATUS_OK;
             } elsif (STATUS_TRANSACTION_ERROR == $status) {
-                my $sl_status = show_the_locks($executor,$r_schema, $r_table);
+                my $sl_status = show_the_locks_per_table($executor,$r_schema, $r_table);
                 $executor->disconnect();
                 say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
                 $status = $sl_status if $sl_status > $status;
@@ -2483,7 +2489,7 @@ sub checkDatabaseIntegrity {
                     say("INFO: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
                 } elsif (STATUS_TRANSACTION_ERROR == $status) {
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
-                    my $sl_status = show_the_locks($executor,$r_schema, $r_table);
+                    my $sl_status = show_the_locks_per_table($executor,$r_schema, $r_table);
                     $executor->disconnect();
                     $status = $sl_status if $status < $sl_status;
                     return check_errorlog_and_return($status);
@@ -2557,8 +2563,6 @@ sub checkDatabaseIntegrity {
                 $err =       "<undef>" if not defined $err;
                 my $errstr = $res_check->errstr;
                 $errstr =    "<undef>" if not defined $errstr;
-
-#               if (STATUS_UNSUPPORTED == $status) {  ????
 
                 if (STATUS_TRANSACTION_ERROR == $status and $r_engine = "InnoDB") {
                     my $msg_snip =     "$who_am_i Query ->" . $aux_query .
@@ -3355,7 +3359,6 @@ sub cleanup_dead_server {
     $self->[MYSQLD_SERVERPID]       = undef;
     return $status;
 }
-
 
 sub waitForAuxpidGone {
 # Purpose:

@@ -1,4 +1,5 @@
 # Copyright (C) 2020 MariaDB Corporation Ab.
+# Copyright (C) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -19,4 +20,7 @@ set print elements 0
 continue
 when
 thread apply all backtrace
-
+print write_slots.m_cache.m_pos
+print buf_pool.free.count
+print buf_pool.LRU.count
+print buf_pool.flush_list.count

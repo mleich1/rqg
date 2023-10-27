@@ -1129,7 +1129,7 @@ sub init {
             $status = $executor->set_safe_max_statement_time ;
             return $status if $status != STATUS_OK;
             my $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
-                             $executor->connectionId() . ' */ ';
+                                 $executor->connectionId() . ' */ ';
             my $aux_query = 'SET @@innodb_lock_wait_timeout = 30 ' . $trace_addition;
             my $status = GenTest_e::Executor::MySQL::run_do($executor->dbh, $executor->role,
                                                             $aux_query);
