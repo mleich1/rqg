@@ -2104,13 +2104,14 @@ sub checkDatabaseIntegrity {
             $errstr =    "<undef>" if not defined $errstr;
             say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err: $errstr");
             if (STATUS_SEMANTIC_ERROR == $status) {
+                say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
+                return check_errorlog_and_return($status);
+            } else {
                 # The list of tables is determined from the server data dictionary.
                 # Hence we have a diff between server and innodb data dictionary == corruption.
                 say("ERROR: $who_am_i Raising status to STATUS_DATABASE_CORRUPTION.");
                 return check_errorlog_and_return(STATUS_DATABASE_CORRUPTION);
             }
-            say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
-            return check_errorlog_and_return($status);
         } else {
             # say("DEBUG: $who_am_i Query ->" . $aux_query . "<- pass.");
         }
