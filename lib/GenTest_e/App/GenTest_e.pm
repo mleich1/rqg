@@ -462,19 +462,15 @@ sub doGenTest {
         sleep 5;
     } # End of loop OUTER
 
-    # FIXME:
+    # Note:
     # In case we had 'The GenTest runtime was serious exceeded' than the reporter Deadlock
-    # (never the current process) should print the processlist.
+    # has already startet to print the processlists at time() > $self->[GT_TEST_END].
     # Requirement: The reporter 'Deadlock' must be loaded.
-    # if ($reporter_died == 0) {
-    #     my $last_call_border = time() + 1;
-
 
     # Observation: 2023-10
-    # 32 of 33 threads have already disconnected.
-    # The reporter 'Deadlock' has never seen some suspicious worker within the processlist
-    # == Some value was undef or the time was below threshold.
-    # That remaining working disappeared from processlist after being terminated.
+    # The processlist content looks like a lot session are stuck.
+    # After sending SIGTERM to the worker processes all these sessions disappeared fast.
+    # ==> Processlist content before the TERM might be important.
 
     foreach my $worker_pid (keys %worker_pids) {
         say("Killing (TERM) remaining worker process with pid $worker_pid...");
@@ -482,7 +478,8 @@ sub doGenTest {
     }
     # 1. The box might be under heavy load --> Delay in reaction on TERM
     # 2. The worker might be in whatever state and temporary or permanent not reactive.
-    my $end_time = Time::HiRes::time() + 15;
+    my $end_time;
+    $end_time = Time::HiRes::time() + Runtime::get_runtime_factor() * 30;
     while ((0 < scalar (keys %worker_pids)) and ($end_time > Time::HiRes::time())) {
         foreach my $worker_pid (keys %worker_pids) {
             my $message_begin = "Process with pid $worker_pid ";
@@ -510,10 +507,40 @@ sub doGenTest {
         }
         sleep 0.1;
     }
+
     foreach my $worker_pid (keys %worker_pids) {
         say("Killing (KILL) remaining worker processes with pid $worker_pid...");
         kill(9, $worker_pid);
     }
+    $end_time = Time::HiRes::time() + 30;
+    while ((0 < scalar (keys %worker_pids)) and ($end_time > Time::HiRes::time())) {
+        foreach my $worker_pid (keys %worker_pids) {
+            my $message_begin = "Process with pid $worker_pid ";
+            my ($reaped, $child_exit_status) = Auxiliary::reapChild($worker_pid,
+                                                                    $worker_pids{$worker_pid});
+            if (0 == $reaped) {
+                if ($child_exit_status > STATUS_OK) {
+                    say("INTERNAL ERROR: Inconsistency that child_exit_status $child_exit_status " .
+                        "was got though process [$worker_pid] was not reaped.");
+                    return STATUS_INTERNAL_ERROR;
+                } else {
+                    next;
+                }
+            } else {
+                # It is intentional to not touch $total_status at all.
+                # Just one historic example which shows why:
+                # The reporter Deadlock initiates that the server gets killed with core.
+                # Some worker is affected by the no more responding server and exits here with 110.
+                # And on the way which follows the knowledge about the intentional server kill
+                # because of assumed Deadlock/Freeze gets lost.
+                my $message_end   = " ended with status " . status2text($child_exit_status);
+                say($message_begin . "for " . $worker_pids{$worker_pid} . $message_end);
+                delete $worker_pids{$worker_pid};
+            }
+        }
+        sleep 0.1;
+    }
+
     say("INFO: total_status : $total_status before inspecting reporters.");
 
     if ($reporter_died == 0) {
@@ -554,7 +581,7 @@ sub doGenTest {
 
         my $reaped = 0;
         my $reporter_status = STATUS_OK;
-        my $end_time = Time::HiRes::time() + 60;
+        my $end_time = Time::HiRes::time() + Runtime::get_runtime_factor() * 60;
         while ($end_time > Time::HiRes::time()) {
             ($reaped, $reporter_status) = Auxiliary::reapChild($reporter_pid,
                                                                "Periodic reporting process");

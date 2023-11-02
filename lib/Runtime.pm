@@ -1,4 +1,5 @@
 #  Copyright (c) 2020, 2022 MariaDB Corporation Ab.
+#  Copyright (c) 2023 MariaDB plc
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -200,7 +201,8 @@ sub help_rr {
 "               --wait --chaos\n"                                                                  .
 "           which gets added to the rr invocation like\n"                                          .
 "               rr <options set by RQG> <options set via commandline or config file> ... "         .
-"<to be traced program>\n"
+"<to be traced program>\n\n"                                                                       .
+"           Certain rr related options get set in local.cfg .\n"
     );
 }
 

@@ -25,14 +25,14 @@
 #   - server too slow up till maybe never responding
 #   - Deadlocks at whatever place (SQL, storage engine, ??)
 # - partially not that reliable
-#   - QUERY_LIFETIME_THRESHOLD does not depend on server timeouts nor required work for some
-#     session (huge table or ...) nor general load on box
-#   - REPORTER_QUERY_THRESHOLD does not depend on general load on box ...
-#   - ACTUAL_TEST_DURATION_EXCEED does not depend on QUERY_LIFETIME_THRESHOLD per pure math.
-#   - STALLED_QUERY_COUNT_THRESHOLD is some guess and does not take into accoune if these
+#   - $query_lifetime_threshold does not depend sufficient or at all on
+#        server timeouts , required work for some SQL (huge table or ...) , general load on box
+#   - $reporter_query_threshold does not depend ... on general load on box ...
+#   - $actual_test_duration_exceed does not depend on $query_lifetime_threshold per pure math.
+#   - STALLED_QUERY_COUNT_THRESHOLD is some guess and does not take into account if these
 #     suspicious queries have conflicting needs etc.
 #   - maybe network problems
-# and will report in all these cases STATUS_SERVER_DEADLOCKED.
+# and will report in most of these cases STATUS_SERVER_DEADLOCKED.
 #
 # Please read the comments around the constant $query_lifetime_threshold.
 #
@@ -113,7 +113,7 @@ use constant CONNECT_TIMEOUT_THRESHOLD       => 60;   # Seconds
 # FIXME if possible/time permits:
 # $query_lifetime_threshold should be <= assigned duration
 # $query_lifetime_threshold should be ~ QueryTimeout + ...
-use constant QUERY_LIFETIME_THRESHOLD        => 270;  # Seconds
+use constant QUERY_LIFETIME_THRESHOLD        => 300;  # Seconds
 
 # Number of suspicious queries required before a deadlock is declared.
 # use constant STALLED_QUERY_COUNT_THRESHOLD   => 5;
@@ -143,6 +143,8 @@ my $query_lifetime_threshold;
 my $actual_test_duration_exceed;
 my $reporter_query_threshold;
 my $connect_timeout_threshold;
+my $mdl_timeout_threshold;
+my $with_asan = 0;
 
 my $reporter;
 
@@ -153,6 +155,12 @@ sub init {
     $actual_test_duration_exceed = Runtime::get_runtime_factor() * ACTUAL_TEST_DURATION_EXCEED;
     $reporter_query_threshold    = Runtime::get_runtime_factor() * REPORTER_QUERY_THRESHOLD;
     $connect_timeout_threshold   = Runtime::get_runtime_factor() * CONNECT_TIMEOUT_THRESHOLD;
+    $mdl_timeout_threshold       = Runtime::get_runtime_factor() * OVERLOAD_ADD +
+                                   $reporter->serverVariable('lock_wait_timeout');
+    my $have_sanitizer           = $reporter->serverVariable('have_sanitizer');
+    if (defined $have_sanitizer and "ASAN" == $have_sanitizer) {
+        $with_asan = 1;
+    }
 }
 
 
@@ -188,39 +196,37 @@ sub monitor {
     # So I have decided to use some $actual_test_duration_exceed instead of the
     # ACTUAL_TEST_DURATION_MULTIPLIER.
     #
-    # Actual observation (2019-10)
-    # duration = 300, total test runtime > 1100 but the check direct below does not kick in.
-    # Reason: gendata loads a lot and the box is heavy loaded. No defect in RQG or here.
-    #
 
     my $actual_test_duration = time() - $reporter->testStart();
+    if ($actual_test_duration > $reporter->testDuration()) {
+        if (osWindows()) {
+            return $reporter->monitor_threaded(1);
+        } else {
+            return $reporter->monitor_nonthreaded(1);
+        }
+    } else {
+        if (osWindows()) {
+            return $reporter->monitor_threaded(0);
+        } else {
+            return $reporter->monitor_nonthreaded(0);
+        }
+    }
+
     if ($actual_test_duration > $actual_test_duration_exceed + $reporter->testDuration()) {
         say("ERROR: $who_am_i Actual test duration($actual_test_duration" . "s) is more than "     .
             "$actual_test_duration_exceed(" . $actual_test_duration_exceed  . "s) + the desired "  .
-            "duration (" . $reporter->testDuration() . "s). Will kill the server later so that "   .
-            "we get a core and exit with STATUS_SERVER_DEADLOCKED.");
-        my $status;
-        if (osWindows()) {
-            $status = $reporter->monitor_threaded();
-        } else {
-            $status = $reporter->monitor_nonthreaded();
-        }
-        say("INFO: $who_am_i monitor... delivered status $status.");
-
+            "duration (" . $reporter->testDuration() . "s). Will kill the server so that we get "  .
+            "a core and exit with STATUS_SERVER_DEADLOCKED.");
         $reporter->kill_with_core;
         exit STATUS_SERVER_DEADLOCKED;
     }
 
-    if (osWindows()) {
-        return $reporter->monitor_threaded();
-    } else {
-        return $reporter->monitor_nonthreaded();
-    }
 }
 
 sub monitor_nonthreaded {
     # Version for OS != WIN
     my $reporter = shift;
+    my $print    = shift;
     my $dsn      = $reporter->dsn();
 
     # We connect on every run in order to be able to use the mysql_connect_timeout to detect very
@@ -293,7 +299,7 @@ sub monitor_nonthreaded {
 
     $alarm_timeout = $reporter_query_threshold + OVERLOAD_ADD;
     my $query_start = time();
-    $query    = '/*!100108 SET @@max_statement_time = 0 */';
+    $query    = '/*!100108 SET SESSION max_statement_time = 0 */';
     say("DEBUG: $who_am_i Try to run '" . $query . "'") if $script_debug;
     $exit_msg = "Got no response from server to query '$query' within " . $alarm_timeout . "s.";
     alarm ($alarm_timeout);
@@ -327,14 +333,16 @@ sub monitor_nonthreaded {
     say("DEBUG: $who_am_i '" . $query . "' runtime was " . (time() - $query_start) . "s.")
         if $script_debug;
 
-    if (inspect_processlist($dbh)) {
+    if (inspect_processlist($dbh, $print)) {
         say("ERROR: $who_am_i Declaring hang at DSN $dsn. " .
             "Will exit with STATUS_SERVER_DEADLOCKED later.");
 
         foreach $query (
-            "SHOW PROCESSLIST",
             "SHOW ENGINE INNODB STATUS",
-            "SHOW OPEN TABLES"           # Once disabled due to bug #46433
+            "SHOW OPEN TABLES",          # Once disabled due to bug #46433
+            "SELECT THREAD_ID, LOCK_MODE, LOCK_DURATION, LOCK_TYPE " .
+                "FROM information_schema.METADATA_LOCK_INFO " .
+                "WHERE TABLE_SCHEMA != 'information_schema'" ,
         ) {
             say("INFO: $who_am_i Executing query '$query'");
             $exit_msg = "Got no response from server to query '$query' within " .
@@ -353,16 +361,38 @@ sub monitor_nonthreaded {
                     exit STATUS_INTERNAL_ERROR;
                 }
             } else {
-                print Dumper $status_result;
+                say("INFO: $who_am_i --- " . $query . " ---");
+                my @row_refs = @{$status_result};
+                foreach my $row_ref (@row_refs) {
+                    my @row = @{$row_ref};
+                    my $sentence = "";
+                    foreach my $element (@row) {
+                        $element = "undef" if not defined $element;
+                        $sentence .= "->" . $element . "<-";
+                    }
+                    say("INFO: $who_am_i " . $sentence );
+                }
             }
         }
         if (not defined Runtime::get_rr()) {
-            my $command = "gdb --batch --pid=" . $reporter->serverInfo('pid') .
+            my ($command, $output);
+            $command = "gdb --batch --pid=" . $reporter->serverInfo('pid') .
                           " --se=" . $reporter->serverInfo('binary') .
                           " --command=" . Local::get_rqg_home . "/backtrace-all.gdb";
-            my $output = `$command`;
+            $output = `$command`;
             say("$output");
-            inspect_processlist($dbh);
+            # The backtrace above gives sometimes not sufficient information.
+            # So generate some core in addition.
+            # 130 GB core file observed (asan build).
+            # --> RQG batch aborted the test battery.
+            # Hence disabled.
+            if (not $with_asan) {
+              $command = "gcore -o " . $reporter->serverVariable('datadir') .
+                         "/gcore "   . $reporter->serverInfo('pid');
+              $output = `$command`;
+              say("$output");
+            }
+            inspect_processlist($dbh, 1);
         }
         $dbh->disconnect;
 
@@ -378,6 +408,7 @@ sub monitor_nonthreaded {
 sub monitor_threaded {
     # Version for OS == WIN
     my $reporter = shift;
+    my $print    = shift;
 
     require threads;
 
@@ -620,15 +651,23 @@ sub nativeReport {
 }
 
 sub inspect_processlist {
-# Input: $dbh
+# Input:
+# $dbh   -- connection handle
+# $print -- 0 --> print PROCESSLIST even if not suspicious
+#           1 --> print PROCESSLIST all time
 # Output:
 # - if whatever connection related failure: just exit
-# - if no connection related failure:       return $declare_hang
-    my ($dbh) = @_;
+# - if no connection related failure:
+#      if assumed hang    --> 1
+#      if no assumed hang --> 0
+    my ($dbh, $print) =     @_;
 
-    my $declare_hang = 0;
+    my $declare_hang =      0;
     my $exit_msg;
 
+    my $threads =           0;
+    my $threads_killed =    0;
+    my $threads_waiting =   0;
     sigaction SIGALRM, new POSIX::SigAction sub {
         # Concept:
         # 1. Check first if the server process is gone.
@@ -684,7 +723,7 @@ sub inspect_processlist {
     # TIME == n means n seconds within the current state
 
     my $processlist_report = "$who_am_i Content of processlist ---------- begin\n";
-    $processlist_report .= "$who_am_i ID -- COMMAND -- TIME -- INFO -- state\n";
+    $processlist_report .= "$who_am_i ID -- COMMAND -- TIME -- STATE -- INFO\n";
     foreach my $process (@$processlist) {
         my $process_command = $process->[PROCESSLIST_PROCESS_COMMAND];
         $process_command = "<undef>" if not defined $process_command;
@@ -696,38 +735,54 @@ sub inspect_processlist {
         $process_time    = "<undef>" if not defined $process_time;
         my $process_state= $process->[PROCESSLIST_PROCESS_STATE];
         $process_state   = "<undef>" if not defined $process_state;
+        $processlist_report .=
+                    "$who_am_i -->" . $process_id . " -- " .
+                    $process_command . " -- " . $process_time . " -- " .
+                    $process_state . " -- " . $process_info;
         if ($process_info ne "<undef>" and $process_time ne "<undef>" and
             not $process_info =~ 'Deadlock' and
             ($process_command ne "Slave_SQL" and $process_time > $query_lifetime_threshold) or
             ($process_command eq "Slave_SQL" and $process_time > 60 and not
              $process_state =~ /has read all relay log; waiting for more updates/i)) {
             $suspicious++;
-            $processlist_report .=
-                    "$who_am_i -->" . $process_id . " -- " .
-                    $process_command . " -- " . $process_time . " -- " .
-                    $process_state . " -- " . $process_info . " <--suspicious\n";
+            $processlist_report .= " <--suspicious\n";
+        } elsif ($process_info ne "<undef>" and $process_time ne "<undef>" and
+                 not $process_info =~ 'Deadlock' and $process_command ne "Slave_SQL" and
+                 $process_state =~     m{Waiting for table metadata lock} and
+                 $process_time > $mdl_timeout_threshold) {
+            $suspicious++;
+            $processlist_report .= " <--suspicious\n";
+            say("ERROR: $who_am_i Query with 'Waiting for table metadata lock' and time > " .
+                "mdl_timeout_threshold($mdl_timeout_threshold" . "s) detected. Assume failure.");
+            $declare_hang = 1;
         } else {
-            $processlist_report .=
-                   "$who_am_i -->" . $process_id . " -- " .
-                   $process_command . " -- " . $process_time . " -- " .
-                   $process_state . " -- " . $process_info . " <--ok\n";
+            $processlist_report .= " <--ok\n";
+        }
+
+        # RQG worker threads get started in GenTest and prepend something like
+        # /* E_R Thread4 QNO 2743 CON_ID 112 */ to their SQL statement.
+        if ($process_info =~ m{E_R Thread}) {
+            $threads++;
+            $threads_killed++   if $process_command =~ m{Killed};
+            $threads_waiting++  if $process_state =~    m{Waiting for table metadata lock};
         }
     }
     $processlist_report .= "$who_am_i Content of processlist ---------- end";
 
-    # In case we have a suspicious query at all than we already print the processlist content.
-    if ($suspicious) {
-        say($processlist_report);
-        if ($suspicious > STALLED_QUERY_COUNT_THRESHOLD) {
-            say("ERROR: $who_am_i $suspicious suspicious queries detected. Threshold is " .
-                STALLED_QUERY_COUNT_THRESHOLD . ".");
-            $declare_hang = 1;
-        }
-    } elsif ($script_debug) {
-        say($processlist_report);
-    } else {
-        # no idea
+    say("INFO: $who_am_i RQG worker threads $threads , threads_killed : $threads_killed ," .
+        " threads_waiting : $threads_waiting");
+
+    if ($suspicious > STALLED_QUERY_COUNT_THRESHOLD) {
+        say("ERROR: $who_am_i $suspicious suspicious queries detected. Thresholds are " .
+            STALLED_QUERY_COUNT_THRESHOLD . " queries and more than $query_lifetime_threshold s.");
+        $declare_hang = 1;
     }
+
+    # For experiments only begin
+    $declare_hang = 1 if $threads_killed > $threads;
+    # For experiments only end
+
+    say($processlist_report) if $declare_hang or $suspicious or $print or $script_debug;
 
     return $declare_hang;
 }

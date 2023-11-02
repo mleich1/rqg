@@ -71,6 +71,7 @@ sub check_and_set_rqg_home {
 }
 
 our $rr_options_add;
+our $rqg_fast_dbdir_rr_add;
 our $rqg_slow_dbdir_rr_add;
 our $rqg_rr_add;
 our $results_dir;
@@ -324,7 +325,7 @@ sub check_and_set_local_config {
                 safe_exit($status);
             } else {
                 if      (DBDIR_TYPE_FAST eq $dbdir_type) {
-                    $rqg_rr_add =    '';
+                    $rqg_rr_add =    $rqg_fast_dbdir_rr_add;
                     $vardir =        $rqg_fast_dir;
                     $dbdir  =        $rqg_fast_dir;
                     $dbdir_fs_type = $fast_fs_type;
@@ -357,13 +358,14 @@ sub check_and_set_local_config {
             "INFO: dbdir                 : '$dbdir'        -- fs_type observed: $dbdir_fs_type\n"  .
             "INFO: rqg_fast_dir          : '$rqg_fast_dir' -- fs_type observed: $fast_fs_type\n"   .
             "INFO: rqg_slow_dir          : '$rqg_slow_dir' -- fs_type observed: $slow_fs_type\n"   .
+            "INFO: rqg_fast_dbdir_rr_add : '$rqg_fast_dbdir_rr_add'\n"                             .
             "INFO: rqg_slow_dbdir_rr_add : '$rqg_slow_dbdir_rr_add'\n"                             .
             "INFO: rr_options_add        : '$rr_options_add'\n"                                    .
             "INFO: rqg_rr_add            : '$rqg_rr_add'\n"                                        .
             "INFO: binarch_dir           : '$binarch_dir'\n"                                       .
             "INFO: results_dir           : '$results_dir'\n"                                       .
             "INFO: vardir                : '$vardir'\n"                                            .
-            "INFO: build_thread          : '$build_thread_message'\n"                                      .
+            "INFO: build_thread          : '$build_thread_message'\n"                              .
             Auxiliary::dash_line(length($message)))                                                ;
     }
     # For debugging

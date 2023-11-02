@@ -1506,12 +1506,7 @@ sub get_job {
                 $max_refills = 10 if PHASE_THREAD_REDUCE eq $phase;
                 if ($max_refills > $refill_number) {
                     $refill_number++;
-                    Batch::reactivate_try_replayer;
-                    Batch::reactivate_try_over;
-                    Batch::reactivate_try_over_bl;
                     Batch::reactivate_till_filled;
-                    say("DEBUG: \@try_queue refill : $refill_number")
-                        if Auxiliary::script_debug("S3");
                     next;
                 } else {
                     say("DEBUG: No \@try_queue refill. Limit of $refill_number already reached.")
@@ -1765,6 +1760,7 @@ sub generate_orders {
             $success = 0;
         }
     } elsif (PHASE_GRAMMAR_SIMP eq $phase) {
+        # Generate all possible orders
         my $rule_name = GenTest_e::Simplifier::Grammar::next_rule_to_process(
                                 RULE_JOBS_GENERATED, RULE_WEIGHT);
         while (defined $rule_name) {

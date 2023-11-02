@@ -1,4 +1,5 @@
 #  Copyright (c) 2018, 2022 MariaDB Corporation Ab.
+#  Copyright (c) 2023 MariaDB plc
 #  Use is subject to license terms.
 #
 #  This program is free software; you can redistribute it and/or modify
@@ -1541,20 +1542,24 @@ use constant ORDER_PROPERTY3        => 4;
 # The management of orders via queues and hashes
 # ==============================================
 # Picking some order for generating a job followed by execution means
-# - looking into several queues and hashes in some deterministic order
-# - pick the first element in case there is one, otherwise look into the next or similar
-# - an element picked gets removed from the corresponding queue or hash
+# - looking into %try_first_hash
+# - pick the first element in case there is one, otherwise look into @try_queue
+# - an element picked from %try_first_hash or @try_queue gets removed from there
 #   In case that order is
 #   - is valid (none of the requirements for the test are violated) than some corresponding
 #     RQG run gets started.
 #   - no more valid (Example: We should remove component x1 from rule X. But X is already removed.)
-#     than the order id gets added to %try_never_hash
+#     than the order id gets added to %try_never_hash and removed from %try_all_hash
 # After finishing some RQG run a decision about the fate of that order is done based on the fate
 # of that RQG run.
 # a) The run was stopped because of reasons like resource shortage or workflow optimization.
 #    Add the order id to @try_first_hash.
-# b) Outcome of the run is not the desired one than add the order id to %try_over_hash or
-#    %try_over_hash.
+# b) Outcome of the run is not the desired one and
+#    - unwanted (usually other bug and we do not want to move into his reagion) than add the
+#      order id to %try_over_bl_hash
+#    or
+#    - reaches the current number of maximum trials for some order than add the order id to
+#      %try_over_hash.
 # c) Outcome of the run is the desired one
 #    Combinator: like b)
 #    Simplifier:
@@ -1562,102 +1567,125 @@ use constant ORDER_PROPERTY3        => 4;
 #      Exploit that progress (=> get new parent grammar) and add order id to %try_never_hash
 #      and clean other try_*hashes.
 #    - replay based on some parent grammar older than the current one
-#      Add order id to %try_first_hash, %try_later_hash, %try_last_hash.
-#
-#
-# %try_first_hash
-# ---------------
-# Queue containing orders (-> order_id) which should be executed before any order from some other
-# hash is picked.
-# Usage:
-# - In case the execution of some order Y had to be stopped because of technical reasons than
-#   repeating that should be favoured
-#   - totally in case we run combinations because we want some dense area of coverage at end.
-#     In addition being forced to end could come at any arbitrary point of time or progress.
-#     So we need to take care immediate and should not delay that.
-#   - partially in case we run grammar simplification because we try the simplification ordered
-#     from the in average most greedy steps to the less greedy steps.
-# - In case the execution of some order Y (simplification Y applied to good grammar G replayed
-#   but was a "too late replayer" than this simplification Y could be not applied.
-#   Compared to the candidates we have in the hashes+queue
-#       %try_first_hash, @try_queue, %try_over_hash, %try_over_bl_hash
-#   the current one (second "winner") seems to be the best one (some more explanation below).
-#   Therefore we add this order id to %try_first_hash.
-my %try_first_hash;
-#
+#      Add order id to %try_first_hash.
+
 # @try_queue
 # ----------
-# Queue (driven as FIFO) containing orders (-> order_id) which should be executed if
+# Queue (driven as FIFO) containing orders (-> order_id) which should be picked if
 # %try_first_hash is empty.
 # Reasons of using a FIFO:
-# 1. Duplication of orders in them should be supported even though being in the moment not
+# 1. In case of the Simplifier the assumption about the optimal order of test modifications to be
+#    tried (called order) changes during the test campaign because of the results achieved.
+#    Example:
+#    The sub "generate_orders" causes that the heaviest modifications/orders have the smallest
+#    order id's. And at this point of work the most promising order is order id asc.
+#    But as soon as we have results (replays of desired or other unwanted bad bad effects ...)
+#    it seems reasonable to retry certain orders earlier or later. Hence some FIFO is used.
+# 2. Duplication of orders in should be supported even though being in the moment not
 #    used intentional.
 #    ... 13 - 24 - 13 - 17 ...
-# 2. It could happen that two chunks of order id's get appended and that the consumption order
-#    should be different than order id asc.
-# Usage:
-# In case orders get generated than they get appended to @try_queue.
-# In case all possible orders were already generated than the sorted keys from certain hashes get
-# appended to @try_queue.
+# In case @try_queue becomes empty than it gets refilled up to a bit more than $workers_max entries
+# in order to guarantee some roughly equal size of refill operations.
+#             The most promising candidates first.
+#        reactivate_try_replayer if $workers_max > scalar @try_queue;
+#            After that %try_replayer_hash is empty.
+#
+#            The medium promising candidates second if needed at all (likely).
+#        reactivate_try_over     if $workers_max > scalar @try_queue;
+#            After that %try_over_hash is empty.
+#
+#            The least promising candidates last if needed at all (quite likely).
+#        reactivate_try_over_bl  if $workers_max > scalar @try_queue;
+#            After that %try_over_bl_hash is empty.
+#
+#            And in case that is not sufficient (not all time) we fill based on %try_all_hash.
+#        while ($workers_max > scalar @try_queue and 0 < scalar (keys %try_all_hash) ) {
+#            reactivate_try_all;
+#            %try_all_hash will stay filled.
+#        }
 my @try_queue;
-#
-# %try_later_hash, %try_last_hash, (%try_first_hash)
-# --------------------------------------------------
-# Used than in grammar simplification only.
-# Roughly:
-# Some RQG test with a grammar based on that order replayed. But we could not exploit that
-# (mean reload grammar and get a new parent grammar) because some other test won.
-# So how does that compare to test results with other orders
-# Result of other order | remark
-# ----------------------+---------------------------------------------------------------------------
-# status_ignore_ok      | Maybe the other grammar ~~> order is not capable to replay or maybe just
-#                       | the likelihood to replay is lower.
-# ----------------------+---------------------------------------------------------------------------
-# status_ignore_bl      | Maybe the other grammar ~~> order is not capable to replay or maybe just
-#                       | the likelihood to replay is lower or maybe just the likelihood to hit
-# ----------------------+---------------------------------------------------------------------------
-# in %try_first_hash    | The stopped ones are probably in average a bit better than the
-# == status_replay or   | - a bit better than the status_ignore_ok and status_ignore_bl above.
-# status_ignore_stopped | - less good than the replayer we are talking about.
-#                       | Replayers in %try_first_hash are roughly as good as the current one.
-#
-# It seems to be better to generate more orders and add them to @try_hash than to run the
-# orders with left over efforts soon again.
-#
-# %try_over_bl_hash, %try_over_hash
-# ---------------------------------
-# Usage:
-# combinations and grammar simplification
-#   Orders where left over efforts <= 0 was reached get appended to %try_over_hash.
-#   In case of
-#       %try_first_hash and @try_queue empty
-#       and all possible combinations/simplifications were already generated
-#       and no other limitation (example: maxruntime) was exceeded
-#   the content of %try_over_hash gets sorted and all these orders get moved to @try_hash.
-#   Direct after that operation @try_over_hash is empty.
-my %try_over_bl_hash;
-my %try_over_hash;
-my %try_replayer_hash;
+
+# %try_all_hash
+# -------------
+# Usage: Combinator and Simplifier + needed for refilling @try_queue
+# At the begin of the RQG Batch Tool run the sub "get_order" will meet some empty @try_queue.
+# Therefore Simplifier::generate_orders or Combinator::generate_orders will be called.
+# That fills @try_queue and %try_all_hash with
+# - Simplifier: all possible order id's
+# - Combinator: one possible order id
+# Depending on test runs for some order and its results order id's could be moved from %try_all_hash
+# to %try_never_hash or %try_exhausted_hash.
 my %try_all_hash;
-#
+
+# %try_first_hash
+# ---------------
+# Usage: Simplifier, Combinator
+# In case a test run based on some order id <m>
+# - replayed the desired result but some concurrent test based on order <n> replayed earlier
+#   ... see %try_replayer_hash
+#   Purpose:
+#   Retry order <m> soon and increase the left over efforts because its a very promising
+#   candidate.
+# or
+# - had to be stopped
+#   Purpose:
+#   Retry order <m> soon and achieve a more balanced left over efforts consumption
+# The sub "get_order" tries
+# - pick order with smallest id from %try_first_hash + delete that id from %try_first_hash
+# before trying
+# - pick first order from @try_queue.
+my %try_first_hash;
+
+# %try_replayer_hash
+# ------------------
+# Usage: Simplifier
+# In case a test run based on some order <n> replayed the desired result but some concurrent
+# test based on order <m> replayed earlier than the modifications belonging to order <m>
+# get applied. The order <m> and maybe certain other orders become obsolete.
+# In the case that our order <n> survives we just do not know if the corresponding test with
+# <m> and <n> applied is capable to replay at all.
+# Its more likely that a test run based on <n> will replay than some average other test.
+# The current order id gets added to %try_replayer_hash.
+my %try_replayer_hash;
+
+# %try_over_bl_hash
+# -----------------
+# Usage: Simplifier
+# In case a test run based on some order id <m> replayed some other unwanted bad effect than
+# the order id gets added to %try_over_bl_hash.
+# Its less likely that a test run based on <m> will replay the desired result than some
+# average other test.
+my %try_over_bl_hash;
+
+# %try_over_hash
+# --------------
+# Usage: Simplifier
+# In case a test run based on some order id <m>
+# - did neither replay the desired result nor some other unwanted effect
+# and
+# - left over efforts <= 0 is now reached
+# than the order id gets added to %try_over_hash.
+# Its better to try lesss tested orders first.
+my %try_over_hash;
+
 # %try_never_hash
 # ----------------
-# Usage:
-# - combinations
-#   Not yet decided.
-# - grammar simplification
-#   Place orders which are no more capable to bring any progress here.
-#   == Never run a job based on this in future.
+# Usage: Simplifier
+# In case a test run based on some order id replayed the desired result before any concurrent test
+# run than the modifications belonging to that order get applied like use some new parent grammar
+# or less threads or ... from now on. Hence that order becomes obsolete.
+# In case of grammar simplification even more orders could become obsolete.
+# Example: Order 3 which replaces the content of rule "select" by '' was the first replayer.
+#          The rule "subquery" is used in the original content of rule "select" and nowhere else.
+#          Hence all orders manipulating the rule "subquery" become obsolete.
+# The id's of the obsolete orders get removed from %try_all_hash and added to %try_never_hash.
 my %try_never_hash;
-#
+
 # %try_exhausted_hash
 # -------------------
-# Usage:
-# - combinations
-#   Not yet decided.
-# - grammar simplification
-#   Place orders with EFFORTS_INVESTED >= trials here.
-#   == Never run a job based on this in future.
+# Usage: Simplifier
+# The id of some order with EFFORTS_INVESTED >= trials gets removed from %try_all_hash and added
+# to %try_exhausted_hash.
 my %try_exhausted_hash;
 
 our $out_of_ideas;
@@ -1751,8 +1779,8 @@ sub get_order {
     while (0 < scalar @try_queue) {
         $order_id = shift @try_queue;
         if (defined $order_id) {
-            say("DEBUG: $who_am_i Order $order_id picked from \@try_queue.")
-                if Auxiliary::script_debug("B5");
+            say("DEBUG: $who_am_i Order $order_id picked from \@try_queue. Current length : " .
+                scalar @try_queue) if Auxiliary::script_debug("B5");
             $order_id = is_order_valid($order_id);
             return $order_id if defined $order_id;
         }
@@ -1775,7 +1803,7 @@ sub get_order {
     # Minor reason:
     # Even though $out_of_ideas == 1 was set it might happen that some job finished and could be
     # recycled.
-    # Maybe we have not generated all orders possible?
+    # Maybe we have not already generated all orders possible?
     if      ($batch_type eq BATCH_TYPE_RQG_SIMPLIFIER) {
         my $num = Simplifier::generate_orders();
         say("DEBUG: $who_am_i \@try_queue refilled up to " .
@@ -1928,11 +1956,14 @@ sub reactivate_try_all {
     push @try_queue, sort {$a <=> $b} keys %try_all_hash;
 }
 sub reactivate_till_filled {
-    if (0 < scalar (keys %try_all_hash)) {
-        while ($workers_max > scalar @try_queue) {
-            reactivate_try_all;
-        }
+    reactivate_try_replayer if $workers_max > scalar @try_queue;
+    reactivate_try_over     if $workers_max > scalar @try_queue;
+    reactivate_try_over_bl  if $workers_max > scalar @try_queue;
+    while ($workers_max > scalar @try_queue and
+           0 < scalar (keys %try_all_hash) ) {
+        reactivate_try_all;
     }
+    say("INFO: Length of \@try_queue after reactivation of orders: " . scalar @try_queue);
 # Please note that %try_all_hash is empty could happen.
 # Example:
 # query: <some select(mean text without rules) crashing the server>;

@@ -356,6 +356,7 @@ $vardirs[0] = Local::get_vardir;
 # say("DEBUG: vardirs[0] ->" . $vardirs[0] . "<-");
 # Example from RQG stand alone run:
 # DEBUG: vardirs[0] ->/dev/shm/rqg_ext4/SINGLE_RQG<-
+my $dbdir_fs_type = Local::get_dbdir_fs_type;
 
 my $result;
 if (not $batch) {
@@ -441,11 +442,19 @@ say("Please see http://forge.mysql.com/wiki/Category:RandomQueryGenerator for mo
 # say("Starting \n# $0 \\\n# " . join(" \\\n# ", @ARGV_saved));
 $message = "# -------- Informations useful for bug reports --------------------------------------" .
            "----------------------\n" .
-           "# git clone https://github.com/mleich1/rqg --branch <pick the right branch> RQG\n#\n" .
+           "# git clone https://github.com/mleich1/rqg --branch <pick the right branch> RQG\n#\n"  .
            "# " . Auxiliary::get_git_info($rqg_home) . "\n" .
            "# rqg.pl  : " . RQG_RUNNER_VERSION . "\n#\n" .
-           "# $0 \\\n# " . join(" \\\n# ", @ARGV_saved) . "\n#\n";
+           "# $0 \\\n# " . join(" \\\n# ", @ARGV_saved) . "\n#--------\n";
 $message =~ s|$rqg_home|\$RQG_HOME|g;
+if ($rr) {
+    my $rr_options_add = Local::get_rr_options_add;
+    my $rqg_rr_add= Local::get_rqg_rr_add;
+    $message .= "# rqg_rr_add="     . $rqg_rr_add     . "\n" if $rqg_rr_add     ne '';
+    $message .= "# rr_options_add=" . $rr_options_add . "\n" if $rr_options_add ne '';
+}
+$message .= "# vardir=$vardirs[0] fs_type=$dbdir_fs_type\n";
+$message .= "\n";
 print($message);
 
 # FIXME:
@@ -471,6 +480,29 @@ if (defined $skip_gendata) {
         run_end($status);
     }
 }
+
+# FIXME_maybe:
+# Generate a SQL file $work_dir/rqg_usr.sql with
+#   my $snip_create = '@' . "'localhost' Identified BY '';\n";
+#   my $snip_grant =  '@' . "'localhost' WITH GRANT OPTION;\n";
+#   foreach my $num (1..$threads) {
+#       print GENUSER "CREATE USER 'rqg_thread$num'" .         $snip_create;
+#       print GENUSER "GRANT ALL ON *.* TO 'rqg_thread$num'" . $snip_grant;
+#   }
+#   print GENUSER "CREATE USER 'rqg_reporter'" .          $snip_create;
+#   print GENUSER "GRANT ALL ON *.* TO 'rqg_reporter'" .  $snip_grant;
+#   print GENUSER <set certain timeouts to high values>
+#   ... maybe more ...
+# Add that to the begin of the list of gendata_sql_files.
+# Adjust the corresponding connects.
+# Advantage:
+# - Better distinction between whatever threads showing up in the processlist.
+# - A thread running no query might be 'thread1' which just executes 'sleep 10'.
+#   == That thread is connected and might run further SQL soon.
+#   Limitation: A thread could be temporary disconnected!
+# - Permission related tests become better doable.
+# Less SQL somewhere for adjusting timeouts etc.
+
 my $gendata_sql_ref = Auxiliary::unify_gendata_sql(\@gendata_sql_files, $workdir);
 if (not defined $gendata_sql_ref) {
     help();
