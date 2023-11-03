@@ -142,6 +142,17 @@ our @end_line_patterns = (
     '(mariadbd|mysqld) got signal',          # SIG(!=KILL) by DB server or RQG or OS or user
 );
 
+# Note:
+# The server error log message
+#   [ERROR] Got error 128 when reading table './test/table_1'
+# in server error log seems to come from
+# - DB server and not InnoDB because the word InnoDB is missing
+#   sql/sql_select.cc:    sql_print_error("Got error %d when reading table '%s'",
+# - some OOM problem because the 128
+# and belongs sometimes to some SQL harvesting
+#       ERROR 1462 (ER_VIEW_RECURSIVE): %`s.%`s contains view recursion
+# and than its not a great message but rather harmless
+
 # I cannot exclude that some patterns will be never written into the server error log.
 # Patterns for MyISAM, Aria, Memory are missing.
 our @corruption_patterns = (
@@ -2039,16 +2050,16 @@ sub checkDatabaseIntegrity {
     } # End sub show_the_locks_per_table
 
     # For experimenting
-    if (0) {
+    if (1) {
         say("WARN: $who_am_i CREATE tables and damaged views");
-        # test.extra_v2 is damaged, base table/view missing
+        # test.extra_v1 is damaged, base table/view missing
         $executor->execute("CREATE TABLE test.extra_t1 (col1 INT)");
         $executor->execute("CREATE VIEW test.extra_v1 AS SELECT * FROM test.extra_t1");
         $executor->execute("DROP TABLE test.extra_t1");
 
         # test.extra_v2 is damaged, column missing
         $executor->execute("CREATE TABLE test.extra_t2 (col1 INT, col2 INT)");
-        $executor->execute("CREATE VIEW test.extra_v2 AS SELECT * FROM test.extra_t2");
+        $executor->execute("CREATE VIEW test.extra_v2 AS SELECT col2 FROM test.extra_t2");
         $executor->execute("ALTER TABLE test.extra_t2 DROP COLUMN col2");
 
         # test.extra_v3 is recursive
@@ -2056,7 +2067,7 @@ sub checkDatabaseIntegrity {
         $executor->execute("CREATE VIEW test.extra_v3 AS SELECT * FROM test.extra_t3");
         $executor->execute("CREATE VIEW test.extra_v4 AS SELECT * FROM test.extra_v3");
         $executor->execute("DROP TABLE test.extra_t3");
-        $executor->execute("RENAME TABLE v4 test.extra_t3");
+        $executor->execute("RENAME TABLE test.extra_v4 TO test.extra_t3");
     }
 
     #
@@ -2102,16 +2113,18 @@ sub checkDatabaseIntegrity {
             $err =       "<undef>" if not defined $err;
             my $errstr = $res_tables->errstr;
             $errstr =    "<undef>" if not defined $errstr;
-            say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err: $errstr");
-            if (STATUS_SEMANTIC_ERROR == $status) {
-                say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
-                return check_errorlog_and_return($status);
-            } else {
-                # The list of tables is determined from the server data dictionary.
-                # Hence we have a diff between server and innodb data dictionary == corruption.
-                say("ERROR: $who_am_i Raising status to STATUS_DATABASE_CORRUPTION.");
-                return check_errorlog_and_return(STATUS_DATABASE_CORRUPTION);
+            if (1462 == $err) {
+                # Recursive VIEW
+                say("INFO: $who_am_i Query ->" . $aux_query . "<- failed with $err: $errstr");
+                $status = STATUS_OK;
+                next;
             }
+            # The list of tables is determined from the server data dictionary.
+            # Hence we have a diff between server and innodb data dictionary == corruption,
+            # some similar problem or a to be tolerated case which we need to handle here.
+            say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err: $errstr");
+            say("ERROR: $who_am_i Raising status to STATUS_DATABASE_CORRUPTION.");
+            return check_errorlog_and_return(STATUS_DATABASE_CORRUPTION);
         } else {
             # say("DEBUG: $who_am_i Query ->" . $aux_query . "<- pass.");
         }
@@ -2132,10 +2145,12 @@ sub checkDatabaseIntegrity {
                 $errstr = "<undef>" if not defined $errstr;
                 if (STATUS_SEMANTIC_ERROR == $status) {
                     # The list of tables is determined from the server data dictionary.
-                    # Hence we have a diff between server and innodb data dictionary == corruption.
+                    # Hence we have a diff between server and innodb data dictionary == corruption,
+                    # some similar problem or a to be tolerated case which we need to handle here.
                     say("ERROR: $who_am_i Raising status to STATUS_DATABASE_CORRUPTION.");
                     return check_errorlog_and_return(STATUS_DATABASE_CORRUPTION);
                 }
+                say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err: $errstr");
                 say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
                 return check_errorlog_and_return($status);
             } else {
