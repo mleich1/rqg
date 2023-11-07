@@ -158,7 +158,7 @@ sub init {
     $mdl_timeout_threshold       = Runtime::get_runtime_factor() * OVERLOAD_ADD +
                                    $reporter->serverVariable('lock_wait_timeout');
     my $have_sanitizer           = $reporter->serverVariable('have_sanitizer');
-    if (defined $have_sanitizer and "ASAN" == $have_sanitizer) {
+    if (defined $have_sanitizer and "ASAN" eq $have_sanitizer) {
         $with_asan = 1;
     }
 }
@@ -383,9 +383,9 @@ sub monitor_nonthreaded {
             say("$output");
             # The backtrace above gives sometimes not sufficient information.
             # So generate some core in addition.
-            # 130 GB core file observed (asan build).
-            # --> RQG batch aborted the test battery.
-            # Hence disabled.
+            # Observation 2023-11 when testing on asan builds:
+            #    RQG batch aborted the test battery because of filesystem nearly full.
+            #    One of the core files was 130 GB. (asan build).
             if (not $with_asan) {
               $command = "gcore -o " . $reporter->serverVariable('datadir') .
                          "/gcore "   . $reporter->serverInfo('pid');
