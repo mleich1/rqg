@@ -133,7 +133,7 @@ use constant REPORTER_QUERY_THRESHOLD        => 90;   # Seconds
 # The time, in seconds, we will wait in addition for connect or a some query response in order
 # to compensate for some heavy overloaded box and maybe unfortunate OS scheduling before we declare
 # the server hanged.
-use constant OVERLOAD_ADD                    => 15;   # Seconds
+use constant OVERLOAD_ADD                    => 30;   # Seconds
 
 # exists $ENV{'RUNNING_UNDER_RR'}
 # if (defined $reporter->properties->rr) {

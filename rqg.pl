@@ -2404,10 +2404,9 @@ sub exit_test {
 sub run_end {
     my ($status) = @_;
     say($summary);
-    # $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_COMPLETE);
     # There might be failures in the process handling of the RQG mechanics.
     # So better try to kill all left over processes being in the same process group
-    # but not the current process.
+    # but not the current process only.
     kill '-9', $$;
     Auxiliary::reapChildren;
     # Tolerate that we might fail before $vardirs[0] is set or checked and

@@ -1208,7 +1208,6 @@ sub startServer {
                 return $status;
             }
             $self->printInfo;
-            # Experiment begin
             my $errorlog_status = $self->checkErrorLog;
             if (STATUS_OK != $errorlog_status) {
                 say("ERROR: $who_am_i Will crash the server if needed, make a backtrace and " .
@@ -1218,7 +1217,6 @@ sub startServer {
                 $self->make_backtrace();
                 return $errorlog_status;
             }
-            # Experiment end
         } else {
             # Here is the just forked child (aux_pid) of rqg.pl or some reporter.
             # -------------------------------------------------------------------
@@ -1462,7 +1460,6 @@ sub crashServer {
                 say("INFO: $who_am_i The server with process [" . $self->serverpid .
                     "] is already no more running. Will return STATUS_OK.");
                 $self->cleanup_dead_server;
-                # FIXME: What to return if the server is already no more running.
                 return STATUS_OK;
             }
             # Use ABRT in order to be able to distinct from genuine SEGV's.
@@ -2688,7 +2685,8 @@ sub checkDatabaseIntegrity {
                             # Maybe the table was created under innodb_strict_mode =0.
                             say("INFO: $who_am_i innodb_strict_mode is 1. Maybe the table was " .
                                 "created or altered under innodb_strict_mode = 0");
-                            my $aux_query15 =  'SET @@innodb_strict_mode = 0';
+                            # my $aux_query15 =  'SET @@innodb_strict_mode = 0';
+                            my $aux_query15 =  'SET SESSION innodb_strict_mode = 0';
                             my $res_check15 =  $executor->execute($aux_query15);
                             my $status15    =  $res_check15->status;
                             if (STATUS_OK != $status15) {
@@ -2711,7 +2709,8 @@ sub checkDatabaseIntegrity {
                                 say("DEBUG: $aux_query passed under innodb_strict_mode = 0.");
                                 $status = STATUS_OK;
                                 # Flip innodb_strict_mode back. We might have more base tables.
-                                my $aux_query15 = 'SET @@innodb_strict_mode = 1';
+                                # my $aux_query15 = 'SET @@innodb_strict_mode = 1';
+                                my $aux_query15 = 'SET SESSION innodb_strict_mode = 1';
                                 my $res_check15 = $executor->execute($aux_query15);
                                 my $status15    = $res_check15->status;
                                 if (STATUS_OK != $status15) {
@@ -2725,6 +2724,8 @@ sub checkDatabaseIntegrity {
                                         "<- failed with $err15 : $errstr15 " .
                                         Auxiliary::build_wrs($status15));
                                     return check_errorlog_and_return($status15);
+                                } else {
+                                    return check_errorlog_and_return(STATUS_OK);
                                 }
                             }
                         } else {
@@ -3636,7 +3637,6 @@ sub make_backtrace {
 
     my @commands;
     my $binary = $self->binary();
-    # Experiment:
     my $bindir = dirname($binary);
 
     if (osWindows()) {
@@ -3731,13 +3731,14 @@ sub server_is_operable {
 # 2. Check for suspicious messages in server error log
 #    Yes --> Get the server to finish, make_backtrace, return status which fits to the observation
 #    No  --> go on
-# 3. Try to connect (Supervised with timeout? But load by sessions should be ~ 0.)
+# 3. Try to connect (Supervised with timeout? But load by sessions should be ~ 0).
 #    Fail    --> kill server with SIGABRT, make_backtrace, return STATUS_SERVER_DEADLOCKED
 #    Success --> SHOW PROCESSLIST, print result, disconnect, return STATUS_OK
 #
 # There must be never more than one process running server_is_operable.
 #
 # Using server_is_operable during GenData or GenTest leads with high likelihood to false alarms.
+# Reason: The criterions applied to content of the processlist.
 #
 # Example of a SHOW PROCESSLIST result set.
 # 0   1     2          3     4        5     6      7                 8
@@ -3956,6 +3957,7 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
 
                     if ($process_info ne "<undef>" and $process_time ne "<undef>" and
                         # GenData or GenTest should be finished + max_statement_time is usually 30s.
+                        # Competing sessions making serious load should not exist.
                         ($process_command ne "Slave_SQL" and $process_time > 30) or
                         # Slave_SQL > 30s but < 60s was observed.
                         ($process_command eq "Slave_SQL" and $process_time > 60 and not
@@ -4075,7 +4077,7 @@ sub server_pid_per_pidfile {
     my $self = shift;
 
     my $who_am_i =  Basics::who_am_i;
-    my $pid = Auxiliary::get_pid_from_file($self->pidfile, 1);
+    my $pid      = Auxiliary::get_pid_from_file($self->pidfile, 1);
     if (defined $pid) {
         # say("DEBUG: $who_am_i serverpid found in pidfile.");
         return $pid;
