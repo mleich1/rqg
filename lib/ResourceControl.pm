@@ -745,9 +745,9 @@ sub report {
             $info_m = "D6";
             $info = "INFO: $info_m Paging ($pswpout) has been observed. This $end_part";
             charge_decrease;
-        } elsif ($slowdir_consumed > $slowdir_free_init * 0.92) {
+        } elsif ($slowdir_consumed > $slowdir_free_init * 0.91) {
             $info_m = "D7";
-            $info = "INFO: $info_m 92% of initial free space in slowdir used. This $end_part.";
+            $info = "INFO: $info_m 91% of initial free space in slowdir used. This $end_part.";
             charge_decrease;
         }
     }
@@ -784,9 +784,9 @@ sub report {
             $info_m = "K6";
             $info = "INFO: $info_m 1% of total swap space used consumed for testing. This $end_part";
             charge_keep;
-        } elsif ($slowdir_consumed > $slowdir_free_init * 0.88) {
+        } elsif ($slowdir_consumed > $slowdir_free_init * 0.87) {
             $info_m = "K7";
-            $info = "INFO: $info_m 88% of initial free space in slowdir used. This $end_part.";
+            $info = "INFO: $info_m 87% of initial free space in slowdir used. This $end_part.";
             charge_keep;
         }
     }
@@ -978,3 +978,8 @@ sub print_statistics {
 
 1;
 
+###########################################################################
+# CR_MB tests
+# maximum rss:                     3108060 KB
+# maximum total (slowdir+fastdir): 4602532 KB
+# maximum in slow_dir:             2304792 KB
