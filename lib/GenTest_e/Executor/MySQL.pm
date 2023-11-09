@@ -2258,7 +2258,6 @@ sub getSchemaMetaData {
     my $who_am_i = "GenTest_e::Executor::getSchemaMetaData:";
 
     my $role = $self->role;
-
     my $trace_addition = ' /* E_R ' . $role . ' QNO 0' .
                         ' CON_ID ' . $self->connectionId() . ' */ ';
 
@@ -2329,7 +2328,7 @@ sub getSchemaMetaData {
          SQLtrace::sqltrace_before_execution($query);
          # exp_server_kill("getSchemaMetaData", $query);
          my $count_row = $self->dbh()->selectrow_arrayref($query);
-         $error = $self->dbh()->err();
+         $error =        $self->dbh()->err();
          SQLtrace::sqltrace_after_execution($error);
          if (not defined $count_row) {
              # SQL syntax error or DB server dead.
@@ -2339,7 +2338,6 @@ sub getSchemaMetaData {
              say("ERROR: getSchemaMetaData: The query was ->$query<-.");
              say("ERROR: $error: " . $self->dbh()->errstr());
              say("ERROR: getSchemaMetaData: Will return undef.");
-             ########## my $error_type = $err2type{$error} || STATUS_OK;
              return undef;
          }
          $table_rows{$tbl} = $count_row->[0];
@@ -2363,23 +2361,12 @@ sub getCollationMetaData {
     # exp_server_kill($who_am_i, $query);
 
     my $result = $self->execute("$query");
-    # $result->status, result->err, $result->errstr() might look attractive.
-    # But in case
-    # - the (first) MetadaCacher runs this code than its the main RQG process.
-    #   And that must return a good result or undef because otherwise the required stop of the
-    #   would not happen.
-    # - some thread dedicated for YY grammar processing would run this code than we can
-    #   simply exit because its a child process.
-    #
     my $res = $result->data;
-    # my $res = $self->dbh()->selectall_arrayref($query);
     if (not defined $res) {
         # SQL syntax error, DB server dead but not empty result set
         my $error = $result->err;
-        # Carp::cluck("ERROR: $who_am_i .... failed with error $error.");
         say("FATAL ERROR: $who_am_i The query ->$query<- failed with error $error. " .
             "Will return undef.");
-        ########## my $error_type = $err2type{$error} || STATUS_OK;
         return undef;
     }
     return $res;
