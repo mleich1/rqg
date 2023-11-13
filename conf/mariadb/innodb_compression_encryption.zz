@@ -1,4 +1,5 @@
 # Copyright (C) 2016 MariaDB Corporation.
+# Copyright (C) 2023 MariaDB plc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,13 +16,19 @@
 # USA
 
 # Rough imitation of OLTP test (sysbench-like)
-# Default number of tables is 5, 1000 rows each, 
+# Default number of tables is 5, 1000 rows each,
 # it can be changed by providing --rows parameter on the command line
 
+# Warning:
+# Some historic version filled the table 't8' with 50000 rows.
+# This caused that statements like LTER TABLE t8 ... reached runtimes which
+# exceed QUERY_LIFETIME_THRESHOLD set in the reporter "Deadlock".
+# Raising QUERY_LIFETIME_THRESHOLD over duration and similar would cause
+# other serious trouble. Hence we go with 20000 rows.
 $tables = {
         pk => [ undef ],
         names => [  't1', 't2', 't3', 't4', 't5', 't6', 't7', 't8' ],
-        rows => [ 1000, 1000, 1000, 1000, 1000, 10000, 10000, 50000 ]
+        rows => [ 1000, 1000, 1000, 1000, 1000, 10000, 10000, 20000 ]
 };
 
 $fields = {
