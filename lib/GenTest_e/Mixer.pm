@@ -49,6 +49,8 @@ $Carp::MaxArgNums = 20;
 sub new {
     my $class = shift;
 
+    my $who_am_i = Basics::who_am_i;
+
     my $mixer = $class->SUPER::new({
          'generator'       => MIXER_GENERATOR,
          'executors'       => MIXER_EXECUTORS,
@@ -60,20 +62,20 @@ sub new {
          'role'            => MIXER_ROLE
     }, @_);
 
-    Carp::cluck("DEBUG: Mixer::new:") if $debug_here;
+    Carp::cluck("DEBUG: $who_am_i") if $debug_here;
 
     foreach my $executor (@{$mixer->executors()}) {
         if (defined $mixer->end_time()) {
             if (time() > $mixer->end_time()) {
-                say("INFO: " . $mixer->role() . " in Mixer giving up because end_time exceeded " .
+                say("INFO: $who_am_i" . $mixer->role() . " giving up because end_time exceeded " .
                     "(1). Will return undef.");
                 return undef;
             }
             $executor->set_end_time($mixer->end_time());
         } else {
             my $status = STATUS_INTERNAL_ERROR;
-            Carp::cluck("ERROR: mixer->end_time is undef. Will exit with exit status " .
-                        "STATUS_INTERNAL_ERROR(" . $status . ").");
+            Carp::cluck("ERROR: $who_am_i" . $mixer->role() . " mixer->end_time is undef. " .
+                        "Will exit with exit status STATUS_INTERNAL_ERROR(" . $status . ").");
             # IMHO we can exit here without additional damage.
             exit $status;
         }
@@ -91,17 +93,16 @@ sub new {
         #    big runtime of the SQL's.
         my $status = $executor->cacheMetaData();
         if ($status != STATUS_OK) {
-            say("ERROR: cacheMetaData for " . $mixer->role() . " failed with status $status. " .
+            say("ERROR: $who_am_i cacheMetaData for " . $mixer->role() . " failed with status $status. " .
                 "Will return undef.");
             return undef;
         }
     }
     if (defined $mixer->end_time() && (time() > $mixer->end_time())) {
-        say("INFO: " . $mixer->role() . " in Mixer giving up because end_time exceeded " .
+        say("INFO: $who_am_i" . $mixer->role() . " in Mixer giving up because end_time exceeded " .
             "(2). Will return undef.");
         return undef;
     }
-
 
     my @validators;
     my %validators;
@@ -123,11 +124,11 @@ sub new {
             # If there was no error, $@ is set to the empty string.
             eval "use $validator";
             if ('' ne $@) {
-                say("ERROR: " . $mixer->role() . " in Mixer : Loading Validator '$validator' " .
+                say("ERROR: $who_am_i " . $mixer->role() . " : Loading Validator '$validator' " .
                     "failed : $@. Will return undef.");
                 return undef;
             }
-            say("INFO: " . $mixer->role() . " in Mixer : Validator '$validator' loaded.");
+            say("INFO: $who_am_i " . $mixer->role() . " : Validator '$validator' loaded.");
 
             my $validator_new = $validator->new();
             $validator_new->configure($mixer->properties);
@@ -149,7 +150,7 @@ sub new {
             $prerequisite = "GenTest_e::Validator::" . $prerequisite;
             eval "use $prerequisite";
             if ('' ne $@) {
-                say("ERROR: " . $mixer->role() . " in Mixer : Loading the prerequisite '" .
+                say("ERROR: $who_am_i " . $mixer->role() . " : Loading the prerequisite '" .
                     $prerequisite . "' for the validator '$validator' failed : $@. " .
                     "Will return undef.");
                 return undef;
@@ -164,7 +165,7 @@ sub new {
     foreach my $validator (@validators) {
         return undef if not defined $validator->init($mixer->executors());
         if (defined $mixer->end_time() && (time() > $mixer->end_time())) {
-            say("INFO: " . $mixer->role() . " in Mixer giving up because end_time exceeded " .
+            say("INFO: $who_am_i " . $mixer->role() . " : Giving up because end_time exceeded " .
                 "(3). Will return undef.");
             return undef;
         }
@@ -172,11 +173,12 @@ sub new {
 
     say("INFO: " . $mixer->role() . " : Mixer created.");
     return $mixer;
-}
+} # End sub new
 
 sub next {
-
     my $mixer =     shift;
+
+    my $who_am_i = Basics::who_am_i;
 
     my $executors = $mixer->executors();
     my $filters =   $mixer->filters();
@@ -196,21 +198,21 @@ sub next {
                 $ex->execute("SET TIMESTAMP = 0");
                 $ex->execute("SET TIMESTAMP = UNIX_TIMESTAMP(NOW())");
             } else {
-                Carp::cluck "ERROR: Don't know how to freeze time for " . $ex->getName;
-                say("ERROR:        Will return STATUS_ENVIRONMENT_FAILURE");
+                Carp::cluck "ERROR: $who_am_i Don't know how to freeze time for " . $ex->getName;
+                say("ERROR:           Will return STATUS_ENVIRONMENT_FAILURE");
                 return STATUS_ENVIRONMENT_FAILURE;
             }
         }
     }
 
-    say("DEBUG: Mixer::next: Before generating the next queries for $mixer_role") if $debug_here;
+    say("DEBUG: $who_am_i Before generating the next queries for $mixer_role") if $debug_here;
 
     my $queries = $mixer->generator()->next($executors);
     # For experimenting
     # $queries = undef;
     if (not defined $queries) {
-        say("ERROR: $mixer_role in Mixer : Internal grammar problem(\$queries is not defined).\n" .
-            "ERROR:                        Will return STATUS_ENVIRONMENT_FAILURE");
+        say("ERROR: $who_am_i $mixer_role : Internal grammar problem(\$queries is not defined).\n" .
+            "ERROR:                         Will return STATUS_ENVIRONMENT_FAILURE");
         return STATUS_ENVIRONMENT_FAILURE;
     }
     # Note: Empty queries need to stay allowed because of sophisticated grammars and the simplifier.
@@ -219,12 +221,12 @@ sub next {
 
     query: foreach my $query (@$queries) {
         # The check which follows here cannot prevent 100% that the reporter Deadlock could
-        # mean to have detected a problem based on  The duration was far way exceeded.
+        # mean to have detected a problem based on  "The duration was far way exceeded".
         # Reasons:
         # 1. There can be more than one executor per SQL statement.
         # 2. There could be several validators and especially several transformers per statement.
         if ($mixer->end_time() && (time() > $mixer->end_time())) {
-            say("INFO: $mixer_role in Mixer : We have already exceeded time specified by " .
+            say("INFO: $who_am_i $mixer_role : We have already exceeded time specified by " .
                 "--duration=x; Will leave Mixer soon.");
             last query;
         }
@@ -232,7 +234,7 @@ sub next {
         # Omit to execute queries consisting of white spaces only.
         next if $query =~ m{^\s*$}o;
 
-        say("DEBUG: Mixer::next: $mixer_role before processing '" . $query .
+        say("DEBUG: $who_am_i $mixer_role before processing '" . $query .
             "' of the query sequence") if $debug_here;
         if (defined $filters) {
             foreach my $filter (@$filters) {
@@ -258,14 +260,14 @@ sub next {
             my $execution_result = $executor->execute($query);
 
             if (not defined $execution_result) {
-                Carp::cluck("ALARM: $mixer_role in Mixer: undef execution_result got for query " .
+                Carp::cluck("ALARM: $who_am_i $mixer_role : undef execution_result got for query " .
                             "->$query<-.\n" . "Will return STATUS_INTERNAL_ERROR.");
                 return STATUS_INTERNAL_ERROR;
             }
 
             my $result_status = $execution_result->status();
             if (not defined $result_status) {
-                Carp::cluck("ALARM: $mixer_role in Mixer: undef result_status got for query " .
+                Carp::cluck("ALARM: $who_am_i $mixer_role : undef result_status got for query " .
                             "->$query<-.\n" . "Will return STATUS_INTERNAL_ERROR.");
                 return STATUS_INTERNAL_ERROR;
             }
@@ -275,7 +277,7 @@ sub next {
                     ($result_status == STATUS_SERVER_CRASHED or
                      $result_status == STATUS_SERVER_KILLED  or
                      $result_status == STATUS_REPLICATION_FAILURE)) {
-                say("INFO: $mixer_role in Mixer: Server has gone away, waiting up till " .
+                say("INFO: $who_am_i $mixer_role : Server has gone away, waiting up till " .
                     "\$restart_timeout(" . $restart_timeout . ") seconds to see if it gets back.")
                     if $restart_timeout == $mixer->restart_timeout() or $restart_timeout == 1;
                 while ($restart_timeout) {
@@ -302,7 +304,7 @@ sub next {
                     # 4. Report if the server did not come up.
                     if ($executor->execute("SELECT 'Heartbeat'",
                                            EXECUTOR_FLAG_SILENT)->status() == STATUS_OK) {
-                        say("INFO: $mixer_role in Mixer : Server is back, repeating the " .
+                        say("INFO: $who_am_i $mixer_role : Server is back, repeating the " .
                             "last query");
                         redo EXECUTE_QUERY;
                     }
@@ -353,7 +355,7 @@ sub next {
                 #    "thread*_connect" but we have not rerun them here.
                 #    Solution: Force the generator to pick such rules as starting rule when being
                 #              asked for the next query.
-                # 4. Lets assume the solution described in 3. is implemented.
+                # 4. Lets assume the solution described in 3. is implemented. It is since ~ 2019.
                 #    As soon as the generator is asked for the next QUERY the starting rules
                 #    "*_connect" get picked. After that follows the huge amount of QUERYs which get
                 #    generated from the rules "query" and "thread*". And they run in the right
@@ -376,7 +378,7 @@ sub next {
                 #    Server one runs some autocommitted UPDATE with success
                 #    Server two runs some autocommitted UPDATE but fails
                 #    Now we might have some inconsistency.
-                say("INFO: $mixer_role in Mixer : STATUS_SKIP_RELOOP got.");
+                say("INFO: $who_am_i $mixer_role : STATUS_SKIP_RELOOP got.");
                 # Disconnect all executors (one per server).
                 # The next $executor->execute will than do a reconnect.
                 foreach my $executor (@{$mixer->executors()}) {
@@ -474,7 +476,7 @@ sub next {
         status2text($max_status) . "($max_status).") if $debug_here;
 
     return $max_status;
-}
+} # End sub next
 
 sub DESTROY {
 
