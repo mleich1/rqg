@@ -404,6 +404,8 @@ sub doGenTest {
 
         # Wait for processes to complete, i.e only processes spawned by workers & reporters.
         foreach my $spawned_pid (@spawned_pids) {
+            # Warning:
+            # A "last" will leave the foreach loop but not the the loop "OUTER".
 
             my $message_begin = "Process with pid $spawned_pid ";
 
@@ -411,8 +413,9 @@ sub doGenTest {
                                                                     $worker_pids{$spawned_pid});
             if (0 == $reaped) {
                 if ($child_exit_status > STATUS_OK) {
-                    say("INTERNAL ERROR: Inconsistency that child_exit_status $child_exit_status " .
-                        "was got though process [$spawned_pid] was not reaped.");
+                    say("INTERNAL ERROR: $who_am_i Inconsistency that child_exit_status " .
+                        $child_exit_status . " was got though process [$spawned_pid] " .
+                        "was not reaped.");
                     return STATUS_INTERNAL_ERROR;
                 } else {
                     next;
@@ -425,7 +428,7 @@ sub doGenTest {
                     say($message_begin . "for periodic reporter" . $message_end);
                     # There is only exact one reporter process. So we leave the loop.
                     $reporter_died = 1;
-                    say("DEBUG: GenTest_e: Therefore leaving the 'OUTER' loop.") if $debug_here;
+                    say("DEBUG: $who_am_i Therefore leaving the 'OUTER' loop.") if $debug_here;
                     last OUTER;
                 } else {
                     $total_status_t = $child_exit_status if $child_exit_status > $total_status_t;
@@ -433,7 +436,10 @@ sub doGenTest {
                     delete $worker_pids{$spawned_pid};
                 }
                 last OUTER if $child_exit_status >= STATUS_CRITICAL_FAILURE;
-                last OUTER if 0 == scalar (keys %worker_pids);
+                if ( 0 == scalar (keys %worker_pids) ) {
+                    say("INFO: $who_am_i All worker threads have finished. Leaving OUTER.");
+                    last OUTER;
+                }
             }
         }
         if (time() > $update_size_time) {
@@ -443,21 +449,25 @@ sub doGenTest {
                 $update_size_time = time() + 2;
             }
         }
-        if (time() >= $self->[GT_TEST_END] + Runtime::get_runtime_factor() * 120) {
-            # (mleich) What follows is experimental
-            # In case we are here than there was no obvious problem (see code above) to stop
-            # the looping.
-            # But we might never leave the loop 'OUTER' because of
-            # - DB server freezes which let worker/reporters hang
-            # and/or
-            # - RQG components (worker/reporters) which do not care about test runtime
-            # Observations 2023-01:
-            # 1. Without time() >= $self->[GT_TEST_END] ... RQG maxruntime exceeded, reason unknown
-            # 2. With time() >= $self->[GT_TEST_END] + 30s  Deadlock reportet but no problem at all
-            $total_status = STATUS_CRITICAL_FAILURE;
-            say("ERROR: GenTest_e: The GenTest runtime was serious exceeded. Leaving the 'OUTER' " .
-                "loop with total_status STATUS_CRITICAL_FAILURE.");
-            last;
+        if (time() >= $self->[GT_TEST_END]) {
+            say("DEBUG: Number of remaining worker processes: " . scalar (keys %worker_pids));
+
+            if (time() >= $self->[GT_TEST_END] + Runtime::get_runtime_factor() * 120) {
+                # (mleich) What follows is experimental
+                # In case we are here than there was no obvious problem (see code above) to stop
+                # the looping.
+                # But we might never leave the loop 'OUTER' because of
+                # - DB server freezes which let worker/reporters hang
+                # and/or
+                # - RQG components (worker/reporters) which do not care about test runtime
+                # Observations 2023-01:
+                # 1. Without time() >= $self->[GT_TEST_END] ... RQG maxruntime exceeded, reason unknown
+                # 2. With time() >= $self->[GT_TEST_END] + 30s  Deadlock reportet but no problem at all
+                $total_status = STATUS_CRITICAL_FAILURE;
+                say("ERROR: GenTest_e: The GenTest runtime was serious exceeded. Leaving the 'OUTER' " .
+                    "loop with total_status STATUS_CRITICAL_FAILURE.");
+                last OUTER;
+            }
         }
         sleep 5;
     } # End of loop OUTER
@@ -851,6 +861,8 @@ sub reportingProcess {
 sub workerProcess {
     my ($self, $worker_id) = @_;
 
+    my $who_am_i = Basics::who_am_i;
+
     my $worker_pid = fork();
     # FIXME: That fork can fail!
 
@@ -893,48 +905,48 @@ sub workerProcess {
     );
 
     if (not defined $mixer) {
-        say("ERROR: GenTest_e failed to create a Mixer for $worker_role. " .
+        say("ERROR: $who_am_i Failed to create a Mixer for $worker_role. " .
             "Status will be set to ENVIRONMENT_FAILURE");
         # Hint: stopChild exits
         $self->stopChild(STATUS_ENVIRONMENT_FAILURE);
     }
 
     while (time() < $self->[GT_TEST_START]) {
-       sleep 1;
+        sleep 1;
     }
 
     my $worker_result = 0;
 
-   foreach my $i (1..$self->config->queries) {
-      my $query_result = $mixer->next();
-      $worker_result = $query_result if $query_result > $worker_result && $query_result > STATUS_TEST_FAILURE;
+    foreach my $i (1..$self->config->queries) {
+        my $query_result = $mixer->next();
+        $worker_result = $query_result
+                         if $query_result > $worker_result && $query_result > STATUS_TEST_FAILURE;
 
-      if ($query_result >= STATUS_CRITICAL_FAILURE) {
-         say("ERROR: GenTest_e: Server crash or critical failure (" . status2text($query_result) .
-             ") was reported.\n" .
-             "         The child process for $worker_role will be stopped.");
-         undef $mixer;   # so that destructors are called
-         $self->stopChild($query_result);
-      }
+        if ($query_result >= STATUS_CRITICAL_FAILURE) {
+            say("ERROR: $who_am_i Server crash or critical failure (" . status2text($query_result) .
+                ") was reported.\n" .
+                "         The child process for $worker_role will be stopped.");
+            last;
+        }
 
-      last if $query_result == STATUS_EOF;
-      last if $ctrl_c == 1;
-      if (time() > $self->[GT_TEST_END]) {
-          say("DEBUG: GenTest_e: $worker_role Endtime exceeded. Will stop soon.") if $debug_here;
-          last;
-      }
-   }
+        last if $query_result == STATUS_EOF;
+        last if $ctrl_c == 1;
+        if (time() > $self->[GT_TEST_END]) {
+             say("DEBUG: $who_am_i $worker_role Endtime exceeded. Will stop soon.") if $debug_here;
+             last;
+        }
+    }
 
     foreach my $executor (@executors) {
-       $executor->disconnect;
-       undef $executor;
+        $executor->disconnect;
+        undef $executor;
     }
 
     # Forcefully deallocate the Mixer so that Validator destructors are called
-    undef $mixer;
+    undef $mixer; # so that destructors are called
     undef $self->[GT_QUERY_FILTERS];
 
-    my $message_part= "INFO: GenTest_e: Child process for $worker_role completed";
+    my $message_part= "INFO: $who_am_i Child process for $worker_role completed";
     if ($worker_result > 0) {
         say("$message_part with status " . status2text($worker_result) . "($worker_result).");
         $self->stopChild($worker_result);
