@@ -2047,7 +2047,7 @@ sub checkDatabaseIntegrity {
     } # End sub show_the_locks_per_table
 
     # For experimenting
-    if (1) {
+    if (0) {
         say("WARN: $who_am_i CREATE tables and damaged views");
         # test.extra_v1 is damaged, base table/view missing
         $executor->execute("CREATE TABLE test.extra_t1 (col1 INT)");
