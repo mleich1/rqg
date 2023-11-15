@@ -88,7 +88,7 @@ sub new {
         'config' => GT_CONFIG}, @_);
 
     # Initialize the reporters now because running Gendata and a bit of GenTest_e before failing
-    # because of defect or missing reporters is wasting of resources at runtime
+    # because of defect or missing reporters is wasting of resources at runtime.
     my $status = $self->initReporters;
     if (STATUS_OK != $status) {
         say("ERROR: GenTest_e: initReporters returned status $status. Will return undef.");
