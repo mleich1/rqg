@@ -84,7 +84,7 @@ sub new {
         # Observed scenario:
         return undef if $init_result > STATUS_OK;
         # FIXME:
-        # 1. In case the MetadataCacher was already called + finished with success (app/GenTest_e.pm)
+        # 1. In case the MetadataCacher was already called + finished with success (GenTest_e.pm)
         #    than cacheMetaData does not replace any already cached metadata.
         # 2. In the probably unlikely case that there are no existing cached metadata than its
         #    tried to cache these data. And that could fail because of too small
@@ -93,8 +93,8 @@ sub new {
         #    big runtime of the SQL's.
         my $status = $executor->cacheMetaData();
         if ($status != STATUS_OK) {
-            say("ERROR: $who_am_i cacheMetaData for " . $mixer->role() . " failed with status $status. " .
-                "Will return undef.");
+            say("ERROR: $who_am_i cacheMetaData for " . $mixer->role() . " failed with status " .
+                $status . " Will return undef.");
             return undef;
         }
     }
@@ -318,7 +318,7 @@ sub next {
                 #    compatible before starting to execute q1.
                 # -  And this state is influenced by the
                 #    history since connect. The important properties of that state are
-                #    - Is there already an open transaction havin modified data
+                #    - Is there already an open transaction having modified data?
                 #    - Which content have user defined and session variables?
                 # -  Lets assume
                 #    - q1 setting a session variable
@@ -461,7 +461,6 @@ sub next {
     # is for all rules to generate at least some STATUS_OK queries. If not, the offending
     # rules will be reported on DESTROY.
     #
-
     if ((rqg_debug()) && (ref($mixer->generator()) eq 'GenTest_e::Generator::FromGrammar')) {
         my $participating_rules = $mixer->generator()->participatingRules();
         foreach my $participating_rule (@$participating_rules) {
