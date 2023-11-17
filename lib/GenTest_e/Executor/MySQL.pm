@@ -124,9 +124,9 @@ use constant EXECUTOR_MYSQL_AUTOCOMMIT => 20;
 use constant SLAVE_INFO_HOST => 1;
 use constant SLAVE_INFO_PORT => 2;
 
-#
-# Error codes
-#
+#                                                                        # Either the pattern of the message printed
+# Error codes                                                            # or the comment in some version of Elena Stepanova
+#                                                                        # or ...
 
 use constant  ER_OUTOFMEMORY2                                   => 5;    # returned by some storage engines
 use constant  ER_CRASHED1                                       => 126;  # Index is corrupted
@@ -135,207 +135,209 @@ use constant  ER_AUTOINCREMENT                                  => 167;  # Faile
 use constant  ER_INCOMPATIBLE_FRM                               => 190;  # Incompatible key or row definition between the MariaDB .frm file and the information in the storage engine
 
 use constant  ER_CANT_CREATE_TABLE                              => 1005; # Can't create table %`s.%`s (errno: %M)
-use constant  ER_DB_CREATE_EXISTS                               => 1007;
-use constant  ER_DB_DROP_EXISTS                                 => 1008;
-use constant  ER_CANT_LOCK                                      => 1015;
-use constant  ER_FILE_NOT_FOUND                                 => 1017;
-use constant  ER_CHECKREAD                                      => 1020;
-use constant  ER_DISK_FULL                                      => 1021;
-use constant  ER_DUP_KEY                                        => 1022;
-use constant  ER_ERROR_ON_RENAME                                => 1025;
-use constant  ER_FILSORT_ABORT                                  => 1028;
-use constant  ER_GET_ERRNO                                      => 1030;
-use constant  ER_ILLEGAL_HA                                     => 1031;
-use constant  ER_KEY_NOT_FOUND                                  => 1032;
+use constant  ER_CANT_CREATE_DB                                 => 1006; # Can't create database '%-.192s' (errno: %M)
+use constant  ER_DB_CREATE_EXISTS                               => 1007; # Can't create database '%-.192s'; database exists
+use constant  ER_DB_DROP_EXISTS                                 => 1008; # Can't drop database '%-.192s'; database doesn't exist
+use constant  ER_CANT_LOCK                                      => 1015; # Can't lock file (errno: %M)
+use constant  ER_FILE_NOT_FOUND                                 => 1017; # Can't find file: '%-.200s' (errno: %M)
+use constant  ER_CHECKREAD                                      => 1020; # Record has changed since last read in table '%-.192s'
+use constant  ER_DISK_FULL                                      => 1021; # Disk full (%s); waiting for someone to free some space... (errno: %M)
+use constant  ER_DUP_KEY                                        => 1022; # Can't write; duplicate key in table '%-.192s'
+use constant  ER_ERROR_ON_RENAME                                => 1025; # Error on rename of '%-.210s' to '%-.210s' (errno: %M)
+use constant  ER_FILSORT_ABORT                                  => 1028; # Sort aborted
+use constant  ER_GET_ERRNO                                      => 1030; # Got error %M from storage engine %s
+use constant  ER_ILLEGAL_HA                                     => 1031; # Storage engine %s of the table %`s.%`s doesn't have this option
+use constant  ER_KEY_NOT_FOUND                                  => 1032; # Can't find record in '%-.192s'
 use constant  ER_NOT_FORM_FILE                                  => 1033; # Incorrect information in file: '%-.200s'
-use constant  ER_NOT_KEYFILE                                    => 1034;
-use constant  ER_OPEN_AS_READONLY                               => 1036;
-use constant  ER_OUTOFMEMORY                                    => 1037;
-use constant  ER_UNEXPECTED_EOF                                 => 1039;
-use constant  ER_CON_COUNT_ERROR                                => 1040;
-use constant  ER_OUT_OF_RESOURCES                               => 1041;
-use constant  ER_DBACCESS_DENIED_ERROR                          => 1044;
-use constant  ER_NO_DB_ERROR                                    => 1046;
-use constant  ER_BAD_NULL_ERROR                                 => 1048;
-use constant  ER_BAD_DB_ERROR                                   => 1049;
-use constant  ER_TABLE_EXISTS_ERROR                             => 1050;
-use constant  ER_BAD_TABLE_ERROR                                => 1051;
-use constant  ER_NON_UNIQ_ERROR                                 => 1052;
-use constant  ER_SERVER_SHUTDOWN                                => 1053;
-use constant  ER_BAD_FIELD_ERROR                                => 1054;
-use constant  ER_WRONG_FIELD_WITH_GROUP                         => 1055;
-use constant  ER_WRONG_GROUP_FIELD                              => 1056;
-use constant  ER_DUP_FIELDNAME                                  => 1060;
-use constant  ER_DUP_KEYNAME                                    => 1061;
-use constant  ER_DUP_ENTRY                                      => 1062;
-use constant  ER_WRONG_FIELD_SPEC                               => 1063;
-use constant  ER_PARSE_ERROR                                    => 1064;
-use constant  ER_NONUNIQ_TABLE                                  => 1066;
-use constant  ER_INVALID_DEFAULT                                => 1067;
-use constant  ER_MULTIPLE_PRI_KEY                               => 1068;
-use constant  ER_TOO_MANY_KEYS                                  => 1069;
-use constant  ER_TOO_LONG_KEY                                   => 1071;
-use constant  ER_KEY_COLUMN_DOES_NOT_EXIST                      => 1072;
-use constant  ER_TOO_BIG_FIELDLENGTH                            => 1074;
-use constant  ER_WRONG_AUTO_KEY                                 => 1075;
-use constant  ER_FILE_EXISTS_ERROR                              => 1086;
-use constant  ER_WRONG_SUB_KEY                                  => 1089;
-use constant  ER_CANT_REMOVE_ALL_FIELDS                         => 1090;
-use constant  ER_CANT_DROP_FIELD_OR_KEY                         => 1091;
-use constant  ER_UPDATE_TABLE_USED                              => 1093;
-use constant  ER_NO_SUCH_THREAD                                 => 1094;
-use constant  ER_TABLE_NOT_LOCKED_FOR_WRITE                     => 1099;
-use constant  ER_TABLE_NOT_LOCKED                               => 1100;
-use constant  ER_TOO_BIG_SELECT                                 => 1104;
-use constant  ER_UNKNOWN_TABLE                                  => 1109;
-use constant  ER_FIELD_SPECIFIED_TWICE                          => 1110;
-use constant  ER_INVALID_GROUP_FUNC_USE                         => 1111;
-use constant  ER_TABLE_MUST_HAVE_COLUMNS                        => 1113;
-use constant  ER_RECORD_FILE_FULL                               => 1114;
-use constant  ER_TOO_BIG_ROWSIZE                                => 1118;
-use constant  ER_STACK_OVERRUN                                  => 1119;
-use constant  ER_PASSWORD_NO_MATCH                              => 1133;
-use constant  ER_CANT_CREATE_THREAD                             => 1135;
-use constant  ER_WRONG_VALUE_COUNT_ON_ROW                       => 1136;
-use constant  ER_CANT_REOPEN_TABLE                              => 1137;
-use constant  ER_MIX_OF_GROUP_FUNC_AND_FIELDS                   => 1140;
-use constant  ER_NONEXISTING_GRANT                              => 1141;
-use constant  ER_NO_SUCH_TABLE                                  => 1146;
-use constant  ER_NONEXISTING_TABLE_GRANT                        => 1147;
-use constant  ER_SYNTAX_ERROR                                   => 1149;
-use constant  ER_TABLE_CANT_HANDLE_BLOB                         => 1163;
-use constant  ER_WRONG_MRG_TABLE                                => 1168;
-use constant  ER_BLOB_KEY_WITHOUT_LENGTH                        => 1170;
-use constant  ER_TOO_MANY_ROWS                                  => 1172;
-use constant  ER_KEY_DOES_NOT_EXITS                             => 1176;
-use constant  ER_CHECK_NOT_IMPLEMENTED                          => 1178;
-use constant  ER_FLUSH_MASTER_BINLOG_CLOSED                     => 1186;
-use constant  ER_FT_MATCHING_KEY_NOT_FOUND                      => 1191;
-use constant  ER_LOCK_OR_ACTIVE_TRANSACTION                     => 1192;
-use constant  ER_UNKNOWN_SYSTEM_VARIABLE                        => 1193;
-use constant  ER_CRASHED_ON_USAGE                               => 1194;
+use constant  ER_NOT_KEYFILE                                    => 1034; # Index for table '%-.200s' is corrupt; try to repair it
+use constant  ER_OPEN_AS_READONLY                               => 1036; # Table '%-.192s' is read only
+use constant  ER_OUTOFMEMORY                                    => 1037; # Out of memory; restart server and try again (needed %d bytes)
+use constant  ER_UNEXPECTED_EOF                                 => 1039; # Unexpected EOF found when reading file '%-.192s' (errno: %M)
+use constant  ER_CON_COUNT_ERROR                                => 1040; # Too many connections
+use constant  ER_OUT_OF_RESOURCES                               => 1041; # Out of memory.
+use constant  ER_DBACCESS_DENIED_ERROR                          => 1044; # Access denied for user '%s'@'%s' to database '%-.192s'
+use constant  ER_NO_DB_ERROR                                    => 1046; # No database selected
+use constant  ER_BAD_NULL_ERROR                                 => 1048; # Column '%-.192s' cannot be null
+use constant  ER_BAD_DB_ERROR                                   => 1049; # Unknown database '%-.192s'
+use constant  ER_TABLE_EXISTS_ERROR                             => 1050; # Table '%-.192s' already exists
+use constant  ER_BAD_TABLE_ERROR                                => 1051; # Unknown table '%-.100T'
+use constant  ER_NON_UNIQ_ERROR                                 => 1052; # Column '%-.192s' in %-.192s is ambiguous
+use constant  ER_SERVER_SHUTDOWN                                => 1053; # Server shutdown in progress
+use constant  ER_BAD_FIELD_ERROR                                => 1054; # Unknown column '%-.192s' in '%-.192s'
+use constant  ER_WRONG_FIELD_WITH_GROUP                         => 1055; # '%-.192s' isn't in GROUP BY
+use constant  ER_WRONG_GROUP_FIELD                              => 1056; # Can't group on '%-.192s'
+use constant  ER_DUP_FIELDNAME                                  => 1060; # Duplicate column name '%-.192s'
+use constant  ER_DUP_KEYNAME                                    => 1061; # Duplicate key name '%-.192s'
+use constant  ER_DUP_ENTRY                                      => 1062; # Duplicate entry '%-.192T' for key %d
+use constant  ER_WRONG_FIELD_SPEC                               => 1063; # Incorrect column specifier for column '%-.192s'
+use constant  ER_PARSE_ERROR                                    => 1064; # %s near '%-.80T' at line %d
+use constant  ER_NONUNIQ_TABLE                                  => 1066; # Not unique table/alias: '%-.192s'
+use constant  ER_INVALID_DEFAULT                                => 1067; # Invalid default value for '%-.192s'
+use constant  ER_MULTIPLE_PRI_KEY                               => 1068; # Multiple primary key defined
+use constant  ER_TOO_MANY_KEYS                                  => 1069; # Too many keys specified; max %d keys allowed
+use constant  ER_TOO_LONG_KEY                                   => 1071; # Specified key was too long; max key length is %d bytes
+use constant  ER_KEY_COLUMN_DOES_NOT_EXIST                      => 1072; # Key column '%-.192s' doesn't exist in table
+use constant  ER_TOO_BIG_FIELDLENGTH                            => 1074; # Column length too big for column '%-.192s' (max = %lu); use BLOB or TEXT instea
+use constant  ER_WRONG_AUTO_KEY                                 => 1075; # Incorrect table definition; there can be only one auto column and it must be defined as a key
+use constant  ER_FILE_EXISTS_ERROR                              => 1086; # File '%-.200s' already exists
+use constant  ER_WRONG_SUB_KEY                                  => 1089; # Incorrect prefix key; the used key part isn't a string, the used length is longer <...>
+use constant  ER_CANT_REMOVE_ALL_FIELDS                         => 1090; # You can't delete all columns with ALTER TABLE; use DROP TABLE instead
+use constant  ER_CANT_DROP_FIELD_OR_KEY                         => 1091; # Can't DROP %s %`-.192s; check that it exists
+use constant  ER_UPDATE_TABLE_USED                              => 1093; # Table '%-.192s' is specified twice, both as a target for '%s' and as a separate source for data
+use constant  ER_NO_SUCH_THREAD                                 => 1094; # Unknown thread id: %lu
+use constant  ER_TABLE_NOT_LOCKED_FOR_WRITE                     => 1099; # Table '%-.192s' was locked with a READ lock and can't be updated
+use constant  ER_TABLE_NOT_LOCKED                               => 1100; # Table '%-.192s' was not locked with LOCK TABLES
+use constant  ER_TOO_BIG_SELECT                                 => 1104; # The SELECT would examine more than MAX_JOIN_SIZE rows <...>
+use constant  ER_UNKNOWN_TABLE                                  => 1109; # Unknown table '%-.192s' in %-.32s
+use constant  ER_FIELD_SPECIFIED_TWICE                          => 1110; # Column '%-.192s' specified twice
+use constant  ER_INVALID_GROUP_FUNC_USE                         => 1111; # Invalid use of group function
+use constant  ER_TABLE_MUST_HAVE_COLUMNS                        => 1113; # A table must have at least 1 column
+use constant  ER_RECORD_FILE_FULL                               => 1114; # The table '%-.192s' is full
+use constant  ER_TOO_BIG_ROWSIZE                                => 1118; # Row size too large. The maximum row size for the used table type, <...>
+use constant  ER_STACK_OVERRUN                                  => 1119; # Thread stack overrun:  Used: %ld of a %ld stack.  Use 'mariadbd --thread_stack=#' to specify a bigger stack if needed
+use constant  ER_PASSWORD_NO_MATCH                              => 1133; # Can't find any matching row in the user table
+use constant  ER_CANT_CREATE_THREAD                             => 1135; # Can't create a new thread (errno %M); if you are not out of available memory, <...>
+use constant  ER_WRONG_VALUE_COUNT_ON_ROW                       => 1136; # Column count doesn't match value count at row %lu
+use constant  ER_CANT_REOPEN_TABLE                              => 1137; # Can't reopen table: '%-.192s'
+use constant  ER_MIX_OF_GROUP_FUNC_AND_FIELDS                   => 1140; # Mixing of GROUP columns <...> with no GROUP columns is illegal if there is no GROUP BY clause
+use constant  ER_NONEXISTING_GRANT                              => 1141; # There is no such grant defined for user '%-.48s' on host '%-.64s'
+use constant  ER_NO_SUCH_TABLE                                  => 1146; # Table '%-.192s.%-.192s' doesn't exist
+use constant  ER_NONEXISTING_TABLE_GRANT                        => 1147; # There is no such grant defined for user '%-.48s' on host '%-.64s' on table '%-.192s'
+use constant  ER_SYNTAX_ERROR                                   => 1149; # You have an error in your SQL syntax
+use constant  ER_TABLE_CANT_HANDLE_BLOB                         => 1163; # Storage engine %s doesn't support BLOB/TEXT columns
+use constant  ER_WRONG_MRG_TABLE                                => 1168; # Unable to open underlying table which is differently defined or of non-MyISAM type or doesn't exist
+use constant  ER_BLOB_KEY_WITHOUT_LENGTH                        => 1170; # BLOB/TEXT column '%-.192s' used in key specification without a key length
+use constant  ER_TOO_MANY_ROWS                                  => 1172; # Result consisted of more than one row
+use constant  ER_KEY_DOES_NOT_EXITS                             => 1176; # Key '%-.192s' doesn't exist in table '%-.192s'
+use constant  ER_CHECK_NOT_IMPLEMENTED                          => 1178; # The storage engine for the table doesn't support %s
+use constant  ER_FLUSH_MASTER_BINLOG_CLOSED                     => 1186; # Binlog closed, cannot RESET MASTER
+use constant  ER_FT_MATCHING_KEY_NOT_FOUND                      => 1191; # Can't find FULLTEXT index matching the column list
+use constant  ER_LOCK_OR_ACTIVE_TRANSACTION                     => 1192; # Can't execute the given command because you have active locked tables or an active transaction
+use constant  ER_UNKNOWN_SYSTEM_VARIABLE                        => 1193; # Unknown system variable '%-.*s'
+use constant  ER_CRASHED_ON_USAGE                               => 1194; # Table '%-.192s' is marked as crashed and should be repaired
 use constant  ER_CRASHED_ON_REPAIR                              => 1195; # In minimum Aria
 use constant  ER_TRANS_CACHE_FULL                               => 1197;
-use constant  ER_LOCK_WAIT_TIMEOUT                              => 1205;
-use constant  ER_WRONG_ARGUMENTS                                => 1210;
-use constant  ER_LOCK_DEADLOCK                                  => 1213;
-use constant  ER_TABLE_CANT_HANDLE_FT                           => 1214;
-use constant  ER_ROW_IS_REFERENCED                              => 1217;
-use constant  ER_WRONG_USAGE                                    => 1221;
-use constant  ER_CANT_UPDATE_WITH_READLOCK                      => 1223;
-use constant  ER_DUP_ARGUMENT                                   => 1225;
+use constant  ER_LOCK_WAIT_TIMEOUT                              => 1205; # Lock wait timeout exceeded;
+use constant  ER_WRONG_ARGUMENTS                                => 1210; # Incorrect arguments to %s
+use constant  ER_LOCK_DEADLOCK                                  => 1213; # Deadlock found when trying to get lock; try restarting transaction
+use constant  ER_TABLE_CANT_HANDLE_FT                           => 1214; # The storage engine %s doesn't support FULLTEXT indexes
+use constant  ER_ROW_IS_REFERENCED                              => 1217; # Cannot delete or update a parent row: a foreign key constraint fails
+use constant  ER_WRONG_USAGE                                    => 1221; # Incorrect usage of %s and %s
+use constant  ER_CANT_UPDATE_WITH_READLOCK                      => 1223; # Can't execute the query because you have a conflicting read lock
+use constant  ER_DUP_ARGUMENT                                   => 1225; # Option '%s' used twice in statement
 # No privilege. Just for information because we connect as user root all time.
-use constant  ER_SPECIFIC_ACCESS_DENIED_ERROR                   => 1227;
-use constant  ER_WRONG_VALUE_FOR_VAR                            => 1231;
-use constant  ER_VAR_CANT_BE_READ                               => 1233;
-use constant  ER_CANT_USE_OPTION_HERE                           => 1234;
-use constant  ER_NOT_SUPPORTED_YET                              => 1235;
-use constant  ER_WRONG_FK_DEF                                   => 1239;
-use constant  ER_OPERAND_COLUMNS                                => 1241;
-use constant  ER_UNKNOWN_STMT_HANDLER                           => 1243;
-use constant  ER_ILLEGAL_REFERENCE                              => 1247;
-use constant  ER_SPATIAL_CANT_HAVE_NULL                         => 1252;
-use constant  ER_WARN_TOO_FEW_RECORDS                           => 1261;
-use constant  ER_WARN_TOO_MANY_RECORDS                          => 1262;
-use constant  ER_WARN_DATA_OUT_OF_RANGE                         => 1264;
-use constant  WARN_DATA_TRUNCATED                               => 1265;
-use constant  ER_CANT_AGGREGATE_2COLLATIONS                     => 1267;
-use constant  ER_CANT_AGGREGATE_3COLLATIONS                     => 1270;
-use constant  ER_CANT_AGGREGATE_NCOLLATIONS                     => 1271;
-use constant  ER_BAD_FT_COLUMN                                  => 1283;
-use constant  ER_UNKNOWN_KEY_CACHE                              => 1284;
-use constant  ER_UNKNOWN_STORAGE_ENGINE                         => 1286;
-use constant  ER_NON_UPDATABLE_TABLE                            => 1288;
-use constant  ER_FEATURE_DISABLED                               => 1289;
-use constant  ER_OPTION_PREVENTS_STATEMENT                      => 1290;
-use constant  ER_TRUNCATED_WRONG_VALUE                          => 1292;
-use constant  ER_UNSUPPORTED_PS                                 => 1295;
-use constant  ER_INVALID_CHARACTER_STRING                       => 1300;
-use constant  ER_SP_NO_RECURSIVE_CREATE                         => 1303;
-use constant  ER_SP_ALREADY_EXISTS                              => 1304;
-use constant  ER_SP_DOES_NOT_EXIST                              => 1305;
-use constant  ER_SP_BADSTATEMENT                                => 1314;
-use constant  ER_QUERY_INTERRUPTED                              => 1317;
-use constant  ER_SP_COND_MISMATCH                               => 1319;
-use constant  ER_SP_NORETURNEND                                 => 1321;
-use constant  ER_SP_DUP_PARAM                                   => 1330;
-use constant  ER_SP_DUP_COND                                    => 1332;
-use constant  ER_STMT_NOT_ALLOWED_IN_SF_OR_TRG                  => 1336;
-use constant  ER_WRONG_OBJECT                                   => 1347;
-use constant  ER_NONUPDATEABLE_COLUMN                           => 1348;
-use constant  ER_VIEW_SELECT_DERIVED                            => 1349;
-use constant  ER_VIEW_SELECT_TMPTABLE                           => 1352;
-use constant  ER_VIEW_INVALID                                   => 1356;
-use constant  ER_SP_NO_DROP_SP                                  => 1357;
-use constant  ER_TRG_ALREADY_EXISTS                             => 1359;
-use constant  ER_TRG_DOES_NOT_EXIST                             => 1360;
-use constant  ER_TRG_ON_VIEW_OR_TEMP_TABLE                      => 1361;
-use constant  ER_NO_DEFAULT_FOR_FIELD                           => 1364;
-use constant  ER_TRUNCATED_WRONG_VALUE_FOR_FIELD                => 1366;
-use constant  ER_NO_BINARY_LOGGING                              => 1381;
-use constant  ER_CANNOT_USER                                    => 1396;
-use constant  ER_XAER_NOTA                                      => 1397;
-use constant  ER_XAER_RMFAIL                                    => 1399;
-use constant  ER_XAER_OUTSIDE                                   => 1400;
+use constant  ER_SPECIFIC_ACCESS_DENIED_ERROR                   => 1227; # Access denied; you need (at least one of) the %-.128s privilege(s) for this operation
+use constant  ER_WRONG_VALUE_FOR_VAR                            => 1231; # Variable '%-.64s' can't be set to the value of '%-.200T'
+use constant  ER_VAR_CANT_BE_READ                               => 1233; # Variable '%-.64s' can only be set, not read
+use constant  ER_CANT_USE_OPTION_HERE                           => 1234; # Incorrect usage/placement of '%s'
+use constant  ER_NOT_SUPPORTED_YET                              => 1235; # This version of MariaDB doesn't yet support '%s'
+use constant  ER_WRONG_FK_DEF                                   => 1239; # Incorrect foreign key definition for '%-.192s': %s
+use constant  ER_OPERAND_COLUMNS                                => 1241; # Operand should contain %d column(s)
+use constant  ER_UNKNOWN_STMT_HANDLER                           => 1243; # Unknown prepared statement handler (%.*s) given to %s
+use constant  ER_ILLEGAL_REFERENCE                              => 1247; # Reference '%-.64s' not supported (%s)
+use constant  ER_SPATIAL_CANT_HAVE_NULL                         => 1252; # All parts of a SPATIAL index must be NOT NULL
+use constant  ER_COLLATION_CHARSET_MISMATCH                     => 1253; # COLLATION '%s' is not valid for CHARACTER SET '%s'
+use constant  ER_WARN_TOO_FEW_RECORDS                           => 1261; # Row %lu doesn't contain data for all columns
+use constant  ER_WARN_TOO_MANY_RECORDS                          => 1262; # Row %lu was truncated; it contained more data than there were input columns
+use constant  ER_WARN_DATA_OUT_OF_RANGE                         => 1264; # Out of range value for column '%s' at row %lu
+use constant  WARN_DATA_TRUNCATED                               => 1265; # Data truncated for column '%s' at row %lu
+use constant  ER_CANT_AGGREGATE_2COLLATIONS                     => 1267; # Illegal mix of collations (%s,%s) and (%s,%s) for operation '%s'
+use constant  ER_CANT_AGGREGATE_3COLLATIONS                     => 1270; # Illegal mix of collations (%s,%s), (%s,%s), (%s,%s) for operation '%s'
+use constant  ER_CANT_AGGREGATE_NCOLLATIONS                     => 1271; # Illegal mix of collations for operation '%s'
+use constant  ER_BAD_FT_COLUMN                                  => 1283; # Column '%-.192s' cannot be part of FULLTEXT index
+use constant  ER_UNKNOWN_KEY_CACHE                              => 1284; # Unknown key cache '%-.100s'
+use constant  ER_UNKNOWN_STORAGE_ENGINE                         => 1286; # Unknown storage engine '%s'
+use constant  ER_NON_UPDATABLE_TABLE                            => 1288; # The target table %-.100s of the %s is not updatable
+use constant  ER_FEATURE_DISABLED                               => 1289; # The '%s' feature is disabled; you need MariaDB built with '%s' to have it working
+use constant  ER_OPTION_PREVENTS_STATEMENT                      => 1290; # The MariaDB server is running with the %s option so it cannot execute this statement
+use constant  ER_TRUNCATED_WRONG_VALUE                          => 1292; # Truncated incorrect %-.32T value: '%-.128T'
+use constant  ER_UNSUPPORTED_PS                                 => 1295; # This command is not supported in the prepared statement protocol yet
+use constant  ER_INVALID_CHARACTER_STRING                       => 1300; # Invalid %s character string: '%.64T'
+use constant  ER_SP_NO_RECURSIVE_CREATE                         => 1303; # Can't create a %s from within another stored routine
+use constant  ER_SP_ALREADY_EXISTS                              => 1304; # %s %s already exists
+use constant  ER_SP_DOES_NOT_EXIST                              => 1305; # %s %s does not exist
+use constant  ER_SP_BADSTATEMENT                                => 1314; # %s is not allowed in stored procedures
+use constant  ER_QUERY_INTERRUPTED                              => 1317; # Query execution was interrupted
+use constant  ER_SP_COND_MISMATCH                               => 1319; # Undefined CONDITION: %s
+use constant  ER_SP_NORETURNEND                                 => 1321; # FUNCTION %s ended without RETURN
+use constant  ER_SP_DUP_PARAM                                   => 1330; # Duplicate parameter: %s
+use constant  ER_SP_DUP_COND                                    => 1332; # Duplicate condition: %s
+use constant  ER_STMT_NOT_ALLOWED_IN_SF_OR_TRG                  => 1336; # %s is not allowed in stored function or trigger
+use constant  ER_WRONG_OBJECT                                   => 1347; # '%-.192s.%-.192s' is not of type '%s'
+use constant  ER_NONUPDATEABLE_COLUMN                           => 1348; # Column '%-.192s' is not updatable
+use constant  ER_VIEW_SELECT_DERIVED                            => 1349; # View's SELECT contains a subquery in the FROM clause
+use constant  ER_VIEW_SELECT_TMPTABLE                           => 1352; # View's SELECT refers to a temporary table '%-.192s'
+use constant  ER_VIEW_INVALID                                   => 1356; # View '%-.192s.%-.192s' references invalid table(s) or column(s) or function(s)
+use constant  ER_SP_NO_DROP_SP                                  => 1357; # Can't drop or alter a %s from within another stored routine
+use constant  ER_TRG_ALREADY_EXISTS                             => 1359; # Trigger '%s' already exists
+use constant  ER_TRG_DOES_NOT_EXIST                             => 1360; # Trigger does not exist
+use constant  ER_TRG_ON_VIEW_OR_TEMP_TABLE                      => 1361; # Trigger's '%-.192s' is a view, temporary table or sequence
+use constant  ER_NO_DEFAULT_FOR_FIELD                           => 1364; # Field '%-.192s' doesn't have a default value
+use constant  ER_TRUNCATED_WRONG_VALUE_FOR_FIELD                => 1366; # Incorrect %-.32s value: '%-.128T' for column `%.192s`.`%.192s`.`%.192s` at row %lu
+use constant  ER_NO_BINARY_LOGGING                              => 1381; # You are not using binary logging
+use constant  ER_CANNOT_USER                                    => 1396; # Operation %s failed for %.256s
+use constant  ER_XAER_NOTA                                      => 1397; # Unknown XID
+use constant  ER_XAER_RMFAIL                                    => 1399; # The command cannot be executed when global transaction is in the  %.64s state
+use constant  ER_XAER_OUTSIDE                                   => 1400; # Some work is done outside global transaction
 use constant  ER_XA_RBROLLBACK                                  => 1402; # XA_RBROLLBACK: Transaction branch was rolled back
-use constant  ER_NONEXISTING_PROC_GRANT                         => 1403;
-use constant  ER_DATA_TOO_LONG                                  => 1406;
-use constant  ER_SP_DUP_HANDLER                                 => 1413;
+use constant  ER_NONEXISTING_PROC_GRANT                         => 1403; # There is no such grant defined for user '%-.48s' on host '%-.64s' on routine '%-.192s'
+use constant  ER_DATA_TOO_LONG                                  => 1406; # Data too long for column '%s' at row %lu
+use constant  ER_SP_DUP_HANDLER                                 => 1413; # Duplicate handler declared in the same block
 use constant  ER_SP_NO_RETSET                                   => 1415;
 use constant  ER_CANT_CREATE_GEOMETRY_OBJECT                    => 1416;
 use constant  ER_BINLOG_UNSAFE_ROUTINE                          => 1418;
-use constant  ER_COMMIT_NOT_ALLOWED_IN_SF_OR_TRG                => 1422;
-use constant  ER_NO_DEFAULT_FOR_VIEW_FIELD                      => 1423;
+use constant  ER_COMMIT_NOT_ALLOWED_IN_SF_OR_TRG                => 1422; # Explicit or implicit commit is not allowed in stored function or trigger
+use constant  ER_NO_DEFAULT_FOR_VIEW_FIELD                      => 1423; # Field of view '%-.192s.%-.192s' underlying table doesn't have a default value
 use constant  ER_SP_NO_RECURSION                                => 1424;
 use constant  ER_TOO_BIG_SCALE                                  => 1425;
-use constant  ER_XAER_DUPID                                     => 1440;
+use constant  ER_XAER_DUPID                                     => 1440; # The XID already exists
 use constant  ER_CANT_UPDATE_USED_TABLE_IN_SF_OR_TRG            => 1442;
 use constant  ER_MALFORMED_DEFINER                              => 1446;
 use constant  ER_ROW_IS_REFERENCED_2                            => 1451;
 use constant  ER_NO_REFERENCED_ROW_2                            => 1452;
-use constant  ER_SP_RECURSION_LIMIT                             => 1456;
+use constant  ER_SP_RECURSION_LIMIT                             => 1456; # Recursive limit %d (as set by the max_sp_recursion_depth variable) was exceeded for routine %.192s
 use constant  ER_SP_PROC_TABLE_CORRUPT                          => 1457;
 use constant  ER_VIEW_RECURSIVE                                 => 1462; # `test`.`view_1` contains view recursion
-use constant  ER_NON_GROUPING_FIELD_USED                        => 1463;
-use constant  ER_TABLE_CANT_HANDLE_SPKEYS                       => 1464;
-use constant  ER_NO_TRIGGERS_ON_SYSTEM_SCHEMA                   => 1465;
-use constant  ER_WRONG_STRING_LENGTH                            => 1470;
-use constant  ER_NON_INSERTABLE_TABLE                           => 1471;
-use constant  ER_ILLEGAL_HA_CREATE_OPTION                       => 1478;
-use constant  ER_PARTITION_WRONG_VALUES_ERROR                   => 1480;
-use constant  ER_PARTITION_MAXVALUE_ERROR                       => 1481;
-use constant  ER_FIELD_NOT_FOUND_PART_ERROR                     => 1488;
+use constant  ER_NON_GROUPING_FIELD_USED                        => 1463; # Non-grouping field '%-.192s' is used in %-.64s clause
+use constant  ER_TABLE_CANT_HANDLE_SPKEYS                       => 1464; # The storage engine %s doesn't support SPATIAL indexes
+use constant  ER_NO_TRIGGERS_ON_SYSTEM_SCHEMA                   => 1465; # Triggers can not be created on system tables
+use constant  ER_WRONG_STRING_LENGTH                            => 1470; # String '%-.70T' is too long
+use constant  ER_NON_INSERTABLE_TABLE                           => 1471; # The target table %-.100s of the %s is not insertable-into
+use constant  ER_ILLEGAL_HA_CREATE_OPTION                       => 1478; # Table storage engine '%-.64s' does not support the create option '%.64s'
+use constant  ER_PARTITION_WRONG_VALUES_ERROR                   => 1480; # Only %-.64s PARTITIONING can use VALUES %-.64s in partition definition
+use constant  ER_PARTITION_MAXVALUE_ERROR                       => 1481; # MAXVALUE can only be used in last partition definition
+use constant  ER_FIELD_NOT_FOUND_PART_ERROR                     => 1488; # Field in list of fields for partition function not found in table
 use constant  ER_MIX_HANDLER_ERROR                              => 1497;
 use constant  ER_BLOB_FIELD_IN_PART_FUNC_ERROR                  => 1502;
 use constant  ER_UNIQUE_KEY_NEED_ALL_FIELDS_IN_PF               => 1503;
-use constant  ER_NO_PARTS_ERROR                                 => 1504;
-use constant  ER_PARTITION_MGMT_ON_NONPARTITIONED               => 1505;
-use constant  ER_FOREIGN_KEY_ON_PARTITIONED                     => 1506;
-use constant  ER_DROP_PARTITION_NON_EXISTENT                    => 1507;
-use constant  ER_DROP_LAST_PARTITION                            => 1508;
-use constant  ER_COALESCE_ONLY_ON_HASH_PARTITION                => 1509;
-use constant  ER_REORG_HASH_ONLY_ON_SAME_NO                     => 1510;
-use constant  ER_REORG_NO_PARAM_ERROR                           => 1511;
-use constant  ER_ONLY_ON_RANGE_LIST_PARTITION                   => 1512;
-use constant  ER_SAME_NAME_PARTITION                            => 1517;
-use constant  ER_CONSECUTIVE_REORG_PARTITIONS                   => 1519;
-use constant  ER_PLUGIN_IS_NOT_LOADED                           => 1524;
-use constant  ER_WRONG_VALUE                                    => 1525;
-use constant  ER_NO_PARTITION_FOR_GIVEN_VALUE                   => 1526;
-use constant  ER_EVENT_ALREADY_EXISTS                           => 1537;
+use constant  ER_NO_PARTS_ERROR                                 => 1504; # Number of %-.64s = 0 is not an allowed value
+use constant  ER_PARTITION_MGMT_ON_NONPARTITIONED               => 1505; # Partition management on a not partitioned table is not possible
+use constant  ER_FOREIGN_KEY_ON_PARTITIONED                     => 1506; # Partitioned tables do not support %s
+use constant  ER_DROP_PARTITION_NON_EXISTENT                    => 1507; # Wrong partition name or partition list
+use constant  ER_DROP_LAST_PARTITION                            => 1508; # Cannot remove all partitions, use DROP TABLE instead
+use constant  ER_COALESCE_ONLY_ON_HASH_PARTITION                => 1509; # COALESCE PARTITION can only be used on HASH/KEY partitions
+use constant  ER_REORG_HASH_ONLY_ON_SAME_NO                     => 1510; # REORGANIZE PARTITION can only be used to reorganize partitions not to change their numbers
+use constant  ER_REORG_NO_PARAM_ERROR                           => 1511; # REORGANIZE PARTITION without parameters can only be used on auto-partitioned tables using HASH PARTITIONs
+use constant  ER_ONLY_ON_RANGE_LIST_PARTITION                   => 1512; # %-.64s PARTITION can only be used on RANGE/LIST partitions
+use constant  ER_SAME_NAME_PARTITION                            => 1517; # Duplicate partition name %-.192s
+use constant  ER_CONSECUTIVE_REORG_PARTITIONS                   => 1519; # When reorganizing a set of partitions they must be in consecutive order
+use constant  ER_PLUGIN_IS_NOT_LOADED                           => 1524; # Plugin '%-.192s' is not loaded
+use constant  ER_WRONG_VALUE                                    => 1525; # Incorrect %-.32s value: '%-.128T'
+use constant  ER_NO_PARTITION_FOR_GIVEN_VALUE                   => 1526; # Table has no partition for value %-.64s
+use constant  ER_EVENT_ALREADY_EXISTS                           => 1537; # Event '%-.192s' already exists
 use constant  ER_EVENT_DOES_NOT_EXIST                           => 1539;
 use constant  ER_EVENT_INTERVAL_NOT_POSITIVE_OR_TOO_BIG         => 1542;
 use constant  ER_STORED_FUNCTION_PREVENTS_SWITCH_BINLOG_FORMAT  => 1560;
-use constant  ER_PARTITION_NO_TEMPORARY                         => 1562;
+use constant  ER_PARTITION_NO_TEMPORARY                         => 1562; # Cannot create temporary table with partitions
 use constant  ER_WRONG_PARTITION_NAME                           => 1567;
 use constant  ER_CANT_CHANGE_TX_ISOLATION                       => 1568;
 use constant  ER_EVENTS_DB_ERROR                                => 1577;
-use constant  ER_XA_RBDEADLOCK                                  => 1614;
-use constant  ER_NEED_REPREPARE                                 => 1615;
-use constant  ER_DUP_SIGNAL_SET                                 => 1641;
-use constant  ER_SIGNAL_EXCEPTION                               => 1644;
-use constant  ER_RESIGNAL_WITHOUT_ACTIVE_HANDLER                => 1645;
-use constant  ER_SIGNAL_BAD_CONDITION_TYPE                      => 1646;
+use constant  ER_XA_RBDEADLOCK                                  => 1614; # XA_RBDEADLOCK: Transaction branch was rolled back: deadlock was detected
+use constant  ER_NEED_REPREPARE                                 => 1615; # Prepared statement needs to be re-prepared
+use constant  ER_DUP_SIGNAL_SET                                 => 1641; # Duplicate condition information item '%s'
+use constant  ER_SIGNAL_EXCEPTION                               => 1644; # Unhandled user-defined exception condition
+use constant  ER_RESIGNAL_WITHOUT_ACTIVE_HANDLER                => 1645; # RESIGNAL when handler not active
+use constant  ER_SIGNAL_BAD_CONDITION_TYPE                      => 1646; # SIGNAL/RESIGNAL can only use a CONDITION defined with SQLSTATE
 use constant  ER_BACKUP_RUNNING                                 => 1651;
 use constant  ER_FIELD_TYPE_NOT_ALLOWED_AS_PARTITION_FIELD      => 1659;
 use constant  ER_BINLOG_STMT_MODE_AND_ROW_ENGINE                => 1665;
@@ -348,24 +350,25 @@ use constant  ER_DATA_OUT_OF_RANGE                              => 1690;
 use constant  ER_BACKUP_PROGRESS_TABLES                         => 1691;
 use constant  ER_FAILED_READ_FROM_PAR_FILE                      => 1696; # Failed to read from the .par file
 use constant  ER_SET_PASSWORD_AUTH_PLUGIN                       => 1699;
-use constant  ER_TRUNCATE_ILLEGAL_FK                            => 1701;
-use constant  ER_MULTI_UPDATE_KEY_CONFLICT                      => 1706;
-use constant  ER_INDEX_COLUMN_TOO_LONG                          => 1709;
-use constant  ER_INDEX_CORRUPT                                  => 1712;
+use constant  ER_TRUNCATE_ILLEGAL_FK                            => 1701; # Cannot truncate a table referenced in a foreign key constraint (%.192s)
+use constant  ER_MULTI_UPDATE_KEY_CONFLICT                      => 1706; # Primary key/partition key update is not allowed since the table is updated both as '%-.192s' and '%-.192s'
+use constant  ER_INDEX_COLUMN_TOO_LONG                          => 1709; # Index column size too large. The maximum column size is %lu bytes
+use constant  ER_INDEX_CORRUPT                                  => 1712; # Index %s is corrupted
 use constant  ER_TABLESPACE_NOT_EMPTY                           => 1721;
 use constant  ER_TABLESPACE_DATAFILE_EXIST                      => 1726;
-use constant  ER_PARTITION_EXCHANGE_PART_TABLE                  => 1732;
-use constant  ER_PARTITION_INSTEAD_OF_SUBPARTITION              => 1734;
-use constant  ER_UNKNOWN_PARTITION                              => 1735;
+use constant  ER_PARTITION_EXCHANGE_PART_TABLE                  => 1732; # Table to exchange with partition is partitioned: '%-.64s'
+use constant  ER_PARTITION_INSTEAD_OF_SUBPARTITION              => 1734; # Subpartitioned table, use subpartition instead of partition
+use constant  ER_UNKNOWN_PARTITION                              => 1735; # Unknown partition '%-.64s' in table '%-.64s'
 use constant  ER_PARTITION_CLAUSE_ON_NONPARTITIONED             => 1747;
 use constant  ER_ROW_DOES_NOT_MATCH_GIVEN_PARTITION_SET         => 1748;
 use constant  ER_FOREIGN_DUPLICATE_KEY_WITH_CHILD_INFO          => 1761;
 use constant  ER_FOREIGN_DUPLICATE_KEY_WITHOUT_CHILD_INFO       => 1762;
 use constant  ER_BACKUP_NOT_ENABLED                             => 1789;
 use constant  ER_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION          => 1792;
-use constant  ER_INNODB_NO_FT_TEMP_TABLE                        => 1796;
-use constant  ER_INNODB_INDEX_CORRUPT                           => 1817;
-use constant  ER_DUP_CONSTRAINT_NAME                            => 1826;
+use constant  ER_INNODB_NO_FT_TEMP_TABLE                        => 1796; # Cannot create FULLTEXT index on temporary InnoDB table
+use constant  ER_INNODB_INDEX_CORRUPT                           => 1817; # Index corrupt: %s
+use constant  ER_DUP_CONSTRAINT_NAME                            => 1826; # Duplicate %s constraint name '%s'
+use constant  ER_FK_COLUMN_CANNOT_DROP                          => 1828; # Cannot drop column 'c7': needed in a foreign key constraint 'table200_innodb_int_autoinc_ibfk_1'
 use constant  ER_FK_COLUMN_NOT_NULL                             => 1830; # Column '%-.192s' cannot be NOT NULL: needed in a foreign key constraint '%-.192s' SET NULL
 use constant  ER_ALTER_OPERATION_NOT_SUPPORTED                  => 1845;
 use constant  ER_ALTER_OPERATION_NOT_SUPPORTED_REASON           => 1846;
@@ -375,16 +378,16 @@ use constant  ER_KEY_BASED_ON_GENERATED_VIRTUAL_COLUMN          => 1904;
 use constant  ER_WARNING_NON_DEFAULT_VALUE_FOR_GENERATED_COLUMN => 1906;
 use constant  ER_UNSUPPORTED_ACTION_ON_GENERATED_COLUMN         => 1907;
 use constant  ER_CONST_EXPR_IN_VCOL                             => 1908;
-use constant  ER_UNKNOWN_OPTION                                 => 1911;
-use constant  ER_BAD_OPTION_VALUE                               => 1912;
+use constant  ER_UNKNOWN_OPTION                                 => 1911; # Unknown option '%-.64s'
+use constant  ER_BAD_OPTION_VALUE                               => 1912; # Incorrect value '%-.64T' for option '%-.64s'
 use constant  ER_CANT_DO_ONLINE                                 => 1915;
-use constant  ER_CONNECTION_KILLED                              => 1927;
-use constant  ER_NO_SUCH_TABLE_IN_ENGINE                        => 1932;
-use constant  ER_TARGET_NOT_EXPLAINABLE                         => 1933;
-use constant  ER_INVALID_ROLE                                   => 1959;
-use constant  ER_INVALID_CURRENT_USER                           => 1960;
-use constant  ER_IT_IS_A_VIEW                                   => 1965;
-use constant  ER_STATEMENT_TIMEOUT                              => 1969;
+use constant  ER_CONNECTION_KILLED                              => 1927; # Connection was killed
+use constant  ER_NO_SUCH_TABLE_IN_ENGINE                        => 1932; # Table '%-.192s.%-.192s' doesn't exist in engine
+use constant  ER_TARGET_NOT_EXPLAINABLE                         => 1933; # Target is not running an EXPLAINable command
+use constant  ER_INVALID_ROLE                                   => 1959; # Invalid role specification %`s
+use constant  ER_INVALID_CURRENT_USER                           => 1960; # The current user is invalid
+use constant  ER_IT_IS_A_VIEW                                   => 1965; # '%-.192s' is a view
+use constant  ER_STATEMENT_TIMEOUT                              => 1969; # Query execution was interrupted (max_statement_time exceeded)
 
 use constant  ER_CONNECTION_ERROR                               => 2002;
 use constant  ER_CONN_HOST_ERROR                                => 2003;
@@ -432,8 +435,8 @@ use constant  ER_JSON_DOCUMENT_NULL_KEY                         => 3158;
 
 use constant  ER_CONSTRAINT_FAILED                              => 4025;
 use constant  ER_EXPRESSION_REFERS_TO_UNINIT_FIELD              => 4026;
-use constant  ER_REFERENCED_TRG_DOES_NOT_EXIST                  => 4031;
-use constant  ER_UNSUPPORT_COMPRESSED_TEMPORARY_TABLE           => 4047;
+use constant  ER_REFERENCED_TRG_DOES_NOT_EXIST                  => 4031; # Referenced trigger '%s' for the given action time and event type does not exist
+use constant  ER_UNSUPPORT_COMPRESSED_TEMPORARY_TABLE           => 4047; # InnoDB refuses to write tables with ROW_FORMAT=COMPRESSED or KEY_BLOCK_SIZE
 use constant  ER_ISOLATION_MODE_NOT_SUPPORTED                   => 4057;
 use constant  ER_MYROCKS_CANT_NOPAD_COLLATION                   => 4077;
 
@@ -445,13 +448,13 @@ use constant  ER_SEQUENCE_INVALID_DATA                          => 4085;
 use constant  ER_SEQUENCE_INVALID_TABLE_STRUCTURE               => 4086;
 use constant  ER_NOT_SEQUENCE                                   => 4089;
 use constant  ER_UNKNOWN_SEQUENCES                              => 4091;
-use constant  ER_UNKNOWN_VIEW                                   => 4092;
-use constant  ER_COMPRESSED_COLUMN_USED_AS_KEY                  => 4097;
-use constant  ER_VERSIONING_REQUIRED                            => 4106;
-use constant  ER_INVISIBLE_NOT_NULL_WITHOUT_DEFAULT             => 4108;
+use constant  ER_UNKNOWN_VIEW                                   => 4092; # Unknown VIEW: '%-.300s'
+use constant  ER_COMPRESSED_COLUMN_USED_AS_KEY                  => 4097; # Compressed column '%-.192s'
+use constant  ER_VERSIONING_REQUIRED                            => 4106; # Aggregate specific instruction(FETCH GROUP NEXT ROW) missing from the aggregate function
+use constant  ER_INVISIBLE_NOT_NULL_WITHOUT_DEFAULT             => 4108; # Invisible column %`s must have a default value
 use constant  ER_UPDATE_INFO_WITH_SYSTEM_VERSIONING             => 4109;
-use constant  ER_VERS_FIELD_WRONG_TYPE                          => 4110;
-use constant  ER_VERS_ENGINE_UNSUPPORTED                        => 4111;
+use constant  ER_VERS_FIELD_WRONG_TYPE                          => 4110; # %`s must be of type %s for system-versioned table %`s
+use constant  ER_VERS_ENGINE_UNSUPPORTED                        => 4111; # Transaction-precise system versioning for %`s is not supported
 # use constant  ER_VERS_ALTER_NOT_ALLOWED                         => 4118;
 use constant  ER_VERS_ALTER_NOT_ALLOWED                         => 4119;
 use constant  ER_VERS_ALTER_ENGINE_PROHIBITED                   => 4120;
@@ -512,6 +515,7 @@ my %err2type = (
     ER_CANT_AGGREGATE_NCOLLATIONS()                     => STATUS_SEMANTIC_ERROR,
     ER_CANT_CHANGE_TX_ISOLATION()                       => STATUS_SEMANTIC_ERROR,
     ER_CANT_CREATE_GEOMETRY_OBJECT()                    => STATUS_SEMANTIC_ERROR,
+    ER_CANT_CREATE_DB()                                 => STATUS_SEMANTIC_ERROR,
     ER_CANT_CREATE_TABLE()                              => STATUS_SEMANTIC_ERROR,
     ER_CANT_CREATE_THREAD()                             => STATUS_ENVIRONMENT_FAILURE,
     ER_CANT_DO_ONLINE()                                 => STATUS_SEMANTIC_ERROR,
@@ -526,6 +530,7 @@ my %err2type = (
     ER_CHECKREAD()                                      => STATUS_TRANSACTION_ERROR,
     ER_CHECK_NOT_IMPLEMENTED()                          => STATUS_SEMANTIC_ERROR,
     ER_COALESCE_ONLY_ON_HASH_PARTITION()                => STATUS_SEMANTIC_ERROR,
+    ER_COLLATION_CHARSET_MISMATCH()                     => STATUS_SEMANTIC_ERROR,
     ER_TOO_BIG_FIELDLENGTH()                            => STATUS_SEMANTIC_ERROR,
     ER_COMMIT_NOT_ALLOWED_IN_SF_OR_TRG()                => STATUS_SEMANTIC_ERROR,
     ER_COMPRESSED_COLUMN_USED_AS_KEY()                  => STATUS_SEMANTIC_ERROR,
@@ -568,6 +573,7 @@ my %err2type = (
     ER_FILE_EXISTS_ERROR()                              => STATUS_SEMANTIC_ERROR,
     ER_FILE_NOT_FOUND()                                 => STATUS_SEMANTIC_ERROR,
     ER_FILSORT_ABORT()                                  => STATUS_SKIP,
+    ER_FK_COLUMN_CANNOT_DROP()                          => STATUS_SEMANTIC_ERROR,
     ER_FK_COLUMN_NOT_NULL()                             => STATUS_SEMANTIC_ERROR,
     ER_FLUSH_MASTER_BINLOG_CLOSED()                     => STATUS_SEMANTIC_ERROR,
     ER_FOREIGN_KEY_ON_PARTITIONED()                     => STATUS_SEMANTIC_ERROR,
@@ -1397,7 +1403,7 @@ sub execute {
     my $affected_rows =  $sth->execute();
     # In case the RQG log contains a
     # DBD::mysql::st execute warning:  at /data/RQG_mleich1/lib/GenTest_e/Executor/MySQL.pm line 1321, <CONF> line 72
-    # than we have lost the connection and tried to execute a statement.
+    # than we have tried to execute a statement but loast the connection to the server.
     #
     # Harvesting undef is "normal".
     my $end_time =       Time::HiRes::time();
@@ -1433,8 +1439,6 @@ sub execute {
     $executor->[EXECUTOR_STATUS_COUNTS]->{$err_type}++
         if not ($execution_flags & EXECUTOR_FLAG_SILENT);
 
-    # This is the old position where the post execution SQL trace was written.
-
     my $result;
     if (defined $err) {            # Error on EXECUTE
         # say("DEBUG: $trace_addition At begin of Error '$err' processing");
@@ -1459,6 +1463,7 @@ sub execute {
             );
         }
 
+        # EXECUTOR_TASK_THREAD or ....
         if (($err_type == STATUS_SKIP)             ||
             ($err_type == STATUS_SYNTAX_ERROR)     ||
             ($err_type == STATUS_UNSUPPORTED)      ||
@@ -1547,6 +1552,22 @@ sub execute {
                 start_time   => $start_time,
                 end_time     => Time::HiRes::time()
             );
+        } elsif ($err_type == STATUS_CRITICAL_FAILURE) {
+            my $query_for_print= shorten_message($query);
+            say("ERROR: $who_am_i $executor_role Query: $query_for_print failed: $err " .
+                $sth->errstr() . " err_type : STATUS_SERVER_CRASHED");
+            say("ERROR: $who_am_i $executor_role Handling for STATUS_CRITICAL_FAILURE is missing. " .
+                "Hence returning result with status STATUS_INTERNAL_FAILURE");
+            return GenTest_e::Result->new(
+                query        => $query,
+              # status       => $err2type{$dbh->err()} || STATUS_UNKNOWN_ERROR,
+                status       => STATUS_INTERNAL_ERROR,
+                err          => $dbh->err(),
+                errstr       => $dbh->errstr(),
+                sqlstate     => $dbh->state(),
+                start_time   => $start_time,
+                end_time     => Time::HiRes::time()
+            );
         } elsif (not ($execution_flags & EXECUTOR_FLAG_SILENT)) {
             # Any query harvesting an error where the mapping (see top of this file) to some
             # error_type was either
@@ -1555,7 +1576,7 @@ sub execute {
             #   use constant  ER_DO_NOT_WANT   => 7777;
             #   ER_DO_NOT_WANT()               => STATUS_UNSUPPORTED,
             # or
-            # - intentionally deactivated or not made at all because we want to be made aware of it
+            # - intentionally deactivated or not made at all because we want become aware of it
             #   Example:
             #   1064 You have an error in your SQL syntax ... does not get mapped to
             #   STATUS_SYNTAX_ERROR
