@@ -155,6 +155,17 @@ our @end_line_patterns = (
 
 # I cannot exclude that some patterns will be never written into the server error log.
 # Patterns for MyISAM, Aria, Memory are missing.
+#
+# Some purposes of @corruption_patterns
+# 1. No need to unpack archives for inspecting the server error log.
+#    If detecting such an error log message during RQG test runtime the server error log content
+#    gets added to the RQG log.
+# 2. Catch the following hypothetic scenario
+#    The server did not crash or hang, neither worker threads nor reporter nor validator
+#    detected something bad. Hence the test ends with STATUS_OK.
+#    But maybe the server error log contains a message about a permanent corruption.
+#    Hint: There exist a few InnoDB messages mentioning some harmless "temporary" corruption.
+#          Such "temporary" corruptions get fixed automatic a bit later.
 our @corruption_patterns = (
     '\[ERROR\]( \[FATAL\]|) InnoDB: FIL_PAGE_TYPE=.{1,10} on BLOB',
     '\[ERROR\]( \[FATAL\]|) InnoDB: Trying to read',
@@ -162,24 +173,53 @@ our @corruption_patterns = (
     '\[ERROR\] InnoDB: Corruption of an index tree',
     '\[ERROR\] InnoDB: Flagged corruption of',
     '\[ERROR\] InnoDB: The compressed page to be',
+
+    # The next three occur usually together.
+    '\[ERROR\] InnoDB indexes are inconsistent with what defined in \.frm for table ',
+    '\[ERROR\] InnoDB: Table .{1,150} contains .{1,10} indexes inside InnoDB, which is different from the number of indexes .{1,10} defined in the MariaDB',
+    '\[ERROR\] InnoDB could not find key no .{1,10} with name .{1,50} from dict cache for table ',
+
     # [Warning] InnoDB: CHECK TABLE on index `MarvÃ£o_idx1` of table `test`.`t1` returned Data structure corruption
-    # [ERROR] InnoDB: Plugin initialization aborted at srv0start.cc[1484] with error Data structure corruption
     '\[ERROR\] InnoDB: Plugin initialization aborted at .* with error Data structure corruption',
     'Data structure corruption',
     '\[ERROR\] InnoDB: File .{1,300} is corrupted',
+    '\[ERROR\] InnoDB: Datafile \'.{1,150}\.ibd\' is corrupted. Cannot determine the space ID from the first {1,3} pages.\' might indicate database corruption',
+    '\[ERROR\] InnoDB: Trying to open table .{1,150} with id .{1,10}, conflicting with ',
+    '\[ERROR\] Table .{1,150} has a primary key in InnoDB data dictionary, but not in MariaDB\! Have you mixed up \.frm files',
+
     '\[ERROR\] InnoDB: Your database may be corrupt',
     '\[ERROR\] \[FATAL\] InnoDB: Rec offset ',
     '\[ERROR\] InnoDB: We detected index corruption',
-    '\[ERROR]\ \[FATAL\] InnoDB: Aborting because of a corrupt database page',
+    '\[ERROR\] \[FATAL\] InnoDB: Aborting because of a corrupt database page',
+    '\[ERROR\] InnoDB: No matching column for .FTS_DOC_ID. in index .FTS_DOC_ID_INDEX. of table .{1,150}',
+    '\[ERROR\] Cannot find index .{1,70} in InnoDB index dictionary',
+    '\[Note\] InnoDB: Index is corrupt but forcing load into data dictionary',
+
+
+    # [ERROR] InnoDB: Table test/#sql-ib718 in InnoDB data dictionary has tablespace id 680, but the tablespace with that id has name test/s#P#p2#SP#p2sp0. Have you deleted or moved .ibd files?
+    '\[ERROR\] InnoDB: Table test/#sql-ib.{1,10} in InnoDB data dictionary has tablespace id .{1,10}, but the tablespace with that id has name .{1,150}. Have you deleted or moved \.ibd files',
+
     '\[ERROR\] mariadbd: Can\'t find record in ',
+    '\[ERROR\] mariadbd: Incorrect information in file: \'.{1,200}\.frm\'' ,
+
+    '\[ERROR\] InnoDB: Failed to read page .{1,20} from file \'\.//undo.{1,10}\': Page read from tablespace is corrupted',
     '\[ERROR\] InnoDB: Duplicate FTS_DOC_ID value on table ',
     '\[ERROR\] InnoDB: Corrupted page identifier at ',
     '\[ERROR\] InnoDB: Cannot apply log to .{1,100} of corrupted file .{1,200}\.ibd' ,
+    '\[ERROR\] InnoDB: Could not find a valid tablespace file for ' .
+    '\[ERROR\] InnoDB: Corrupted page identifier at .{1,20}; set innodb_force_recovery=1 to ignore the record',
+    '\[ERROR\] InnoDB: Flagged corruption of .{1,50} in table .{1,150} in CHECK TABLE; Wrong count',
+
+    # (1) -- Seen together with some real corruption and corresponding error messages.
+    #        I fear that there could be also some "misunderstanding" between InnoDB and server
+    #        causing that message shows up. --> Hence I do not want to rely on this.
     # '??'   -- looks like a problem during crash recovery or mariabackup --> status should be not CORRUPTION
     # '????' -- looks like data import problem   In the import data?
+
+    # (1) [ERROR] InnoDB could not find key no 1 with name uidx2 from dict cache for table test/t5
+
     # ?? [ERROR] InnoDB: Trying to load index `FTS_INDEX_TABLE_IND` for table `test`.`FTS_00000000000002b5_00000000000003aa_INDEX_1`, but the index tree has been freed!
     # ?? [Note] InnoDB: Index is corrupt but forcing load into data dictionary
-    # ?? [ERROR] InnoDB: Corrupted page identifier at 2837320893; set innodb_force_recovery=1 to ignore the record.
     # ?? [ERROR] InnoDB: n recs wrong 2817 2816
     # ?? [ERROR] InnoDB: Not applying INSERT_HEAP_REDUNDANT due to corruption on [page id: space=26, page number=49]
     # ?? [ERROR] InnoDB: Cannot apply log to [page id: space=178, page number=0] of corrupted file './test/#sql-alter-271a94-2f.ibd'
@@ -189,8 +229,6 @@ our @corruption_patterns = (
     # ?? [ERROR] InnoDB: Missing FILE_CREATE, FILE_DELETE or FILE_MODIFY before FILE_CHECKPOINT for tablespace 1501
     # ?? [ERROR] InnoDB: Page [page id: space=9, page number=8] log sequence number 13603113 is in the future! Current system log sequence number 13123566.
     # ?? [ERROR] InnoDB: OPT_PAGE_CHECKSUM mismatch on [page id: space=0, page number=417]
-    # ?? [ERROR] InnoDB: Cannot apply log to [page id: space=5, page number=0] of corrupted file './test/oltp1.ibd'
-    # ?? [ERROR] InnoDB: Failed to read page 291 from file './/undo001': Page read from tablespace is corrupted.
     # ?? [ERROR] InnoDB: Summed data size 1859, returned by func 30316
     # ?? [ERROR] InnoDB: Apparent corruption in space 0 page 1460 of index `IBUF_DUMMY` of table `IBUF_DUMMY`
     # ?? [ERROR] InnoDB: Unable to decompress ./test/t2.ibd[page id: space=38, page number=31]
@@ -3023,6 +3061,9 @@ sub checkErrorLog {
         }
     }
     close(ERRLOG);
+    if (STATUS_DATABASE_CORRUPTION == $errorlog_status) {
+        sayFile($self->errorlog);
+    }
     return $errorlog_status;
 } # End sub checkErrorLog
 
