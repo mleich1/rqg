@@ -97,7 +97,7 @@ fi
 #     the MariaDB source tree
 #     Test fail -> archiving with compression -> longer timespan of storage use
 
-SPACE_PLANNED=$((($SPACE_AVAIL * 32) / 100))
+SPACE_PLANNED=$((($SPACE_AVAIL * 35) / 100))
 # The box 'sdp' reports for /dev/shm a total space of 1,559,937,276 which is
 # suspicious high. Given the CPU power etc. we do not need more than 100 GB.
 # Formatting more than required wastes elapsed time on 'sdp'.
