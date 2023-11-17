@@ -356,6 +356,20 @@ $combinations = [ $grammars,
     '' ,
   ],
   [
+    # lock_wait_timeout
+    #     Timeout in seconds for attempts to acquire metadata locks. Statements using metadata
+    #     locks include FLUSH TABLES WITH READ LOCK, LOCK TABLES, HANDLER and DML and DDL
+    #     operations on tables, stored procedures and functions, and views.
+    #     The timeout is separate for each attempt, of which there may be multiple in a
+    #     single statement. 0 (from MariaDB 10.3.0) means no wait.
+    #     <Certain but not all SQL> [WAIT n|NOWAIT] ... can set lock_wait_timeout explicitly
+    #     for that statement.
+    # innodb_lock_wait_timeout
+    #     Time in seconds that an InnoDB transaction waits for an InnoDB record lock
+    #     (or table lock) before giving up with the error
+    #     ERROR 1205 (HY000): Lock wait timeout exceeded; try restarting transaction
+    # table_lock_wait_timeout Removed: MariaDB 5.5
+    #
     # 2023-06
     # The combination lock-wait-timeout=<small> -- innodb-lock-wait-timeout=<a bit bigger>
     # seems to be important for catching problems too.
@@ -513,11 +527,12 @@ $combinations = [ $grammars,
     ' --threads=1  ',
     ' --threads=2  ',
     ' --threads=9  ',
+    ' --threads=9  ',
     ' --threads=33 ',
   ],
   [
-    # rr
-    # - trace analysis is serious more comfortable than analyzing cores
+    # rr (https://rr-project.org/)
+    # - trace analysis is serious more comfortable and therefore faster than analyzing core files
     #   -> 2/3 of all runs should use it
     # - replays certain bugs significant less likely than without rr
     #   -> at least 1/3 of all runs go without it
@@ -526,14 +541,26 @@ $combinations = [ $grammars,
     #   -> runs with rr use --mysqld=--innodb-use-native-aio=0
     #   -> runs without rr use --mysqld=--innodb-use-native-aio=1 so that InnoDB using
     #      libaio/liburing is covered at all
-    #
-    # In case rr denies to work because it does not know the CPU family than the rr option
-    # --microarch can be set like in the next line.
+    # - tracing could cause fake hangs of the server
+    #   -> runs with rr use "--loose-innodb-write-io-threads=2"
+    #   -> runs with rr should not be combined with --mysqld=--thread-handling=pool-of-threads
+    #      "pool-of-threads" seems to expect some behaviour what the OS but not "rr" guarantees.
+    # - rr might deny to work because it does not know the CPU family
+    #   -> setting the rr option
+    #      "--microarch \"Intel Kabylake\"' "
+    #      or similar could help
+    # - rr+InnoDB running on some usual filesystem like ext4 need the setting
+    #      --mysqld=--innodb_flush_method=fsync
+    #   Otherwise already bootstrap fails.
+    #   Needing such an assignment is a property specific to the testing box.
+    #   So rather set this in local.cfg variable $rqg_slow_dbdir_rr_add.
+    # - used and certain gdb related server settings do not make much sense
+    #   -> set --mysqld=--loose-gdb --mysqld=--loose-debug-gdb
     # Recommendations:
-    # - Check if some newer version of rr can fix that problem.
-    # - Needing such an assignment is a property specific to the testing box.
-    #   So rather set this in local.cfg variable $rr_options_add.
-    # " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='--chaos --wait --microarch=\"Intel Kabylake\"' ",
+    # - Generate/adjust the file local.cfg to do what is required by
+    #      cp local_template.cfg local.cfg
+    #      edit local.cfg so that the settings are made
+    # - Check if some newer version of rr can fix some problem met.
     #
     # Experiments (try the values 1000, 300, 150) with the rr option "--num-cpu-ticks=<value>"
     # showed some remarkable impact on the user+nice versus system CPU time.
@@ -541,15 +568,10 @@ $combinations = [ $grammars,
     # per second. And that seems to cause a higher fraction of tests invoking rr where the
     # max_gd_timeout gets exceeded. Per current experience the impact on the fraction of bugs found
     # or replayed is rather more negative than positive. But there is one case where this helped.
-    " --mysqld=--innodb-use-native-aio=0 --mysqld=--loose-gdb --mysqld=--loose-debug-gdb --rr=Extended --rr_options='--wait' ",
-    " --mysqld=--innodb-use-native-aio=0 --mysqld=--loose-gdb --mysqld=--loose-debug-gdb --rr=Extended --rr_options='--chaos --wait' ",
+    " --rr=Extended --rr_options='--wait' ",
+    " --rr=Extended --rr_options='--chaos --wait' ",
     # Coverage for libaio or liburing.
     " --mysqld=--innodb_use_native_aio=1 ",
-    # rr+InnoDB running on usual filesystem on HDD or SSD need
-    #     --mysqld=--innodb_flush_method=fsync
-    # Otherwise already bootstrap fails.
-    # Needing such an assignment is a property specific to the testing box.
-    # So rather set this in local.cfg variable $rqg_slow_dbdir_rr_add.
   ],
   [
     # Default Value: OFF
@@ -567,6 +589,7 @@ $combinations = [ $grammars,
     #   <= MariaDB 10.5.14, MariaDB 10.6.6, MariaDB 10.7.2, MariaDB 10.8.1: all
     # Valid Values: inserts, none, deletes, purges, changes, all
     # Deprecated: MariaDB 10.9.0 Removed: MariaDB 11.0.0
+    # There were many serious bugs if innodb_change_buffering values != 'none'.
     '',
     '',
     '',
@@ -598,26 +621,45 @@ $combinations = [ $grammars,
   [
     # 1. innodb_page_size >= 32K requires a innodb-buffer-pool-size >=24M
     #    otherwise the start of the server will fail.
-    # 2. An innodb-buffer-pool-size=5M should work well with innodb_page_size < 32K
+    # 2. An innodb-buffer-pool-size=5M "should" work well with innodb_page_size < 32K.
     # 3. A huge innodb-buffer-pool-size will not give an advantage if the tables are small.
     # 4. Small innodb-buffer-pool-size and small innodb_page_size stress Purge more.
+    #    Small innodb-buffer-pool-size allows to have more concurrent RQG tests and the
+    #    testing box --> higher CPU load and higher overload of IO in the memory.
     # 5. Gendata is faster when using a big innodb-buffer-pool-size.
-    # 6. If huge innodb-buffer-pool sizes
+    # 6. Checking if huge innodb-buffer-pool sizes
     #    - get accepted at all
     #    - work well
     #    does not fit into the characteristics of the current test battery.
+    # 7. When going with certain innodb_page_size - small buffer_pool_sizes than we could harvest
+    #    7.1 an abort of the server with a message like
+    #        [ERROR] [FATAL] InnoDB: Over 95 percent of the buffer pool is occupied by lock heaps or
+    #        the adaptive hash index! ... or review if innodb_buffer_pool_size=7M could be bigger.
+    #    7.2 no abort but a message like
+    #        [Note] InnoDB: Small buffer pool size ... can cause a deadlock if the buffer pool
+    #        fills up
+    #        maybe followed by the "promised" deadlock or something different later
+    # Hence the following combinations for any pagesize
+    # a) extreme low innodb-buffer-pool-size which avoids 1. and maybe 7.1 but is nearby 7.2
+    # b) extreme low innodb-buffer-pool-size raised which should avoid 1., 7.1 and 7.2
+    # c) low innodb-buffer-pool-size=256MB
     ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=5M   ',
+    ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=6M   ',
     ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=256M ',
     ' --mysqld=--innodb_page_size=8K  --mysqld=--innodb-buffer-pool-size=8M   ',
     ' --mysqld=--innodb_page_size=8K  --mysqld=--innodb-buffer-pool-size=256M ',
     ' --mysqld=--innodb_page_size=16K --mysqld=--innodb-buffer-pool-size=8M   ',
+    ' --mysqld=--innodb_page_size=16K --mysqld=--innodb-buffer-pool-size=10M  ',
     ' --mysqld=--innodb_page_size=16K --mysqld=--innodb-buffer-pool-size=256M ',
     ' --mysqld=--innodb_page_size=32K --mysqld=--innodb-buffer-pool-size=24M  ',
     ' --mysqld=--innodb_page_size=32K --mysqld=--innodb-buffer-pool-size=256M ',
     ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=24M  ',
+    ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=29M  ',
     ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=256M ',
   ],
   [
+    # vardir_type
+    # -----------
     # slow (usually SSD/HDD) at all in order to cover
     # - maybe a device with slow IO
     # - a filesystem type != tmpfs
@@ -625,6 +667,10 @@ $combinations = [ $grammars,
     # - some higher CPU and RAM IO load by not spending to much time on slow devices
     # - tmpfs
     #
+    # The file local.cfg must contain definitions where these vardirs are located on
+    # the current testing box.
+    #
+    # vardir_type
     # 90% fast to 10% slow (if HDD or SSD) or 50% fast to 50% slow (if ext4 in virtual memory)
     # in order to
     # - get extreme load for CPU and RAM IO because that seems to be better for bug detection/replay
