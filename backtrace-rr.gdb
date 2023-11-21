@@ -20,7 +20,12 @@ set print elements 0
 continue
 when
 thread apply all backtrace
-print write_slots.m_cache.m_pos
-print buf_pool.free.count
-print buf_pool.LRU.count
-print buf_pool.flush_list.count
+# display <variable_name>    leads to
+#     (rr) <number>: <variable_name> = <value>
+# and is hereby better than
+# print <variable_name>      leading to
+#     (rr) $<number> = <value>
+display write_slots.m_cache.m_pos
+display buf_pool.free.count
+display buf_pool.LRU.count
+display buf_pool.flush_list.count
