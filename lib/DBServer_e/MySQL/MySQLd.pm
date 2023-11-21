@@ -209,6 +209,8 @@ our @corruption_patterns = (
     '\[ERROR\] InnoDB: Could not find a valid tablespace file for ' .
     '\[ERROR\] InnoDB: Corrupted page identifier at .{1,20}; set innodb_force_recovery=1 to ignore the record',
     '\[ERROR\] InnoDB: Flagged corruption of .{1,50} in table .{1,150} in CHECK TABLE; Wrong count',
+    '\[ERROR\] InnoDB: Space id and page no stored in the page, read in are .{1,100}, should be ',
+
 
     # (1) -- Seen together with some real corruption and corresponding error messages.
     #        I fear that there could be also some "misunderstanding" between InnoDB and server
@@ -1378,7 +1380,11 @@ sub killServer {
     my $who_am_i = Basics::who_am_i();
     $silent = 0 if not defined $silent;
 
-    my $kill_timeout = DEFAULT_SERVER_KILL_TIMEOUT * Runtime::get_runtime_factor();
+    # Observation 2023-11:
+    # 426s between message about sending SIGKILL and RQG loses his patience because first the server
+    # pid and second the aux_pid have not disappeared. The server was running under "rr".
+    my $kill_timeout = DEFAULT_SERVER_KILL_TIMEOUT * Runtime::get_runtime_factor()
+                       * Runtime::get_runtime_factor();
 
     if (osWindows()) {
         if (defined $self->[MYSQLD_WINDOWS_PROCESS]) {
@@ -2848,7 +2854,7 @@ sub waitForServerToStop {
         say("INFO: $who_am_i Being forced to give a grace period.");
         $wait_end  =        Time::HiRes::time() + 60 * Runtime::get_runtime_factor();
         my $old_ps_tree =   Auxiliary::get_ps_tree($self->pid);
-        my $next_ps_check = Time::HiRes::time() + 10;
+        my $next_ps_check = Time::HiRes::time() + 10 * Runtime::get_runtime_factor();
         while ($self->running && Time::HiRes::time() < $wait_end) {
             aux_pid_reaper();
             if (Time::HiRes::time() > $next_ps_check) {
@@ -3774,7 +3780,12 @@ sub server_is_operable {
 #    No  --> go on
 # 3. Try to connect (Supervised with timeout? But load by sessions should be ~ 0).
 #    Fail    --> kill server with SIGABRT, make_backtrace, return STATUS_SERVER_DEADLOCKED
-#    Success --> SHOW PROCESSLIST, print result, disconnect, return STATUS_OK
+#    Success --> go on
+# 4. Inspect the processlist
+#    Fail    --> If something is suspicious or goes wrong: print result, maybe disconnect,
+#                kill server with core or ...
+#                and return status >= 100
+#    Success --> print result, disconnect, return STATUS_OK
 #
 # There must be never more than one process running server_is_operable.
 #
@@ -4009,33 +4020,33 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
                                 $process_command . " -- " . $process_time . " -- " .
                                 $process_state . " -- " . $process_info . " <--suspicious\n";
                      }
-                 }
-                 $processlist_report .= "$who_am_i Content of processlist ---------- end";
-                 say($processlist_report);
-                 if ($suspicious) {
-                     say("INFO: $who_am_i $suspicious suspicious result(s) detected.");
-                     my $query = "SHOW ENGINE INNODB STATUS";
-                     say("INFO: $who_am_i Executing query '$query'");
-                     my $status_result = $dbh->selectall_arrayref($query);
-                     if (not defined $status_result) {
-                         say("ERROR: $who_am_i The query '$query' failed with " . $DBI::err);
-                         my $return = GenTest_e::Executor::MySQL::errorType($DBI::err);
-                         if (not defined $return) {
-                             $status = STATUS_CRITICAL_FAILURE;
-                             say("ERROR: $who_am_i The type of the error got is unknown. " .
-                                 "Will crash the server, make backtrace and return " .
-                                 status2text($status) . " instead of STATUS_SERVER_DEADLOCKED.");
-                         }
-                     } else {
-                         print Dumper $status_result;
-                         $status = STATUS_SERVER_DEADLOCKED;
-                         say("ERROR: $who_am_i Will crash the server, make backtrace and " .
-                             "return " . status2text($status) . ".");
-                     }
-                     $dbh->disconnect;
-                     $self->crashServer;
-                     $self->make_backtrace;
-                 }
+                }
+                $processlist_report .= "$who_am_i Content of processlist ---------- end";
+                say($processlist_report);
+                if ($suspicious) {
+                    say("INFO: $who_am_i $suspicious suspicious result(s) detected.");
+                    my $query = "SHOW ENGINE INNODB STATUS";
+                    say("INFO: $who_am_i Executing query '$query'");
+                    my $status_result = $dbh->selectall_arrayref($query);
+                    if (not defined $status_result) {
+                        say("ERROR: $who_am_i The query '$query' failed with " . $DBI::err);
+                        my $return = GenTest_e::Executor::MySQL::errorType($DBI::err);
+                        if (not defined $return) {
+                            $status = STATUS_CRITICAL_FAILURE;
+                            say("ERROR: $who_am_i The type of the error got is unknown. " .
+                                "Will crash the server, make backtrace and return " .
+                                status2text($status) . " instead of STATUS_SERVER_DEADLOCKED.");
+                        }
+                    } else {
+                        print Dumper $status_result;
+                        $status = STATUS_SERVER_DEADLOCKED;
+                        say("ERROR: $who_am_i Will crash the server, make backtrace and " .
+                            "return " . status2text($status) . ".");
+                    }
+                    $dbh->disconnect;
+                    $self->crashServer;
+                    $self->make_backtrace;
+                }
             }
         }
     }
