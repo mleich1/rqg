@@ -2865,7 +2865,7 @@ sub waitForServerToStop {
                     last;
                 } else {
                     say("DEBUG: $who_am_i Current ps_tree: '$new_ps_tree'.");
-                    $next_ps_check = Time::HiRes::time() + 10;
+                    $next_ps_check = Time::HiRes::time() + 10 * Runtime::get_runtime_factor();
                     $new_ps_tree =   $old_ps_tree;
                 }
             }
