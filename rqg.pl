@@ -1559,6 +1559,7 @@ if (not defined $gentest) {
 
 # Gendata -- generate some initial data ------------------------------------------------------------
 sigaction SIGALRM, new POSIX::SigAction sub {
+    alarm(0);
     my $status = STATUS_ALARM;
     say("ERROR: rqg.pl: max_gd_duration(" . $max_gd_duration . "s * " .
         Runtime::get_runtime_factor() . ") was exceeded. " .

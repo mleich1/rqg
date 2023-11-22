@@ -340,7 +340,7 @@ sub monitor_nonthreaded {
         foreach $query (
             "SHOW ENGINE INNODB STATUS",
             "SHOW OPEN TABLES",          # Once disabled due to bug #46433
-            "SELECT THREAD_ID, LOCK_MODE, LOCK_DURATION, LOCK_TYPE " .
+            "SELECT THREAD_ID, LOCK_MODE, LOCK_DURATION, LOCK_TYPE, TABLE_NAME " .
                 "FROM information_schema.METADATA_LOCK_INFO " .
                 "WHERE TABLE_SCHEMA != 'information_schema'" ,
         ) {
@@ -672,6 +672,7 @@ sub inspect_processlist {
         # Concept:
         # 1. Check first if the server process is gone.
         # 2. Set the error_exit_message for deadlock/freeze before setting the alarm.
+        alarm (0);
         if (STATUS_OK != server_dead($reporter)) {
             exit STATUS_SERVER_CRASHED;
         }
@@ -739,11 +740,17 @@ sub inspect_processlist {
                     "$who_am_i -->" . $process_id . " -- " .
                     $process_command . " -- " . $process_time . " -- " .
                     $process_state . " -- " . $process_info;
-        if ($process_info ne "<undef>" and $process_time ne "<undef>" and
-            not $process_info =~ 'Deadlock' and
-            ($process_command ne "Slave_SQL" and $process_time > $query_lifetime_threshold) or
-            ($process_command eq "Slave_SQL" and $process_time > 60 and not
-             $process_state =~ /has read all relay log; waiting for more updates/i)) {
+        if      ($process_info ne "<undef>" and $process_time ne "<undef>" and
+                 not $process_info =~ 'Deadlock' and
+                 ($process_command ne "Slave_SQL" and $process_time > $query_lifetime_threshold) or
+                 # Experiment begin
+                 # IMHO some somehow "Killed" SELECT should no more crawl through tables nor send
+                 # result sets after 60s.
+                 ($process_command eq "Killed" and $process_info =~ m{\^ *SELECT }i and
+                  $process_time > 60) or
+                 # Experiment end
+                 ($process_command eq "Slave_SQL" and $process_time > 60 and
+                  not $process_state =~ /has read all relay log; waiting for more updates/i)) {
             $suspicious++;
             $processlist_report .= " <--suspicious\n";
         } elsif ($process_info ne "<undef>" and $process_time ne "<undef>" and
