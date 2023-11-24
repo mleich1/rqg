@@ -2013,7 +2013,7 @@ sub checkDatabaseIntegrity {
         my ($executor,$r_schema, $r_table) = @_;
         my $who_am_i =  "checkDatabaseIntegrity::show_the_locks_per_table: ";
         my ($aux_query, $lock_check, $lock_check_status);
-        $aux_query =    "SELECT THREAD_ID, LOCK_MODE, LOCK_DURATION, LOCK_TYPE " .
+        $aux_query =    "SELECT THREAD_ID, LOCK_MODE, LOCK_DURATION, LOCK_TYPE, TABLE_NAME " .
                         "FROM information_schema.METADATA_LOCK_INFO " .
                         "WHERE TABLE_SCHEMA = '$r_schema' AND TABLE_NAME = '$r_table'";
         $lock_check =        $executor->execute($aux_query);

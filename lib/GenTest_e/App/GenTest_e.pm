@@ -452,7 +452,7 @@ sub doGenTest {
         if (time() >= $self->[GT_TEST_END]) {
             say("DEBUG: Number of remaining worker processes: " . scalar (keys %worker_pids));
 
-            if (time() >= $self->[GT_TEST_END] + Runtime::get_runtime_factor() * 120) {
+            if (time() >= $self->[GT_TEST_END] + Runtime::get_runtime_factor() * 270) {
                 # (mleich) What follows is experimental
                 # In case we are here than there was no obvious problem (see code above) to stop
                 # the looping.
@@ -460,9 +460,16 @@ sub doGenTest {
                 # - DB server freezes which let worker/reporters hang
                 # and/or
                 # - RQG components (worker/reporters) which do not care about test runtime
-                # Observations 2023-01:
-                # 1. Without time() >= $self->[GT_TEST_END] ... RQG maxruntime exceeded, reason unknown
-                # 2. With time() >= $self->[GT_TEST_END] + 30s  Deadlock reportet but no problem at all
+                # Observations 2023:
+                # 1. Without time() >= $self->[GT_TEST_END]
+                #    RQG maxruntime exceeded, reason unknown
+                # 2. With time() >= $self->[GT_TEST_END] + Runtime::get_runtime_factor() * 120
+                #    The reporter 'Deadlock' has observed a hang, has run some SQL, generates
+                #    a backtrace and maybe a core file (debug build, run without asan).
+                #    During that Runtime::get_runtime_factor() * 120 is exceeded, OUTER is left,
+                #    the worker get terminated, the periodic reporter running the 'Deadlock' stuff
+                #    gets terminated and all ends with the less good STATUS_CRITICAL_FAILURE.
+                # 'Deadlock' could consume 120s for backtracing and 130s for core generation.
                 $total_status = STATUS_CRITICAL_FAILURE;
                 say("ERROR: GenTest_e: The GenTest runtime was serious exceeded. Leaving the 'OUTER' " .
                     "loop with total_status STATUS_CRITICAL_FAILURE.");
@@ -473,14 +480,12 @@ sub doGenTest {
     } # End of loop OUTER
 
     # Note:
-    # In case we had 'The GenTest runtime was serious exceeded' than the reporter Deadlock
-    # has already startet to print the processlists at time() > $self->[GT_TEST_END].
-    # Requirement: The reporter 'Deadlock' must be loaded.
-
-    # Observation: 2023-10
-    # The processlist content looks like a lot session are stuck.
-    # After sending SIGTERM to the worker processes all these sessions disappeared fast.
-    # ==> Processlist content before the TERM might be important.
+    # As soon as time() > $self->[GT_TEST_END] the reporter Deadlock' prints processlists.
+    # Reason for that was some observation: 2023-10:
+    # time() >= $self->[GT_TEST_END] + ... fulfilled -> STATUS_CRITICAL_FAILURE -> leave OUTER.
+    # After sending SIGTERM to the worker processes (see below) all these sessions disappeared fast.
+    # Hence the information about the processlist content history was mostly unknown.
+    # And it remained unclear why time() >= $self->[GT_TEST_END] + ... happened.
 
     foreach my $worker_pid (keys %worker_pids) {
         say("Killing (TERM) remaining worker process with pid $worker_pid...");

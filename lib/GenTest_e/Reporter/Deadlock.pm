@@ -383,9 +383,14 @@ sub monitor_nonthreaded {
             say("$output");
             # The backtrace above gives sometimes not sufficient information.
             # So generate some core in addition.
-            # Observation 2023-11 when testing on asan builds:
-            #    RQG batch aborted the test battery because of filesystem nearly full.
-            #    One of the core files was 130 GB. (asan build).
+            # Observation 2023-11 when testing on
+            # - asan builds:
+            #   RQG batch aborted the test battery because of filesystem nearly full.
+            #   One of the core files was 130 GB.
+            # - debug builds:
+            #   Time required for
+            #   - making the backtrace above ~120s
+            #   - generating the core below  ~130s
             if (not $with_asan) {
               $command = "gcore -o " . $reporter->serverVariable('datadir') .
                          "/gcore "   . $reporter->serverInfo('pid');
