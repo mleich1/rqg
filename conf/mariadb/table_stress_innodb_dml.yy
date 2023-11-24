@@ -16,16 +16,13 @@
 # USA
 #
 
-# The grammar is a derivate of conf/mariadb/table_stress_innodb.yy.
-# The latter was picked as base because it revealed some problem better than the
-# other existing grammars.
-# The differences to conf/mariadb/table_stress_innodb.yy
-# - any DDL is performed by thread1
-# - DDL on some table happens direct after CREATE TABLE and affects KEYs, column positions, NULL
-# - DDL algorithm and lock option are not in scope == Let the system take the defaults.
-# - (Re)CREATE TABLE happens roughly all 90s
-#
-# The grammar is dedicated to stress tables with mostly DML and very rare with DDL.
+# The grammar is dedicated to stress tables with mostly DML and nearly not with DDL.
+# The differences to some other grammars of the "table_stress" family is
+# 1. DDL-DDL clashes cannot happen because any DDL is performed by thread1.
+# 2. There is only one type of DDL-DML clash possible.
+#    thread1 runs RENAME TABLE birth . <name> TO test . <same name>
+#    thread<n> runs maybe some DML on test . <same name>
+# 3. DDL algorithm and lock option are not in scope == Let the system take the defaults.
 #
 # _digit --> Range 0 till 9
 
@@ -33,26 +30,25 @@ fail_001:
    { $fail = 'my_fail_001' ; return undef }; SELECT * FROM $fail ;
 
 
-# thread1 manages CREATE/DROP of the tables within the init phase.
-# The concurrent sessions go with some sleep which should minimize friction between their DML
-# and the DDL run by thread1.
+# thread1 manages CREATE of the tables within the init phase.
 # thread1 goes with big timeouts. This gives also some variation for the statements taken
 # from the rule "query".
 thread1_init:
-   create_table ;
+   create_tables ;
 
 thread1:
-   kill_query_or_session_or_release                                                                                                                                                           |
-   block_stage                                                                                                                                                                                |
-   query                                                                                                                                                                                      |
-   query                                                                                                                                                                                      |
-   query                                                                                                                                                                                      |
-   query                                                                                                                                                                                      |
-   query                                                                                                                                                                                      |
-   query                                                                                                                                                                                      |
-   query                                                                                                                                                                                      |
-   query                                                                                                                                                                                      |
-   query                                                                                                                                                                                      ;
+   check_table                      |
+   kill_query_or_session_or_release |
+   block_stage                      |
+   query                            |
+   query                            |
+   query                            |
+   query                            |
+   query                            |
+   query                            |
+   query                            |
+   query                            |
+   query                            ;
 
 fail_002:
    { $fail = 'my_fail_002' ; return undef }; SELECT * FROM $fail ;
@@ -139,31 +135,41 @@ kill_age_cond:
 correct_rqg_sessions_table:
    UPDATE rqg . rqg_sessions SET processlist_id = CONNECTION_ID() WHERE rqg_id = _thread_id ;
 
-create_table:
-   # c_t_begin t0 c_t_mid ENGINE = MyISAM $m2 ;
-   c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic    $m2 ;
-   c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed $m2 ;
-   c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact    $m2 ;
-   c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant  $m2 ;
-   # c_t_begin t5 c_t_mid ENGINE = Aria $m2 ;
+create_tables:
+   CREATE SCHEMA birth ;
+   c_t_begin t1 c_t_mid ENGINE = InnoDB ROW_FORMAT = Dynamic    ;
+   c_t_begin t2 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compressed ;
+   c_t_begin t3 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact    ;
+   c_t_begin t4 c_t_mid ENGINE = InnoDB ROW_FORMAT = Redundant  ;
+   c_t_begin t5 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact ENCRYPTED=YES                   ENCRYPTION_KEY_ID=1  ;
+   c_t_begin t6 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact PAGE_COMPRESSED=1                                    ;
+   c_t_begin t7 c_t_mid ENGINE = InnoDB ROW_FORMAT = Compact PAGE_COMPRESSED=1 ENCRYPTED=YES ENCRYPTION_KEY_ID=33 ;
    # ddl picks a random table. Lets hope that the amount of DDL's + randomness help sufficient
    # for getting a nice variety of table definitions.
    ddl ; ddl ; ddl ; ddl ; ddl ; ddl ; ddl ; ddl ;
+   RENAME TABLE birth . t1 TO test . t1 ;
+   RENAME TABLE birth . t2 TO test . t2 ;
+   RENAME TABLE birth . t3 TO test . t3 ;
+   RENAME TABLE birth . t4 TO test . t4 ;
+   RENAME TABLE birth . t5 TO test . t5 ;
+   RENAME TABLE birth . t6 TO test . t6 ;
+   RENAME TABLE birth . t7 TO test . t7 ;
 
 c_t_begin:
-   CREATE TABLE IF NOT EXISTS ;
+   CREATE TABLE birth . ;
 c_t_mid:
    ( non_generated_cols generated_cols ) ;
 
 table_names:
    # Make it possible to use the same table_name multiple times in one query.
    # This is currently not exploited.
-   # { $table_name = "t0" } |
    { $table_name = "t1" } |
    { $table_name = "t2" } |
    { $table_name = "t3" } |
-   { $table_name = "t4" } ;
-   # { $table_name = "t5" } ;
+   { $table_name = "t4" } |
+   { $table_name = "t5" } |
+   { $table_name = "t6" } |
+   { $table_name = "t7" } ;
 
 non_generated_cols:
    col1 INT, col2 INT, col_int_properties $col_name $col_type , col_string_properties $col_name $col_type, col_varchar_properties $col_name $col_type, col_text_properties $col_name $col_type ;
@@ -171,20 +177,7 @@ generated_cols:
                                                                                                                                        |
    , col_int_g_properties $col_name $col_type, col_string_g_properties $col_name $col_type , col_text_g_properties $col_name $col_type ;
 
-engine_settings:
-   innodb_settings ;
-
-innodb_settings:
-   ENGINE = InnoDB ROW_FORMAT = Dynamic    |
-   ENGINE = InnoDB ROW_FORMAT = Compressed |
-   ENGINE = InnoDB ROW_FORMAT = Compact    |
-   ENGINE = InnoDB ROW_FORMAT = Redundant  ;
-
 query:
-   set_dbug ; check_table ; set_dbug_null |
-   set_dbug ; dml ;         set_dbug_null |
-   set_dbug ; dml ;         set_dbug_null |
-   set_dbug ; dml ;         set_dbug_null |
    set_dbug ; dml ;         set_dbug_null ;
 
 query_init:
@@ -207,7 +200,28 @@ dml:
    insert_part ( my_int , $my_int,     $my_int,     string_fill, fill_begin $my_int     fill_end ); commit_rollback |
    insert_part ( my_int , $my_int - 1, $my_int,     string_fill, fill_begin $my_int     fill_end ); commit_rollback |
    insert_part ( my_int , $my_int,     $my_int - 1, string_fill, fill_begin $my_int     fill_end ); commit_rollback |
-   insert_part ( my_int , $my_int,     $my_int,     string_fill, fill_begin $my_int - 1 fill_end ); commit_rollback ;
+   insert_part ( my_int , $my_int,     $my_int,     string_fill, fill_begin $my_int - 1 fill_end ); commit_rollback |
+   insert_part ( my_int , $my_int, $my_int, string_fill, fill_begin $my_int fill_end ) on_duplicate_variant ; commit_rollback |
+   PREPARE stmt FROM " insert_part ( ? , ? , ? , ? , ? ) on_duplicate_variant " ; execute_using ;   commit_rollback ;
+
+on_duplicate_variant:
+   ON DUPLICATE KEY UPDATE on_duplicate_variants                         |
+   ON DUPLICATE KEY UPDATE on_duplicate_variants , on_duplicate_variants ;
+on_duplicate_variants:
+# INSERT ... ON DUPLICATE KEY UPDATE is a MariaDB/MySQL extension to the INSERT statement that, if it finds a duplicate unique or primary key,
+# will instead perform an UPDATE.
+# If more than one unique index is matched, only the first is updated. It is not recommended to use this statement on tables with more than one unique index.
+#
+# In an INSERT ... ON DUPLICATE KEY UPDATE statement, you can use the VALUES(col_name) function in the UPDATE clause to refer to column values from the
+# INSERT portion of the statement. In other words, VALUES(col_name) in the UPDATE clause refers to the value of col_name that would be inserted,
+# had no duplicate-key conflict occurred.
+   column_name_int = my_int                                     |
+   random_column_name_not_g = VALUES($random_column_name_not_g) |
+   random_column_name_not_g = $random_column_name_not_g         ;
+
+execute_using:
+   EXECUTE stmt USING my_int , $my_int, $my_int, " $my_int ", " $my_int " ;
+
 
 # CAST( 200 AS CHAR)                         ==> '200'
 # SUBSTR(CAST( 200 AS CHAR),1,1)             ==> '2'
@@ -234,7 +248,7 @@ some_record:
    ($my_int,$my_int,$my_int,string_fill,fill_begin $my_int fill_end ) ;
 
 delete:
-   DELETE FROM table_names WHERE column_name_int = my_int OR $column_name_int IS NULL                              ;
+   DELETE FROM table_names WHERE column_name_int = my_int OR $column_name_int IS NULL ;
 
 my_int:
    # Maybe having some uneven distribution is of some value.
@@ -257,7 +271,8 @@ ddl:
    alter_table_part add_accelerator                      |
    alter_table_part add_accelerator  , add_accelerator   |
    null_notnull_column                                   |
-   move_column                                           ;
+   move_column                                           |
+   alter_table_part MODIFY modify_column                 ;
 
 ignore:
           |
@@ -267,15 +282,7 @@ ignore:
    IGNORE ;
 
 alter_table_part:
-   ALTER ignore TABLE table_names ;
-
-chaos_column:
-# Basic idea
-# - have a length in bytes = 3 which is not the usual 2, 4 or more
-# - let the column stray like it exists/does not exist/gets moved to other position
-   alter_table_part ADD COLUMN IF NOT EXISTS col_date DATE DEFAULT CURDATE() |
-   alter_table_part DROP COLUMN IF EXISTS col_date                           |
-   alter_table_part MODIFY COLUMN IF EXISTS col_date DATE column_position    ;
+   ALTER ignore TABLE birth . table_names ;
 
 move_column:
 # Unfortunately I cannot prevent that the column type gets maybe changed.
@@ -291,10 +298,6 @@ null_not_null:
 int_bigint:
    INT     |
    BIGINT  ;
-
-enable_disable:
-   ENABLE  |
-   DISABLE ;
 
 add_accelerator:
    ADD  UNIQUE   key_or_index if_not_exists_mostly  uidx_name ( column_name_list_for_key ) |
@@ -359,40 +362,27 @@ random_column_name:
 # 1. No replacing of content in the variables $col_name , $col_type , $col_idx
 #    ==> No impact on text of remaining statement sequence.
 # 2. The column name just gets printed(returned).
-   col1          |
-   col2          |
-   col_int       |
-   col_int_g     |
-   col_string    |
-   col_string_g  |
-   col_varchar   |
-   col_varchar_g |
-   col_text      |
-   col_text_g    ;
+   random_column_name_not_g |
+   random_column_name_not_g |
+   random_column_name_g     ;
+
+random_column_name_not_g:
+   { $random_column_name_not_g = 'col1' }          |
+   { $random_column_name_not_g = 'col2' }          |
+   { $random_column_name_not_g = 'col_int' }       |
+   { $random_column_name_not_g = 'col_string' }    |
+   { $random_column_name_not_g = 'col_varchar' }   |
+   { $random_column_name_not_g = 'col_text' }      ;
+
+random_column_name_g:
+   { $random_column_name_g = 'col_int_g' }     |
+   { $random_column_name_g = 'col_string_g' }  |
+   { $random_column_name_g = 'col_varchar_g' } |
+   { $random_column_name_g = 'col_text_g' }    ;
 
 fail_008:
    { $fail = 'my_fail_008' ; return undef }; SELECT * FROM $fail ;
 
-#===========================================================
-# Concept of "replace_column"
-# ---------------------------
-# Add a logical (maybe not the same data type but a compatible data type) copy of some column.
-# Fill that new column with data taken from the original.
-# Drop the original column.
-# Rename the new column to the original one.
-replace_column:
-   random_column_properties   replace_column_add ; replace_column_update ; replace_column_drop ; replace_column_rename |
-   random_column_g_properties replace_column_add ;                         replace_column_drop ; replace_column_rename ;
-
-replace_column_add:
-   alter_table_part ADD COLUMN if_not_exists_mostly {$forget= $col_name."_copy"} $col_type column_position ;
-replace_column_update:
-   UPDATE table_names SET $forget = $col_name ;
-replace_column_drop:
-   alter_table_part DROP COLUMN if_exists_mostly $col_name ;
-replace_column_rename:
-   # Unfortunately I cannot prevent that the column type gets maybe changed.
-   alter_table_part CHANGE COLUMN if_exists_mostly $forget {$name = $col_name; return undef} name_convert $col_type ;
 #===========================================================
 # Names should be compared case insensitive.
 # Given the fact that the current test should hunt bugs in
@@ -400,12 +390,6 @@ replace_column_rename:
 # - server -- storage engine relation
 # I hope its sufficient to mangle column and index names within the column or index related DDL but
 # not in other SQL.
-rename_column:
-   # Unfortunately I cannot prevent that the column type gets maybe changed.
-   rename_column_begin {$name = $col_name; return undef} name_convert $col_name $col_type |
-   rename_column_begin {$name = $col_name; return undef} $col_name name_convert $col_type ;
-rename_column_begin:
-   random_column_properties alter_table_part CHANGE COLUMN if_exists_mostly ;
 name_convert:
    $name                                                                                                   |
    $name                                                                                                   |
@@ -421,18 +405,6 @@ name_convert:
 get_cdigit:
    {$cdigit = $prng->int(1,10); return undef} ;
 #----------------------------------------------------------
-# For https://jira.mariadb.org/browse/MDEV-16849 Extending indexed VARCHAR column should be instantaneous
-# 1. Since 10.2.2 we get a instantaneous change of the maximum length of a VARCHAR column when the length is
-#    increasing and not crossing the 255-byte boundary.
-#    When the VARCHAR column was indexed than the indexes would be dropped and added again.
-# 2. MDEV-16849 adds
-#    The drop+add of indexes gets avoided.
-# 3. If in ROW_FORMAT=REDUNDANT, we can also extend VARCHAR from any size to any size. The limitation
-#    regarding the 255-byte maximum length only applies to other ROW_FORMAT.
-# FIXME: Complete the implementation.
-resize_varchar:
-   col_varchar_properties alter_table_part MODIFY COLUMN $col_name $col_type |
-                                                                           ;
 
 # MDEV-5336 Implement LOCK FOR BACKUP
 # ===================================
@@ -643,11 +615,6 @@ col_int_g_properties:
 col_int_idx:
    { $col_idx= $col_name          ; return undef } ;
 
-col_float_properties:
-             { $col_name= "col_float"    ; $col_type= "FLOAT"                                                                   ; return undef } col_to_idx ;
-col_float_g_properties:
-   gcol_prop { $col_name= "col_float_g"  ; $col_type= "FLOAT        GENERATED ALWAYS AS (col_float)                 $gcol_prop" ; return undef } col_to_idx ;
-
 gcol_prop:
 # The higher share of VIRTUAL is intentional because users might prefer that and VIRTUAL is per experience more error prone.
    { $gcol_prop = "PERSISTENT"    ; return undef }   |
@@ -670,4 +637,39 @@ set_dbug_null:
 fail_011:
    { $fail = 'my_fail_011' ; return undef }; SELECT * FROM $fail ;
 
+modify_column:
+   col_string_properties  $col_name $col_type alt_charset_collate |
+   col_text_properties    $col_name $col_type alt_charset_collate |
+   col_varchar_properties $col_name $col_type alt_charset_collate ;
+
+alt_charset_collate:
+   alt_charset_collate_allowed                                   ;
+#  # Frequent disallowed combinations
+#  CHARACTER SET alt_character_set_all COLLATE alt_collation_all ;
+
+alt_charset_collate_allowed:
+   CHARACTER SET latin1                COLLATE alt_collation_latin1  |
+   CHARACTER SET utf8                  COLLATE alt_collation_utf8    |
+   CHARACTER SET utf8mb3               COLLATE alt_collation_utf8mb3 |
+   CHARACTER SET utf8mb4               COLLATE alt_collation_utf8mb4 ;
+
+alt_collation_latin1:
+   latin1_bin  | latin1_general_cs | latin1_general_ci ;
+alt_collation_utf8:
+   utf8_bin    | utf8_nopad_bin    | utf8_general_ci ;
+alt_collation_utf8mb3:
+   utf8mb3_bin | utf8mb3_nopad_bin | utf8mb3_general_nopad_ci | utf8mb3_general_ci ;
+alt_collation_utf8mb4:
+   utf8mb4_bin | utf8mb4_nopad_bin | utf8mb4_general_nopad_ci | utf8mb4_general_ci ;
+alt_collation_all:
+   alt_collation_latin1  |
+   alt_collation_utf8    |
+   alt_collation_utf8mb3 |
+   alt_collation_utf8mb4 ;
+
+alt_character_set_all:
+   latin1  |
+   utf8    |
+   utf8mb3 |
+   utf8mb4 ;
 
