@@ -568,6 +568,9 @@ $combinations = [ $grammars,
     # per second. And that seems to cause a higher fraction of tests invoking rr where the
     # max_gd_timeout gets exceeded. Per current experience the impact on the fraction of bugs found
     # or replayed is rather more negative than positive. But there is one case where this helped.
+    #
+    # The settings --rr_options='--wait' and --rr_options='--chaos --wait' do not significant
+    # differ regarding the fraction of most probably false server hangs.
     " --rr=Extended --rr_options='--wait' ",
     " --rr=Extended --rr_options='--chaos --wait' ",
     # Coverage for libaio or liburing.
