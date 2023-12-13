@@ -1,5 +1,6 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
 # Copyright (C) 2020 MariaDB Corporation Ab.
+# Copyright (C) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -26,8 +27,8 @@ use strict;
 use GenTest_e;
 use GenTest_e::Constants;
 
-use constant FILTER_REGEXP_FILE		=> 0;
-use constant FILTER_REGEXP_RULES	=> 1;
+use constant FILTER_REGEXP_FILE     => 0;
+use constant FILTER_REGEXP_RULES    => 1;
 
 my $total_queries;
 my $filtered_queries;
@@ -35,26 +36,26 @@ my $filtered_queries;
 sub new {
     my $class = shift;
 
-	my $filter = $class->SUPER::new({
-		file	=> FILTER_REGEXP_FILE,
-		rules	=> FILTER_REGEXP_RULES
-	}, @_);
+    my $filter = $class->SUPER::new({
+        file    => FILTER_REGEXP_FILE,
+        rules   => FILTER_REGEXP_RULES
+    }, @_);
 
     if (defined $filter->[FILTER_REGEXP_FILE]) {
-	    if (STATUS_OK != $filter->readFromFile($filter->[FILTER_REGEXP_FILE])) {
+        if (STATUS_OK != $filter->readFromFile($filter->[FILTER_REGEXP_FILE])) {
             return undef;
         } else {
             return $filter;
         }
     } else {
-	    return undef;
+        return undef;
     }
 }
 
 sub readFromFile {
-	my ($filter, $file) = @_;
+    my ($filter, $file) = @_;
 
-    my $who_am_i = "GenTest_e::Filter::Regexp::readFromFile:";
+    my $who_am_i =  Basics::who_am_i;
 
     # For experimenting
     #==================
@@ -84,50 +85,45 @@ sub readFromFile {
             return STATUS_FAILURE;
         } else {
             $filter->[FILTER_REGEXP_RULES] = $rules;
-            say("Loaded ".(keys %$rules)." filtering rules from '$file'");
+            say("Loaded " . (keys %$rules) . " filtering rules from '$file'");
             return STATUS_OK;
         }
     }
 }
 
 sub filter {
-	my ($filter, $query) = @_;
+    my ($filter, $query) = @_;
     # Hint:
     # The content of $query is <the query> <explain output>
-	$total_queries++;
+    $total_queries++;
 
-	foreach my $rule_name (keys %{$filter->[FILTER_REGEXP_RULES]}) {
-		my $rule = $filter->[FILTER_REGEXP_RULES]->{$rule_name};
+    foreach my $rule_name (keys %{$filter->[FILTER_REGEXP_RULES]}) {
+        my $rule = $filter->[FILTER_REGEXP_RULES]->{$rule_name};
 
-		if (
-			(ref($rule) eq 'Regexp') &&
-			($query =~ m{$rule}si)
-		) {
-			$filtered_queries++;
-#			say("Query: $query filtered out by regexp rule $rule_name.");
-			return STATUS_SKIP;
-		} elsif (
-			(ref($rule) eq '') &&
-			(lc($query) eq lc($rule))
-		) {
-			$filtered_queries++;
-#			say("Query: $query filtered out by literal rule $rule_name.");
-			return STATUS_SKIP;
-		} elsif (ref($rule) eq 'CODE') {
-			local $_ = $query;
-			if ($rule->($query)) {
-				$filtered_queries++;
-#				say("Query: $query filtered out by code rule $rule_name");
-	                        return STATUS_SKIP;
-			}
-		}
-	}
+        if ( (ref($rule) eq 'Regexp') && ($query =~ m{$rule}si)) {
+            $filtered_queries++;
+#           say("Query: $query filtered out by regexp rule $rule_name.");
+            return STATUS_SKIP;
+        } elsif ( (ref($rule) eq '') && (lc($query) eq lc($rule))) {
+            $filtered_queries++;
+#           say("Query: $query filtered out by literal rule $rule_name.");
+            return STATUS_SKIP;
+        } elsif (ref($rule) eq 'CODE') {
+            local $_ = $query;
+            if ($rule->($query)) {
+                $filtered_queries++;
+#               say("Query: $query filtered out by code rule $rule_name");
+	            return STATUS_SKIP;
+            }
+        }
+    }
 
-	return STATUS_OK;
+    return STATUS_OK;
 }
 
 sub DESTROY {
-	print "GenTest_e::Filter::Regexp: total_queries: $total_queries; filtered_queries: $filtered_queries\n" if rqg_debug() && defined $total_queries;
+    print "GenTest_e::Filter::Regexp: total_queries: $total_queries; filtered_queries: " .
+          "$filtered_queries\n" if rqg_debug() && defined $total_queries;
 }
 
 1;

@@ -842,7 +842,7 @@ my $query_no;
 sub get_dbh {
     my ($dsn, $role, $timeout) = @_;
 
-    my $who_am_i = "GenTest_e::Executor::MySQL::get_dbh:";
+    my $who_am_i = Basics::who_am_i;
 
     if (not defined $dsn) {
         Carp::cluck("ERROR: \$dsn is undef.");
@@ -877,10 +877,10 @@ sub get_dbh {
 # And in case that passes all future childs see the value 0. ?????
 my $first_connect = 1;
 sub get_connection {
-    my $executor = shift;
+    my $executor =  shift;
 
-    my $who_am_i = "GenTest_e::Executor::MySQL::get_connection:";
-    my $status =   STATUS_OK;
+    my $who_am_i =  Basics::who_am_i;
+    my $status =    STATUS_OK;
     # We need the $executor->role as important detail for messages.
     if (not defined $executor->role) {
         $status = STATUS_INTERNAL_ERROR;
@@ -929,9 +929,7 @@ sub get_connection {
     my $trace_me = 0;    # <-------------------- Make that + setting it right global!
     $aux_query = "SELECT CONNECTION_ID()" . ' /* E_R ' . $executor->role .
                  ' QNO 0 CON_ID unknown */ ';
-
     SQLtrace::sqltrace_before_execution($aux_query);
-
     # exp_server_kill($who_am_i, $aux_query);
     my $row_arrayref = $dbh->selectrow_arrayref($aux_query);
     my $error =        $dbh->err();
@@ -1102,9 +1100,8 @@ sub get_connection {
 
     # exp_server_kill($who_am_i, "Call of restore_max_statement_time");
     $status = $executor->restore_max_statement_time ;
-    return $status if $status != STATUS_OK;
 
-    return STATUS_OK;
+    return $status;
 
 } # End sub get_connection
 
@@ -1176,18 +1173,20 @@ sub reportError {
 
 
 sub execute {
-   my ($executor, $query, $execution_flags) = @_;
-   $execution_flags= 0 unless defined $execution_flags;
+    my ($executor, $query, $execution_flags) = @_;
 
-   my $who_am_i = "GenTest_e::Executor::MySQL::execute: ";
+    my $who_am_i = Basics::who_am_i;
+    my $status;
+    $execution_flags= 0 unless defined $execution_flags;
 
-   my $executor_role = $executor->role();
-   $executor_role = 'unknown' if not defined $executor_role;
 
-   if (not defined $executor->task()) {
-       Carp::cluck("WARN: Executor Task is not defined. Will set it to EXECUTOR_TASK_UNKNOWN.");
-       $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_UNKNOWN);
-   }
+    my $executor_role = $executor->role();
+    $executor_role = 'unknown' if not defined $executor_role;
+
+    if (not defined $executor->task()) {
+        Carp::cluck("WARN: Executor Task is not defined. Will set it to EXECUTOR_TASK_UNKNOWN.");
+        $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_UNKNOWN);
+    }
 
    if (not defined $query) {
       # Its so fatal that we should exit immediate.
@@ -1351,14 +1350,11 @@ sub execute {
     my $trace_query;
     my $trace_me = 0;
 
-    # Write query to log before execution so it's sure to get there
-    # mleich experimental changes
-    # 1. Trigger need delimiters too
-    # 2. Only a CREATE [OR REPLACE] PROCEDURE/TRIGGER/... [IF NOT EXISTS] ...
-    # FIXME: Do we really want to trace Reporters and ....
-    # if ($query =~ m{(procedure|function)}sgio) {
-    if ($query =~ m{(procedure|function|trigger)}sgio) {
-        $trace_query = "DELIMITER |;\n$query |\nDELIMITER ;|";
+    # Transform the query to be traced so that mariadb/mysql and mariadb-test/mysql-test
+    # find the delimiter required for
+    #     CREATE [OR REPLACE] PROCEDURE/TRIGGER/... [IF NOT EXISTS] ...
+    if ($query =~ m{^ *create .*(procedure|function|trigger)}msgio) {
+        $trace_query = "DELIMITER |;\n$query |\nDELIMITER |";
     } else {
         $trace_query = $query;
     }
@@ -2130,7 +2126,7 @@ sub currentSchema {
 
     my ($executor, $schema) = @_;
 
-    my $who_am_i = "GenTest_e::Executor::MySQL::currentSchema:";
+    my $who_am_i = Basics::who_am_i;
     my $status;
 
     # Hint:
@@ -2276,7 +2272,7 @@ sub getSchemaMetaData {
     my $dbh = $self->dbh;
     # Check if its undef
 
-    my $who_am_i = "GenTest_e::Executor::getSchemaMetaData:";
+    my $who_am_i = Basics::who_am_i;
 
     my $role = $self->role;
     my $trace_addition = ' /* E_R ' . $role . ' QNO 0' .
@@ -2377,7 +2373,7 @@ sub getCollationMetaData {
     ## or undef if hitting an error.
     #     $self is an executor
     my ($self) = @_;
-    my $who_am_i = "GenTest_e::Executor::MySQL::getCollationMetaData:";
+    my $who_am_i = Basics::who_am_i;
     my $query = "SELECT collation_name,character_set_name FROM information_schema.collations";
     # exp_server_kill($who_am_i, $query);
 
@@ -2444,7 +2440,7 @@ sub run_do {
 
     my ($dbh, $role, $query) = @_;
 
-    my $who_am_i = "GenTest_e::Executor::MySQL::run_do:";
+    my $who_am_i = Basics::who_am_i;
 
     if (not defined $dbh) {
         Carp::cluck("FATAL ERROR: dbh is not defined. ".
@@ -2490,7 +2486,7 @@ sub run_do {
 sub set_safe_max_statement_time {
     my $executor = shift;
 
-    my $who_am_i = "GenTest_e::Executor::MySQL::set_safe_max_statement_time:";
+    my $who_am_i = Basics::who_am_i;
 
     my $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
                              $executor->connectionId() . ' */ ';
@@ -2513,7 +2509,7 @@ sub set_safe_max_statement_time {
 sub restore_max_statement_time {
     my $executor = shift;
 
-    my $who_am_i = "GenTest_e::Executor::MySQL::restore_max_statement_time:";
+    my $who_am_i = Basics::who_am_i;
 
     my $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
                          $executor->connectionId() . ' */ ';
@@ -2537,7 +2533,7 @@ sub restore_max_statement_time {
 sub set_innodb_buffer_pool_size {
     my $executor = shift;
 
-    my $who_am_i = "GenTest_e::Executor::MySQL::set_innodb_buffer_pool_size:";
+    my $who_am_i = Basics::who_am_i;
 
     my $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
                          $executor->connectionId() . ' */ ';
@@ -2580,7 +2576,7 @@ sub set_innodb_buffer_pool_size {
 sub restore_innodb_buffer_pool_size {
     my $executor = shift;
 
-    my $who_am_i = "GenTest_e::Executor::MySQL::restore_innodb_buffer_pool_size:";
+    my $who_am_i = Basics::who_am_i;
 
     my $trace_addition = '/* E_R ' . $executor->role . ' QNO 0 CON_ID ' .
                          $executor->connectionId() . ' */ ';
@@ -2602,6 +2598,5 @@ sub restore_innodb_buffer_pool_size {
         return $status;
     }
 }
-
 
 1;

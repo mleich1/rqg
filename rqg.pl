@@ -388,7 +388,7 @@ if ($result) {
 if (not chdir($vardirs[0])) {
     my $status = STATUS_ENVIRONMENT_FAILURE;
     say("INTERNAL ERROR: chdir to '$vardirs[0]' failed with : $!\n" .
-        "         Will return STATUS_INTERNAL_ERROR.");
+        "         Will return STATUS_ENVIRONMENT_FAILURE.");
     run_end($status);
 }
 
@@ -1813,6 +1813,11 @@ while ( $gt_round <= $max_gt_rounds) {
             $final_result = $check_status;
         }
     }
+    if ($final_result >= STATUS_CRITICAL_FAILURE) {
+        say("RESULT: The core of the RQG run ended with status " . status2text($final_result) .
+            " ($final_result)");
+        exit_test($final_result);
+    }
 
     # Catch if some server is no more operable.
     # ----------------------------------------
@@ -1923,10 +1928,10 @@ sub checkServers {
             }
             if ($server_num > 1 and
                 defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE and
-                $check_status < STATUS_ENVIRONMENT_FAILURE) {
+                $status < STATUS_ENVIRONMENT_FAILURE) {
                 say("ERROR: Setting current_status STATUS_REPLICATION_FAILURE because its not " .
                     "the first server and some kind of replication ($rpl_mode) is involved.");
-                $current_status = $check_status;
+                $current_status = STATUS_REPLICATION_FAILURE;
             }
         }
     }

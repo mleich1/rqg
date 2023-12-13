@@ -94,6 +94,7 @@ use constant EXECUTOR_FLAG_HASH_DATA         => 4;
 # (2) If losing the connection assume its STATUS_SERVER_CRASHED.
 #     This implies to not
 #     - try to reconnect
+#       If that fails report STATUS_CRITICAL_FAILURE.
 #     - run COMMIT/ROLLBACK RELEASE except maybe before finishing.
 # (3) Do not maintain EXECUTOR_ERROR_COUNTS.
 # (4) Do not fiddle with duration here.
@@ -355,15 +356,15 @@ sub defaultSchema {
 }
 
 sub currentSchema {
-    croak "FATAL ERROR: currentSchema not defined for ". (ref $_[0]);
+    Carp::confess "FATAL ERROR: currentSchema not defined for ". (ref $_[0]);
 }
 
 sub getSchemaMetaData {
-    croak "FATAL ERROR: getSchemaMetaData not defined for ". (ref $_[0]);
+    Carp::confess "FATAL ERROR: getSchemaMetaData not defined for ". (ref $_[0]);
 }
 
 sub getCollationMetaData {
-    carp "getCollationMetaData not defined for ". (ref $_[0]);
+    Carp::cluck "getCollationMetaData not defined for ". (ref $_[0]);
     return [[undef,undef]];
 }
 
@@ -380,7 +381,7 @@ sub cacheMetaData {
     my ($self, $redo) = @_;
 
     my $meta = {};
-    my $who_am_i = "GenTest_e::Executor::cacheMetaData";
+    my $who_am_i = Basics::who_am_i;
 
     my $trace_addition = '/* E_R ' . $self->role . ' QNO 0 CON_ID ' .
                          $self->connectionId . ' */';

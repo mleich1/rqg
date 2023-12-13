@@ -1423,8 +1423,12 @@ sub check_basedirs {
         }
     }
     foreach my $i (0..3) {
-        # Replace the annoying '//' with '/'.
-        $basedirs[$i] =~ s/\/+/\//g if defined $basedirs[$i];
+        if (defined $basedirs[$i]) {
+            # Replace the annoying '//' with '/'.
+            $basedirs[$i] =~ s/\/+/\//g;
+            # Remove trailing '/'.
+            $basedirs[$i] =~ s/\/$//g;
+        }
     }
     # Auxiliary::print_list("DEBUG: Intermediate RQG basedirs ", @basedirs);
     foreach my $i (0..3) {
@@ -2436,7 +2440,7 @@ sub check_filter {
 # If filter files get copied to the workdir of the RQG run (like final grammars) than
 # checking $workdir makes sense.
     my ($filter, $workdir) = @_;
-    my $who_am_i = "Auxiliary::check_filter:";
+    my $who_am_i = Basics::who_am_i;
     if (@_ != 2) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: $who_am_i : 2 Parameters (filter, " .
@@ -2665,7 +2669,7 @@ sub help_seed {
 sub egalise_dump {
     my ($dump_file, $dump_file_egalized) = @_;
 
-    my $who_am_i = 'Auxiliary::egalise_dump:';
+    my $who_am_i = Basics::who_am_i;
 
     if (not defined $dump_file) {
         say("ERROR: $who_am_i The first parameter dump_file is not defined.");
@@ -2756,7 +2760,7 @@ sub search_in_file {
 #
     my ($search_file, $pattern) = @_;
 
-    my $who_am_i = "Auxiliary::search_in_file:";
+    my $who_am_i = Basics::who_am_i;
     if (not -e $search_file) {
         Carp::cluck("ERROR: $who_am_i The file '$search_file' is missing. Will return undef.");
         return undef;
@@ -2806,7 +2810,8 @@ sub get_pid_from_file {
 
     my $fname  = shift;
     my $silent = shift;
-    my $who_am_i = "get_pid_from_file:";
+
+    my $who_am_i = Basics::who_am_i;
     if (not defined $fname) {
         Carp::confess("INTERNAL ERROR: $who_am_i \$fname is undef.");
     }
@@ -2826,7 +2831,7 @@ sub get_pid_from_file {
 
 sub check_if_reasonable_pid {
     my ($pid) =    @_;
-    my $who_am_i = "check_if_reasonable_pid:";
+    my $who_am_i = Basics::who_am_i;
     # The input is just what got extracted from file with preceding or trailing chars removed.
     # Thinkable content:
     # - undef              Never observed and if occuring at all than an internal error.
@@ -3243,9 +3248,10 @@ sub clean_workdir {
 # - clean up anything else.
 # FIXME: Compare with "clean_workdir" and remove weaknesses.
 #
+    my ($workdir) = @_;
+
     my $who_am_i = Basics::who_am_i();
 
-    my ($workdir) = @_;
     if (not -d $workdir) {
         say("ERROR: $who_am_i RQG workdir '$workdir' is missing or not a directory.");
         return STATUS_FAILURE;

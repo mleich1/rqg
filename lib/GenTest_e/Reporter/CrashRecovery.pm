@@ -155,6 +155,9 @@ sub report {
             $recovery_status = STATUS_RECOVERY_FAILURE;
         }
         say("ERROR: $who_am_i Status based on server start attempt is $recovery_status");
+    } else {
+        $reporter->updatePid();
+        say("INFO: $who_am_i " . $$ . " Server pid updated to ". $reporter->serverInfo('pid') . ".");
     }
 
     # The RQG runner rqg.pl will later run DBServer_e::MySQL::MySQLd::checkDatabaseIntegrity
