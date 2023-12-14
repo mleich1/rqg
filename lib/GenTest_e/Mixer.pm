@@ -75,7 +75,7 @@ sub new {
         } else {
             my $status = STATUS_INTERNAL_ERROR;
             Carp::cluck("ERROR: $who_am_i" . $mixer->role() . " mixer->end_time is undef. " .
-                        "Will exit with exit status STATUS_INTERNAL_ERROR(" . $status . ").");
+                        Basics::exit_status_text($status));
             # IMHO we can exit here without additional damage.
             exit $status;
         }
@@ -198,9 +198,10 @@ sub next {
                 $ex->execute("SET TIMESTAMP = 0");
                 $ex->execute("SET TIMESTAMP = UNIX_TIMESTAMP(NOW())");
             } else {
+                my $status = STATUS_ENVIRONMENT_FAILURE;
                 Carp::cluck "ERROR: $who_am_i Don't know how to freeze time for " . $ex->getName;
-                say("ERROR:           Will return STATUS_ENVIRONMENT_FAILURE");
-                return STATUS_ENVIRONMENT_FAILURE;
+                say("ERROR:           " . Basics::return_status_text($status));
+                return $status;
             }
         }
     }
@@ -211,9 +212,10 @@ sub next {
     # For experimenting
     # $queries = undef;
     if (not defined $queries) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i $mixer_role : Internal grammar problem(\$queries is not defined).\n" .
-            "ERROR:                         Will return STATUS_ENVIRONMENT_FAILURE");
-        return STATUS_ENVIRONMENT_FAILURE;
+            "ERROR:                         " . Basics::return_status_text($status));
+        return $status;
     }
     # Note: Empty queries need to stay allowed because of sophisticated grammars and the simplifier.
 
@@ -260,16 +262,18 @@ sub next {
             my $execution_result = $executor->execute($query);
 
             if (not defined $execution_result) {
+                my $status = STATUS_INTERNAL_ERROR;
                 Carp::cluck("ALARM: $who_am_i $mixer_role : undef execution_result got for query " .
-                            "->$query<-.\n" . "Will return STATUS_INTERNAL_ERROR.");
-                return STATUS_INTERNAL_ERROR;
+                            "->$query<-.\n" . Basics::return_status_text($status));
+                return $status;
             }
 
             my $result_status = $execution_result->status();
             if (not defined $result_status) {
+                my $status = STATUS_INTERNAL_ERROR;
                 Carp::cluck("ALARM: $who_am_i $mixer_role : undef result_status got for query " .
-                            "->$query<-.\n" . "Will return STATUS_INTERNAL_ERROR.");
-                return STATUS_INTERNAL_ERROR;
+                            "->$query<-.\n" . Basics::return_status_text($status));
+                return $status;
             }
             # If the server has crashed but we expect server restarts during the test,
             # we will wait and retry.

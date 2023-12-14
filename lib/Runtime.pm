@@ -57,9 +57,9 @@ sub get_connect_timeout {
     return $runtime_factor * CONNECT_TIMEOUT;
 }
 
-# Support for rr (https://rr-project.org/, https://github.com/mozilla/rr)
-# -----------------------------------------------------------------------
-our $rr;
+# Support for the use of rr (https://rr-project.org/, https://github.com/mozilla/rr)
+# ----------------------------------------------------------------------------------
+our $rr = 0;
 our $rr_options;
 our $rr_rules = 0;
 # $rr_rules is used for deciding if

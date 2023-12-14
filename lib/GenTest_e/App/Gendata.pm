@@ -1,6 +1,7 @@
 # Copyright (C) 2009, 2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
+# Copyright (c) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -274,7 +275,7 @@ sub run {
         if ($#datetimestuff > -1) {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: Dates and times are severly broken. Cannot be used for other than " .
-                "MySQL/Drizzle. " . Auxiliary::build_wrs($status));
+                "MySQL/Drizzle. " . Basics::return_status_text($status));
             return $status;
         }
     }

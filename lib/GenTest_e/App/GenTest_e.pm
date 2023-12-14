@@ -351,7 +351,7 @@ sub doGenTest {
             $self->[GT_QUERY_FILTERS] = [ $result ];
         } else {
             my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
+            say("ERROR: $who_am_i " . Basics::return_status_text($status));
             return $status;
         }
     }
@@ -730,7 +730,7 @@ sub reportResults {
        # Scenario is:
        # Reporter "Deadlock" detects server freeze --> crash server intentionally -->
        # exit with STATUS_SERVER_DEADLOCKED --> Backtrace or ServerDead run and report
-       # STATUS_SERVER_CRASHED.
+       # STATUS_SERVER_CRASHED. total_status(STATUS_SERVER_DEADLOCKED) > report_status(STATUS_SERVER_CRASHED)
        # Hence we do nothing.
     } elsif (STATUS_SERVER_CRASHED == $report_status and STATUS_SERVER_CRASHED != $total_status) {
        say("INFO: The reporter status $report_status_name($report_status) is more reliable.");
@@ -745,18 +745,6 @@ sub reportResults {
            status2text(STATUS_CRITICAL_FAILURE) . "(" . STATUS_CRITICAL_FAILURE . ")");
        $total_status = STATUS_CRITICAL_FAILURE;
     }
-
-    # FIXME:
-    # Maybe check if the status is bad and if yes use logFilesToReport and dump all server error
-    # logs mentioned there instead of dumping error logs of all time present servers in reporters
-    # or similar.
-    # Advantage:
-    # - More information for bwlist search in the RQG log.
-    # - Less frequent duplicate information.
-    # Printing a lot in case of error should be ok but would be bad if having no error.
-    # Disadvantage:
-    # In case a test causes damage intentionally, the server laments from good reason but the
-    # lamenting is interpreted as unexpected bad effect than we get maybe false alarms.
 
     if ($total_status == STATUS_OK) {
         say("Test completed successfully.");
@@ -966,9 +954,6 @@ sub doGenData {
     my $who_am_i = Basics::who_am_i;
 
     $self->do_init();
-    # Hint:
-    # $self->do_init also preloads the reporters.
-    # Hence we can use some of them like Backtrace in case of GenData fails.
 
     return STATUS_OK if defined $self->config->property('start-dirty');
 
@@ -1476,18 +1461,18 @@ sub check_for_crash {
         } elsif ($report_status == STATUS_SERVER_CRASHED) {
             $final_status = $report_status;
             say("INFO: $who_am_i The reporter status $report_status is more reliable. " .
-                "Will return status " . status2text($final_status) . "($final_status).");
+                Basics::return_status_text($final_status));
         } elsif ($report_status == STATUS_OK) {
             $final_status = $status;
             if ($status == STATUS_SERVER_CRASHED) {
                 $final_status =  STATUS_CRITICAL_FAILURE;
                 say("INFO: $who_am_i Its obviously not a crash. " .
-                    "Will return status " . status2text($final_status) . "($final_status).");
+                    Basics::return_status_text($final_status));
             }
         } elsif ($report_status == STATUS_INTERNAL_ERROR) {
             $final_status = $report_status;
             say("INFO: $who_am_i Obviously trouble with reporters. " .
-                "Will return status " . status2text($final_status) . "($final_status).");
+                Basics::return_status_text($final_status));
         } else {
             $final_status = $status;
         }

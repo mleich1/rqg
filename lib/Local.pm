@@ -95,7 +95,7 @@ sub check_and_set_local_config {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: $who_am_i" .
                     " Exact four parameters(major_runid, minor_runid, dbdir_type, batch) need " .
-                    "to get assigned. " . Auxiliary::exit_status_text($status));
+                    "to get assigned. " . Basics::exit_status_text($status));
         safe_exit($status);
     }
     # Variants
@@ -162,7 +162,7 @@ sub check_and_set_local_config {
     if (not defined $batch) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: $who_am_i" .
-                    " The variable \$batch is undef. " . Auxiliary::exit_status_text($status));
+                    " The variable \$batch is undef. " . Basics::exit_status_text($status));
         safe_exit($status);
     } else {
         say("DEBUG: $who_am_i The variable \$batch is ->$batch<-");
@@ -188,13 +188,13 @@ sub check_and_set_local_config {
         say("ERROR: The local config file '$local_config' does not exist.\n" .
             "INFO:  Please copy '" . $local_config_template . "' to '" . $local_config . "'.\n" .
             "INFO:  And than adjust the content of '" . $local_config . "' to your needs. " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
         safe_exit($status);
     } else {
         if (not open (CONF, $local_config)) {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: Unable to open the local config file '$local_config': $! " .
-                Auxiliary::exit_status_text($status));
+                Basics::exit_status_text($status));
             safe_exit($status);
         }
         read(CONF, my $config_text, -s $local_config);
@@ -204,7 +204,7 @@ sub check_and_set_local_config {
         if ($@) {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: Unable to load the local config file '$local_config': " .
-                $@ . ' ' . Auxiliary::exit_status_text($status));
+                $@ . ' ' . Basics::exit_status_text($status));
             safe_exit($status);
         }
 
@@ -212,14 +212,14 @@ sub check_and_set_local_config {
         if (not defined $rr_options_add) {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: The variable \$rr_options_add is undef. " . $message_correct .
-                Auxiliary::exit_status_text($status));
+                Basics::exit_status_text($status));
             safe_exit($status);
         }
 
         if (not defined $build_thread) {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: The variable \$build_thread is undef. " . $message_correct .
-                Auxiliary::exit_status_text($status));
+                Basics::exit_status_text($status));
             safe_exit($status);
         }
 
@@ -236,7 +236,7 @@ sub check_and_set_local_config {
         if (not defined $rqg_fast_dir) {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: The variable \$rqg_fast_dir is undef. " . $message_correct .
-                Auxiliary::exit_status_text($status));
+                Basics::exit_status_text($status));
             safe_exit($status);
         } else {
             $rqg_fast_dir = Basics::unify_path($rqg_fast_dir);
@@ -247,7 +247,7 @@ sub check_and_set_local_config {
         if (not defined $rqg_slow_dir) {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: The variable \$rqg_slow_dir is undef. " . $message_correct .
-                Auxiliary::exit_status_text($status));
+                Basics::exit_status_text($status));
             safe_exit($status);
         } else {
             $rqg_slow_dir = Basics::unify_path($rqg_slow_dir);
@@ -282,7 +282,7 @@ sub check_and_set_local_config {
         if (not defined $binarch_dir) {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: The variable \$binarch_dir is undef. " .
-                Auxiliary::exit_status_text($status));
+                Basics::exit_status_text($status));
             safe_exit($status);
         }
         $binarch_dir = Basics::unify_path($binarch_dir);
@@ -290,7 +290,7 @@ sub check_and_set_local_config {
         if (not defined $results_dir) {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: The variable \$results_dir is undef. " .
-                Auxiliary::exit_status_text($status));
+                Basics::exit_status_text($status));
             safe_exit($status);
         }
         if (defined $major_runid) {
@@ -350,7 +350,7 @@ sub check_and_set_local_config {
         my $message = "Local Properties after processing '$local_config' and parameters assigned";
         my $build_thread_message = "$build_thread";
         $build_thread_message = $build_thread_message . " (begin of range used)" if (2 == $batch);
-        say(Auxiliary::dash_line(length($message)) . "\n"                                          .
+        say(Basics::dash_line(length($message)) . "\n"                                          .
             $message . "\n"                                                                        .
             "INFO: major_runid           : '$replacement'\n"                                       .
             "INFO: minor_runid           : '$minor_runid'\n"                                       .
@@ -366,7 +366,7 @@ sub check_and_set_local_config {
             "INFO: results_dir           : '$results_dir'\n"                                       .
             "INFO: vardir                : '$vardir'\n"                                            .
             "INFO: build_thread          : '$build_thread_message'\n"                              .
-            Auxiliary::dash_line(length($message)))                                                ;
+            Basics::dash_line(length($message)))                                                ;
     }
     # For debugging
     # system("ls -ld /dev/shm/rqg*/* /data/rqg/* /data/results/*");

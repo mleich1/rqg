@@ -579,26 +579,26 @@ sub init {
     if (not defined $config_file) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: $who_am_i config file is undef. " .
-                    Auxiliary::exit_status_text($status));
+                    Basics::exit_status_text($status));
         safe_exit($status);
     }
     if (not -f $config_file) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i The config file '$config_file' does not exist or is not " .
-            "a plain file. " . Auxiliary::exit_status_text($status));
+            "a plain file. " . Basics::exit_status_text($status));
         safe_exit($status);
     }
 
     if (not defined $workdir) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: $who_am_i workdir is undef. " .
-                    Auxiliary::exit_status_text($status));
+                    Basics::exit_status_text($status));
         safe_exit($status);
     }
     if (not -d $workdir) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i The workdir '$workdir' does not exist or is not " .
-            "a directory. " . Auxiliary::exit_status_text($status));
+            "a directory. " . Basics::exit_status_text($status));
         safe_exit($status);
     }
 
@@ -626,7 +626,7 @@ sub init {
     if (not File::Copy::copy($config_file, $config_file_copy)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Copying the config file '$config_file' to '$config_file_copy' failed : $!. " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
         safe_exit($status);
     }
 
@@ -861,7 +861,7 @@ sub init {
             } else {
                 my $status = STATUS_ENVIRONMENT_FAILURE;
                 say("ERROR: Grammar neither via command line nor via config file assigned. " .
-                Auxiliary::exit_status_text($status));
+                Basics::exit_status_text($status));
                 safe_exit($status);
             }
         }
@@ -895,7 +895,7 @@ sub init {
     if (defined $bad_trials) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: trials found between 'rqg_options'. The Simplifier does not support that. " .
-            "Abort. " . Auxiliary::exit_status_text($status));
+            "Abort. " . Basics::exit_status_text($status));
         safe_exit($status);
     }
 
@@ -919,7 +919,7 @@ sub init {
         } else {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: duration neither via command line nor via config file assigned. " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
             safe_exit($status);
         }
     }
@@ -933,7 +933,7 @@ sub init {
     if (defined $bad_duration_adaption) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: duration_adaption found between 'rqg_options'. This is wrong. Abort. " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
         safe_exit($status);
     }
 
@@ -978,7 +978,7 @@ sub init {
         } else {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: queries neither via command line nor via config file assigned. " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
             safe_exit($status);
         }
     }
@@ -1004,7 +1004,7 @@ sub init {
         } else {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: threads neither via command line nor via config file assigned. " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
             safe_exit($status);
         }
     }
@@ -1015,7 +1015,7 @@ sub init {
     if (defined $bad_algorithm) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: algorithm found between 'rqg_options'. This is wrong. Abort. " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
         safe_exit($status);
     }
 
@@ -1058,7 +1058,7 @@ sub init {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: Reporters neither via command line nor via config file reporters " .
                 "assigned. But the Simplifier should not guess what the RQG runner will do." .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
             safe_exit($status);
         }
     }
@@ -1203,11 +1203,11 @@ $verdict_setup                                                                  
     Batch::write_result($header);
     Batch::write_setup($header);
     $rqg_log_length = Batch::get_rqg_log_length($workdir);
-    my $header1 =  Auxiliary::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH) . " | " .
-                   Auxiliary::rfill(Batch::RQG_INFO_TITLE     , Batch::RQG_INFO_LENGTH)      . " | " .
+    my $header1 =  Basics::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH) . " | " .
+                   Basics::rfill(Batch::RQG_INFO_TITLE     , Batch::RQG_INFO_LENGTH)      . " | " .
                    Batch::RQG_CALL_SNIP_TITLE                                                . " | " .
-                   Auxiliary::lfill(Batch::RQG_NO_TITLE       , Batch::RQG_NO_LENGTH)        . " | " .
-                   Auxiliary::rfill(Batch::RQG_LOG_TITLE      , $rqg_log_length)             . "\n" ;
+                   Basics::lfill(Batch::RQG_NO_TITLE       , Batch::RQG_NO_LENGTH)        . " | " .
+                   Basics::rfill(Batch::RQG_LOG_TITLE      , $rqg_log_length)             . "\n" ;
     Batch::write_setup($header1);
 
     $cl_snip_all .= " " . $rqg_options_end . " " . $mysql_options ;
@@ -1219,15 +1219,15 @@ $verdict_setup                                                                  
     $phase_switch = 1;
 
     $title_line_part =                                                               " | " .
-        Auxiliary::rfill(Batch::RQG_NO_TITLE,        Batch::RQG_NO_LENGTH)         . " | " .
-        Auxiliary::rfill(Batch::RQG_WNO_TITLE,       Batch::RQG_WNO_LENGTH)        . " | " .
-        Auxiliary::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH)  . " | " .
-        Auxiliary::rfill(Batch::RQG_LOG_TITLE,       $rqg_log_length)              . " | " .
-        Auxiliary::rfill(Batch::RQG_ORDERID_TITLE,   Batch::RQG_ORDERID_LENGTH)    . " | " .
-        Auxiliary::rfill(Batch::RQG_RUNTIME_TITLE,   Batch::RQG_RUNTIME_LENGTH)    . " | " .
-        Auxiliary::rfill(RQG_DERIVATE_TITLE,         RQG_SPECIALITY_LENGTH)        . " | " .
-        Auxiliary::rfill(RQG_PARENT_TITLE,           RQG_SPECIALITY_LENGTH)        . " | " .
-        Auxiliary::rfill(Batch::RQG_INFO_TITLE,      Batch::RQG_INFO_LENGTH)       . "\n";
+        Basics::rfill(Batch::RQG_NO_TITLE,        Batch::RQG_NO_LENGTH)         . " | " .
+        Basics::rfill(Batch::RQG_WNO_TITLE,       Batch::RQG_WNO_LENGTH)        . " | " .
+        Basics::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH)  . " | " .
+        Basics::rfill(Batch::RQG_LOG_TITLE,       $rqg_log_length)              . " | " .
+        Basics::rfill(Batch::RQG_ORDERID_TITLE,   Batch::RQG_ORDERID_LENGTH)    . " | " .
+        Basics::rfill(Batch::RQG_RUNTIME_TITLE,   Batch::RQG_RUNTIME_LENGTH)    . " | " .
+        Basics::rfill(RQG_DERIVATE_TITLE,         RQG_SPECIALITY_LENGTH)        . " | " .
+        Basics::rfill(RQG_PARENT_TITLE,           RQG_SPECIALITY_LENGTH)        . " | " .
+        Basics::rfill(Batch::RQG_INFO_TITLE,      Batch::RQG_INFO_LENGTH)       . "\n";
 
     say("DEBUG: Leaving 'Simplifier::init") if Auxiliary::script_debug("S6");
 
@@ -1462,7 +1462,7 @@ sub get_job {
                         if (0) {
                             say("DEBUG: Redefinestring ->$redefine_string<-");
                         }
-                        $child_grammar = "c" . Auxiliary::lfill0($child_number,5) . ".yy";
+                        $child_grammar = "c" . Basics::lfill0($child_number,5) . ".yy";
                         Batch::make_file($workdir . "/" . $child_grammar, $grammar_string . "\n\n" .
                                          $redefine_string );
                         $child_number++;
@@ -1917,22 +1917,22 @@ sub register_result {
     # 1. Bookkeeping
     my $iso_ts = isoTimestamp();
     my $line   = "$iso_ts | " .
-        Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
-        Auxiliary::lfill($worker_num,     Batch::RQG_WNO_LENGTH)       . " | " .
-        Auxiliary::rfill($verdict,        Verdict::RQG_VERDICT_LENGTH) . " | " .
-        Auxiliary::lfill($saved_log,  $rqg_log_length)             . " | " .
-        Auxiliary::lfill($order_id,       Batch::RQG_ORDERID_LENGTH)   . " | " .
-        Auxiliary::lfill($total_runtime,  Batch::RQG_ORDERID_LENGTH)   . " | " .
-        Auxiliary::rfill($grammar_used,   RQG_SPECIALITY_LENGTH)       . " | " .
-        Auxiliary::rfill($grammar_parent, RQG_SPECIALITY_LENGTH)       . " | " .
-        Auxiliary::rfill($extra_info,     Batch::RQG_INFO_LENGTH)      . "\n";
+        Basics::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
+        Basics::lfill($worker_num,     Batch::RQG_WNO_LENGTH)       . " | " .
+        Basics::rfill($verdict,        Verdict::RQG_VERDICT_LENGTH) . " | " .
+        Basics::lfill($saved_log,  $rqg_log_length)             . " | " .
+        Basics::lfill($order_id,       Batch::RQG_ORDERID_LENGTH)   . " | " .
+        Basics::lfill($total_runtime,  Batch::RQG_ORDERID_LENGTH)   . " | " .
+        Basics::rfill($grammar_used,   RQG_SPECIALITY_LENGTH)       . " | " .
+        Basics::rfill($grammar_parent, RQG_SPECIALITY_LENGTH)       . " | " .
+        Basics::rfill($extra_info,     Batch::RQG_INFO_LENGTH)      . "\n";
     Batch::write_result($line);
     $line =
-        Auxiliary::rfill($verdict,        Verdict::RQG_VERDICT_LENGTH) . " | " .
-        Auxiliary::rfill($extra_info,     Batch::RQG_INFO_LENGTH)      . " | " .
+        Basics::rfill($verdict,        Verdict::RQG_VERDICT_LENGTH) . " | " .
+        Basics::rfill($extra_info,     Batch::RQG_INFO_LENGTH)      . " | " .
         $worker_command                                                . " | " .
-        Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
-        Auxiliary::lfill($saved_log,  $rqg_log_length)             . "\n";
+        Basics::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
+        Basics::lfill($saved_log,  $rqg_log_length)             . "\n";
     Batch::write_setup($line);
     $arrival_number++;
 
@@ -2996,14 +2996,14 @@ sub load_step {
     if (not defined $grammar_string) {
         my $status = STATUS_INTERNAL_ERROR;
         say("INTERNAL ERROR: Loading a grammar file within Simplifier::Grammar failed. " .
-            "Will ask for emergency exit." . Auxiliary::exit_status_text($status));
+            "Will ask for emergency exit." . Basics::exit_status_text($status));
         Batch::emergency_exit($status);
     }
     my $status = GenTest_e::Simplifier::Grammar::calculate_weights();
     if($status) {
         my $status = STATUS_INTERNAL_ERROR;
         say("INTERNAL ERROR: GenTest_e::Simplifier::Grammar::calculate_weights failed. " .
-            "Will ask for emergency exit." . Auxiliary::exit_status_text($status));
+            "Will ask for emergency exit." . Basics::exit_status_text($status));
         Batch::emergency_exit($status);
     }
     # Aborts if
@@ -3220,7 +3220,7 @@ sub make_parent_from_string {
             say("DEBUG: OLD ->$parent_grammar_string<");
             say("DEBUG: NEW ->$grammar_string<");
         }
-        $parent_grammar= "p" . Auxiliary::lfill0($parent_number,5) . ".yy";
+        $parent_grammar= "p" . Basics::lfill0($parent_number,5) . ".yy";
         Batch::make_file($workdir . "/" . $parent_grammar, $grammar_string . "\n");
         $parent_grammar_string = $grammar_string;
         $parent_number++;
@@ -3229,7 +3229,7 @@ sub make_parent_from_string {
 }
 
 sub make_child_from_parent {
-    $child_grammar = "c" . Auxiliary::lfill0($child_number,5) . ".yy";
+    $child_grammar = "c" . Basics::lfill0($child_number,5) . ".yy";
     my $source     = $workdir . "/" . $parent_grammar;
     my $target     = $workdir . "/" . $child_grammar;
     Batch::copy_file($source, $target);

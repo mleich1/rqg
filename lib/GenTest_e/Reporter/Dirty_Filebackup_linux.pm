@@ -1,4 +1,5 @@
 # Copyright (c) 2022 MariaDB Corporation Ab.
+# Copyright (c) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -103,7 +104,6 @@ use constant BACKUP_TIMEOUT  => 180;
 use constant PREPARE_TIMEOUT => 600;
 
 my $first_reporter;
-my $client_basedir;
 
 my $script_debug = 1;
 my $last_call    = time() - 16;
@@ -111,7 +111,7 @@ $|=1;
 
 # tmpdir() has a '/' at end.
 my $reporter_prt = tmpdir() . "reporter_tmp.prt";
-my $who_am_i     = 'Reporter Dirty_Filebackup';
+my $who_am_i     = "Reporter 'Dirty_Filebackup':";
 my $backup_timeout;
 my $prepare_timeout;
 my $connect_timeout;
@@ -119,9 +119,9 @@ my $connect_timeout;
 sub init {
     my $reporter = shift;
     if (not defined $reporter->testEnd()) {
-        say("ERROR: $who_am_i testEnd is not defined. Will exit with exit status " .
-            "STATUS_INTERNAL_ERROR(" . STATUS_INTERNAL_ERROR . ").");
-        exit STATUS_INTERNAL_ERROR;
+        my $status = STATUS_INTERNAL_ERROR;
+        say("ERROR: $who_am_i testEnd is not defined. " . Basics::exit_status_text($status));
+        exit $status;
     }
     $backup_timeout     = Runtime::get_runtime_factor() * BACKUP_TIMEOUT;
     $prepare_timeout    = Runtime::get_runtime_factor() * PREPARE_TIMEOUT;
@@ -149,7 +149,7 @@ sub monitor {
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
-        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Basics::return_status_text($status));
         return $status;
     }
 
@@ -158,27 +158,6 @@ sub monitor {
     # Access data about the first server
     my $server0 = $reporter->properties->servers->[0];
     my $basedir = $server0->basedir();
-
-    # FIXME: Replace by some routine located in Auxiliary.pm
-    foreach my $path ("$basedir/../client", "$basedir/../bin",
-                      "$basedir/client/RelWithDebInfo", "$basedir/client/Debug",
-                      "$basedir/client", "$basedir/bin") {
-        if (-e $path) {
-            $client_basedir = $path;
-            last;
-        }
-    }
-    if (not defined $client_basedir) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Can't determine client_basedir. basedir is '$basedir'. " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-        # We run this that early because in case of failure the game is over anyway.
-        # Based on the facts that
-        # - here acts a reporter process which is handled well in RQG core
-        # - the failure is heavy and other reporters cannot give valuable additional info
-        # exit instead of return is acceptable.
-    }
 
     direct_to_file();
 
@@ -205,7 +184,7 @@ sub monitor {
             direct_to_std();
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: $who_am_i : mkdir($dir) failed with : $!. " .
-                "Will exit with status " . status2text($status) . "($status)");
+                Basics::exit_status_text($status));
             exit $status;
         }
     }
@@ -268,7 +247,7 @@ sub monitor {
         foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
             File::Path::rmtree($dir);
         }
-        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Basics::return_status_text($status));
         return $status;
     }
 
@@ -295,7 +274,7 @@ sub monitor {
         if (not defined $dbh) {
             my $status = STATUS_CRITICAL_FAILURE;
             say("ERROR: $who_am_i : Connect to dsn '" . $dsn . "'" . " failed: " . $DBI::errstr .
-                " Will exit with status " . status2text($status) . "($status)");
+                " " . Basics::exit_status_text($status));
             # In case we would go on than we would have a mixup of crash recovery test based
             # on dirty backup.
             exit $status;
@@ -303,7 +282,7 @@ sub monitor {
         $dbh->disconnect();
         my $status = STATUS_BACKUP_FAILURE;
         say("ERROR: $who_am_i : Backup returned $res. The command output is around end of " .
-            "'$reporter_prt'. Will exit with status " . status2text($status) . "($status)");
+            "'$reporter_prt'. " . Basics::exit_status_text($status));
         sayFile($reporter_prt);
         exit $status;
     }
@@ -314,7 +293,7 @@ sub monitor {
         foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
             File::Path::rmtree($dir);
         }
-        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Basics::return_status_text($status));
         return $status;
     }
 
@@ -325,7 +304,7 @@ sub monitor {
         direct_to_std();
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : 'cp -R $clone_datadir $rqg_backup_dir' returned $res. " .
-            "Will exit with status " . status2text($status) . "($status)");
+            Basics::exit_status_text($status));
         exit $status;
     }
 
@@ -335,7 +314,7 @@ sub monitor {
         foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
             File::Path::rmtree($dir);
         }
-        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Basics::return_status_text($status));
         return $status;
     }
 
@@ -420,7 +399,7 @@ sub monitor {
         say("ERROR: $who_am_i : Starting a DB server on the cloned data failed.");
         sayFile($clone_err);
         sayFile($reporter_prt);
-        say("ERROR: $who_am_i : Will exit with status " . status2text($status) . "($status)");
+        say("ERROR: $who_am_i : " . Basics::exit_status_text($status));
         exit $status;
     }
 
@@ -431,7 +410,7 @@ sub monitor {
         foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
             File::Path::rmtree($dir);
         }
-        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Basics::return_status_text($status));
         return $status;
     }
 
@@ -454,7 +433,7 @@ sub monitor {
         sayFile($clone_err);
         sayFile($reporter_prt);
         say("ERROR: $who_am_i : Connect to the clone server on port $clone_port failed. " .
-            $DBI::errstr . " " . Auxiliary::build_wrs($status));
+            $DBI::errstr . " " . Basics::return_status_text($status));
         exit $status;
     }
 
@@ -469,7 +448,7 @@ sub monitor {
         foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
             File::Path::rmtree($dir);
         }
-        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Basics::return_status_text($status));
         return $status;
     }
 
@@ -486,7 +465,7 @@ sub monitor {
             foreach my $dir ( $clone_vardir, $rqg_backup_dir) {
                 File::Path::rmtree($dir);
             }
-            say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+            say("INFO: $who_am_i : Endtime is nearly exceeded. " . Basics::return_status_text($status));
             return $status;
         }
         # next if $database =~ m{^(mysql|information_schema|performance_schema)$}sio;
@@ -532,7 +511,7 @@ sub monitor {
                 # Based on the fact that this is found in the server running on the backuped data
                 # I prefer to return STATUS_BACKUP_FAILURE and not STATUS_DATABASE_CORRUPTION.
                 my $status = STATUS_BACKUP_FAILURE;
-                say("ERROR: $who_am_i : Will exit with status " . status2text($status) . "($status)");
+                say("ERROR: $who_am_i : " . Basics::exit_status_text($status));
                 exit $status;
             }
         }
@@ -586,13 +565,13 @@ sub direct_to_file {
     if (not open($stdout_save, ">&", STDOUT)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : Getting STDOUT failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
+            Basics::exit_status_text($status));
         exit $status;
     }
     if (not open($stderr_save, ">&", STDERR)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : Getting STDERR failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
+            Basics::exit_status_text($status));
         exit $status;
     }
     say("DEBUG: $who_am_i : Redirecting all output to '$reporter_prt'.") if $script_debug;
@@ -600,14 +579,14 @@ sub direct_to_file {
     if (not open(STDOUT, ">>", $reporter_prt)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
+            Basics::exit_status_text($status));
         exit $status;
     }
     # Redirect STDERR to the log of the RQG run.
     if (not open(STDERR, ">>", $reporter_prt)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
+            Basics::exit_status_text($status));
         exit $status;
     }
 }
@@ -619,13 +598,13 @@ sub direct_to_std {
     if (not open(STDOUT, ">&" , $stdout_save)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
+            Basics::exit_status_text($status));
         exit $status;
     }
     if (not open(STDERR, ">&" , $stderr_save)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
+            Basics::exit_status_text($status));
         exit $status;
     }
     close($stdout_save);

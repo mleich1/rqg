@@ -144,7 +144,7 @@ sub get_extra_info_hash {
     my @extra_info_list = sort keys %extra_info_hash;
     my $fat_message =   $prefix . " Frequency -- extra_info\n";
     foreach my $extra_info (@extra_info_list) {
-        $fat_message .= $prefix . " " . Auxiliary::lfill($extra_info_hash{$extra_info}, 9) .
+        $fat_message .= $prefix . " " . Basics::lfill($extra_info_hash{$extra_info}, 9) .
                         " -- '" . $extra_info . "'\n";
     }
     return $fat_message;
@@ -166,7 +166,7 @@ sub check_and_set_dryrun {
         if ($result != STATUS_OK) {
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: 'dryrun': Non supported value assigned or assignment forgotten and some " .
-                "wrong value like '--dryrun=13' got. " . Auxiliary::exit_status_text($status));
+                "wrong value like '--dryrun=13' got. " . Basics::exit_status_text($status));
             safe_exit($status);
         }
         say("INFO: Performing a 'dryrun' == Do not run RQG and fake the verdict to be '$dryrun'.");
@@ -516,14 +516,14 @@ use constant WORKER_ORDER_LENGTH =>  8;
     for my $worker_num (1..$workers_max) {
         # Omit inactive workers.
         next if -1 == $worker_array[$worker_num][WORKER_START];
-        $message = $message . Auxiliary::lfill($worker_num, WORKER_ID_LENGTH) .
-            " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_PID],
+        $message = $message . Basics::lfill($worker_num, WORKER_ID_LENGTH) .
+            " -- " . Basics::lfill($worker_array[$worker_num][WORKER_PID],
                                                                  WORKER_PID_LENGTH)   .
-            " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_START],
+            " -- " . Basics::lfill($worker_array[$worker_num][WORKER_START],
                                                                  WORKER_START_LENGTH) .
-            " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_END],
+            " -- " . Basics::lfill($worker_array[$worker_num][WORKER_END],
                                                                  WORKER_START_LENGTH) .
-            " -- " . Auxiliary::lfill($worker_array[$worker_num][WORKER_ORDER_ID],
+            " -- " . Basics::lfill($worker_array[$worker_num][WORKER_ORDER_ID],
                                                                  WORKER_ORDER_LENGTH) ;
         foreach my $index (WORKER_EXTRA1, WORKER_EXTRA2, WORKER_EXTRA3, WORKER_VERDICT,
                            WORKER_LOG, WORKER_COMMAND) {
@@ -659,7 +659,7 @@ sub stop_worker_oldest_not_using_parent {
     # To be used only in Simplifier::report_replay
     my ($replay_grammar_parent) = @_;
 
-    my $who_am_i = "Batch::stop_worker_oldest_not_using_parent";
+    my $who_am_i = Basics::who_am_i;
 
     if (not defined $replay_grammar_parent) {
         emergency_exit(STATUS_INTERNAL_ERROR,
@@ -1212,7 +1212,7 @@ sub reap_workers {
                     emergency_exit(STATUS_INTERNAL_ERROR, "ERROR: This must not happen.");
                 }
 
-                my $target_prefix     = $workdir . "/" . Auxiliary::lfill0($verdict_collected,
+                my $target_prefix     = $workdir . "/" . Basics::lfill0($verdict_collected,
                                                                            RQG_NO_LENGTH);
                 my $saved_log         = $target_prefix     . "/rqg.log";
                 $worker_array[$worker_num][WORKER_LOG] = $saved_log;
@@ -1744,7 +1744,7 @@ sub known_orders_waiting {
 
 sub get_order {
 
-    my $who_am_i = "Batch::get_order:";
+    my $who_am_i = Basics::who_am_i;
     my $order_id;
 
     sub is_order_valid {
@@ -2058,7 +2058,7 @@ sub copy_file {
     if (Basics::copy_file($source_file, $target_file)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Copy operation failed. Will ask for emergency exit. " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
         emergency_exit($status);
     }
 }
@@ -2071,7 +2071,7 @@ sub rename_file {
     if (Basics::rename_file($source_file, $target_file)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Rename operation failed. Will ask for emergency exit. " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
         emergency_exit($status);
     }
 }
@@ -2084,7 +2084,7 @@ sub make_file {
     if (Basics::make_file($file_to_create, $string)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: File create and write operation failed. Will ask for emergency exit. " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
         emergency_exit($status);
     }
 }
@@ -2098,7 +2098,7 @@ sub append_string_to_file {
     if (Basics::append_string_to_file($file, $string)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Write to file operation failed. Will ask for emergency exit. " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
         emergency_exit($status);
     }
 }
@@ -2232,7 +2232,7 @@ sub process_finished_runs {
             if ( not defined $action or $action eq '' ) {
                 emergency_exit($status,
                                "ERROR: register_result returned an action in (undef, ''). " .
-                               Auxiliary::exit_status_text($status));
+                               Basics::exit_status_text($status));
             } else {
                 # Combinator and Simplifier could tell what to do next.
                 if      ($action eq REGISTER_GO_ON)    {
@@ -2251,7 +2251,7 @@ sub process_finished_runs {
                     $give_up = 3;
                     emergency_exit($status,
                                    "INTERNAL ERROR: register_result returned the unknown " .
-                                   "action '$action'. " . Auxiliary::exit_status_text($status));
+                                   "action '$action'. " . Basics::exit_status_text($status));
                 }
             }
             worker_reset($worker_num);
@@ -2299,7 +2299,7 @@ sub get_rqg_log_length {
     if (not defined $workdir) {
         my $status = STATUS_INTERNAL_ERROR;
         say("INTERNAL ERROR: $who_am_i workdir is undef. " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
         safe_exit($status);
     }
     if (not defined $rqg_log_length) {

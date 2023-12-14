@@ -551,7 +551,7 @@ if (defined $runner) {
     if (not -e $runner_file) {
         $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: The RQG runner '$runner_file' does not exist. " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
         safe_exit($status);
     }
 }
@@ -717,17 +717,21 @@ my $config_file_copy = $workdir . "/" . $Batch::batch_type . '.cfg';
 if (not File::Copy::copy($config_file, $config_file_copy)) {
     $status = STATUS_ENVIRONMENT_FAILURE;
     say("ERROR: Copying the config file '$config_file' to '$config_file_copy' failed : $!. " .
-        Auxiliary::exit_status_text($status));
+        Basics::exit_status_text($status));
     safe_exit($status);
 }
 
-my $verdict_cmd = "perl $rqg_home/verdict.pl --workdir=$workdir --batch_config=$config_file_copy";
+my $verdict_prt = $workdir . "/verdict.prt";
+my $verdict_cmd = "perl $rqg_home/verdict.pl --workdir=$workdir --batch_config=$config_file_copy" .
+                  " > $verdict_prt";
 my $rc = system($verdict_cmd) >> 8;
 if (STATUS_OK != $rc) {
+    sayFile($verdict_prt);
     say("ERROR: Generating the verdict config file failed.");
     say("ERROR: The command was ->" . $verdict_cmd . "<-");
     safe_exit(STATUS_ENVIRONMENT_FAILURE);
 }
+unlink ($verdict_prt);
 my $verdict_setup      = "Verdict.cfg";
 my $full_verdict_setup = $workdir . "/" . $verdict_setup;
 if (not -f $full_verdict_setup) {
@@ -1023,7 +1027,7 @@ while($Batch::give_up <= 1) {
                                                               Auxiliary::RQG_PHASE_START)) {
                         my $status = STATUS_ENVIRONMENT_FAILURE;
                         say("ERROR: $who_am_i Aborting because of previous error.\n" .
-                            Auxiliary::exit_status_text($status));
+                            Basics::exit_status_text($status));
                         safe_exit($status);
                         # We do not need to signal the parent anything because the parent will
                         # detect that the shift to Auxiliary::RQG_PHASE_START did not happened
@@ -1033,7 +1037,7 @@ while($Batch::give_up <= 1) {
                                                                      '<undef>')            ) {
                         my $status = STATUS_ENVIRONMENT_FAILURE;
                         say("ERROR: $who_am_i Aborting because of previous error.\n" .
-                            Auxiliary::exit_status_text($status));
+                            Basics::exit_status_text($status));
                         safe_exit($status);
                     }
                     Batch::append_string_to_file($rqg_log,
@@ -1366,22 +1370,22 @@ my $fat_message = Batch::get_extra_info_hash("STATISTICS");
 my $pl = Verdict::RQG_VERDICT_LENGTH + 2;
 my $message = ""                                                                                   .
 "STATISTICS: RQG runs -- Verdict\n"                                                                .
-"STATISTICS: " . Auxiliary::lfill($Batch::verdict_replay, 8)    . " -- "                           .
-                 Auxiliary::rfill("'" . Verdict::RQG_VERDICT_REPLAY   . "'",$pl)                   .
+"STATISTICS: " . Basics::lfill($Batch::verdict_replay, 8)    . " -- "                              .
+                 Basics::rfill("'" . Verdict::RQG_VERDICT_REPLAY   . "'",$pl)                      .
              " -- Replay of desired effect (replay list match, no unwanted list match)\n"          .
-"STATISTICS: " . Auxiliary::lfill($Batch::verdict_interest, 8)  . " -- "                           .
-                 Auxiliary::rfill("'" . Verdict::RQG_VERDICT_INTEREST . "'",$pl)                   .
+"STATISTICS: " . Basics::lfill($Batch::verdict_interest, 8)  . " -- "                              .
+                 Basics::rfill("'" . Verdict::RQG_VERDICT_INTEREST . "'",$pl)                      .
              " -- Otherwise interesting effect (no replay list match, no unwanted list match)\n"   .
-"STATISTICS: " . Auxiliary::lfill($Batch::verdict_ignore, 8)    . " -- "                           .
-                 Auxiliary::rfill("'" . Verdict::RQG_VERDICT_IGNORE   . "_*'",$pl)                 .
+"STATISTICS: " . Basics::lfill($Batch::verdict_ignore, 8)    . " -- "                              .
+                 Basics::rfill("'" . Verdict::RQG_VERDICT_IGNORE   . "_*'",$pl)                    .
              " -- Effect is not of interest (unwanted list match or STATUS_OK or stopped)\n"       .
-"STATISTICS: " . Auxiliary::lfill($Batch::stopped, 8)   . " -- "                                   .
-                 Auxiliary::rfill("'" . Verdict::RQG_VERDICT_IGNORE_STOPPED . "'",$pl)             .
+"STATISTICS: " . Basics::lfill($Batch::stopped, 8)   . " -- "                                      .
+                 Basics::rfill("'" . Verdict::RQG_VERDICT_IGNORE_STOPPED . "'",$pl)                .
              " -- RQG run stopped by rqg_batch.pl because of whatever reasons\n"                   .
-"STATISTICS: " . Auxiliary::lfill($Batch::verdict_init, 8)      . " -- "                           .
-                 Auxiliary::rfill("'" . Verdict::RQG_VERDICT_INIT     . "'",$pl)                   .
+"STATISTICS: " . Basics::lfill($Batch::verdict_init, 8)      . " -- "                              .
+                 Basics::rfill("'" . Verdict::RQG_VERDICT_INIT     . "'",$pl)                      .
              " -- RQG run too incomplete (maybe wrong RQG call)\n"                                 .
-"STATISTICS: " . Auxiliary::lfill($Batch::verdict_collected, 8) . " -- Some verdict made.\n\n"     .
+"STATISTICS: " . Basics::lfill($Batch::verdict_collected, 8) . " -- Some verdict made.\n\n"        .
 $fat_message . "\n"                                                                                .
 "STATISTICS: Total runtime in seconds : " . (time() - $batch_start_time) . "\n"                    .
 "STATISTICS: RQG runs started         : $runs_started\n\n"                                         .

@@ -1,4 +1,5 @@
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
+# Copyright (c) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -196,26 +197,26 @@ sub init {
     if (not defined $config_file) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: $who_am_i config file is undef. " .
-                    Auxiliary::exit_status_text($status));
+                    Basics::exit_status_text($status));
         safe_exit($status);
     }
     if (not -f $config_file) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i The config file '$config_file' does not exist or is not " .
-            "a plain file. " . Auxiliary::exit_status_text($status));
+            "a plain file. " . Basics::exit_status_text($status));
         safe_exit($status);
     }
 
     if (not defined $workdir) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: $who_am_i workdir is undef. " .
-                    Auxiliary::exit_status_text($status));
+                    Basics::exit_status_text($status));
         safe_exit($status);
     }
     if (not -d $workdir) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i The workdir '$workdir' does not exist or is not " .
-            "a directory. " . Auxiliary::exit_status_text($status));
+            "a directory. " . Basics::exit_status_text($status));
         safe_exit($status);
     }
 
@@ -239,7 +240,7 @@ sub init {
     if (not File::Copy::copy($config_file, $config_file_copy)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: Copying the config file '$config_file' to '$config_file_copy' failed : $!. " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
         safe_exit($status);
     }
 
@@ -320,7 +321,7 @@ sub init {
     if (not open (CONF, $config_file_copy)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i Unable to open config file copy '$config_file_copy': $! " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
         safe_exit($status);
     }
     read(CONF, my $config_text, -s $config_file_copy);
@@ -332,7 +333,7 @@ sub init {
     if ($@) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i Unable to load config file copy '$config_file': " .
-            $@ . ' ' . Auxiliary::exit_status_text($status));
+            $@ . ' ' . Basics::exit_status_text($status));
         safe_exit($status);
     }
 
@@ -428,21 +429,21 @@ Batch::write_setup($header);
 
 $rqg_log_length = Batch::get_rqg_log_length($workdir);
 my $header1 = $iso_ts                                                              . " | " .
-        Auxiliary::rfill(Batch::RQG_NO_TITLE,        Batch::RQG_NO_LENGTH)         . " | " .
-        Auxiliary::rfill(Batch::RQG_WNO_TITLE,       Batch::RQG_WNO_LENGTH)        . " | " .
-        Auxiliary::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH)  . " | " .
-        Auxiliary::rfill(Batch::RQG_ORDERID_TITLE,   Batch::RQG_ORDERID_LENGTH)    . " | " .
-        Auxiliary::rfill(Batch::RQG_RUNTIME_TITLE,   Batch::RQG_RUNTIME_LENGTH)    . " | " .
-        Auxiliary::rfill(Batch::RQG_LOG_TITLE,       $rqg_log_length)              . " | " .
-        Auxiliary::rfill(Batch::RQG_INFO_TITLE,      Batch::RQG_INFO_LENGTH)       . "\n";
+        Basics::rfill(Batch::RQG_NO_TITLE,        Batch::RQG_NO_LENGTH)            . " | " .
+        Basics::rfill(Batch::RQG_WNO_TITLE,       Batch::RQG_WNO_LENGTH)           . " | " .
+        Basics::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH)     . " | " .
+        Basics::rfill(Batch::RQG_ORDERID_TITLE,   Batch::RQG_ORDERID_LENGTH)       . " | " .
+        Basics::rfill(Batch::RQG_RUNTIME_TITLE,   Batch::RQG_RUNTIME_LENGTH)       . " | " .
+        Basics::rfill(Batch::RQG_LOG_TITLE,       $rqg_log_length)                 . " | " .
+        Basics::rfill(Batch::RQG_INFO_TITLE,      Batch::RQG_INFO_LENGTH)          . "\n";
 
 Batch::write_result($header1);
 
 my $header2 =
-        Auxiliary::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH) . " | " .
-        Auxiliary::rfill(Batch::RQG_INFO_TITLE     , Batch::RQG_INFO_LENGTH)      . " | " .
-        Auxiliary::lfill(Batch::RQG_NO_TITLE       , Batch::RQG_NO_LENGTH)        . " | " .
-        Auxiliary::rfill(Batch::RQG_LOG_TITLE      , $rqg_log_length)             . " | " .
+        Basics::rfill(Verdict::RQG_VERDICT_TITLE, Verdict::RQG_VERDICT_LENGTH)    . " | " .
+        Basics::rfill(Batch::RQG_INFO_TITLE     , Batch::RQG_INFO_LENGTH)         . " | " .
+        Basics::lfill(Batch::RQG_NO_TITLE       , Batch::RQG_NO_LENGTH)           . " | " .
+        Basics::rfill(Batch::RQG_LOG_TITLE      , $rqg_log_length)                . " | " .
         Batch::RQG_CALL_SNIP_TITLE                                                . "\n";
 
 Batch::write_setup($header2);
@@ -800,20 +801,20 @@ sub register_result {
 
     my $iso_ts = isoTimestamp();
     my $line   = "$iso_ts | " .
-                 Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
-                 Auxiliary::lfill($worker_number, Batch::RQG_WNO_LENGTH)        . " | " .
-                 Auxiliary::rfill($verdict,Verdict::RQG_VERDICT_LENGTH)         . " | " .
-                 Auxiliary::lfill($order_id, Batch::RQG_ORDERID_LENGTH)         . " | " .
-                 Auxiliary::lfill($total_runtime, Batch::RQG_ORDERID_LENGTH)    . " | " .
-                 Auxiliary::lfill($saved_log_rel, $rqg_log_length)              . " | " .
+                 Basics::lfill($arrival_number, Batch::RQG_NO_LENGTH)           . " | " .
+                 Basics::lfill($worker_number, Batch::RQG_WNO_LENGTH)           . " | " .
+                 Basics::rfill($verdict,Verdict::RQG_VERDICT_LENGTH)            . " | " .
+                 Basics::lfill($order_id, Batch::RQG_ORDERID_LENGTH)            . " | " .
+                 Basics::lfill($total_runtime, Batch::RQG_ORDERID_LENGTH)       . " | " .
+                 Basics::lfill($saved_log_rel, $rqg_log_length)                 . " | " .
                                   $extra_info                                   . "\n";
     Batch::write_result($line);
 
     $line      =
-                 Auxiliary::rfill($verdict,        Verdict::RQG_VERDICT_LENGTH) . " | " .
-                 Auxiliary::rfill($extra_info,     Batch::RQG_INFO_LENGTH)      . " | " .
-                 Auxiliary::lfill($arrival_number, Batch::RQG_NO_LENGTH)        . " | " .
-                 Auxiliary::lfill($saved_log_rel,  $rqg_log_length)             . " | " .
+                 Basics::rfill($verdict,        Verdict::RQG_VERDICT_LENGTH)    . " | " .
+                 Basics::rfill($extra_info,     Batch::RQG_INFO_LENGTH)         . " | " .
+                 Basics::lfill($arrival_number, Batch::RQG_NO_LENGTH)           . " | " .
+                 Basics::lfill($saved_log_rel,  $rqg_log_length)                . " | " .
                  $worker_command                                                . "\n";
     Batch::write_setup($line);
 

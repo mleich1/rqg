@@ -1,5 +1,6 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
 # Copyright (C) 2016-2022 MariaDB Corporation Ab.
+# Copyright (C) 2023 MariaDB Corporation plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -118,15 +119,17 @@ sub addReporter {
         my $module = "GenTest_e::Reporter::" . $reporter;
         eval "use $module";
         if ('' ne $@) {
+            my $status = STATUS_ENVIRONMENT_FAILURE;
             say("ERROR: $who_am_i Loading Reporter '$module' failed : $@");
-            say("ERROR: $who_am_i Will return status STATUS_ENVIRONMENT_FAILURE.");
-            return STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i " . Basics::return_status_text($status));
+            return $status;
         }
         $reporter = $module->new(%$params, 'name' => $reporter_name);
         if (not defined $reporter) {
-            sayError("$who_am_i Reporter '$module' could not be added. Status will be set to " .
-                     "ENVIRONMENT_FAILURE");
-            return STATUS_ENVIRONMENT_FAILURE;
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i Reporter '$module' could not be added. " .
+                Basics::return_status_text($status));
+            return $status;
         } else {
             say("INFO: Reporter '$reporter_name' added.");
         }

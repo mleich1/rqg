@@ -1,5 +1,6 @@
 # Copyright (c) 2008,2011 Oracle and/or its affiliates. All rights reserved.
 # Copyright (C) 2021 MariaDB Corporation Ab
+# Copyright (C) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -93,7 +94,7 @@ sub monitor {
         # I have doubts if the status from $res is that useful.
         $status = STATUS_CRITICAL_FAILURE;
         say("ERROR: $who_am_i Query ->" . $query . "<- failed with $err : $errstr " .
-            Auxiliary::build_wrs($status));
+            Basics::return_status_text($status));
         return $status;
     }
 
@@ -148,7 +149,7 @@ sub monitor {
                         my $errstr = $res->errstr;
                         $status    = STATUS_CRITICAL_FAILURE;
                         say("ERROR: $who_am_i Query ->" . $query . "<- failed with $err : $errstr " .
-                            Auxiliary::build_wrs($status));
+                            Basics::return_status_text($status));
                         return $status;
                     }
                 }
@@ -168,7 +169,7 @@ sub monitor {
                        my $errstr = $res->errstr;
                        $status = STATUS_CRITICAL_FAILURE;
                        say("ERROR: $who_am_i Query ->" . $query . "<- failed with $err : $errstr " .
-                           Auxiliary::build_wrs($status));
+                           Basics::return_status_text($status));
                        return $status;
                     }
                 }

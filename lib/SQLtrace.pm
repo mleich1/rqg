@@ -1,4 +1,5 @@
 #  Copyright (c) 2021 MariaDB Corporation Ab.
+#  Copyright (c) 2023 MariaDB plc
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -54,8 +55,9 @@ use strict;
 #         entry m+1: SEND: ... /* ... Thread2 ...*/
 #      does not guarantee that the server started to execute the statements in that order.
 # 4. Certain RQG components like many Reporters do not write SQL trace.
+# 5. SQL tracing consumes a serious amount of CPU.
 #
-# So the main point is to pick the right kind of trace for some already exsiting task.
+# So the main point is to pick no or the right kind of SQL tracing.
 #
 
 use constant SQLTRACE_NONE                   => 'None';
@@ -155,7 +157,7 @@ sub check_and_set_sqltracing {
     $sqltrace = check_sqltracing($sqltrace);
     if (not defined $sqltrace) {
         $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: " . Auxiliary::build_wrs($status));
+        say("ERROR: " . Basics::return_status_text($status));
         return $status;
     }
     # FIXME:
@@ -167,14 +169,14 @@ sub check_and_set_sqltracing {
         my $result = Auxiliary::make_file ($sqltrace_file, "# " . isoTimestamp());
         if ($result != STATUS_OK) {
             $status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: " . Auxiliary::build_wrs($status));
+            say("ERROR: " . Basics::return_status_text($status));
             return $status;
         } else {
             say("INFO: SQL trace file '$sqltrace_file' created.");
             if (not open ($file_handle, '>>', $sqltrace_file)) {
                 say("ERROR: Open file '>>$sqltrace_file' failed : $!");
                 $status = STATUS_ENVIRONMENT_FAILURE;
-                say("ERROR: " . Auxiliary::build_wrs($status));
+                say("ERROR: " . Basics::return_status_text($status));
                 return $status;
             }
             binmode $file_handle, ':utf8';

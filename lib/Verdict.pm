@@ -192,7 +192,7 @@ sub extract_verdict_config {
         # say("DEBUG: verdict_code is undef");
         my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i Extracting \$verdict_code out of '$config_file' failed. " .
-            Auxiliary::exit_status_text($status));
+            Basics::exit_status_text($status));
         safe_exit($status);
     } else {
         # Extraction worked

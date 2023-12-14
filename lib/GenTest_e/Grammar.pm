@@ -1,5 +1,6 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2016,2019 MariaDB Corporation
+# Copyright (c) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -186,13 +187,13 @@ sub parseFromString {
             if (not open (IF, $include_file)) {
                 my $status = STATUS_ENVIRONMENT_FAILURE;
                 Carp::cluck("Unable to open include file '$include_file': $!. " .
-                            "Will return status " . status2text($status) . " ($status)\n");
+                            Basics::return_status_text($status) . "\n");
                 return $status;
             }
             if (not read (IF, $include_string, -s $include_file)) {
                 my $status = STATUS_ENVIRONMENT_FAILURE;
                 Carp::cluck("Unable to read include file '$include_file': $!. " .
-                            "Will return status " . status2text($status) . " ($status)\n");
+                            Basics::return_status_text($status) . "\n");
                 return $status;
             }
             # say("include_string->$include_string<-");

@@ -96,6 +96,9 @@ use constant EXECUTOR_FLAG_HASH_DATA         => 4;
 #     - try to reconnect
 #       If that fails report STATUS_CRITICAL_FAILURE.
 #     - run COMMIT/ROLLBACK RELEASE except maybe before finishing.
+#       If that fails
+#       - looking like server crash report STATUS_CRITICAL_FAILURE
+#       - other wise report a status not in (STATUS_SERVER_CRASHED,STATUS_CRITICAL_FAILURE)
 # (3) Do not maintain EXECUTOR_ERROR_COUNTS.
 # (4) Do not fiddle with duration here.
 # (5) Assume to be the main process of the RQG runner which implies to avoid exiting here.
@@ -394,16 +397,14 @@ sub cacheMetaData {
         # exp_server_kill($who_am_i, $aux_query);
         my $status = GenTest_e::Executor::MySQL::run_do($self->dbh, $self->role, $aux_query);
         if (STATUS_OK != $status) {
-            say("ERROR: $who_am_i " . $self->role .
-                " Will return status : " . status2text($status) . "($status).");
+            say("ERROR: $who_am_i " . $self->role . " " . Basics::return_status_text($status));
             return $status;
         }
         $aux_query = '/*!100108 SET @@max_statement_time = 0 */ ' . $trace_addition;
         # exp_server_kill($who_am_i, $aux_query);
         $status = GenTest_e::Executor::MySQL::run_do($self->dbh, $self->role, $aux_query);
         if (STATUS_OK != $status) {
-            say("ERROR: $who_am_i " . $self->role .
-                " Will return status : " . status2text($status) . "($status).");
+            say("ERROR: $who_am_i " . $self->role . " " . Basics::return_status_text($status));
             return $status;
         }
     }
@@ -416,9 +417,10 @@ sub cacheMetaData {
         if (not defined $metadata) {
             # The 'cluck' is because we might offer metadata caching multiple times
             # in future.
+            my $status = STATUS_CRITICAL_FAILURE;
             Carp::cluck("ERROR: Failed to cache schema metadata. " .
-                        "Will return status STATUS_CRITICAL_FAILURE.");
-            return STATUS_CRITICAL_FAILURE;
+                        Basics::return_status_text($status));
+            return $status;
         }
 
         foreach my $row (@$metadata) {
@@ -455,8 +457,9 @@ sub cacheMetaData {
 
     my $metadata= $self->getCollationMetaData();
     if (not defined $metadata) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
         Carp::cluck("FATAL ERROR: Failed to cache collation metadata. " .
-                    "Will return status STATUS_ENVIRONMENT_FAILURE.");
+                    Basics::return_status_text($status));
         return STATUS_ENVIRONMENT_FAILURE;
     }
     foreach my $row (@$metadata) {
@@ -476,8 +479,7 @@ sub cacheMetaData {
         # exp_server_kill($who_am_i, $aux_query);
         my $status = GenTest_e::Executor::MySQL::run_do($self->dbh, $self->role, $aux_query);
         if (STATUS_OK != $status) {
-            say("ERROR: $who_am_i " . $self->role .
-                " Will return status : " . status2text($status) . "($status).");
+            say("ERROR: $who_am_i " . $self->role . " " . Basics::return_status_text($status));
             return $status;
         }
     }
