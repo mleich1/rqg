@@ -234,7 +234,7 @@ sub make_rqg_infrastructure {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: $who_am_i " .
                     "Exact two parameters(workdir, batch) need to get assigned. " .
-                    Auxiliary::exit_status_text($status));
+                    Basics::exit_status_text($status));
         safe_exit($status);
     }
 
@@ -1247,22 +1247,22 @@ sub get_git_info {
 
     if (not defined $directory) {
         # The caller should prevent that!
-        say("ERROR: Auxiliary::get_git_info : The assigned directory is undef. " .
-            "Will return STATUS_INTERNAL_ERROR");
         my $status = STATUS_INTERNAL_ERROR;
+        say("ERROR: Auxiliary::get_git_info : The assigned directory is undef. " .
+            Basics::exit_status_text($status));
         safe_exit($status);
     }
 
     if (not -e $directory) {
-        say("ERROR: Auxiliary::get_git_info : The assigned '$directory' does not exist. " .
-            "Will exit with  STATUS_INTERNAL_ERROR");
         my $status = STATUS_INTERNAL_ERROR;
+        say("ERROR: Auxiliary::get_git_info : The assigned '$directory' does not exist. " .
+            Basics::exit_status_text($status));
         safe_exit($status);
     }
     if (not -d $directory) {
-        say("ERROR: Auxiliary::get_git_info : The assigned '$directory' is not a directory. " .
-            "Will exit with  STATUS_INTERNAL_ERROR");
         my $status = STATUS_INTERNAL_ERROR;
+        say("ERROR: Auxiliary::get_git_info : The assigned '$directory' is not a directory. " .
+            Basics::exit_status_text($status));
         safe_exit($status);
     }
 
@@ -1277,9 +1277,8 @@ sub get_git_info {
 
     my $cwd = Cwd::cwd();
     if (not chdir($directory)) {
-        say("ALARM: chdir to '$directory' failed with : $!\n" .
-            "       Will exit with  STATUS_ENVIRONMENT_FAILURE");
         my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ALARM: chdir to '$directory' failed with : $!\n" .  Basics::exit_status_text($status));
         safe_exit($status);
     }
 
@@ -1291,9 +1290,8 @@ sub get_git_info {
     # say("INFO: GIT on '$directory') $val");
 
     if (not chdir($cwd)) {
-        say("ALARM: chdir to '$cwd' failed with : $!\n" .
-            "       Will exit with  STATUS_ENVIRONMENT_FAILURE");
         my $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ALARM: chdir to '$cwd' failed with : $!\n" . Basics::exit_status_text($status));
         safe_exit($status);
     }
 
@@ -3001,10 +2999,11 @@ sub reapChild {
         #          Both would point to a heavy mistake in bookkeeping.
         #    or
         #    other value != $spawned_pid == Unexpected behaviour of waitpid on current box
+        my $status = STATUS_INTERNAL_ERROR;
         say("ERROR: waitpid for $spawned_pid ($info) returned $waitpid_return which we cannot " .
-            "handle. Will return STATUS_INTERNAL_ERROR.");
+            "handle. " . Basics::return_status_text($status));
         Carp::cluck;
-        return 0, STATUS_INTERNAL_ERROR;
+        return 0, $status;
     }
 
 } # End sub reapChild

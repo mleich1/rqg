@@ -70,7 +70,7 @@ $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
 $Carp::MaxArgNums= 8;
 
-use constant RQG_RUNNER_VERSION  => 'Version 4.4.0 (2023-08)';
+use constant RQG_RUNNER_VERSION  => 'Version 4.5.0 (2023-12)';
 use constant STATUS_CONFIG_ERROR => 199;
 
 use strict;
@@ -388,7 +388,7 @@ if ($result) {
 if (not chdir($vardirs[0])) {
     my $status = STATUS_ENVIRONMENT_FAILURE;
     say("INTERNAL ERROR: chdir to '$vardirs[0]' failed with : $!\n" .
-        "         Will return STATUS_ENVIRONMENT_FAILURE.");
+        "         " .  Basics::return_status_text($status));
     run_end($status);
 }
 
@@ -788,9 +788,10 @@ shift @views;
 shift @engine;
 
 # We take all required clients out of $basedirs[0].
-my $client_basedir = $basedirs[0] . "/bin";
-if (not -d $client_basedir) {
-    say("ERROR: '$client_basedir' does not exist or is not a directory. " .
+# FIXME: Why not $client_bindir ?
+my $client_basedir = Auxiliary::find_client_bindir($basedirs[0]);
+if (not defined $client_basedir) {
+    say("ERROR: client_basedir '$client_basedir' was not found. " .
         "Maybe '" . $basedirs[0] . "' is not the top directory of a MariaDB install");
     my $status = STATUS_ENVIRONMENT_FAILURE;
     run_end($status);
@@ -1948,8 +1949,8 @@ sub checkServers {
     }
 
     if ($current_status > STATUS_OK) {
-        say("ERROR: $who_am_i Will return status " . status2text($final_result) .
-            "($final_result) because of previous errors.");
+        say("ERROR: $who_am_i " . Basics::return_status_text($final_result) .
+            " because of previous errors.");
     }
     return $current_status;
 
