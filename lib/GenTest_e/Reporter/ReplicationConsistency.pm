@@ -1,5 +1,6 @@
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2020, 2022 MariaDB Corporation Ab.
+# Copyright (c) 2023 MariaDB plc
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -49,8 +50,8 @@ sub report {
     # system('kill -9 $SERVER_PID2; sleep 5');
     if (not defined $master_dbh) {
         my $status = STATUS_CRITICAL_FAILURE;
-        say("ERROR: $who_am_i Connect to master failed. " . $DBI::errstr .
-            " Will return status " . status2text($status) . " ($status)\n");
+        say("ERROR: $who_am_i Connect to master failed. " . $DBI::errstr . " " .
+            Basics::return_status_text($status));
         return $status;
     }
 	my $master_port = $reporter->serverVariable('port');
@@ -77,8 +78,8 @@ sub report {
                          PrintError             => 1 } );
     if (not defined $slave_dbh) {
         my $status = STATUS_CRITICAL_FAILURE;
-        say("ERROR: $who_am_i Connect to slave failed. " . $DBI::errstr .
-            " Will return status " . status2text($status) . " ($status)\n");
+        say("ERROR: $who_am_i Connect to slave failed. " . $DBI::errstr . " " .
+            Basics::return_status_text($status));
         return $status;
     }
 

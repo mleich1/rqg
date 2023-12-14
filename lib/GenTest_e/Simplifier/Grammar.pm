@@ -367,9 +367,9 @@ sub load_grammar_from_files {
     );
     if (not defined $grammar_obj) {
         # Example: Open the grammar file failed.
+        my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: GenTest_e::Simplifier::Grammar: Filling the grammar_obj failed. " .
-            "Will return STATUS_ENVIRONMENT_FAILURE.");
-        return STATUS_ENVIRONMENT_FAILURE;
+            Basics::return_status_text($status));
     }
     return STATUS_OK;
 }
@@ -384,9 +384,10 @@ sub load_grammar_from_string {
            'grammar_flags'  => $grammar_flags
     );
     if (not defined $grammar_obj) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: GenTest_e::Simplifier::Grammar: Filling the grammar_obj failed. " .
-            "Will return STATUS_ENVIRONMENT_FAILURE.");
-        return STATUS_ENVIRONMENT_FAILURE;
+            Basics::return_status_text($status));
+        return $status;
     }
     return STATUS_OK;
 }
@@ -502,13 +503,13 @@ sub print_rule_info {
     if (not defined $rule_name) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: print_rule_info was called with " .
-                    "some undef rule_name assigned. " . Auxiliary::exit_status_text($status));
+                    "some undef rule_name assigned. " . Basics::exit_status_text($status));
         return $status;
     }
     if (not exists $rule_hash{$rule_name}) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("INTERNAL ERROR: print_rule_info : The rule '$rule_name' is unknown. " .
-                    Auxiliary::exit_status_text($status));
+                    Basics::exit_status_text($status));
         return $status;
     }
 
@@ -703,11 +704,13 @@ sub set_default_rules_for_threads {
     );
     if (not defined $grammar_obj) {
         # Thinkable example: $grammar_string_addition contains garbage.
-        say("ERROR: Filling the grammar_obj failed. Will return STATUS_INTERNAL_ERROR later.");
+        my $status = STATUS_INTERNAL_ERROR;
+        say("ERROR: Filling the grammar_obj failed. " . Basics::return_status_text($status) .
+            " later.");
         say("ERROR: Extended grammar ======================== BEGIN" . "\n" .
             $grammar_string_extended                                 . "\n" .
             "ERROR: Extended grammar ======================== END");
-        return STATUS_INTERNAL_ERROR;
+        return $status;
     }
     # Replace some maybe filled %rule_hash by some new one.
     # --> There might be non reachable rules between!
@@ -753,15 +756,17 @@ sub analyze_all_rules {
         reset_rule_hash_values();
 
         if (STATUS_OK != grammar_rule_hash_consistency()) {
+            my $status = STATUS_INTERNAL_ERROR;
             say("ERROR: $snip grammar_rule_hash_consistency failed. " .
-                "Will return STATUS_INTERNAL_ERROR.");
-            return STATUS_INTERNAL_ERROR;
+                Basics::return_status_text($status));
+            return $status;
         }
 
         my @top_rule_list = $grammar_obj->top_rule_list();
         if ( 1 > scalar @top_rule_list ) {
-            say("ERROR: $snip \@top_rule_list is empty. Will return STATUS_INTERNAL_ERROR.");
-            return STATUS_INTERNAL_ERROR;
+            my $status = STATUS_INTERNAL_ERROR;
+            say("ERROR: $snip \@top_rule_list is empty. " . Basics::return_status_text($status));
+            return $status;
         }
 
         foreach my $i (1..$threads) {
@@ -1227,8 +1232,9 @@ sub compact_grammar {
     }
 
     if (STATUS_OK != grammar_rule_hash_consistency()) {
+        my $status = STATUS_INTERNAL_ERROR;
         say("ERROR: grammar_rule_hash_consistency failed. " .
-            "Will return STATUS_INTERNAL_ERROR.");
+            Basics::return_status_text($status));
         return STATUS_INTERNAL_ERROR;
     } else {
         return STATUS_OK;
@@ -1304,8 +1310,9 @@ sub calculate_weights {
     }
 
     if (STATUS_OK != analyze_all_rules()) {
-        Carp::cluck("ERROR: analyze_all_rules failed. Will return STATUS_INTERNAL_ERROR.");
-        return STATUS_INTERNAL_ERROR;
+        my $status = STATUS_INTERNAL_ERROR;
+        Carp::cluck("ERROR: analyze_all_rules failed. " . Basics::return_status_text($status));
+        return $status;
     }
 
     foreach my $rule_name (keys %rule_hash) {

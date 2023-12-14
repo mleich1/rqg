@@ -1,5 +1,6 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
 # Copyright (C) 2020-2022 MariaDB Corporation Ab.
+# Copyright (C) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -103,9 +104,10 @@ sub validate {
             my $error =        $dbh->err();
             if (defined $error) {
                 # Being victim of KILL QUERY/SESSION .... or whatever.
+                my $status = STATUS_OK;
                 say("DEBUG: $who_am_i ->" . $aux_query . "<- harvested $error. " .
-                    "Will return STATUS_OK.") if $debug_here;
-                    return STATUS_OK;
+                    Basics::return_status_text($status)) if $debug_here;
+                return $status;
             }
             say("DEBUG: $who_am_i ISO LEVEL IS is ->" . $row_arrayref->[0] . "<-") if $debug_here;
             if ('READ-COMMITTED' eq $row_arrayref->[0] or 'READ-UNCOMMITTED' eq $row_arrayref->[0]) {

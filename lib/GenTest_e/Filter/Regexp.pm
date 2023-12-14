@@ -72,17 +72,19 @@ sub readFromFile {
 
     my $rules;
     if(not open(CONF , $file)) {
-        say("ERROR: $who_am_i Unable to open file '$file': $!");
-        say("Will return STATUS_FAILURE.");
-        return STATUS_FAILURE;
+        my $status = STATUS_FAILURE;
+        say("ERROR: $who_am_i Unable to open file '$file': $! " .
+            Basics::return_status_text($status));
+        return $status;
     } else {
         read(CONF, my $regexp_text, -s $file);
         eval ($regexp_text);
         # If there was no error, $@ is set to the empty string.
         if ($@) {
-            say("ERROR: $who_am_i Unable to load file '$file': $@");
-            say("Will return STATUS_FAILURE.");
-            return STATUS_FAILURE;
+            my $status = STATUS_FAILURE;
+            say("ERROR: $who_am_i Unable to load file '$file': $@ " .
+                Basics::return_status_text($status));
+            return $status;
         } else {
             $filter->[FILTER_REGEXP_RULES] = $rules;
             say("Loaded " . (keys %$rules) . " filtering rules from '$file'");

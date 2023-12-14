@@ -114,7 +114,7 @@ sub report {
         my $errstr = $res->errstr;
         my $status = STATUS_CRITICAL_FAILURE;
         say("ERROR: $who_am_i Query ->" . $query . "<- failed with $err : $errstr " .
-            Auxiliary::build_wrs($status));
+            Basics::return_status_text($status));
         return $status;
     }
     my $dbh = $executor->dbh();
@@ -123,7 +123,7 @@ sub report {
     if ($dump_return > STATUS_OK) {
         my $status = STATUS_CRITICAL_FAILURE;
         say("ERROR: $who_am_i Dumping the database failed with status $dump_return. " .
-             Auxiliary::build_wrs($status));
+             Basics::return_status_text($status));
         return $status;
     }
     my $dump_return_before = $dump_return;
@@ -132,7 +132,7 @@ sub report {
     my $server = $reporter->properties->servers->[0];
     if ($server->stopServer != STATUS_OK) {
         my $status = STATUS_CRITICAL_FAILURE;
-        say("ERROR: $who_am_i Stopping the DB server failed. " .  Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i Stopping the DB server failed. " .  Basics::return_status_text($status));
         return $status;
     };
 
@@ -171,14 +171,15 @@ sub report {
         } elsif ($_ =~ m{exception}sio) {
             $recovery_status = STATUS_DATABASE_CORRUPTION;
         } elsif ($_ =~ m{ready for connections}sio) {
-            say("INFO: $who_am_i Server restart was apparently successfull.") if $recovery_status == STATUS_OK ;
+            say("INFO: $who_am_i Server restart was apparently successfull.")
+                if $recovery_status == STATUS_OK ;
             last;
         } elsif ($_ =~ m{device full error|no space left on device}sio) {
             # Give a clear comment explaining on which facts the status STATUS_ENVIRONMENT_FAILURE
             # is based on.
-            say("ERROR: $who_am_i device full error or no space left on device found in server " .
-                "error log. Will return STATUS_ENVIRONMENT_FAILURE.");
             $recovery_status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i device full error or no space left on device found in server " .
+                "error log. " . Basics::return_status_text($recovery_status));
             last;
         } elsif (
             ($_ =~ m{got signal}sio) ||
@@ -193,7 +194,7 @@ sub report {
     close(RECOVERY);
 
     if ($recovery_status > STATUS_OK) {
-        say("ERROR: $who_am_i Restart has failed. " . Auxiliary::build_wrs($recovery_status));
+        say("ERROR: $who_am_i Restart has failed. " . Basics::return_status_text($recovery_status));
         return $recovery_status;
     }
 
@@ -210,7 +211,7 @@ sub report {
         my $errstr = $res->errstr;
         my $status = STATUS_DATABASE_CORRUPTION;
         say("ERROR: $who_am_i Query ->" . $query . "<- failed with $err : $errstr " .
-            Auxiliary::build_wrs($recovery_status));
+            Basics::return_status_text($recovery_status));
         return $status;
     }
 
@@ -232,7 +233,8 @@ sub report {
     if (defined $error) {
         $executor->disconnect();
         my $status = STATUS_CRITICAL_FAILURE;
-        say("ERROR: $who_am_i ->" . $query . "<- failed with $error. " . Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i ->" . $query . "<- failed with $error. " .
+            Basics::return_status_text($status));
         return $status;
     }
     foreach my $database (@$databases) {
@@ -246,7 +248,7 @@ sub report {
             $executor->disconnect();
             my $status = STATUS_CRITICAL_FAILURE;
             say("ERROR: $who_am_i ->" . $query . "<- failed with $error. " .
-                Auxiliary::build_wrs($status));
+                Basics::return_status_text($status));
             return $status;
         }
 
@@ -259,7 +261,7 @@ sub report {
             $executor->disconnect();
             my $status = STATUS_CRITICAL_FAILURE;
             say("ERROR: $who_am_i ->" . $query . "<- failed with $error. " .
-                Auxiliary::build_wrs($status));
+                Basics::return_status_text($status));
             return $status;
         }
 
@@ -297,7 +299,7 @@ sub report {
         $executor->disconnect();
         my $status = STATUS_CRITICAL_FAILURE;
         say("ERROR: $who_am_i Dumping the database failed with status $dump_return. " .
-             Auxiliary::build_wrs($status));
+             Basics::return_status_text($status));
         return $status;
     }
     my $dump_return_after = $dump_return;
@@ -305,7 +307,7 @@ sub report {
         $executor->disconnect();
         my $status = STATUS_DATABASE_CORRUPTION;
         say("ERROR: dump_return_before($dump_return_before) and dump_return_after(" .
-            "$dump_return_after) differ. " . Auxiliary::build_wrs($recovery_status));
+            "$dump_return_after) differ. " . Basics::return_status_text($status));
         return $status;
     }
     $executor->disconnect();
@@ -333,7 +335,7 @@ sub dump_database {
         $dbh->disconnect();
         my $status = STATUS_CRITICAL_FAILURE;
         say("ERROR: $who_am_i ->" . $query . "<- failed with $error. " .
-            Auxiliary::build_wrs($status));
+            Basics::return_status_text($status));
         return $status;
     }
     my $databases_string = join(' ', grep { $_ !~ m{^(rqg|mysql|information_schema|performance_schema)$}sgio } @all_databases );

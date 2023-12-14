@@ -125,9 +125,10 @@ sub validate {
     # We could harvest STATUS_SKIP in case the executor gives up because the planned duration
     # of the GenTest_e phase is exceeded. I am unsure if the validator would be than called at all.
     if (STATUS_SKIP == $orig_status) {
-        say("DEBUG: $who_am_i STATUS_SKIP got in first query. Will return STATUS_OK.")
-            if $debug_here;
-        return STATUS_OK;
+        my $status = STATUS_OK;
+        say("DEBUG: $who_am_i STATUS_SKIP got in first query. " .
+            Basics::return_status_text($status)) if $debug_here;
+        return $status;
     }
 
     # SET TRANSACTION ISOLATION LEVEL changes the ISOLATION LEVEL for the next transaction A.
@@ -136,10 +137,11 @@ sub validate {
     # A ended.
     # Solution: Abort the test but do not claim to have met an error.
     if ($orig_query =~ m{SET\s*\n*\r*TRANSACTION\s*\n*\r*ISOLATION}io) {
+        my $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i The query ->$orig_query<- was met.\n" .
-            "ERROR: $who_am_i It creates conditions the " .  "validator cannot handle.\n" .
-            "ERROR: $who_am_i Will exit with exit status STATUS_ENVIRONMENT_FAILURE.");
-        exit STATUS_ENVIRONMENT_FAILURE;
+            "ERROR: $who_am_i It creates conditions the " . "validator cannot handle.\n" .
+            "ERROR: $who_am_i " . Basics::exit_status_text($status));
+        exit $status;
     }
     # No repeat for
     # - non DML statements because
@@ -165,38 +167,44 @@ sub validate {
     # ==> Repeat only SELECTs which harvested success on the first execution
 
     if ($orig_query !~ m{^\s*select}io) {
+        my $status = STATUS_OK;
         say("DEBUG: $who_am_i No repetition for ->$orig_query<- which is not a SELECT. " .
-            "Will return STATUS_OK.") if $debug_here;
-        return STATUS_OK;
+            Basics::return_status_text($status)) if $debug_here;
+        return $status;
     }
     if ($orig_query =~ m{Information_schema}io) {
+        my $status = STATUS_OK;
         say("DEBUG: $who_am_i No repetition for ->$orig_query<- which contains " .
-            "'Information_schema'. Will return STATUS_OK.") if $debug_here;
-        return STATUS_OK;
+            "'Information_schema'. " . Basics::return_status_text($status)) if $debug_here;
+        return $status;
     }
     if ($orig_query =~ m{Performance_schema}io) {
+        my $status = STATUS_OK;
         say("DEBUG: $who_am_i No repetition for ->$orig_query<- which contains " .
-            "'Performance_schema'. Will return STATUS_OK.") if $debug_here;
-        return STATUS_OK;
+            "'Performance_schema'. " . Basics::return_status_text($status)) if $debug_here;
+        return $status;
     }
     # We cannot intercept all dangerous functions. But at least some frequent used.
     if ($orig_query =~ m{now\s*()}io or $orig_query =~ m{UNIX_TIMESTAMP\s*()}io) {
+        my $status = STATUS_OK;
         say("DEBUG: $who_am_i No repetition for ->$orig_query<- which contains a " .
-            "current time related function. Will return STATUS_OK.") if $debug_here;
-        return STATUS_OK;
+            "current time related function. " . Basics::return_status_text($status)) if $debug_here;
+        return $status;
     }
 
     if (defined $orig_err and $orig_err > 0) {
+        my $status = STATUS_OK;
         say("DEBUG: $who_am_i No repetition for ->$orig_query<- which harvested $orig_err. " .
-            "Will return STATUS_OK.") if $debug_here;
-        return STATUS_OK;
+            Basics::return_status_text($status)) if $debug_here;
+        return $status;
     }
 
     if (not defined $orig_result->data()) {
+        my $status = STATUS_OK;
         # Sample: SELECT .... INTO @user_variable
         say("DEBUG: $who_am_i ->$orig_query<- harvested no error and undef data. " .
-            "Will return STATUS_OK.") if $debug_here;
-        return STATUS_OK;
+            Basics::return_status_text($status)) if $debug_here;
+        return $status;
     }
 
     my $aux_query =  'SELECT @@autocommit /* Validator */';
@@ -210,11 +218,13 @@ sub validate {
     if (STATUS_OK != $aux_status) {
         my $msg_snip = "DEBUG: $who_am_i ->" . $aux_query . "<- harvested status $aux_status. ";
         if      (STATUS_SKIP == $aux_status) {
-            say($msg_snip . "Will return STATUS_OK.") if $debug_here;
-            return STATUS_OK;
+            my $status = STATUS_OK;
+            say($msg_snip . Basics::return_status_text($status)) if $debug_here;
+            return $status;
         } elsif (STATUS_SERVER_CRASHED == $aux_status) {
-            say($msg_snip . "Will return STATUS_CRITICAL_FAILURE.") if $debug_here;
-            return STATUS_CRITICAL_FAILURE;
+            my $status = STATUS_CRITICAL_FAILURE;
+            say($msg_snip . Basics::return_status_text($status)) if $debug_here;
+            return $status;
         } else {
             say($msg_snip . "Will return that.");
             return $aux_status;
@@ -228,9 +238,10 @@ sub validate {
         # - server crash
         # makes a difference.
         # Return $aux_status?
+        my $status = STATUS_OK;
         say("DEBUG: $who_am_i ->" . $aux_query . "<- harvested $aux_err. " .
-            "Will return STATUS_OK.") if $debug_here;
-        return STATUS_OK;
+            Basics::return_status_text($status)) if $debug_here;
+        return $status;
     }
 
     my $autocommit = $aux_data->[0]->[0];
@@ -262,9 +273,10 @@ sub validate {
         # because the intended duration of the GenTest_e phase is already exceeded.
         # Its a bit unclear if the validator would be than called at all.
         if (STATUS_SKIP == $new_result->status()) {
+            my $status = STATUS_OK;
             say("DEBUG: $who_am_i Repeated query ->" . $orig_query . "<- got STATUS_SKIP. " .
-                "Will return STATUS_OK.") if $debug_here;
-            return STATUS_OK;
+                Basics::return_status_text($status)) if $debug_here;
+            return $status;
         }
 
         my $new_err =    $new_result->err();
@@ -280,9 +292,10 @@ sub validate {
                 2006 == $new_err or   # CR_SERVER_GONE_ERROR
                 2013 == $new_err      # CR_SERVER_LOST
                                     ) {
+                my $status = STATUS_OK;
                 say("DEBUG: $who_am_i Repeated query ->" . $orig_query . "<- harvested $new_err. " .
-                    "Will return STATUS_OK.") if $debug_here;
-                return STATUS_OK;
+                    Basics::return_status_text($status)) if $debug_here;
+                return $status;
             } else {
                 say("ERROR: $who_am_i Repeated query ->" . $orig_query .
                     "<- harvested $new_err instead of undef.");
@@ -323,9 +336,10 @@ sub validate {
                 # - server crash
                 # makes a difference.
                 # Return $aux_status?
+                my $status = STATUS_OK;
                 say("DEBUG: $who_am_i ->" . $aux_query . "<- harvested $aux_err. " .
-                    "Will return STATUS_OK.") if $debug_here;
-                return STATUS_OK;
+                    Basics::return_status_text($status)) if $debug_here;
+                return $status;
             }
 
             my $txiso_level = $aux_data->[0]->[0];
@@ -349,10 +363,11 @@ sub validate {
 }
 
 sub kill_server {
+    my $status = STATUS_DATABASE_CORRUPTION;
     say("ERROR: $who_am_i Will kill the server with SIGABRT and exit with " .
         "STATUS_DATABASE_CORRUPTION");
     system('kill -6 $SERVER_PID1');
-    exit STATUS_DATABASE_CORRUPTION;
+    exit $status;
 }
 
 sub result_info {
