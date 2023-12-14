@@ -2796,6 +2796,69 @@ sub search_in_file {
 
 # Check if basedir contains a mysqld and clients
 
+sub make_rr_backtrace {
+    my ($vardir) = @_;
+
+    my $who_am_i = Basics::who_am_i;
+    my $status   = STATUS_OK;
+
+    if (not defined $vardir) {
+        say("INTERNAL ERROR: $who_am_i vardir is not defined.");
+        $status = STATUS_INTERNAL_ERROR;
+        safe_exit($status);
+    }
+    if (not -d $vardir) {
+        say("INTERNAL ERROR: $who_am_i vardir '$vardir' does not exist or is not a directory.");
+        $status = STATUS_ENVIRONMENT_FAILURE;
+        return $status;
+    }
+    if (not defined Runtime::get_rr()) {
+        say("INTERNAL ERROR: $who_am_i rr is not used.");
+        $status = STATUS_INTERNAL_ERROR;
+        safe_exit($status);
+    } else {
+        # We pick just the last rr trace made.
+        my $rr_trace_dir    = $vardir . '/rr';
+        if (not -d $rr_trace_dir) {
+            say("ERROR: $who_am_i rr_trace_dir '$rr_trace_dir' does not exist " .
+                "or is not a directory.");
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            return $status;
+        }
+        my $rqg_homedir = Local::get_rqg_home();
+        if (not defined $rqg_homedir) {
+            say("INTERNAL ERROR: $who_am_i rqg_homedir is not defined.");
+            $status = STATUS_INTERNAL_ERROR;
+            safe_exit($status);
+        }
+        if (not -d $rqg_homedir) {
+            say("ERROR: $who_am_i rqg_homedir '$rqg_homedir' does not exist " .
+                "or is not a directory.");
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            return $status;
+        }
+        my $backtrace       = $vardir . '/backtrace.txt';
+        my $backtrace_cfg   = $rqg_homedir . "/backtrace-rr.gdb";
+        if (not -f $backtrace_cfg) {
+            say("ERROR: $who_am_i The backtrace command file '$backtrace_cfg' does not exist " .
+                "or is not a plain file.");
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            return $status;
+        }
+        # Note:
+        # The rr option --mark-stdio would print STDERR etc. when running 'continue'.
+        # But this just shows the content of the server error log which we have anyway.
+        my $command = "_RR_TRACE_DIR=$rr_trace_dir rr replay >$backtrace 2>/dev/null " .
+                      "< $backtrace_cfg";
+        system('bash -c "set -o pipefail; '. $command .'"');
+        say("INFO: $who_am_i ---------------------------- Begin");
+        sayFile($backtrace);
+        $status = STATUS_SERVER_CRASHED;
+        say("INFO: $who_am_i ------------------------------ End");
+        return $status;
+    }
+}
+
 sub get_pid_from_file {
 # Variants
 # 1. File does not or no more exist --> undef
@@ -3570,6 +3633,32 @@ sub direct_to_stdout {
     }
     close($stdout_save);
     close($stderr_save);
+}
+
+sub find_client_bindir {
+    my ($basedir) = @_;
+
+    my $client_bindir;
+    my $who_am_i = Basics::who_am_i();
+
+    if (not defined $basedir) {
+        say("ERROR: $who_am_i The first parameter 'basedir' is undef. Will return undef.");
+        return undef;
+    }
+    if (not -d $basedir) {
+        say("ERROR: $who_am_i The basedir '$basedir' does not exist or is not a directory. " .
+            "Will return undef.");
+        return undef;
+    }
+    foreach my $client_path ("client/RelWithDebInfo", "client/Debug",
+                             "client", "../client", "bin", "../bin") {
+        my $client_bindir = $basedir . '/' . $client_path;
+        if (-d $client_bindir) {
+            return $client_bindir;
+        }
+    }
+    say("ERROR: $who_am_i No client_bindir found around basedir '$basedir'. Will return undef.");
+    return undef;
 }
 
 1;
