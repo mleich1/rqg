@@ -1,4 +1,5 @@
 # Copyright (c) 2018, 2021 MariaDB Corporation Ab.
+# Copyright (c) 2024 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -186,13 +187,14 @@ sub run {
         } else {
             if( $line =~ m{; *#} ) {
                 # Treat the case of   <SQL> ; # <comment>
-                # say("DEBUG: Hit maybe critical line ->$line<-");
+                  say("DEBUG: Hit maybe critical line ->$line<-");
                 $line =~ s{; *#.*}{;};
-                # say("DEBUG: transformed to ->$line<-");
+                  say("DEBUG: transformed to ->$line<-");
             }
-            # We join several lines to one line!
+            # We join several lines to one line till a line ends with ';'.
             $full_query .= $line;
             if ( $line =~ m{; *$} ) {
+                $full_query =~ s{; *$}{};
                 # ';' followed by line end ends the query.
                 my $status = run_sql_cmd($executor, $full_query);
                 if ($status) {
