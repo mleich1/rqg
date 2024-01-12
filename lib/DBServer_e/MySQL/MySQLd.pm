@@ -1,6 +1,6 @@
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, 2022, MariaDB Corporation Ab
-# Copyright (c) 2023 MariaDB plc
+# Copyright (c) 2023, 2024 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -2021,8 +2021,8 @@ sub checkDatabaseIntegrity {
             $aux_errstr =    "<undef>" if not defined $aux_errstr;
             say("ERROR: $who_am_i Helper Query ->" . $aux_sql . "<- failed with " .
                 "$aux_err : $aux_errstr . " . Basics::return_status_text($aux_status));
-            $aux_status = check_errorlog_and_return($aux_status);
             $executor->disconnect();
+            $aux_status = check_errorlog_and_return($aux_status);
             return $aux_status, undef;
         } else {
             return STATUS_OK, $aux_result->data;
@@ -2249,8 +2249,8 @@ sub checkDatabaseIntegrity {
                 } else {
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with " .
                         "$err : $errstr " . Basics::return_status_text($status));
-                    return check_errorlog_and_return($status);
                     $executor->disconnect();
+                    return check_errorlog_and_return($status);
                 }
             }
         } else {
@@ -2533,9 +2533,9 @@ sub checkDatabaseIntegrity {
                     $status = $sl_status if $status < $sl_status;
                     return check_errorlog_and_return($status);
                 } else {
-                    $executor->disconnect();
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with  " .
                         "$err : $errstr . " . Basics::return_status_text($status));
+                    $executor->disconnect();
                     return check_errorlog_and_return($status);
                 }
             } else {
@@ -2656,9 +2656,9 @@ sub checkDatabaseIntegrity {
                                     $err    =    "<undef>" if not defined $err;
                                     my $errstr = $res_aux_query3->errstr;
                                     $errstr =    "<undef>" if not defined $errstr;
-                                    $executor->disconnect();
                                     say("WARN: $who_am_i Helper Query ->" . $aux_query3 .
                                         "<- failed with $err : $errstr. Will ignore that.");
+                                    $executor->disconnect();
                                     my $status = check_errorlog_and_return($status_aux_query3);
                                     return $status if $status >= STATUS_CRITICAL_FAILURE;
                                 } else {
@@ -2679,11 +2679,11 @@ sub checkDatabaseIntegrity {
                         $err16    =    "<undef>" if not defined $err16;
                         my $errstr16 = $res_check16->errstr;
                         $errstr16 =    "<undef>" if not defined $errstr16;
-                        $executor->disconnect();
                         $status = STATUS_CRITICAL_FAILURE;
                         say("ERROR: $who_am_i After fiddling with XA transactions and disabling " .
                             "checks the retry of Query ->" . $aux_query16 .  "<-\n       failed " .
                             "with $err16 : $errstr16 . " . Basics::return_status_text($status16));
+                        $executor->disconnect();
                         return check_errorlog_and_return($status16);
                     } else {
                         say("INFO: $msg_snip \nINFO: and passed after disabling checks and " .
@@ -2716,9 +2716,9 @@ sub checkDatabaseIntegrity {
                         $err14    =    "<undef>" if not defined $err14;
                         my $errstr14 = $res_check14->errstr;
                         $errstr14 =    "<undef>" if not defined $errstr14;
-                        $executor->disconnect();
                         say("ERROR: $who_am_i Helper Query ->" . $aux_query14 . "<- failed with " .
                             "$err14 : $errstr14 " . Basics::return_status_text($status14));
+                        $executor->disconnect();
                         return check_errorlog_and_return($status14);
                     } else {
                         my $key_ref1 = $res_check14->data;
@@ -2737,11 +2737,10 @@ sub checkDatabaseIntegrity {
                                 $err15    =    "<undef>" if not defined $err15;
                                 my $errstr15 = $res_check15->errstr;
                                 $errstr15 =    "<undef>" if not defined $errstr15;
-                                $executor->disconnect();
-                                say("ERROR: (maybe) " . $msg_snip);
                                 say("ERROR: $who_am_i Helper Query ->" . $aux_query15 .
                                     "<- failed with $err15 : $errstr15 " .
                                     Basics::return_status_text($status15));
+                                $executor->disconnect();
                                 return check_errorlog_and_return($status15);
                             }
                             my $res_check16 =  $executor->execute($aux_query);
@@ -2761,28 +2760,27 @@ sub checkDatabaseIntegrity {
                                     $err15    =    "<undef>" if not defined $err15;
                                     my $errstr15 = $res_check15->errstr;
                                     $errstr15 =    "<undef>" if not defined $errstr15;
-                                    $executor->disconnect();
-                                    say("ERROR: (maybe) " . $msg_snip);
                                     say("ERROR: $who_am_i Helper Query ->" . $aux_query15 .
                                         "<- failed with $err15 : $errstr15 " .
                                         Basics::return_status_text($status15));
+                                    $executor->disconnect();
                                     return check_errorlog_and_return($status15);
                                 } else {
                                     return check_errorlog_and_return(STATUS_OK);
                                 }
                             }
                         } else {
-                            $executor->disconnect();
                             say("INFO: innodb_strict_mode is 0.");
                             say("ERROR: $who_am_i Query ->" . $aux_query .
                                 "<- failed with $err : $errstr " . Basics::return_status_text($status));
+                            $executor->disconnect();
                             return check_errorlog_and_return($status);
                         }
                     }
                 } else {
-                    $executor->disconnect();
                     say("ERROR: $who_am_i Query ->" . $aux_query .
                         "<- failed with $err : $errstr " . Basics::return_status_text($status));
+                    $executor->disconnect();
                     return check_errorlog_and_return($status);
                 }
             } else {
@@ -3954,12 +3952,12 @@ sub server_is_operable {
             my $result =    $executor->execute($query);
             $status = $result->status;
             if (STATUS_OK != $status) {
-                $executor->disconnect();
                 my $err    = $result->err;
                 my $errstr = $result->errstr;
                 my $status = STATUS_CRITICAL_FAILURE;
                 say("ERROR: $who_am_i Query ->" . $query . "<- failed with $err : $errstr " .
                     Basics::return_status_text($status));
+                $executor->disconnect();
                 return $status;
             }
             my $processlist = $result->data;
