@@ -1,6 +1,6 @@
-# Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2018,2022 MariaDB Corporation Ab.
-# Copyright (c) 2023 MariaDB plc
+# Copyright (c) 2008, 2012 Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2018, 2022 MariaDB Corporation Ab.
+# Copyright (c) 2023, 2024 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -148,9 +148,9 @@ sub new {
         } else {
             # Getting a proper working reporter is essential.
             # Hence any status > 0 has to be treated as fatal for reporters.
-            $executor->disconnect();
             say("ERROR: " . $msg_snip);
             say("ERROR: $who_am_i Will return undef.");
+            $executor->disconnect();
             return undef;
         }
     }
@@ -191,13 +191,13 @@ sub new {
     my $binname;
     $binname = osWindows() ? 'mariadbd.exe' : 'mariadbd';
     # FIXME: Could $binary be undef?
-    ($bindir,$binary)=$reporter->findMySQLD($binname);
+    ($bindir,$binary) = $reporter->findMySQLD($binname);
     return undef if not defined $bindir or not defined $binary;
     if (-e $binary) {
         # Do nothing
     } else {
         $binname = osWindows() ? 'mysqld.exe' : 'mysqld';
-        ($bindir,$binary)=$reporter->findMySQLD($binname);
+        ($bindir, $binary) = $reporter->findMySQLD($binname);
         if (not -e $binary) {
             say("ERROR: $who_am_i No server binary found. Will return undef.");
             return undef;
@@ -206,14 +206,14 @@ sub new {
     $reporter->[REPORTER_SERVER_INFO]->{bindir} = $bindir;
     $reporter->[REPORTER_SERVER_INFO]->{binary} = $binary;
 
-    foreach my $client_path ("client/RelWithDebInfo", "client/Debug",
-                             "client", "../client", "bin", "../bin") {
-        if (-e $reporter->serverVariable('basedir') . '/' . $client_path) {
-            $reporter->[REPORTER_SERVER_INFO]->{'client_bindir'} =
-                                    $reporter->serverVariable('basedir') . '/' . $client_path;
-            last;
-	    }
+    my $basedir       = $reporter->serverVariable('basedir');
+    my $client_bindir = Auxiliary::find_client_bindir($basedir);
+    if (not defined $client_bindir) {
+        say("ERROR: client_bindir '$client_bindir' was not found. " .
+            "Maybe '" . $basedir . "' is not the top directory of a MariaDB install");
+        return undef;
     }
+    $reporter->[REPORTER_SERVER_INFO]->{'client_bindir'} = $client_bindir;
 
     my $errorlog = $reporter->serverVariable('log_error');
     if ($errorlog eq '') {
@@ -233,8 +233,8 @@ sub new {
     $reporter->[REPORTER_PRNG] = $prng;
 
     # general properties area for sub-classes
-    $reporter->[REPORTER_CUSTOM_ATTRIBUTES]={};
-    $reporter->[REPORTER_START_TIME]= time();
+    $reporter->[REPORTER_CUSTOM_ATTRIBUTES] = {};
+    $reporter->[REPORTER_START_TIME]        = time();
 
     return $reporter;
 }
@@ -250,7 +250,8 @@ sub updatePid {
     # The server error log shows that shutdown was asked from unknown side.
     # And the error log ends with: [Note] /home/mleich/Server/10.5/bld_debug//sql/mysqld: Shutdown complete
     #
-    # So what to do in case the pid_file disappears because of regular shutdown?
+    # FIXME:
+    # What to do in case the pid_file disappears because of regular shutdown?
     #
 
     open (PF, $pid_file);
@@ -312,7 +313,7 @@ sub properties {
 
 sub customAttribute() {
     if (defined $_[2]) {
-        $_[0]->[GenTest_e::Reporter::REPORTER_CUSTOM_ATTRIBUTES]->{$_[1]}=$_[2];
+        $_[0]->[GenTest_e::Reporter::REPORTER_CUSTOM_ATTRIBUTES]->{$_[1]} = $_[2];
     }
     return $_[0]->[GenTest_e::Reporter::REPORTER_CUSTOM_ATTRIBUTES]->{$_[1]};
 }
@@ -333,10 +334,10 @@ sub findMySQLD {
     # Handling general basedirs and MTRv1 style basedir,
     # but trying not to search the entire universe just for the sake of it
     my @basedirs = ($reporter->serverVariable('basedir'));
-    if (! -e File::Spec->catfile($reporter->serverVariable('basedir'),'mysql-test') and
-          -e File::Spec->catfile($reporter->serverVariable('basedir'),'t')) {
+    if (! -e File::Spec->catfile($reporter->serverVariable('basedir'), 'mysql-test') and
+          -e File::Spec->catfile($reporter->serverVariable('basedir'), 't')) {
         # Assuming it's the MTRv1 style basedir
-        @basedirs=(File::Spec->catfile($reporter->serverVariable('basedir'),'..'));
+        @basedirs=(File::Spec->catfile($reporter->serverVariable('basedir'), '..'));
     }
     find(sub {
             $bindir=$File::Find::dir if $_ eq $binname;
