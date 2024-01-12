@@ -1056,7 +1056,7 @@ sub doGenData {
                    $gendata_result = STATUS_ENVIRONMENT_FAILURE;
                    say("ERROR: $who_am_i The SQL file '$file' " .
                        "does not exist.");
-                   say("ERROR: " . Auxiliary::build_wrs($gendata_result));
+                   say("ERROR: " . Basics::return_status_text($gendata_result));
                    last;
                }
             }

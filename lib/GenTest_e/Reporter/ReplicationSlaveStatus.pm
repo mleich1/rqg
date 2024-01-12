@@ -1,5 +1,6 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
 # Copyright (C) 2016, 2022 MariaDB Corporation AB.
+# Copyright (C) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -121,7 +122,7 @@ sub status {
     if (not defined $reporter->properties->servers->[1]) {
         my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("ERROR: $who_am_i reporter->properties->servers->[1] is not defined. " .
-                    Auxiliary::build_wrs($status));
+                    Basics::return_status_text($status));
 
     }
     # We connect to the slave DB server!
@@ -145,7 +146,7 @@ sub status {
             $status = STATUS_REPLICATION_FAILURE;
         }
         say($message_part);
-        say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i " . Basics::return_status_text($status));
         return $status;
     }
 
@@ -167,7 +168,7 @@ sub status {
         }
         $executor->disconnect();
         say($message_part);
-        say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i " . Basics::return_status_text($status));
         return $status;
     }
     $first_connect = 0;

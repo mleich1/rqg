@@ -601,7 +601,7 @@ sub createMysqlBase  {
         if (not open(CONFIG, ">$self->[MYSQLD_CONFIG_FILE]")) {
             my $status = STATUS_FAILURE;
             say("ERROR: $who_am_i Could not open ->" . $self->[MYSQLD_CONFIG_FILE] .
-                "for writing: $!. Will return status STATUS_FAILURE" . "($status)");
+                "for writing: $!. " . Basics::return_status_text($status));
             return $status;
         }
         print CONFIG @{$self->[MYSQLD_CONFIG_CONTENTS]};
@@ -618,7 +618,7 @@ sub createMysqlBase  {
     if (not open BOOT, ">$boot") {
         my $status = STATUS_FAILURE;
         say("ERROR: $who_am_i Could not open ->" . $boot .
-            " for writing: $!. Will return status STATUS_FAILURE" . "($status)");
+            " for writing: $!. " . Basics::return_status_text($status));
         return $status;
     }
     print BOOT "CREATE DATABASE test;\n";
@@ -715,7 +715,7 @@ sub createMysqlBase  {
             if (not mkdir $rr_trace_dir) {
                 my $status = STATUS_FAILURE;
                 say("ERROR: createMysqlBase: Creating the 'rr' trace directory '$rr_trace_dir' " .
-                    "failed : $!. Will return status STATUS_FAILURE" . "($status)");
+                    "failed : $!. " . Basics::return_status_text($status));
                 return $status;
             }
         }
@@ -752,7 +752,7 @@ sub createMysqlBase  {
         my $status = STATUS_FAILURE;
         say("ERROR: Bootstrap failed");
         $self->make_backtrace;
-        say("ERROR: Will return STATUS_FAILURE" . "($status)");
+        say("ERROR: " . Basics::return_status_text($status));
         return $status;
     } else {
         return STATUS_OK;
@@ -770,7 +770,7 @@ sub _reportError {
 sub startServer {
     my ($self) = @_;
 
-    our $who_am_i = "DBServer_e::MySQL::MySQLd::startServer:";
+    our $who_am_i = Basics::who_am_i;
 
     my @defaults = ($self->[MYSQLD_CONFIG_FILE] ? ("--defaults-group-suffix=.runtime",
                    "--defaults-file=$self->[MYSQLD_CONFIG_FILE]") : ("--no-defaults"));
@@ -789,9 +789,7 @@ sub startServer {
                          "--max-allowed-packet=128Mb", # Allow loading bigger blobs
                          "--port="      . $self->port,
                          "--socket="    . $self->socketfile,
-                         # EXPERIMENT BEGIN
                          "--plugin_load_add=metadata_lock_info",
-                         # EXPERIMENT END
                          "--pid-file="  . $self->pidfile],
                          $self->_logOptions);
     # Do not set
@@ -815,7 +813,7 @@ sub startServer {
     if (STATUS_OK != $status) {
         $status = STATUS_FAILURE;
         say("ERROR: $who_am_i The cleanup before DB server start failed. " .
-            "Will return status STATUS_FAILURE" . "($status)");
+            Basics::return_status_text($status));
         return $status;
     }
     my $errorlog = $self->errorlog;
@@ -830,7 +828,7 @@ sub startServer {
         if (not defined $errlog_last_update_time) {
             my $status = STATUS_FAILURE;
             say("ERROR: $who_am_i The server error log '$errorlog' does not exist. " .
-                "Will return status STATUS_FAILURE" . "($status)");
+                Basics::return_status_text($status));
             return $status;
         }
         # Sleep a bit in order to guarantee that any modification of $errorlog has a date
@@ -851,10 +849,10 @@ sub startServer {
     # after the server pid showed up in the server error log.
     # After that the server is considered hanging).
     my $startup_timeout     = DEFAULT_STARTUP_TIMEOUT * Runtime::get_runtime_factor();
-    # Variant:
+    # Variants:
     # 1. No start dirty == First start after Bootstrap --> Should be quite fast
     # 2. start dirty
-    # 2.1 Start on data "formed" by some smooth/slow shutdown or a copy of that
+    # 2.1 Start on data "formed" by some smooth/slow shutdown or a copy of the data after that
     #     or Mariabackup prepare finished --> Should be quite fast
     # 2.2 Start on data "formed" by some rude shutdown or server kill or a copy of that
     #     --> Could be quite slow
@@ -961,7 +959,7 @@ sub startServer {
                 if (not mkdir $rr_trace_dir) {
                     my $status = STATUS_FAILURE;
                     say("ERROR: startserver: Creating the 'rr' trace directory '$rr_trace_dir' " .
-                        "failed : $!. Will return status STATUS_FAILURE" . "($status)");
+                        "failed : $!. " . Basics::return_status_text($status));
                     return $status;
                 }
             }
@@ -969,7 +967,7 @@ sub startServer {
             # - core files do not offer more information than already provided by rr traces
             # - gdb -c <core file> <mysqld binary> gives sometimes rotten output from
             #   whatever unknown reason
-            # - cores files consume ~ 1 GB in vardir (often located in tmpfs) temporary
+            # - cores files consume ~ 1 GB or more in vardir (often located in tmpfs) temporary
             #   And that is serious bigger than rr traces.
             # So we prevent the writing of core files via ulimit.
             # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
@@ -991,7 +989,8 @@ sub startServer {
             # of rather low value. But the
             # [rr 19150 <event_number>] <timestamp> might help to find the right region of
             # events where debugging should start.
-            $command .= ' "--log_warnings=4" ' . Local::get_rqg_rr_add() if Local::get_rqg_rr_add() ne '';
+            $command .= ' "--log_warnings=4" ' . Local::get_rqg_rr_add()
+                if Local::get_rqg_rr_add() ne '';
             # Prevent that the server writes a backtrace into the server error log.
             # The rr replay would write that information anyway.
             # Currently disabled because certain important messages disappear from error log.
@@ -1010,7 +1009,7 @@ sub startServer {
         if ($self->[MYSQLD_AUXPID]) {
             # Here is the parent (rqg.pl or some reporter) of the just forked process.
             # ------------------------------------------------------------------------
-            # say("DEBUG: aux_pid is " . $self->[MYSQLD_AUXPID]);
+            say("INFO: startserver: aux_pid is " . $self->[MYSQLD_AUXPID]);
             # We put the pid of the parent as value into %aux_pids.
             # By processing that any future child like the reporter 'Crashrecovery*' knows
             # that it cannot reap that auxiliary process.
@@ -1024,7 +1023,7 @@ sub startServer {
             # b) It might look attractive if the child l just runs exec "DB server" because
             #    than l is the DB server.
             #    But this does not help in case we invoke "rr".
-            #    l will be the running rr and that forks a process m being the running DB server??
+            #    l will be the running rr and that forks a process m being the running DB server.
             # Nevertheless observing MYSQLD_AUXPID (l) makes sense because that process will
             # disappear if the db server or rr process is gone.
 
@@ -1072,7 +1071,7 @@ sub startServer {
                     if (not kill(0, $self->[MYSQLD_AUXPID])) {
                         my $status = STATUS_SERVER_CRASHED;
                         say("ERROR: $who_am_i The auxiliary process is no more running. " .
-                            Auxiliary::build_wrs($status));
+                            Basics::return_status_text($status));
                         # The status reported by cleanup_dead_server does not matter.
                         $self->cleanup_dead_server;
                         $self->make_backtrace();
@@ -1085,7 +1084,7 @@ sub startServer {
             if (not defined $pid) {
                 my $status = STATUS_CRITICAL_FAILURE;
                 say("ERROR: $who_am_i Trouble to determine the server pid within the last " .
-                    ($pid_seen_timeout + $tool_startup) ."s. " . Auxiliary::build_wrs($status));
+                    ($pid_seen_timeout + $tool_startup) ."s. " . Basics::return_status_text($status));
                 # The status reported by cleanup_dead_server does not matter.
                 # cleanup_dead_server takes care of $self->[MYSQLD_AUXPID].
                 $self->cleanup_dead_server;
@@ -1108,7 +1107,7 @@ sub startServer {
                 if (not kill(0, $pid)) {
                     my $status = STATUS_SERVER_CRASHED;
                     say("ERROR: $who_am_i The server process disappeared after having started " .
-                        "with pid $pid. " . Auxiliary::build_wrs($status));
+                        "with pid $pid. " . Basics::return_status_text($status));
                     # The status reported by cleanup_dead_server does not matter.
                     # cleanup_dead_server takes care of $self->[MYSQLD_AUXPID].
                     $self->cleanup_dead_server;
@@ -1138,7 +1137,7 @@ sub startServer {
                     # Technical problems.
                     my $status = STATUS_ENVIRONMENT_FAILURE;
                     say("FATAL ERROR: $who_am_i \$found is undef. Will KILL the server and " .
-                        Auxiliary::build_wrs($status));
+                        Basics::return_status_text($status));
                     sayFile($errorlog);
                     $self->killServer;
                     # No call of make_backtrace because the problem is around the existence of the
@@ -1161,7 +1160,7 @@ sub startServer {
                 # But the sever error log contains:
                 #    mysqld: ... Assertion .... failed.
                 #    [ERROR] mysqld got signal 6 ;
-                #    Attempting backtrace. You can use the following information to find out
+                #    Attempting backtrace. You can use the following information to find out ...
                 #    [Note] /data/Server_bin/bb-10.6-MDEV-27111_asan/bin/mysqld: ready for connections.
                 # And the connect was possible before 'ready for connections' was observed.
                 #
@@ -1176,7 +1175,7 @@ sub startServer {
                     # Technical problems!
                     my $status = STATUS_ENVIRONMENT_FAILURE;
                     say("FATAL ERROR: $who_am_i \$found is undef. Will KILL the server and " .
-                        Auxiliary::build_wrs($status));
+                        Basics::return_status_text($status));
                     sayFile($errorlog);
                     $self->killServer;
                     return $status;
@@ -1190,7 +1189,7 @@ sub startServer {
                     my $status = STATUS_CRITICAL_FAILURE;
                     say("ERROR: $who_am_i The server has not finished its start within the ".
                         "last $startup_timeout" . "s. Will crash the server, make a backtrace and " .
-                        Auxiliary::build_wrs($status));
+                        Basics::return_status_text($status));
                     $self->crashServer();
                     $self->make_backtrace();
                     sayFile($errorlog);
@@ -1215,7 +1214,7 @@ sub startServer {
                     # Also the $self->pidfile might have existed and deleted.
                     my $status = STATUS_SERVER_CRASHED;
                     say("ERROR: $who_am_i Server process $pid disappeared after having finished " .
-                        "the startup. " . Auxiliary::build_wrs($status));
+                        "the startup. " . Basics::return_status_text($status));
                     # The status returned by cleanup_dead_server does not matter.
                     $self->cleanup_dead_server;
                     $self->make_backtrace();
@@ -1226,7 +1225,7 @@ sub startServer {
                         "but trouble with pid file.");
                     my $status = STATUS_CRITICAL_FAILURE;
                     say("ERROR: $who_am_i Will kill the server process with ABRT and " .
-                        Auxiliary::build_wrs($status));
+                        Basics::return_status_text($status));
                     sayFile($errorlog);
                     $self->crashServer;
                     $self->make_backtrace();
@@ -1239,7 +1238,7 @@ sub startServer {
                 # Auxiliary::print_ps_tree($$);
                 my $status = STATUS_INTERNAL_ERROR;
                 say("ERROR: $who_am_i Will kill both processes with KILL and " .
-                    Auxiliary::build_wrs($status));
+                    Basics::return_status_text($status));
                 sayFile($errorlog);
                 # There is already a kill routine. But I want to be "double" sure.
                 kill 'KILL' => $self->serverpid;
@@ -1251,7 +1250,7 @@ sub startServer {
             my $errorlog_status = $self->checkErrorLog;
             if (STATUS_OK != $errorlog_status) {
                 say("ERROR: $who_am_i Will crash the server if needed, make a backtrace and " .
-                    Auxiliary::build_wrs($errorlog_status));
+                    Basics::return_status_text($errorlog_status));
                 sayFile($errorlog);
                 # $self->crashServer;
                 $self->make_backtrace();
@@ -1312,14 +1311,15 @@ sub startServer {
             # Reason for directing STDOUT and STDERR into $errorlog:
             # In case "rr" has something to tell or criticize than simply join that with the
             # server error log.
-            Auxiliary::direct_to_file($errorlog);
+            Basics::direct_to_file($errorlog);
 
             sub aux_give_up {
                 $who_am_i .= " Auxpid:";
-                Auxiliary::direct_to_stdout();
+                Basics::direct_to_stdout();
                 Carp::cluck("ERROR: $who_am_i Could not exec =>" . $command . "<=");
-                say("ERROR: $who_am_i Will exit with exit status STATUS_ENVIRONMENT_FAILURE");
-                exit STATUS_ENVIRONMENT_FAILURE;
+                my $status = STATUS_ENVIRONMENT_FAILURE;
+                say("ERROR: $who_am_i " . Basics::exit_status_text($status));
+                exit $status;
             }
 
             # For testing
@@ -1333,7 +1333,7 @@ sub startServer {
     if (not defined $dbh) {
         my $status = STATUS_FAILURE;
         say("ERROR: $who_am_i We did not get a connection to the just started server. " .
-            "Will return STATUS_FAILURE" . "($status)");
+            Basics::return_status_text($status));
         return $status;
     } else {
         # Attempt to catch problems similar to https://jira.mariadb.org/browse/MDEV-31386
@@ -1346,7 +1346,7 @@ sub startServer {
         if (defined $error) {
             my $status = STATUS_CRITICAL_FAILURE;
             say("ERROR: $who_am_i ->" . $query . "<- failed with $error. " .
-                Auxiliary::build_wrs($status));
+                Basics::return_status_text($status));
             return $status;
         } else {
             # say("DEBUG: $who_am_i ->" . $query . "<- passed");
@@ -1501,10 +1501,11 @@ sub crashServer {
         }
         if (defined $self->serverpid) {
             if (not $self->running) {
+                my $status = STATUS_OK;
                 say("INFO: $who_am_i The server with process [" . $self->serverpid .
-                    "] is already no more running. Will return STATUS_OK.");
+                    "] is already no more running. " . Basics::return_status_text($status));
                 $self->cleanup_dead_server;
-                return STATUS_OK;
+                return $status;
             }
             # Use ABRT in order to be able to distinct from genuine SEGV's.
             kill 'ABRT' => $self->serverpid;
@@ -1513,11 +1514,12 @@ sub crashServer {
             # SIGABRT ~ 4s till rr has finished and the auxiliary process is reaped.
             # SIGKILL ~ 1s till rr has finished and the auxiliary process is reaped.
             if ($self->waitForServerToStop($abrt_timeout) != STATUS_OK) {
+                my $status = STATUS_FAILURE;
                 say("ERROR: $who_am_i Crashing the server with core failed. Trying kill. " .
-                    "Will return STATUS_FAILURE.");
+                    Basics::return_status_text($status));
                 Auxiliary::print_ps_tree($$);
                 $self->killServer;
-                return STATUS_FAILURE;
+                return $status;
             } else {
                 $self->cleanup_dead_server;
                 return STATUS_OK;
@@ -1728,8 +1730,9 @@ sub nonSystemDatabases {
 }
 
 sub nonSystemDatabases1 {
-    my $self= shift;
-    my $who_am_i = "DBServer_e::MySQL::MySQLd::nonSystemDatabases1:";
+    my $self =   shift;
+
+    my $who_am_i = Basics::who_am_i;
     # The use of (combine with or)
     # a) my $dbh          = $self->dbh
     # b) my $col_arrayref = $self->dbh->selectcol_arrayref(....)
@@ -1915,7 +1918,8 @@ sub stopServer {
         my $file_handle;
         if (not open ($file_handle, '<', $file_to_read)) {
             $res = STATUS_FAILURE;
-            say("ERROR: $who_am_i Open '$file_to_read' failed : $!. Will return $res.");
+            say("ERROR: $who_am_i Open '$file_to_read' failed : $!. " .
+                Basics::return_status_text($res));
             return $res;
         }
         my $content_slice;
@@ -1978,17 +1982,18 @@ sub checkDatabaseIntegrity {
 
     our $self = shift;
 
-    # Prepending the package costs too much space per line reported.
-    my $who_am_i =          "checkDatabaseIntegrity ";
-    my $server_id =         $self->server_id();
-    my $server_name =       "server[" . $server_id . "]";
-    $who_am_i .=            " $server_name: ";
-    my $status =            STATUS_OK;
+    our $who_am_i = Basics::who_am_i;
+    our $status =   STATUS_OK;
+    our $executor;
+
+    my $server_id =     $self->server_id();
+    my $server_name =   "server[" . $server_id . "]";
+    $who_am_i .=        " $server_name: ";
     my $err;
     my $omit_walk_queries = 0;
 
-    my $dsn =               $self->dsn();
-    my $executor = GenTest_e::Executor->newFromDSN($dsn);
+    my $dsn =   $self->dsn();
+    $executor = GenTest_e::Executor->newFromDSN($dsn);
     $executor->setId($server_id);
     $executor->setRole("checkDatabaseIntegrity");
     # EXECUTOR_TASK_CHECKER ensures that max_statement_time is set to 0 for the current executor.
@@ -1996,6 +2001,33 @@ sub checkDatabaseIntegrity {
     $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_CHECKER);
     $status = $executor->init();
     return $status if $status != STATUS_OK;
+
+    sub run_aux_sql {
+    # Warnings:
+    # 1. This routine will emit 'ERROR: ....' in case the SQL fails.
+    #    Hence do not use it if having some more sophisticated handling like
+    #    - failing with A is not a bug --> do not emit an error message
+    #    - failing with B is     a bug --> emit an error message
+    #    in the caller.
+    # 2. Please be aware that there might be natural reasons (certain timeouts etc.) why $aux_sql
+    #    can fail. The status returned might cause confusion.
+        my ($aux_sql) = @_;
+        my $aux_result =  $executor->execute($aux_sql);
+        my $aux_status  =  $aux_result->status;
+        if (STATUS_OK != $aux_status) {
+            my $aux_err =    $aux_result->err;
+            $aux_err    =    "<undef>" if not defined $aux_err;
+            my $aux_errstr = $aux_result->errstr;
+            $aux_errstr =    "<undef>" if not defined $aux_errstr;
+            say("ERROR: $who_am_i Helper Query ->" . $aux_sql . "<- failed with " .
+                "$aux_err : $aux_errstr . " . Basics::return_status_text($aux_status));
+            $aux_status = check_errorlog_and_return($aux_status);
+            $executor->disconnect();
+            return $aux_status, undef;
+        } else {
+            return STATUS_OK, $aux_result->data;
+        }
+    }
 
     sub check_errorlog_and_return {
         my ($status) = @_;
@@ -2010,25 +2042,17 @@ sub checkDatabaseIntegrity {
     }
 
     sub show_the_locks_per_table {
-        my ($executor,$r_schema, $r_table) = @_;
-        my $who_am_i =  "checkDatabaseIntegrity::show_the_locks_per_table: ";
-        my ($aux_query, $lock_check, $lock_check_status);
-        $aux_query =    "SELECT THREAD_ID, LOCK_MODE, LOCK_DURATION, LOCK_TYPE, TABLE_NAME " .
+        my ($r_schema, $r_table) = @_;
+        my $who_am_i =  Basics::who_am_i;
+        my $aux_query = "SELECT THREAD_ID, LOCK_MODE, LOCK_DURATION, LOCK_TYPE, TABLE_NAME " .
                         "FROM information_schema.METADATA_LOCK_INFO " .
                         "WHERE TABLE_SCHEMA = '$r_schema' AND TABLE_NAME = '$r_table'";
-        $lock_check =        $executor->execute($aux_query);
-        $lock_check_status = $lock_check->status;
+        my ($lock_check_status, $lock_check_data) = run_aux_sql ($aux_query);
         if (STATUS_OK != $lock_check_status) {
-            my $lock_check_err    = $lock_check->err;
-            $lock_check_err =       "<undef>" if not defined $lock_check_err;
-            my $lock_check_errstr = $lock_check->errstr;
-            $lock_check_errstr =    "<undef>" if not defined $lock_check_errstr;
-            $executor->disconnect();
-            say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $lock_check_err : " .
-                $lock_check_errstr . " " . Auxiliary::build_wrs($lock_check_status));
+            # run_aux_sql has already reported the fail + checked the server error log.
             return $lock_check_status;
         } else {
-            my $key_aux_ref = $lock_check->data;
+            my $key_aux_ref = $lock_check_data;
             if (0 == scalar(@$key_aux_ref)) {
                 say("DEBUG: No MDL locks on `$r_schema` . " . "`$r_table` found.");
             } else {
@@ -2047,22 +2071,16 @@ sub checkDatabaseIntegrity {
                 }
             }
         }
+
         $aux_query = "SELECT lock_id,lock_trx_id,lock_mode,lock_type,lock_index,lock_space," .
                      "lock_page,lock_rec,lock_data FROM information_schema.INNODB_LOCKS "    .
                      "WHERE lock_table = '`$r_schema`.`$r_table`'";
-        $lock_check = $executor->execute($aux_query);
-        $lock_check_status = $lock_check->status;
+        ($lock_check_status, $lock_check_data) = run_aux_sql ($aux_query);
         if (STATUS_OK != $lock_check_status) {
-            my $lock_check_err    = $lock_check->err;
-            $lock_check_err =       "<undef>" if not defined $lock_check_err;
-            my $lock_check_errstr = $lock_check->errstr;
-            $lock_check_errstr =    "<undef>" if not defined $lock_check_errstr;
-            $executor->disconnect();
-            say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $lock_check_err : " .
-                $lock_check_errstr . " " . Auxiliary::build_wrs($lock_check_status));
+            # run_aux_sql has already reported the fail.
             return $lock_check_status;
         } else {
-            my $key_aux_ref = $lock_check->data;
+            my $key_aux_ref = $lock_check_data;
             if (0 == scalar(@$key_aux_ref)) {
                 say("DEBUG: No InnoDB locks on `$r_schema` . " . "`$r_table` found.");
             } else {
@@ -2119,19 +2137,13 @@ sub checkDatabaseIntegrity {
              "FROM information_schema.tables " .
              "WHERE TABLE_SCHEMA NOT IN ('pbxt','performance_schema') " .
              "ORDER BY TABLE_SCHEMA, TABLE_NAME";
-    my $res_databases = $executor->execute($aux_query);
-    $status = $res_databases->status;
+    ($status, my $res_databases_data) = run_aux_sql ($aux_query);
     if (STATUS_OK != $status) {
-        $executor->disconnect();
-        my $err    = $res_databases->err;
-        my $errstr = $res_databases->errstr;
-        my $status = STATUS_CRITICAL_FAILURE;
-        say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
-            Auxiliary::build_wrs($status));
-        return check_errorlog_and_return($status);
+        # run_aux_sql has already reported the fail + checked the server error log.
+        return $status;
     }
 
-    my $key_ref = $res_databases->data;
+    my $key_ref = $res_databases_data;
     foreach my $val (@$key_ref) {
         my $r_schema =          $val->[0];
         my $r_table =           $val->[1];
@@ -2149,7 +2161,6 @@ sub checkDatabaseIntegrity {
         my $res_tables = $executor->execute($aux_query);
         $status = $res_tables->status;
         if (STATUS_OK != $status) {
-            $executor->disconnect();
             my $err    = $res_tables->err;
             $err =       "<undef>" if not defined $err;
             my $errstr = $res_tables->errstr;
@@ -2165,6 +2176,7 @@ sub checkDatabaseIntegrity {
             # some similar problem or a to be tolerated case which we need to handle here.
             say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err: $errstr");
             say("ERROR: $who_am_i Raising status to STATUS_DATABASE_CORRUPTION.");
+            $executor->disconnect();
             return check_errorlog_and_return(STATUS_DATABASE_CORRUPTION);
         } else {
             # say("DEBUG: $who_am_i Query ->" . $aux_query . "<- pass.");
@@ -2176,23 +2188,16 @@ sub checkDatabaseIntegrity {
             # information_schema . ALL_PLUGINS ==> ->information_schema, ALL_PLUGINS, SYSTEM VIEW, Aria
             # SHOW CREATE VIEW information_schema . ALL_PLUGINS harvests
             # 1347 : 'information_schema.ALL_PLUGINS' is not of type 'VIEW'
-            my $res_tables = $executor->execute($aux_query);
-            $status = $res_tables->status;
+            ($status, my $res_tablesdata) = run_aux_sql ($aux_query);
             if (STATUS_OK != $status) {
-                $executor->disconnect();
-                my $err    = $res_tables->err;
-                $err = "<undef>" if not defined $err;
-                my $errstr = $res_tables->errstr;
-                $errstr = "<undef>" if not defined $errstr;
                 if (STATUS_SEMANTIC_ERROR == $status) {
                     # The list of tables is determined from the server data dictionary.
                     # Hence we have a diff between server and innodb data dictionary == corruption,
                     # some similar problem or a to be tolerated case which we need to handle here.
+                    $status = STATUS_DATABASE_CORRUPTION;
                     say("ERROR: $who_am_i Raising status to STATUS_DATABASE_CORRUPTION.");
-                    return check_errorlog_and_return(STATUS_DATABASE_CORRUPTION);
                 }
-                say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err: $errstr");
-                say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
+                say("ERROR: $who_am_i " . Basics::return_status_text($status));
                 return check_errorlog_and_return($status);
             } else {
                 $status = STATUS_OK;
@@ -2220,30 +2225,32 @@ sub checkDatabaseIntegrity {
                 $omit_walk_queries = 1 if $r_table_type eq "VIEW" or $r_table_type eq "SYSTEM VIEW";
                 $status =            STATUS_OK;
             } elsif (STATUS_TRANSACTION_ERROR == $status) {
-                my $sl_status = show_the_locks_per_table($executor,$r_schema, $r_table);
-                $executor->disconnect();
+                my $sl_status = show_the_locks_per_table($r_schema, $r_table);
                 say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
+                $executor->disconnect();
                 $status = $sl_status if $sl_status > $status;
                 return check_errorlog_and_return($status);
             } else {
                 if ($r_engine ne 'InnoDB') {
+                    # Try to repair the table
                     my $aux_query1 = "REPAIR TABLE `$r_schema`.`$r_table` EXTENDED";
-                    my $res_tables = $executor->execute($aux_query1);
-                    $status = $res_tables->status;
+                    ($status, my $data) = run_aux_sql ($aux_query1);
                     if (STATUS_OK != $status) {
-                        $executor->disconnect();
-                        my $err    = $res_tables->err;
-                        my $errstr = $res_tables->errstr;
-                        say("ERROR: $who_am_i Query ->" . $aux_query1 . "<- failed with " .
-                            "$err : $errstr " . Auxiliary::build_wrs($status));
-                        return check_errorlog_and_return($status);
+                        # run_aux_sql has already reported the fail + checked the server error log.
+                        return $status;
+                    }
+                    # Try CHECK TABLE ... again
+                    ($status, $data) = run_aux_sql ($aux_query);
+                    if (STATUS_OK != $status) {
+                        # run_aux_sql has already reported the fail + checked the server error log.
+                        return $status;
                     }
                     # say("INFO: $who_am_i Query ->" . $aux_query . "<- passed");
                 } else {
-                    $executor->disconnect();
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with " .
-                        "$err : $errstr " . Auxiliary::build_wrs($status));
+                        "$err : $errstr " . Basics::return_status_text($status));
                     return check_errorlog_and_return($status);
+                    $executor->disconnect();
                 }
             }
         } else {
@@ -2264,9 +2271,9 @@ sub checkDatabaseIntegrity {
                     say("INFO: $who_am_i Query ->" . $aux_query . "<- harvested STATUS_SKIP");
                     $status = STATUS_OK;
                 } else {
-                    $executor->disconnect();
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
-                        Auxiliary::build_wrs($status));
+                        Basics::return_status_text($status));
+                    $executor->disconnect();
                     return check_errorlog_and_return($status);
                 }
             } else {
@@ -2280,21 +2287,12 @@ sub checkDatabaseIntegrity {
         # --------------
         if ($r_table_type eq "BASE TABLE") {
             $aux_query = "CHECKSUM TABLE " . $table_to_check . " EXTENDED";
-            my $res_check = $executor->execute($aux_query);
-            $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
+            ($status, my $res_databases_data) = run_aux_sql ($aux_query);
             if (STATUS_OK != $status) {
-                my $err    = $res_check->err;
-                $err = "<undef>" if not defined $err;
-                my $errstr = $res_check->errstr;
-                $errstr = "<undef>" if not defined $errstr;
-                $executor->disconnect();
-                say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
-                    Auxiliary::build_wrs($status));
-                return check_errorlog_and_return($status);
+                # run_aux_sql has already reported the fail + checked the server error log.
+                return $status;
             } else {
                 # say("DEBUG: $who_am_i $aux_query : pass");
-                # No reason to analyse the result because that was already done by MySQL.pm and
-                # we received some corresponding status.
             }
         }
 
@@ -2307,22 +2305,12 @@ sub checkDatabaseIntegrity {
         # generation if needed.
         if ($r_schema eq 'information_schema' or $r_schema eq 'mysql' or $r_schema eq 'mariadb') {
             $aux_query = "SELECT * FROM " . $table_to_check;
-            my $res_check = $executor->execute($aux_query);
-            $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
+            ($status, my $res_databases_data) = run_aux_sql ($aux_query);
             if (STATUS_OK != $status) {
-                my $err    = $res_check->err;
-                $err = "<undef>" if not defined $err;
-                my $errstr = $res_check->errstr;
-                $errstr = "<undef>" if not defined $errstr;
-                # Damaged system views must not exist. Hence STATUS_SKIP is not tolerable.
-                $executor->disconnect();
-                say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
-                    Auxiliary::build_wrs($status));
-                return check_errorlog_and_return($status);
+                # run_aux_sql has already reported the fail + checked the server error log.
+                return $status;
             } else {
                 # say("DEBUG: $who_am_i $aux_query : pass");
-                # No reason to analyse the result because that was already done by MySQL.pm and
-                # we received some corresponding status.
             }
         }
 
@@ -2362,21 +2350,14 @@ sub checkDatabaseIntegrity {
         my $has_no_key = 1;
         $aux_query = "SELECT INDEX_NAME, COLUMN_NAME FROM information_schema.statistics " .
                      "WHERE table_schema = '$r_schema' and table_name = '$r_table'";
-        my $res_indexes = $executor->execute($aux_query);
-        $status = $res_indexes->status;
+        ($status, my $res_indexes_data) = run_aux_sql ($aux_query);
         if (STATUS_OK != $status) {
-            my $err    = $res_check->err;
-            $err = "<undef>" if not defined $err;
-            my $errstr = $res_check->errstr;
-            $errstr = "<undef>" if not defined $errstr;
-            $executor->disconnect();
-            say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
-                Auxiliary::build_wrs($status));
-            return check_errorlog_and_return($status);
+            # run_aux_sql has already reported the fail + checked the server error log.
+            return $status;
         } else {
             # say("DEBUG: $who_am_i $aux_query : pass");
         }
-        my $key_ref1 = $res_indexes->data;
+        my $key_ref1 = $res_indexes_data;
         foreach my $val (@$key_ref1) {
             $has_no_key =     0;
             my $key_name =    $val->[0];
@@ -2420,6 +2401,7 @@ sub checkDatabaseIntegrity {
             # say("DEBUG: $who_am_i key_name->" . $key_name . "<- Column_name->" . $column_name . "<-");
             $key_name =~ s{`}{``}g;
             # say("DEBUG: $who_am_i key_name transformed->" . $key_name . "<-");
+
             # FIXME: Discover the real data type!
             foreach my $select_type ('*' , "`$column_name`") {
                 my $main_predicate;
@@ -2480,12 +2462,12 @@ sub checkDatabaseIntegrity {
                     # table does not exist.
                     # Reason: The slave redoes actions from the server.
                     my $status = STATUS_INTERNAL_ERROR;
-                    say("ERROR: $msg_snip " . Auxiliary::build_wrs($status));
+                    say("ERROR: $msg_snip " . Basics::return_status_text($status));
                     say("HINT: Are there concurrent sessions modifying data or needs some " .
                         "replication a sync?");
                 } else {
                     my $status = STATUS_CRITICAL_FAILURE; # FIXME: Is that right?
-                    say("ERROR: $msg_snip " . Auxiliary::build_wrs($status));
+                    say("ERROR: $msg_snip " . Basics::return_status_text($status));
                     $sth_rows->finish();
                     $executor->disconnect();
                     return check_errorlog_and_return($status);
@@ -2500,8 +2482,9 @@ sub checkDatabaseIntegrity {
             push @{$rows{$rows}} , $walk_query;
 
             if (keys %rows > 1) {
+                $status = STATUS_DATABASE_CORRUPTION;
                 say("ERROR: $who_am_i Table $table_to_check is inconsistent. " .
-                    "Will return STATUS_DATABASE_CORRUPTION later.");
+                    Basics::return_status_text($status) . " later.");
                 print Dumper \%rows;
 
                 my @rows_sorted = grep { $_ > 0 } sort keys %rows;
@@ -2521,7 +2504,6 @@ sub checkDatabaseIntegrity {
                 say(GenTest_e::Comparator::dumpDiff($least_result_obj, $most_result_obj));
                 $sth_rows->finish();
                 $executor->disconnect();
-                $status = STATUS_DATABASE_CORRUPTION;
                 return check_errorlog_and_return($status);
             }
         } # End of running all walk queries
@@ -2546,14 +2528,14 @@ sub checkDatabaseIntegrity {
                     say("INFO: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
                 } elsif (STATUS_TRANSACTION_ERROR == $status) {
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
-                    my $sl_status = show_the_locks_per_table($executor,$r_schema, $r_table);
+                    my $sl_status = show_the_locks_per_table($r_schema, $r_table);
                     $executor->disconnect();
                     $status = $sl_status if $status < $sl_status;
                     return check_errorlog_and_return($status);
                 } else {
                     $executor->disconnect();
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with  " .
-                        "$err : $errstr . " . Auxiliary::build_wrs($status));
+                        "$err : $errstr . " . Basics::return_status_text($status));
                     return check_errorlog_and_return($status);
                 }
             } else {
@@ -2570,18 +2552,6 @@ sub checkDatabaseIntegrity {
         # - diffs between metadata and data in whatever btree
         # - diffs between server and InnoDB data dictionary
         # in case they could happen and revealed by a table rebuild at all.
-        # "Natural" problem observed 2023-06/07
-        #    ALTER TABLE <innodb table> FORCE harvests 1205 : Lock wait timeout exceeded
-        #    The reason is that some session executed
-        #       XA BEGIN 'xid175' ;
-        #       SQL modifying the content in <innodb table>
-        #       XA END 'xid175' ;
-        #       XA PREPARE 'xid175' ;
-        #    which causes locks on <innodb table> and MDL locks.
-        #    And in case that session gets killed or disconnects none of these locks should
-        #    get released. (MDEV-24324 .... error that the MDL locks get released)
-        #    Btw. Other sessions could run XA COMMIT 'xid175' as soon as its prepared.
-        # ??? What about running XA ROLLBACK for all prepared XA transaction shown in XA RECOVER.
         #
         # EXECUTOR_TASK_CHECKER ensures that innodb_lock_timeout is small.
         # Hence no extreme long waiting if ther are locks on the table. So there is some good
@@ -2611,92 +2581,122 @@ sub checkDatabaseIntegrity {
         # So assuming that a failing ALTER TABLE ... FORCE might reveal some faulty maintenance
         # of the server and/or InnoDB data dictionary is wrong in case of sql mode switching.
         # Fixed by removing sql_mode.yy from any test setup.
+
         if ($r_table_type eq "BASE TABLE") {
             $aux_query = "ALTER TABLE " . $table_to_check . " FORCE";
             my $res_check = $executor->execute($aux_query);
             $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
+
             if (STATUS_OK != $status) {
                 my $err =    $res_check->err;
                 $err =       "<undef>" if not defined $err;
                 my $errstr = $res_check->errstr;
                 $errstr =    "<undef>" if not defined $errstr;
+                my $msg_snip =     "$who_am_i Query ->" . $aux_query .
+                                   "<- failed with $err : $errstr";
+                say("WARN: maybe bug $msg_snip");
 
                 if (STATUS_TRANSACTION_ERROR == $status and $r_engine = "InnoDB") {
-                    my $msg_snip =     "$who_am_i Query ->" . $aux_query .
-                                       "<- failed with $err : $errstr";
-                    my $aux_query14 =  "XA RECOVER";
-                    my $res_check14 =  $executor->execute($aux_query14);
-                    my $status14    =  $res_check14->status;
-                    if (STATUS_OK != $status14) {
-                        my $err14 =    $res_check14->err;
-                        $err14    =    "<undef>" if not defined $err14;
-                        my $errstr14 = $res_check14->errstr;
-                        $errstr14 =    "<undef>" if not defined $errstr14;
-                        $executor->disconnect();
-                        say("ERROR: (maybe) " . $msg_snip);
-                        say("ERROR: $who_am_i Helper Query ->" . $aux_query14 . "<- failed with " .
-                            "$err14 : $errstr14 . " . Auxiliary::build_wrs($status14));
-                        return check_errorlog_and_return($status14);
+                    # Switching checks off somewhere in history could cause after switching them on
+                    # ALTER TABLE `test` . `t5` FORCE<- failed with 1062 : Duplicate entry ...
+                    # --> STATUS_TRANSACTION_ERROR.
+                    my $aux_query1 = 'SET @@session.unique_checks = 0, @@session.foreign_key_checks = 0';
+                    ($status, my $res_data) = run_aux_sql ($aux_query1);
+                    if (STATUS_OK != $status) {
+                        # run_aux_sql has already reported the fail + checked the server error log.
+                        return $status;
                     } else {
+                        say("INFO: $who_am_i ->" . $aux_query1 . "<-: pass");
+                    }
+                    # "Natural" problem observed 2023-06/07
+                    #    ALTER TABLE <innodb table> FORCE harvests 1205 : Lock wait timeout exceeded
+                    #    The reason is that some session executed
+                    #       XA BEGIN 'xid175' ;
+                    #       SQL modifying the content in <innodb table>
+                    #       XA END 'xid175' ;
+                    #       XA PREPARE 'xid175' ;
+                    #    which causes locks on <innodb table> and MDL locks.
+                    #    And in case that session gets killed or disconnects none of these locks should
+                    #    get released. (MDEV-24324 .... error that the MDL locks get released)
+                    #    Btw. Other sessions could run XA COMMIT 'xid175' as soon as its prepared.
+
+                    # Discover if XA commands are in prepared state
+                    my $aux_query2 = "XA RECOVER";
+                    ($status, $res_data) = run_aux_sql ($aux_query2);
+                    if (STATUS_OK != $status) {
+                        # run_aux_sql has already reported the fail + checked the server error log.
+                        return $status;
+                    } else {
+                        # say("INFO: $who_am_i ->" . $aux_query2 . "<-: pass");
                         # Sample result set of XA RECOVER:
                         # formatID  gtrid_length  bqual_length  data
                         #        1             6             0  xid175
-                        my $key_ref1 = $res_check14->data;
+                        my $key_ref1 = $res_data;
                         # Empty result set --> $key_ref1 defined and key_ref1 with 0 elements.
                         if (scalar(@$key_ref1 > 0)) {
                             # say("DEBUG: $msg_snip might be caused by existing XA " .
                             #     "transaction(s) in prepared state. Trying to roll these back.");
+                            say("INFO: $who_am_i Some XA transaction in prepared state found.");
+
+                            # ROLLBACK all XA commands in prepared state
                             foreach my $val (@$key_ref1) {
                                 my $formatID =     $val->[0];
                                 my $gtrid_length = $val->[1];
                                 my $bqual_length = $val->[2];
                                 my $data =         $val->[3];
-                                # say("DEBUG: $who_am_i Helper Query ->" . $aux_query14 .
+                                # say("DEBUG: $who_am_i Helper Query ->" . $aux_query2 .
                                 #     " caught formatID: " . $formatID . " , gtrid_length: " .
                                 #     $gtrid_length . " , bqual_length: " . $bqual_length .
                                 #     " , data: " . $data);
-                                my $aux_query15 =  "XA ROLLBACK '$data'";
-                                my $res_check15 =  $executor->execute($aux_query15);
-                                my $status15    =  $res_check15->status;
-                                if (STATUS_OK != $status15) {
-                                    my $err15 =    $res_check15->err;
-                                    $err15    =    "<undef>" if not defined $err15;
-                                    my $errstr15 = $res_check15->errstr;
-                                    $errstr15 =    "<undef>" if not defined $errstr15;
+                                my $aux_query3 =  "XA ROLLBACK '$data'";
+                                my $res_aux_query3 =  $executor->execute($aux_query3);
+                                my $status_aux_query3    =  $res_aux_query3->status;
+                                if (STATUS_OK != $status_aux_query3) {
+                                    my $err =    $res_aux_query3->err;
+                                    $err    =    "<undef>" if not defined $err;
+                                    my $errstr = $res_aux_query3->errstr;
+                                    $errstr =    "<undef>" if not defined $errstr;
                                     $executor->disconnect();
-                                    say("ERROR: (maybe) " . $msg_snip);
-                                    say("ERROR: $who_am_i Helper Query ->" . $aux_query15 .
-                                        "<- failed with $err15 : $errstr15 . " .
-                                        Auxiliary::build_wrs($status15));
-                                    return check_errorlog_and_return($status15);
+                                    say("WARN: $who_am_i Helper Query ->" . $aux_query3 .
+                                        "<- failed with $err : $errstr. Will ignore that.");
+                                    my $status = check_errorlog_and_return($status_aux_query3);
+                                    return $status if $status >= STATUS_CRITICAL_FAILURE;
+                                } else {
+                                    say("INFO: $who_am_i XA transaction '$data' rolled back.");
                                 }
+
                             }
-                            # say("DEBUG: Trying ->" . $aux_query . "<- again");
-                            my $aux_query16 =  $aux_query;
-                            my $res_check16 =  $executor->execute($aux_query16);
-                            my $status16    =  $res_check16->status;
-                            if (STATUS_OK != $status16) {
-                                my $err16 =    $res_check16->err;
-                                $err16    =    "<undef>" if not defined $err16;
-                                my $errstr16 = $res_check16->errstr;
-                                $errstr16 =    "<undef>" if not defined $errstr16;
-                                $executor->disconnect();
-                                say("ERROR: (maybe) " . $msg_snip);
-                                say("ERROR: $who_am_i Helper Query ->" . $aux_query16 .
-                                    "<- failed with $err16 : $errstr16 . " .
-                                    Auxiliary::build_wrs($status16));
-                                return check_errorlog_and_return($status16);
-                            } else {
-                                say("INFO: $msg_snip \nINFO: and passed after rollback of " .
-                                    "prepared XA transactions.");
-                                $status = STATUS_OK;
-                            }
+                        }
+                        say("INFO: $who_am_i No XA transaction(s) in prepared state found.");
+                    }
+                    # Try the ALTER TABLE ... again
+                    # say("DEBUG: Trying ->" . $aux_query . "<- again");
+                    my $aux_query16 =  $aux_query;
+                    my $res_check16 =  $executor->execute($aux_query16);
+                    my $status16    =  $res_check16->status;
+                    if (STATUS_OK != $status16) {
+                        my $err16 =    $res_check16->err;
+                        $err16    =    "<undef>" if not defined $err16;
+                        my $errstr16 = $res_check16->errstr;
+                        $errstr16 =    "<undef>" if not defined $errstr16;
+                        $executor->disconnect();
+                        $status = STATUS_CRITICAL_FAILURE;
+                        say("ERROR: $who_am_i After fiddling with XA transactions and disabling " .
+                            "checks the retry of Query ->" . $aux_query16 .  "<-\n       failed " .
+                            "with $err16 : $errstr16 . " . Basics::return_status_text($status16));
+                        return check_errorlog_and_return($status16);
+                    } else {
+                        say("INFO: $msg_snip \nINFO: and passed after disabling checks and " .
+                            "rollback of prepared XA transactions.");
+                        $status = STATUS_OK;
+                        my $aux_query1 = 'SET @@session.unique_checks = @@global.unique_checks, ' .
+                                         '@@session.foreign_key_checks = @@global.foreign_key_checks';
+                        ($status, my $res_data) = run_aux_sql ($aux_query1);
+                        if (STATUS_OK != $status) {
+                            # run_aux_sql has already reported the fail + checked the server error log.
+                            return $status;
                         } else {
-                            say("DEBUG: No XA transaction(s) in prepared state found.");
-                            $executor->disconnect();
-                            $status = STATUS_CRITICAL_FAILURE;
-                            say("ERROR: $msg_snip " . Auxiliary::build_wrs($status));
-                            return check_errorlog_and_return($status);
+                            say("INFO: $who_am_i ->" . $aux_query1 . "<-: pass");
                         }
                     }
                 } elsif ((STATUS_SEMANTIC_ERROR == $status or STATUS_UNSUPPORTED == $status)
@@ -2717,9 +2717,8 @@ sub checkDatabaseIntegrity {
                         my $errstr14 = $res_check14->errstr;
                         $errstr14 =    "<undef>" if not defined $errstr14;
                         $executor->disconnect();
-                        say("ERROR: (maybe) " . $msg_snip);
                         say("ERROR: $who_am_i Helper Query ->" . $aux_query14 . "<- failed with " .
-                            "$err14 : $errstr14 " . Auxiliary::build_wrs($status14));
+                            "$err14 : $errstr14 " . Basics::return_status_text($status14));
                         return check_errorlog_and_return($status14);
                     } else {
                         my $key_ref1 = $res_check14->data;
@@ -2742,7 +2741,7 @@ sub checkDatabaseIntegrity {
                                 say("ERROR: (maybe) " . $msg_snip);
                                 say("ERROR: $who_am_i Helper Query ->" . $aux_query15 .
                                     "<- failed with $err15 : $errstr15 " .
-                                    Auxiliary::build_wrs($status15));
+                                    Basics::return_status_text($status15));
                                 return check_errorlog_and_return($status15);
                             }
                             my $res_check16 =  $executor->execute($aux_query);
@@ -2766,7 +2765,7 @@ sub checkDatabaseIntegrity {
                                     say("ERROR: (maybe) " . $msg_snip);
                                     say("ERROR: $who_am_i Helper Query ->" . $aux_query15 .
                                         "<- failed with $err15 : $errstr15 " .
-                                        Auxiliary::build_wrs($status15));
+                                        Basics::return_status_text($status15));
                                     return check_errorlog_and_return($status15);
                                 } else {
                                     return check_errorlog_and_return(STATUS_OK);
@@ -2776,14 +2775,14 @@ sub checkDatabaseIntegrity {
                             $executor->disconnect();
                             say("INFO: innodb_strict_mode is 0.");
                             say("ERROR: $who_am_i Query ->" . $aux_query .
-                                "<- failed with $err : $errstr " . Auxiliary::build_wrs($status));
+                                "<- failed with $err : $errstr " . Basics::return_status_text($status));
                             return check_errorlog_and_return($status);
                         }
                     }
                 } else {
                     $executor->disconnect();
                     say("ERROR: $who_am_i Query ->" . $aux_query .
-                        "<- failed with $err : $errstr " . Auxiliary::build_wrs($status));
+                        "<- failed with $err : $errstr " . Basics::return_status_text($status));
                     return check_errorlog_and_return($status);
                 }
             } else {
@@ -2873,10 +2872,11 @@ sub waitForServerToStop {
         }
     }
     if ($self->running) {
+        my $status = STATUS_FAILURE;
         say("ERROR: The server process has not disappeared after " . (time() - $wait_start) .
-            "s waiting. Will return STATUS_FAILURE later.");
+            "s waiting. " . Basics::return_status_text($status) . " later.");
         Auxiliary::print_ps_tree($$);
-        return STATUS_FAILURE;
+        return $status;
     } else {
         return STATUS_OK;
     }
@@ -2893,9 +2893,10 @@ sub waitForServerToStart {
       Time::HiRes::sleep($wait_unit);
    }
    if (not $self->running) {
-      say("ERROR: The server process has not come up after " . $timeout . "s waiting.\n" .
-          " Will return STATUS_FAILURE.");
-      return STATUS_FAILURE;
+      my $status = STATUS_FAILURE;
+      say("ERROR: The server process has not come up after " . $timeout . "s waiting. " .
+          Basics::return_status_text($status));
+      return $status;
    } else {
       return STATUS_OK;
    }
@@ -3037,8 +3038,9 @@ sub checkErrorLog {
         if ( $shrinked =~ /$pattern/sio ) {
             # say("MATCH: ->" . $pattern . "<- in ->" . $_ . "<-->" . $shrinked . "<-");
             if      ( NO_SPACE eq $pattern_type ) {
-                    say("ERROR: $who_am_i Found ->" . $_ .
-                        "<- Will return STATUS_ENVIRONMENT_FAILURE later.");
+                    my $status = STATUS_ENVIRONMENT_FAILURE;
+                    say("ERROR: $who_am_i Found ->" . $_ . "<- " .
+                        Basics::return_status_text($status) . " later.");
                     $errorlog_status = STATUS_ENVIRONMENT_FAILURE;
                     # Leave loop immediate because its fatal for the current and concurrent tests.
                     # Anything which follows
@@ -3046,14 +3048,16 @@ sub checkErrorLog {
                     # - can be read later in the error log.
                     last;
                 } elsif ( CORRUPT eq $pattern_type ) {
-                    say("ERROR: $who_am_i Found ->" . $_ .
-                        "<- Will return STATUS_DATABASE_CORRUPTION later.");
+                    my $status = STATUS_DATABASE_CORRUPTION;
+                    say("ERROR: $who_am_i Found ->" . $_ . "<- " .
+                        Basics::return_status_text($status) . " later.");
                     $errorlog_status = STATUS_DATABASE_CORRUPTION
                         if $errorlog_status < STATUS_DATABASE_CORRUPTION;
                     # No leave loop immediate because a more dangerous "no more space" might follow.
                 } elsif (SERVER_END eq $pattern_type ) {
-                    say("ERROR: $who_am_i Found ->" . $_ .
-                        "<- Will return STATUS_CRITICAL_FAILURE later.");
+                    my $status = STATUS_CRITICAL_FAILURE;
+                    say("ERROR: $who_am_i Found ->" . $_ . "<- " .
+                        Basics::return_status_text($status) . " later.");
                     $errorlog_status = STATUS_CRITICAL_FAILURE
                         if $errorlog_status < STATUS_CRITICAL_FAILURE;
                     # No leave loop immediate because a more
@@ -3137,7 +3141,7 @@ sub running {
 #    1 - Process is running
 # 2. In case
 #      $self->serverpid is undef or wrong
-#      + the server process could be figured out by inspecting $self->pidfile
+#      + the server process could be figured out by inspecting $self->pidfile or server error log
 #      + that server process is running
 #    than correct $self->[MYSQLD_SERVERPID] and return 1.
 #    Otherwise return 0.
@@ -3388,7 +3392,7 @@ sub _notOlderThan {
 
 sub stop_server_for_debug {
     my ($self, $sleep_before, $stop_signal, $what_to_kill, $sleep_after) = @_;
-    my $who_am_i = "stop_server_for_debug:";
+    my $who_am_i = Basics::who_am_i;
     my $check_command = "echo '#' `ls -ld " . $self->pidfile . "`";
     my $stop_command = "killall $stop_signal $what_to_kill";
     say("DEBUG: $who_am_i Experiment with '$stop_command' ================================= Begin");
@@ -3449,7 +3453,7 @@ sub waitForAuxpidGone {
     if (not defined $pid) {
         my $status = STATUS_FAILURE;
         say("INTERNAL ERROR: $who_am_i The auxiliary process is undef/unknown. " .
-            "Will return status STATUS_FAILURE($status).");
+            Basics::return_status_text($status));
         return $status;
     }
     # say("DEBUG: Start waiting for aux_pids gone.");
@@ -3468,7 +3472,7 @@ sub waitForAuxpidGone {
     }
     my $status = STATUS_FAILURE;
     say("ERROR: $who_am_i The auxiliary process has not disappeared within $wait_timeout" .
-         "s waiting. Will send SIGTERM and return status STATUS_FAILURE($status) later.");
+         "s waiting. Will send SIGTERM and " . Basics::return_status_text($status) . " later.");
     # kill KILL => $pid;
     kill TERM => $pid;
     $wait_end = time() + 10;
@@ -3539,9 +3543,10 @@ sub make_backtrace {
     # For testing:
     # $rqg_homedir = undef;
     if (not defined $rqg_homedir) {
+        my $status = STATUS_SERVER_CRASHED;
         say("ERROR: $who_am_i The RQG runner has not set RQG_HOME in environment." .
-            "Will exit with exit status STATUS_INTERNAL_ERROR.");
-        exit STATUS_INTERNAL_ERROR;
+            Basics::exit_status_text($status));
+        exit $status;
     }
 
     my $vardir =    $self->vardir();
@@ -3590,24 +3595,12 @@ sub make_backtrace {
     my $rr = Runtime::get_rr();
     if (defined $rr) {
         # We try to generate a backtrace from the rr trace.
-        my $rr_trace_dir    = $vardir . '/rr';
-        my $backtrace       = $vardir . '/backtrace.txt';
-        my $backtrace_cfg   = $rqg_homedir . "/backtrace-rr.gdb";
-        if (not -d $rr_trace_dir) {
-            Carp::cluck("ERROR: $who_am_i Some rr trace directory '$rr_trace_dir' does not exist.");
-            $status = STATUS_ENVIRONMENT_FAILURE;
+        $status = Auxiliary::make_rr_backtrace($vardir);
+        if (STATUS_OK != $status) {
+            return $status;
+        } else {
+            return $status;
         }
-        # Note:
-        # The rr option --mark-stdio would print STDERR etc. when running 'continue'.
-        # But this just shows the content of the server error log which we have anyway.
-        my $command = "_RR_TRACE_DIR=$rr_trace_dir rr replay >$backtrace 2>/dev/null " .
-                      "< $backtrace_cfg";
-        system('bash -c "set -o pipefail; '. $command .'"');
-        sayFile($backtrace);
-        $status = STATUS_SERVER_CRASHED;
-        say("INFO: $who_am_i No core file to be expected. " . Auxiliary::build_wrs($status));
-        say("INFO: $who_am_i ------------------------------ End");
-        return $status;
     }
 
     # Note:
@@ -3661,7 +3654,7 @@ sub make_backtrace {
     if (not defined $core) {
         $status = STATUS_SERVER_CRASHED;
         say("INFO: $who_am_i Even after $wait_timeout" . "s waiting no core file with expected " .
-            "name found. " . Auxiliary::build_wrs($status));
+            "name found. " . Basics::return_status_text($status));
         say("INFO: $who_am_i ------------------------------ End");
         return $status;
     }
@@ -3677,7 +3670,7 @@ sub make_backtrace {
     } else {
         $status = STATUS_SERVER_CRASHED;
         sayFile($error_log);
-        say("ERROR: $who_am_i Core file not found. " . Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i Core file not found. " . Basics::return_status_text($status));
         say("INFO: $who_am_i ------------------------------ End");
         return $status;
     }
@@ -3725,7 +3718,7 @@ sub make_backtrace {
             push @commands, "pstack $core | c++filt";
         } else {
             $status = STATUS_SERVER_CRASHED;
-            say ("ERROR: $who_am_i No core available. " . Auxiliary::build_wrs($status));
+            say ("ERROR: $who_am_i No core available. " . Basics::return_status_text($status));
             say("INFO: $who_am_i ------------------------------ End");
             return $status;
         }
@@ -3765,7 +3758,7 @@ sub make_backtrace {
 
     $status = STATUS_SERVER_CRASHED;
     sayFile($error_log);
-    say("ERROR: $who_am_i " . Auxiliary::build_wrs($status));
+    say("ERROR: $who_am_i " . Basics::return_status_text($status));
     say("INFO: $who_am_i ------------------------------ End");
     return $status;
 
@@ -3792,15 +3785,6 @@ sub server_is_operable {
 # Using server_is_operable during GenData or GenTest leads with high likelihood to false alarms.
 # Reason: The criterions applied to content of the processlist.
 #
-# Example of a SHOW PROCESSLIST result set.
-# 0   1     2          3     4        5     6      7                 8
-# Id  User  Host       db    Command  Time  State  Info              Progress
-#  4  root  localhost  test  Query       0   Init  SHOW PROCESSLIST  0.000
-use constant PROCESSLIST_PROCESS_ID          => 0;
-use constant PROCESSLIST_PROCESS_COMMAND     => 4;
-use constant PROCESSLIST_PROCESS_TIME        => 5;
-use constant PROCESSLIST_PROCESS_STATE       => 6;
-use constant PROCESSLIST_PROCESS_INFO        => 7;
 
     my $self =          shift;
 
@@ -3810,16 +3794,16 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
     if (not defined $server_id) {
         Carp::cluck("ERROR: server_id is undef");
         $status = STATUS_INTERNAL_ERROR;
-        say("ERROR: $who_am_i Will return STATUS_INTERNAL_ERROR" .
-            "($status) because of previous error.");
+        say("ERROR: $who_am_i " . Basics::return_status_text($status) .
+            " because of previous error.");
         return $status;
     }
     my $server_name =   "server[" . $server_id . "]";
     if (not defined $server_id) {
         Carp::cluck("ERROR: server_id is undef");
         $status = STATUS_INTERNAL_ERROR;
-        say("ERROR: $who_am_i Will return STATUS_INTERNAL_ERROR" .
-            "($status) because of previous error.");
+        say("ERROR: $who_am_i " . Basics::return_status_text($status) .
+            " because of previous error.");
         return $status;
     }
     $who_am_i .=        " $server_name";
@@ -3853,9 +3837,10 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
         my $error_log = $self->errorlog();
         my $content =   Auxiliary::getFileSlice($error_log, 1000000);
         if (not defined $content or '' eq $content) {
+            $status = STATUS_ENVIRONMENT_FAILURE;
             say("FATAL ERROR: $who_am_i No server error log content got. " .
-                "Will return STATUS_ENVIRONMENT_FAILURE.");
-            return STATUS_ENVIRONMENT_FAILURE;
+                Basics::return_status_text($status));
+            return $status;
         }
         # Look for first suspicious error log entry and get corresponding status.
         # This status is usually more nearby the reason
@@ -3870,7 +3855,7 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
         }
         my $return = Auxiliary::content_matching($content, \@end_line_patterns, '', 0);
         if      ($return eq Auxiliary::MATCH_YES) {
-            say("INFO: $who_am_i end_line_pattern in server error log found.");
+            say("INFO: $who_am_i end_line_pattern in server error log content found.");
             $backtrace_timeout = 30;
             if ($status < STATUS_SERVER_CRASHED) {
                 say("INFO: $who_am_i Setting the status to STATUS_SERVER_CRASHED.");
@@ -3879,9 +3864,10 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
         } elsif ($return eq Auxiliary::MATCH_NO) {
             # Do nothing
         } else {
-            say("ERROR: $who_am_i Problem when processing '" . $error_log . "'. " .
-                "Will return STATUS_ENVIRONMENT_FAILURE.");
-            return STATUS_ENVIRONMENT_FAILURE;
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i Problem when processing '" . $error_log . "' content. " .
+                Basics::return_status_text($status));
+            return $status;
         }
 
         if ($backtrace_timeout) {
@@ -3918,21 +3904,19 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
         # say("DEBUG: The server[" . $server_id . "] with process [" . $pid . "] is running.");
         # say("DEBUG: port is " . $self->port );
 
-        # $self->dbh connects (with timeout) if required and sets @@max_statement_time = 0.
-        my $dbh = $self->dbh;
-        if (not defined $dbh) {
-            say("ERROR: $who_am_i Getting a connection to the running server[" .
-                $server_id . "] failed with " . $DBI::errstr);
-            # Experimental code based on the rare observation 2023-01:
-            # The server process was running but is around dying. Hence the connect attempt failed.
-            # make_backtrace gets called and detects again that the server process is running,
-            # kills that process and reports STATUS_SERVER_CRASHED.
-            # I want that
-            # - make_backtrace does not need to kill
-            # - the content of the RQG log makes easier clear what happened
-            $status = GenTest_e::Executor::MySQL::errorType($DBI::err);
-            if (STATUS_SERVER_CRASHED == $status) {
-                say("INFO: $who_am_i Setting the status to STATUS_SERVER_CRASHED.");
+        my $dsn =       $self->dsn();
+        my $executor =  GenTest_e::Executor->newFromDSN($dsn);
+        $executor->setId($server_id);
+        $executor->setRole("server_is_operable");
+        $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_CHECKER);
+
+        # For testing
+        # $self->crashServer();
+
+        $status = $executor->init();
+
+        if (STATUS_OK != $status) {
+            if (STATUS_SERVER_CRASHED == $status or STATUS_CRITICAL_FAILURE == $status) {
                 say("INFO: $who_am_i Will poll up to 30s if the server process finishes before " .
                     "calling 'make_backtrace'.");
                 my $end_time = time() + 30;
@@ -3945,16 +3929,19 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
                 }
                 if (not $self->running) {
                     say("ERROR: $who_am_i with process [" . $pid . "] is no more running.");
-                    say("DEBUG: $who_am_i Will call 'make_backtrace'");
+                    say("DEBUG: $who_am_i Will call 'make_backtrace' + set status to " .
+                        "STATUS_SERVER_CRASHED ");
+                    $status = STATUS_SERVER_CRASHED;
                 } else {
                     say("ERROR: $who_am_i with process [" . $pid . "] stays running.");
                     say("DEBUG: $who_am_i Will call 'make_backtrace' which will kill the server " .
-                        "process if running + switch to STATUS_SERVER_DEADLOCKED.");
+                        "process if running + set status to STATUS_SERVER_DEADLOCKED.");
                     $status = STATUS_SERVER_DEADLOCKED;
                 }
             } else {
                 say("INFO: $who_am_i Will call 'make_backtrace' which will kill the server " .
-                    "process if running.");
+                    "process if running+ set status to STATUS_CRITICAL_FAILURE.");
+                $status = STATUS_CRITICAL_FAILURE;
             }
             my $mbt_status = $self->make_backtrace();
             say("INFO: $who_am_i make_backtrace reported status $mbt_status.");
@@ -3962,92 +3949,28 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
                 "previous errors.");
             return $status;
         } else {
-            my $query =       "SHOW FULL PROCESSLIST";
-            my $processlist = $dbh->selectall_arrayref($query);
-            # The query could have failed.
-            if (not defined $processlist) {
-                if (not $self->running) {
-                    $dbh->disconnect;
-                    say("ERROR: $who_am_i with process [" . $self->serverpid .
-                        "] is no more running.");
-                    $status = $self->make_backtrace();
-                    say("INFO: $who_am_i make_backtrace reported status $status. " .
-                        "Will return that.");
-                    return $status;
-                } else {
-                    say("ERROR: $who_am_i The query '$query' failed with " . $DBI::err);
-                    my $return = GenTest_e::Executor::MySQL::errorType($DBI::err);
-                    if (not defined $return) {
-                        $status = STATUS_INTERNAL_ERROR;
-                        say("ERROR: $who_am_i The type of the error got is unknown. " .
-                            "Will return " . status2text($status) . ".");
-                    } else {
-                        $status = $return;
-                        say("ERROR: $who_am_i Will return status " . status2text($status) . ".");
-                    }
-                    $dbh->disconnect;
-                    return $status;
-                }
-            } else {
-                # https://mariadb.com/kb/en/show-processlist/ about the column TIME:
-                # The amount of time, in seconds, the process has been in its current state.
-                my $processlist_report = "$who_am_i Content of processlist ---------- begin\n";
-                $processlist_report .=   "$who_am_i ID -- COMMAND -- TIME -- STATE -- INFO -- " .
-                                         "RQG_guess\n";
-                my $suspicious = 0;
-                foreach my $process (@$processlist) {
-                    my $process_command = $process->[PROCESSLIST_PROCESS_COMMAND];
-                    $process_command = "<undef>" if not defined $process_command;
-                    # next if $process_command eq 'Daemon';
-                    my $process_id   = $process->[PROCESSLIST_PROCESS_ID];
-                    my $process_info = $process->[PROCESSLIST_PROCESS_INFO];
-                    $process_info    = "<undef>" if not defined $process_info;
-                    my $process_time = $process->[PROCESSLIST_PROCESS_TIME];
-                    $process_time    = "<undef>" if not defined $process_time;
-                    my $process_state= $process->[PROCESSLIST_PROCESS_STATE];
-                    $process_state   = "<undef>" if not defined $process_state;
-
-                    if ($process_info ne "<undef>" and $process_time ne "<undef>" and
-                        # GenData or GenTest should be finished + max_statement_time is usually 30s.
-                        # Competing sessions making serious load should not exist.
-                        ($process_command ne "Slave_SQL" and $process_time > 30) or
-                        # Slave_SQL > 30s but < 60s was observed.
-                        ($process_command eq "Slave_SQL" and $process_time > 60 and not
-                         $process_state =~ /has read all relay log; waiting for more updates/i)) {
-                        $suspicious++;
-                        $processlist_report .=
-                                "$who_am_i -->" . $process_id . " -- " .
-                                $process_command . " -- " . $process_time . " -- " .
-                                $process_state . " -- " . $process_info . " <--suspicious\n";
-                     }
-                }
-                $processlist_report .= "$who_am_i Content of processlist ---------- end";
-                say($processlist_report);
-                if ($suspicious) {
-                    say("INFO: $who_am_i $suspicious suspicious result(s) detected.");
-                    my $query = "SHOW ENGINE INNODB STATUS";
-                    say("INFO: $who_am_i Executing query '$query'");
-                    my $status_result = $dbh->selectall_arrayref($query);
-                    if (not defined $status_result) {
-                        say("ERROR: $who_am_i The query '$query' failed with " . $DBI::err);
-                        my $return = GenTest_e::Executor::MySQL::errorType($DBI::err);
-                        if (not defined $return) {
-                            $status = STATUS_CRITICAL_FAILURE;
-                            say("ERROR: $who_am_i The type of the error got is unknown. " .
-                                "Will crash the server, make backtrace and return " .
-                                status2text($status) . " instead of STATUS_SERVER_DEADLOCKED.");
-                        }
-                    } else {
-                        print Dumper $status_result;
-                        $status = STATUS_SERVER_DEADLOCKED;
-                        say("ERROR: $who_am_i Will crash the server, make backtrace and " .
-                            "return " . status2text($status) . ".");
-                    }
-                    $dbh->disconnect;
-                    $self->crashServer;
-                    $self->make_backtrace;
-                }
+            my $dbh = $executor->dbh;
+            my $query =     "SHOW FULL PROCESSLIST";
+            my $result =    $executor->execute($query);
+            $status = $result->status;
+            if (STATUS_OK != $status) {
+                $executor->disconnect();
+                my $err    = $result->err;
+                my $errstr = $result->errstr;
+                my $status = STATUS_CRITICAL_FAILURE;
+                say("ERROR: $who_am_i Query ->" . $query . "<- failed with $err : $errstr " .
+                    Basics::return_status_text($status));
+                return $status;
             }
+            my $processlist = $result->data;
+
+            $status = inspect_processlist($processlist,
+                                          $self->serverVariable('lock_wait_timeout'), 1);
+            # Open problem:
+            # GenTests stops the worker threads, finishes. The RQG runner calls server_is_operable.
+            # There might be some delay till the entries of the worker threads have disappeared
+            # from the processlist. 30s might be ok but serious higher values point most probably
+            # to failures.
         }
     }
     say("DEBUG: $who_am_i Will return $status.");
@@ -4129,7 +4052,7 @@ sub server_pid_per_pidfile {
     my $self = shift;
 
     my $who_am_i =  Basics::who_am_i;
-    my $pid      = Auxiliary::get_pid_from_file($self->pidfile, 1);
+    my $pid      =  Auxiliary::get_pid_from_file($self->pidfile, 1);
     if (defined $pid) {
         # say("DEBUG: $who_am_i serverpid found in pidfile.");
         return $pid;
@@ -4143,7 +4066,7 @@ sub server_pid_per_errorlog {
     my $self = shift;
 
     my $who_am_i =  Basics::who_am_i;
-    my $errorlog = $self->errorlog;
+    my $errorlog =  $self->errorlog;
     # bin/mysqld gets called and writes into the server error log
     # - till mid 2023-01
     #   [Note] <path>/bin/mysqld (server 10.6.12-MariaDB-debug-log) starting as process 1794271 ...
@@ -4168,5 +4091,169 @@ sub server_pid_per_errorlog {
         return undef;
     }
 }
+
+sub inspect_processlist {
+# Input:
+# $dbh   -- connection handle
+# $print -- 0 --> print PROCESSLIST even if not suspicious
+#           1 --> print PROCESSLIST all time
+# return:
+# STATUS_OK if no assumed hang
+# STATUS_SERVER_DEAD_LOCKED if assumed hang
+#
+
+use constant QUERY_LIFETIME_THRESHOLD        => 300;  # Seconds
+# Number of suspicious queries required before a deadlock/hang is declared.
+use constant STALLED_QUERY_COUNT_THRESHOLD   => 5;
+
+# Example of a SHOW PROCESSLIST result set.
+# 0   1     2          3     4        5     6      7                 8
+# Id  User  Host       db    Command  Time  State  Info              Progress
+#  4  root  localhost  test  Query       0   Init  SHOW PROCESSLIST  0.000
+use constant PROCESSLIST_PROCESS_ID          => 0;
+use constant PROCESSLIST_PROCESS_COMMAND     => 4;
+use constant PROCESSLIST_PROCESS_TIME        => 5;
+use constant PROCESSLIST_PROCESS_STATE       => 6;
+use constant PROCESSLIST_PROCESS_INFO        => 7;
+
+    my ($processlist, $mdl_timeout, $print) =     @_;
+
+    my $who_am_i =          Basics::who_am_i;
+    my $status =            STATUS_OK;
+
+    my $threads =           0;
+    my $threads_killed =    0;
+    my $threads_waiting =   0;
+
+    # Observation 2023-11 on 10.6:
+    # lock_wait_timeout = 15, processlist entries with 'Waiting for table metadata lock' one table
+    # time values up to 106s observed. No significant diff between with/without rr.
+    # No obvious defects.
+    # MTR based tests showed:
+    #    If more than one table has to be locked than following could happen
+    #    1. Wait mdl_timeout - 1
+    #    2. Get the MDL lock on one of the tables.
+    #    3. Wait more than a second but less than mdl_timeout for the MDL lock on the
+    #       second table.
+    #    4. The processlist shows for that connection a time value > mdl_timeout.
+    # Assume waiting for MDL lock on one table.
+    my $mdl_timeout_threshold1      = 100 + $mdl_timeout;
+    # Assume waiting for MDL locks on two tables.
+    my $mdl_timeout_threshold2      = 100 + 2 * $mdl_timeout;
+
+    my $query_lifetime_threshold    = Runtime::get_runtime_factor() * QUERY_LIFETIME_THRESHOLD;
+
+    # TIME == n means n seconds within the current state
+    my $processlist_report =    "$who_am_i Content of processlist ---------- begin\n";
+    $processlist_report .=      "$who_am_i ID -- COMMAND -- TIME -- STATE -- INFO -- " .
+                                "RQG_guess\n";
+    my $suspicious =            0;
+    foreach my $process (@$processlist) {
+        my $process_command = $process->[PROCESSLIST_PROCESS_COMMAND];
+        $process_command = "<undef>" if not defined $process_command;
+        my $process_id   = $process->[PROCESSLIST_PROCESS_ID];
+        my $process_info = $process->[PROCESSLIST_PROCESS_INFO];
+        $process_info    = "<undef>" if not defined $process_info;
+        my $process_time = $process->[PROCESSLIST_PROCESS_TIME];
+        $process_time    = "<undef>" if not defined $process_time;
+        my $process_state= $process->[PROCESSLIST_PROCESS_STATE];
+        $process_state   = "<undef>" if not defined $process_state;
+        $processlist_report .= "$who_am_i -->" . $process_id . " -- " .
+                               $process_command . " -- " . $process_time . " -- " .
+                               $process_state . " -- " . $process_info;
+
+        # 1. Up till today I have no criterion without undefined process_time value.
+        if      ($process_time eq "<undef>") {
+            $processlist_report .= " <--ok\n";
+        # 2. The printing of threads with command value 'Daemon' should be not omitted.
+        #    Maybe some criterions for detecting suspicious states gets found later.
+        } elsif ($process_command eq 'Daemon') {
+            $processlist_report .= " <--ok\n";
+        # 3. Sort out "Slave_SQL"
+        } elsif ($process_command eq "Slave_SQL") {
+            # 3.1. 10.4:  Slave has read all relay log; waiting for the slave I/O thread to
+            #           update it has read all relay log; waiting ... update  is "normal".
+            #      newer: Slave has read all relay log; waiting for more updates
+            #      can happen without meeting a falure.
+            if ($process_state =~ /has read all relay log; waiting for .{1,30} to update/i) {
+                $processlist_report .= " <--ok\n";
+            # 3.2. For "Slave_SQL" the value for time was usually between 30 and less than 60s.
+            } elsif ($process_time ne "<undef>" and $process_time > 60) {
+                say("WARN: $who_am_i Slave_SQL with time > 60ss detected. Fear failure.");
+                $suspicious++;
+                $processlist_report .= " <--suspicious\n";
+            } else {
+                $processlist_report .= " <--ok\n";
+            }
+        # 4. Unexpected long lasting query
+        } elsif ($process_info ne "<undef>" and $process_time > $query_lifetime_threshold) {
+            say("ERROR: $who_am_i Query with time > query_lifetime_threshold( " .
+                $query_lifetime_threshold . "s detected. Assume failure.");
+            $suspicious++;
+            $processlist_report .= " <--suspicious\n";
+            $status = STATUS_SERVER_DEADLOCKED;
+        # 5. MDL timeouts must have an effect even with maybe some lag.
+        } elsif ($process_info ne "<undef>" and $process_state =~ m{Waiting for table metadata}) {
+            if ($process_time > $mdl_timeout_threshold2) {
+                say("ERROR: $who_am_i Query with 'Waiting for table metadata lock' and time > " .
+                    "mdl_timeout_threshold2($mdl_timeout_threshold2" .
+                    "s) detected. Assume failure.");
+                $suspicious++;
+                $processlist_report .= " <--suspicious\n";
+                $status = STATUS_SERVER_DEADLOCKED;
+            } elsif ($process_time > $mdl_timeout_threshold1) {
+                say("WARN: $who_am_i Query with 'Waiting for table metadata lock' and time > " .
+                    "mdl_timeout_threshold1($mdl_timeout_threshold1" . "s) detected. Fear failure.");
+                $suspicious++;
+                $processlist_report .= " <--suspicious\n";
+            } else {
+                $processlist_report .= " <--ok\n";
+            }
+        # 6. Experimental
+        #    IMHO some "Killed" SELECT should no more crawl through tables nor send
+        #    result sets after 60s.
+        } elsif ($process_command eq "Killed" and $process_info =~ m{\^ *SELECT }i and
+                 $process_time > 60) {
+            say("WARN: $who_am_i Query with plain 'SELECT', 'Killed' and time > 60s detected. " .
+                "Fear failure.");
+            $suspicious++;
+            $processlist_report .= " <--suspicious\n";
+        } elsif ($process_info =~ m{E_R Thread}) {
+            say("ERROR: $who_am_i Query of some RQG worker detected though GenTest is finished. " .
+                "Assume failure.");
+            $suspicious++;
+            $processlist_report .= " <--suspicious\n";
+            $status = STATUS_SERVER_DEADLOCKED;
+        } else {
+            $processlist_report .= " <--ok\n";
+        }
+
+        # RQG worker threads get started in GenTest and prepend something like
+        # /* E_R Thread4 QNO 2743 CON_ID 112 */ to their SQL statement.
+        if ($process_info =~ m{E_R Thread}) {
+            $threads++;
+            $threads_killed++   if $process_command =~ m{Killed};
+            $threads_waiting++  if $process_state =~   m{Waiting for table metadata lock};
+        }
+    }
+    $processlist_report .= "$who_am_i Content of processlist ---------- end";
+
+    if($threads) {
+        say("WARN: $who_am_i There are left over RQG worker threads : $threads , " .
+            "threads_killed : $threads_killed ," . " threads_waiting : $threads_waiting");
+        $suspicious++;
+    }
+
+    if ($suspicious > STALLED_QUERY_COUNT_THRESHOLD) {
+        say("ERROR: $who_am_i $suspicious suspicious queries detected. The threshold is " .
+            STALLED_QUERY_COUNT_THRESHOLD . ". Assume failure.");
+        $status = STATUS_SERVER_DEADLOCKED;
+    }
+
+    say($processlist_report) if $status or $suspicious or $print;
+
+    say("DEBUG: $who_am_i will return $status.");
+    return $status;
+} # End sub inspect_processlist
 
 1;

@@ -107,8 +107,8 @@ my $script_debug = 0;
 my $last_call    = time() - 16;
 $|=1;
 
-my $reporter_prt = tmpdir() . "/reporter_tmp.prt";
-my $who_am_i     = 'Reporter Mariabackup';
+my $reporter_prt = tmpdir() . "reporter_tmp.prt";
+my $who_am_i     = "Reporter 'Mariabackup':";
 my $backup_timeout;
 my $prepare_timeout;
 my $connect_timeout;
@@ -116,9 +116,9 @@ my $connect_timeout;
 sub init {
     my $reporter = shift;
     if (not defined $reporter->testEnd()) {
-        say("ERROR: $who_am_i testEnd is not defined. Will exit with exit status " .
-            "STATUS_INTERNAL_ERROR(" . STATUS_INTERNAL_ERROR . ").");
-        exit STATUS_INTERNAL_ERROR;
+        my $status = STATUS_INTERNAL_ERROR;
+        say("ERROR: $who_am_i testEnd is not defined. " . Basics::exit_status_text($status));
+        exit $status;
     }
     $backup_timeout     = Runtime::get_runtime_factor() * BACKUP_TIMEOUT;
     $prepare_timeout    = Runtime::get_runtime_factor() * PREPARE_TIMEOUT;
@@ -139,7 +139,7 @@ sub monitor {
     my $server_id = 0;
 
     $reporter->init if not defined $prepare_timeout;
-    # say("DEBUG: $who_am_i : Endtime: " . $reporter->testEnd()) if $script_debug;
+    # say("DEBUG: $who_am_i Endtime: " . $reporter->testEnd()) if $script_debug;
     #
 
     # Ensure some minimum distance between two runs of the Reporter Mariabackup should be 15s.
@@ -148,7 +148,7 @@ sub monitor {
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
-        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i Endtime is nearly exceeded. " . Basics::return_status_text($status));
         return $status;
     }
 
@@ -158,36 +158,17 @@ sub monitor {
     my $server0 = $reporter->properties->servers->[0];
     my $basedir = $server0->basedir();
 
-    # FIXME: Replace by some routine located in Auxiliary.pm
-    foreach my $path ("$basedir/../client", "$basedir/../bin",
-                      "$basedir/client/RelWithDebInfo", "$basedir/client/Debug",
-                      "$basedir/client", "$basedir/bin") {
-        if (-e $path) {
-            $client_basedir = $path;
-            last;
-        }
-    }
-    if (not defined $client_basedir) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Can't determine client_basedir. basedir is '$basedir'. " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-        # We run this that early because in case of failure the game is over anyway.
-        # Based on the facts that
-        # - here acts a reporter process which is handled well in RQG core
-        # - the failure is heavy and other reporters cannot give valuable additional info
-        # exit instead of return is acceptable.
-    }
+    $client_basedir = $reporter->serverInfo('client_bindir');
 
-    Auxiliary::direct_to_file($reporter_prt);
+    Basics::direct_to_file($reporter_prt);
 
     # Take over the settings for the first server.
     my @mysqld_options = @{$reporter->properties->servers->[0]->getServerOptions};
 
     if($script_debug) {
-        Auxiliary::direct_to_stdout();
+        Basics::direct_to_stdout();
         say("DEBUG: (new) mysqld_options\n" . join("\n", @mysqld_options));
-        Auxiliary::direct_to_file($reporter_prt);
+        Basics::direct_to_file($reporter_prt);
     }
 
     # Reuse data for the clone if possible or adjust it.
@@ -202,10 +183,10 @@ sub monitor {
 
     ## Create clone database server directory structure
     if (STATUS_OK != Auxiliary::make_dbs_dirs($clone_vardir)) {
-        Auxiliary::direct_to_stdout();
+        Basics::direct_to_stdout();
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Preparing the storage structure for the server '1_clone' failed. " .
-            "Will exit with status " . status2text($status) . "($status)");
+        say("ERROR: $who_am_i Preparing the storage structure for the server '1_clone' failed. " .
+            Basics::exit_status_text($status));
         exit $status;
     }
 
@@ -251,10 +232,10 @@ sub monitor {
         $backup_binary = "$client_basedir" . "/mariabackup";
     }
     if (not -e $backup_binary) {
-        Auxiliary::direct_to_stdout();
+        Basics::direct_to_stdout();
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Calculated mariabackup binary '$backup_binary' not found. " .
-            "Will exit with status " . status2text($status) . "($status)");
+        say("ERROR: $who_am_i Calculated mariabackup binary '$backup_binary' not found. " .
+            Basics::exit_status_text($status));
         exit $status;
     }
     # $backup_binary = $backup_binary . " --host=127.0.0.1 --user=root --password='' ";
@@ -348,20 +329,21 @@ sub monitor {
 # And there is some mariabackup process alive though it should not.
 
     sigaction SIGALRM, new POSIX::SigAction sub {
-        Auxiliary::direct_to_stdout();
+        my $status = STATUS_BACKUP_FAILURE;
+        Basics::direct_to_stdout();
         # Concept:
         # Set the error_exit_message before setting the alarm.
-        say("ERROR: $who_am_i $exit_msg" .
-            " Will exit with STATUS_BACKUP_FAILURE.");
+        say("ERROR: $who_am_i $exit_msg " .
+            Basics::exit_status_text($status));
         sayFile($reporter_prt);
-        exit STATUS_BACKUP_FAILURE;
+        exit $status;
     } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
-        Auxiliary::direct_to_stdout();
+        Basics::direct_to_stdout();
         remove_clone_dbs_dirs($clone_vardir);
-        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i Endtime is nearly exceeded. " . Basics::return_status_text($status));
         return $status;
     }
 
@@ -374,7 +356,7 @@ sub monitor {
     my $res = $?;
     alarm (0);
     if ($res != 0) {
-        Auxiliary::direct_to_stdout();
+        Basics::direct_to_stdout();
         # mariabackup --backup failing with
         #    [00] FATAL ERROR: 2022-05-20 18:56:44 failed to execute query BACKUP STAGE START:
         #         Deadlock found when trying to get lock; try restarting transaction
@@ -386,14 +368,15 @@ sub monitor {
             # Technical problems!
             my $status = STATUS_ENVIRONMENT_FAILURE;
             say("FATAL ERROR: $who_am_i \$found is undef. " .
-                "Will exit with STATUS_ENVIRONMENT_FAILURE.");
+                Basics::exit_status_text($status));
             exit $status;
         } elsif ($found) {
+            my $status = STATUS_OK;
             say("INFO: $who_am_i BACKUP STAGE START failed with Deadlock. No bug. " .
-                "Will return STATUS_OK later.");
+                Basics::return_status_text($status) . " later.");
             sayFile($reporter_prt);
             remove_clone_dbs_dirs($clone_vardir);
-            return STATUS_OK;
+            return $status;
         } else {
             # Nothing to do
         }
@@ -410,23 +393,23 @@ sub monitor {
         });
         if (not defined $dbh) {
             my $status = STATUS_CRITICAL_FAILURE;
-            say("ERROR: $who_am_i : Connect to dsn '" . $dsn . "'" . " failed: " . $DBI::errstr .
-                " Will exit with status " . status2text($status) . "($status)");
+            say("ERROR: $who_am_i Connect to dsn '" . $dsn . "'" . " failed: " . $DBI::errstr .
+                Basics::exit_status_text($status));
             exit $status;
         }
         $dbh->disconnect();
         my $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $who_am_i : Backup returned $res. The command output is around end of " .
-            "'$reporter_prt'. Will exit with status " . status2text($status) . "($status)");
+        say("ERROR: $who_am_i Backup returned $res. The command output is around end of " .
+            "'$reporter_prt'. " . Basics::exit_status_text($status));
         sayFile($reporter_prt);
         exit $status;
     }
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
-        Auxiliary::direct_to_stdout();
+        Basics::direct_to_stdout();
         remove_clone_dbs_dirs($clone_vardir);
-        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i Endtime is nearly exceeded. " . Basics::exit_status_text($status));
         return $status;
     }
 
@@ -445,18 +428,17 @@ sub monitor {
     if (not defined $found) {
         # Technical problems!
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        Auxiliary::direct_to_stdout();
-        say("FATAL ERROR: $who_am_i \$found is undef. " .
-            "Will exit with STATUS_ENVIRONMENT_FAILURE.");
+        Basics::direct_to_stdout();
+        say("FATAL ERROR: $who_am_i \$found is undef. " . Basics::exit_status_text($status));
         exit $status;
     } elsif ($found) {
-        Auxiliary::direct_to_stdout();
-        say("INFO: $who_am_i corrupted file detected. " .
-            "Will exit with STATUS_BACKUP_FAILURE.");
+        Basics::direct_to_stdout();
+        my $status = STATUS_BACKUP_FAILURE;
+        say("INFO: $who_am_i corrupted file detected. " . Basics::exit_status_text($status));
         sayFile($reporter_prt);
         # Wait some time because I fear that rr ist just writing the trace.
         sleep 100;
-        exit STATUS_BACKUP_FAILURE;
+        exit $status;
     } else {
         # Nothing to do
     }
@@ -464,19 +446,19 @@ sub monitor {
     # For experimenting
     # system("touch $rqg_backup_dir/data");
     if (STATUS_OK != Basics::copy_dir_to_newdir($clone_datadir, $rqg_backup_dir . "/data")) {
-        Auxiliary::direct_to_stdout();
+        Basics::direct_to_stdout();
         my $status = STATUS_INTERNAL_ERROR;
         say("ERROR: $who_am_i Copying '$clone_datadir' to '$rqg_backup_dir' failed. " .
-            "Will exit with status " . status2text($status) . "($status)");
+            Basics::exit_status_text($status));
         exit $status;
     };
     # say("DEBUG: abspath to FBackup stuff ->" . Cwd::abs_path($rqg_backup_dir . "/data") . "<-");
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
-        Auxiliary::direct_to_stdout();
+        Basics::direct_to_stdout();
         remove_clone_dbs_dirs($clone_vardir);
-        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i Endtime is nearly exceeded. " . Basics::exit_status_text($status));
         return $status;
     }
 
@@ -490,12 +472,16 @@ sub monitor {
     $res = $?;
     alarm (0);
     if ($res != 0) {
-        Auxiliary::direct_to_stdout();
+        Basics::direct_to_stdout();
         my $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $who_am_i : First prepare returned $res. The command output is around end of " .
-            "'$reporter_prt'. Will exit with status " . status2text($status) . "($status)");
+        say("ERROR: $who_am_i First prepare returned $res. The command output is around end of " .
+            "'$reporter_prt'. " . Basics::exit_status_text($status));
         # Wait some time because I fear that rr ist just writing the trace.
-        sleep 100;
+        # sleep 100;
+        if (defined Runtime::get_rr()) {
+            # We try to generate a backtrace from the rr trace.
+            Auxiliary::make_rr_backtrace($clone_vardir);
+        }
         sayFile($reporter_prt);
         exit $status;
     }
@@ -503,9 +489,9 @@ sub monitor {
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
-        Auxiliary::direct_to_stdout();
+        Basics::direct_to_stdout();
         remove_clone_dbs_dirs($clone_vardir);
-        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i Endtime is nearly exceeded. " . Basics::return_status_text($status));
         return $status;
     }
 
@@ -557,22 +543,22 @@ sub monitor {
         "are normal. MB prepare is not allowed to do rollbacks.");
     my $status = $clone_server->startServer();
     if ($status != STATUS_OK) {
-        Auxiliary::direct_to_stdout();
+        Basics::direct_to_stdout();
         # It is intentional to exit with STATUS_BACKUP_FAILURE.
         $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $who_am_i : Starting a DB server on the cloned data failed.");
+        say("ERROR: $who_am_i Starting a DB server on the cloned data failed.");
         sayFile($clone_err);
         sayFile($reporter_prt);
-        say("ERROR: $who_am_i : Will exit with status " . status2text($status) . "($status)");
+        say("ERROR: $who_am_i " . Basics::exit_status_text($status));
         exit $status;
     }
 
     if ($reporter->testEnd() <= time() + 5) {
         my $status = STATUS_OK;
-        Auxiliary::direct_to_stdout();
+        Basics::direct_to_stdout();
         $clone_server->killServer();
         remove_clone_dbs_dirs($clone_vardir);
-        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i Endtime is nearly exceeded. " . Basics::return_status_text($status));
         return $status;
     }
 
@@ -590,13 +576,13 @@ sub monitor {
         mysql_auto_reconnect   => 0
     });
     if (not defined $clone_dbh) {
-        Auxiliary::direct_to_stdout();
+        Basics::direct_to_stdout();
         # It is intentional to exit with STATUS_BACKUP_FAILURE.
         $status = STATUS_BACKUP_FAILURE;
         sayFile($clone_err);
         sayFile($reporter_prt);
-        say("ERROR: $who_am_i : Connect to the clone $server_name on port $clone_port failed. " .
-            $DBI::errstr . " " . Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i Connect to the clone $server_name on port $clone_port failed. " .
+            $DBI::errstr . " " . Basics::exit_status_text($status));
         $clone_server->make_backtrace;
         exit $status;
     }
@@ -607,25 +593,25 @@ sub monitor {
     if ($reporter->testEnd() <= time() + 5) {
         $clone_dbh->disconnect();
         my $status = STATUS_OK;
-        Auxiliary::direct_to_stdout();
+        Basics::direct_to_stdout();
         $clone_server->killServer();
         remove_clone_dbs_dirs($clone_vardir);
-        say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+        say("INFO: $who_am_i Endtime is nearly exceeded. " . Basics::return_status_text($status));
         return $status;
     }
 
     # Code taken from lib/GenTest_e/Reporter/RestartConsistency.pm
-    say("INFO: $who_am_i : Testing database consistency");
+    say("INFO: $who_am_i Testing database consistency");
 
     my $databases = $clone_dbh->selectcol_arrayref("SHOW DATABASES");
     foreach my $database (@$databases) {
         if ($reporter->testEnd() <= time() + 5) {
             $clone_dbh->disconnect();
             my $status = STATUS_OK;
-            Auxiliary::direct_to_stdout();
+            Basics::direct_to_stdout();
             $clone_server->killServer();
             remove_clone_dbs_dirs($clone_vardir);
-            say("INFO: $who_am_i : Endtime is nearly exceeded. " . Auxiliary::build_wrs($status));
+            say("INFO: $who_am_i Endtime is nearly exceeded. " . Basics::return_status_text($status));
             return $status;
         }
         # next if $database =~ m{^(mysql|information_schema|performance_schema)$}sio;
@@ -648,13 +634,13 @@ sub monitor {
             # return STATUS_DATABASE_CORRUPTION if $clone_dbh->err() > 0 && $clone_dbh->err() != 1178;
             my $err = $clone_dbh->err;
             if (defined $err and $err > 0) {
-                Auxiliary::direct_to_stdout();
-                say("ERROR: $who_am_i : '$sql' failed with : " . $err);
+                Basics::direct_to_stdout();
+                say("ERROR: $who_am_i '$sql' failed with : " . $err);
                 $clone_dbh->disconnect();
                 sayFile($reporter_prt);
                 my $snip = "the server running on cloned data.";
                 if ($err == 2013 or $err == 2006) {
-                    say("ERROR: $who_am_i : Will call make_backtrace for " . $snip);
+                    say("ERROR: $who_am_i Will call make_backtrace for " . $snip);
                     $clone_server->make_backtrace;
                 } else {
                     sayFile($clone_err);
@@ -663,19 +649,19 @@ sub monitor {
                     # - some rr trace if enabled
                     # Hence running some killServer now will not destroy valuable information or
                     # prevent to generate it later.
-                    say("ERROR: $who_am_i : Will kill " . $snip);
+                    say("ERROR: $who_am_i Will kill " . $snip);
                     my $throw_away_status = $clone_server->killServer();
                 }
                 # The damage is some corruption.
                 # Based on the fact that this is found in the server running on the backuped data
                 # I prefer to return STATUS_BACKUP_FAILURE and not STATUS_DATABASE_CORRUPTION.
                 my $status = STATUS_BACKUP_FAILURE;
-                say("ERROR: $who_am_i : Will exit with status " . status2text($status) . "($status)");
+                say("ERROR: $who_am_i " . Basics::exit_status_text($status));
                 exit $status;
             }
         }
     }
-    say("INFO: $who_am_i : The tables in the schemas (except information_schema, " .
+    say("INFO: $who_am_i The tables in the schemas (except information_schema, " .
         "performance_schema) of the cloned server did not look corrupt.");
     $clone_dbh->disconnect();
 
@@ -692,21 +678,21 @@ sub monitor {
     # - a "friendly" shutdown
     $status = $clone_server->stopServer();
     if (STATUS_OK != $status) {
-        Auxiliary::direct_to_stdout();
+        Basics::direct_to_stdout();
         $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $who_am_i : Shutdown of DB server on cloned data made trouble. ".
+        say("ERROR: $who_am_i Shutdown of DB server on cloned data made trouble. ".
             "Hence trying to kill it and return STATUS_BACKUP_FAILURE later.");
         my $throw_away_status = $clone_server->killServer();
         sayFile($clone_err);
         sayFile($reporter_prt);
-        say("ERROR: $who_am_i : Will return status " . status2text($status) . "($status)");
+        say("ERROR: $who_am_i " . Basics::return_status_text($status));
         return $status;
     }
     remove_clone_dbs_dirs($clone_vardir);
     # system("find $clone_vardir -follow");
-    Auxiliary::direct_to_stdout();
+    Basics::direct_to_stdout();
     unlink ($reporter_prt);
-    say("INFO: $who_am_i : Pass");
+    say("INFO: $who_am_i Pass");
 
     return STATUS_OK;
 }
@@ -719,8 +705,8 @@ sub remove_clone_dbs_dirs {
     my ($clone_vardir) = @_;
     if (STATUS_OK != Auxiliary::remove_dbs_dirs($clone_vardir)) {
         my $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Removing the storage structure for the server '1_clone' failed. " .
-            "Will exit with status " . status2text($status) . "($status)");
+        say("ERROR: $who_am_i Removing the storage structure for the server '1_clone' failed. " .
+            Basics::exit_status_text($status));
         exit $status;
     }
 }

@@ -692,6 +692,9 @@ sub direct_to_stdout {
     }
     close($stdout_save);
     close($stderr_save);
+    # Experimental
+    # Reason: Same second but messages somehow not in order
+    $| = 1;
 }
 
 # --------------------------------------------------------------------------------------------------

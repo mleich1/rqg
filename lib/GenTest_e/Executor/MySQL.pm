@@ -857,6 +857,7 @@ sub get_dbh {
     my $dbh;
     # At least for worker threads mysql_auto_reconnect MUST be 0.
     # If not than we will get an automatic reconnect without executing *_connect.
+    # say("DEBUG: $who_am_i dsn ->" . $dsn . "<-");
     $dbh = DBI->connect($dsn, undef, undef, {
         mysql_connect_timeout  => Runtime::get_runtime_factor() * $timeout,
         PrintError             => 0,
@@ -883,9 +884,9 @@ sub get_connection {
     my $status =    STATUS_OK;
     # We need the $executor->role as important detail for messages.
     if (not defined $executor->role) {
-        $status = STATUS_INTERNAL_ERROR;
-        Carp::cluck("INTERNAL_ERROR: $who_am_i Executor Role is undef. Will exit with status : " .
-                    status2text($status) . "($status).");
+        $status =   STATUS_INTERNAL_ERROR;
+        Carp::cluck("INTERNAL_ERROR: $who_am_i Executor Role is undef. " .
+                    Basics::exit_status_text($status));
         # Exit because this must never happen.
         exit $status;
     }
@@ -896,11 +897,12 @@ sub get_connection {
         my $message_part = "ERROR: $who_am_i " . $executor->role;
         if ($first_connect == 1) {
             $status = STATUS_ENVIRONMENT_FAILURE;
-            say("$message_part: " . Auxiliary::build_wrs($status));
+            say("$message_part: " . Basics::return_status_text($status));
             return $status;
         } else {
-            $status = STATUS_SERVER_CRASHED;
-            say("$message_part: " . Auxiliary::build_wrs($status));
+            # $status = STATUS_SERVER_CRASHED;
+            $status = STATUS_CRITICAL_FAILURE;
+            say("$message_part: " . Basics::return_status_text($status));
             return $status;
         }
     }
@@ -940,7 +942,7 @@ sub get_connection {
         my $message_part = "ERROR: $who_am_i " . $executor->role . " query ->" . $aux_query .
                            "<- failed: $error " .  $dbh->errstr();
         $status = $error_type;
-        say("$message_part. " . Auxiliary::build_wrs($status));
+        say("$message_part. " . Basics::return_status_text($status));
         return $status;
     }
     $executor->setConnectionId($row_arrayref->[0]);
@@ -970,7 +972,7 @@ sub get_connection {
             $status = STATUS_CRITICAL_FAILURE;
         }
         say("ERROR: $who_am_i " . $executor->role . " getting the version failed. " .
-            Auxiliary::build_wrs($status));
+            Basics::return_status_text($status));
         return $status;
     }
     if ($version =~ /^(\d+\.\d+)/) {
@@ -988,7 +990,7 @@ sub get_connection {
     # exp_server_kill($who_am_i, $aux_query);
     $status = GenTest_e::Executor::MySQL::run_do($dbh, $executor->role, $aux_query);
     if (STATUS_OK != $status) {
-        say("ERROR: $who_am_i " . $executor->role . " " .  Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i " . $executor->role . " " .  Basics::return_status_text($status));
         return $status;
     }
 
@@ -997,7 +999,7 @@ sub get_connection {
     (my $result, $status) = $executor->currentSchema();
     if (STATUS_OK != $status) {
         say("ERROR: $who_am_i " . $executor->role . ": Getting the current schema failed. " .
-            Auxiliary::build_wrs($status));
+            Basics::return_status_text($status));
         return $status;
     }
     if (not defined $result) {
@@ -1006,7 +1008,7 @@ sub get_connection {
         # b) use ... was forgotten or similar == internal error
         $status = STATUS_CRITICAL_FAILURE;
         say("FATAL ERROR: $who_am_i " . $executor->role . ": current schema provided an undef " .
-            "result. " .  Auxiliary::build_wrs($status));
+            "result. " .  Basics::return_status_text($status));
         return $status;
     }
     $executor->defaultSchema($result);
@@ -1033,7 +1035,7 @@ sub get_connection {
         my $message_part = "ERROR: $who_am_i " . $executor->role . " query ->" . $aux_query .
                            "<- failed: $error " .  $dbh->errstr();
         $status = $error_type;
-        say("$message_part. " . Auxiliary::build_wrs($status));
+        say("$message_part. " . Basics::return_status_text($status));
         return $status;
     }
     $executor->setCurrentUser($row_arrayref->[0]);
@@ -1085,7 +1087,7 @@ sub get_connection {
         my $message_part = "ERROR: $who_am_i " . $executor->role . " query ->" . $aux_query .
                            "<- failed: $error " .  $dbh->errstr();
         $status = $error_type;
-        say("$message_part. " . Auxiliary::build_wrs($status));
+        say("$message_part. " . Basics::return_status_text($status));
         return $status;
     }
 
@@ -1094,7 +1096,7 @@ sub get_connection {
     $status = GenTest_e::Executor::MySQL::run_do($dbh, $executor->role, $aux_query);
     # run_do makes SQL tracing if required.
     if (STATUS_OK != $status) {
-        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i " . $executor->role . " " . Basics::return_status_text($status));
         return $status;
     }
 
@@ -1118,7 +1120,7 @@ sub init {
 
     if ($status) {
         say("ERROR: $who_am_i Getting a proper connection for " .
-             $executor->role() . " failed with $status. " . Auxiliary::build_wrs($status));
+             $executor->role() . " failed. " . Basics::return_status_text($status));
         return $status;
     } else {
         # say("DEBUG: $who_am_i connection id is : " . $executor->connectionId());
@@ -1139,7 +1141,7 @@ sub init {
             my $status = GenTest_e::Executor::MySQL::run_do($executor->dbh, $executor->role,
                                                             $aux_query);
             if (STATUS_OK != $status) {
-                say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+                say("ERROR: $who_am_i " . $executor->role . " " . Basics::return_status_text($status));
                 return $status;
             } else {
                 return STATUS_OK;
@@ -1188,96 +1190,99 @@ sub execute {
         $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_UNKNOWN);
     }
 
-   if (not defined $query) {
-      # Its so fatal that we should exit immediate.
-      Carp::cluck("ERROR: The query is not defined for $executor_role. " .
-                  "Will exit with STATUS_INTERNAL_ERROR.");
-      exit STATUS_INTERNAL_ERROR;
-   }
+    if (not defined $query) {
+       $status = STATUS_INTERNAL_ERROR;
+       # Its so fatal that we should exit immediate.
+       Carp::cluck("ERROR: The query is not defined for $executor_role. " .
+                   Basics::exit_status_text($status));
+       exit $status;
+    }
 
     if (($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_UNKNOWN) or
         ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD and
          $query =~ m{^\s*(select|show|check)}sio )) {
-       # Observation from the early days of RQG more or less up till today:
-       # ------------------------------------------------------------------
-       # 1. A query gets generated because current time < end_time.
-       # 2. Than this query gets executed on the first server and maybe
-       #    - executed on other servers too (some kind of replication) + results compared
-       #    - transformed into many variants which get executed too
-       #    - checked by validators.
-       #    During one of these actions some RQG timeout (threshold of reporter Deadlock,
-       #    alarm in rqg.pl, rqg_batch.pl, ...) kicks in and claims to have caught a problem
-       #    which might be a server deadlock or freeze or whatever.
-       #    Some typical candidate where this happened frequent are optimizer tests and
-       #    the query is some SELECT.
-       # Worker threads get the end time assigned. So check that limit here.
-       #
-       # Warning:
-       # In case the "give up" of the worker thread is not handled perfect than tests
-       # running some kind of replication might end with content diff between servers.
-       #    Typical bad scenario from the RQG builtin statement based replication:
-       #    Run on server m a data modifying statement with success.
-       #    Omit doing that on server m+1 and exit because $give_up_time was exceeded.
-       #    Get finally a content diff between the servers.
-       #
-       #    Changing some global server parameter like SQL mode might have some similar bad
-       #    effect.
-       #
-       # This all is not relevant for: Gendata*, MetadataCacher, Reporter
-       #
-       my $give_up_time = $executor->end_time();
-       if (defined $give_up_time and time() > $give_up_time) {
-              say("INFO: $who_am_i $executor_role has already exceeded " .
-                  "the end_time (1). Will return STATUS_SKIP");
-          return GenTest_e::Result->new(
-              query       => $query,
-              status      => STATUS_SKIP,
-          );
-       }
-   }
+        # Observation from the early days of RQG more or less up till today:
+        # ------------------------------------------------------------------
+        # 1. A query gets generated because current time < end_time.
+        # 2. Than this query gets executed on the first server and maybe
+        #    - executed on other servers too (some kind of replication) + results compared
+        #    - transformed into many variants which get executed too
+        #    - checked by validators.
+        #    During one of these actions some RQG timeout (threshold of reporter Deadlock,
+        #    alarm in rqg.pl, rqg_batch.pl, ...) kicks in and claims to have caught a problem
+        #    which might be a server deadlock or freeze or whatever.
+        #    Some typical candidate where this happened frequent are optimizer tests and
+        #    the query is some SELECT.
+        # Worker threads get the end time assigned. So check that limit here.
+        #
+        # Warning:
+        # In case the "give up" of the worker thread is not handled perfect than tests
+        # running some kind of replication might end with content diff between servers.
+        #    Typical bad scenario from the RQG builtin statement based replication:
+        #    Run on server m a data modifying statement with success.
+        #    Omit doing that on server m+1 and exit because $give_up_time was exceeded.
+        #    Get finally a content diff between the servers.
+        #
+        #    Changing some global server parameter like SQL mode might have some similar bad
+        #    effect.
+        #
+        # This all is not relevant for: Gendata*, MetadataCacher, Reporter
+        #
+        my $give_up_time = $executor->end_time();
+        if (defined $give_up_time and time() > $give_up_time) {
+            $status = STATUS_SKIP;
+            say("INFO: $who_am_i $executor_role has already exceeded " .
+                "the end_time (1). " . Basics::return_rc_status_text($status));
+            return GenTest_e::Result->new(
+                query       => $query,
+                status      => $status,
+            );
+        }
+    }
 
-   my $dbh = $executor->dbh();
-   if (not defined $dbh) {
-      # One executor lost his connection but the server was connectable.
-      # --> return a result with status STATUS_SKIP_RELOOP to Mixer::next.
-      # Mixer disconnects than all executors, omits running any validator for the current
-      # query and also omits running the remaining queries.
-      # Hint: A call of Generator leads to some "multi" query == list of "single" queries.
-      #       Mixer picks the leftmost "single" query from that list and gives it to every
-      #       executor (one per DB server). After execution (includes validators) the next
-      # query from that list is picked.
-      # Maybe Not relevant for: Gendata*, MetadataCacher, Reporter
-      say("DEBUG: $who_am_i The connection to the server for " .
-          "$executor_role was lost. Trying to reconnect.") if $debug_here;
-      my $status = get_connection($executor);
-      # Hint: get_connection maintains the connection_id etc.
-      if ($status) {
-         say("ERROR: $who_am_i Getting a connection for $executor_role failed " .
-             "with $status. "  . Auxiliary::build_wrs($status));
-         return GenTest_e::Result->new(
-            query       => '/* During connect attempt */',
-            status      => $status,
-         );
-      } else {
-         # Connecting might last long.
-         if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD or
-            $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_UNKNOWN) {
-            my $give_up_time = $executor->end_time();
-            if (defined $give_up_time and time() > $give_up_time) {
-               say("INFO: $who_am_i $executor_role has already exceeded " .
-                   "the end_time (2). Will return STATUS_SKIP");
-               return GenTest_e::Result->new(
-                   query       => $query,
-                   status      => STATUS_SKIP,
-               );
+    my $dbh = $executor->dbh();
+    if (not defined $dbh) {
+        # One executor lost his connection but the server was connectable.
+        # --> return a result with status STATUS_SKIP_RELOOP to Mixer::next.
+        # Mixer disconnects than all executors, omits running any validator for the current
+        # query and also omits running the remaining queries.
+        # Hint: A call of Generator leads to some "multi" query == list of "single" queries.
+        #       Mixer picks the leftmost "single" query from that list and gives it to every
+        #       executor (one per DB server). After execution (includes validators) the next
+        # query from that list is picked.
+        # Maybe Not relevant for: Gendata*, MetadataCacher, Reporter
+        say("DEBUG: $who_am_i The connection to the server for " .
+            "$executor_role was lost. Trying to reconnect.") if $debug_here;
+        $status = get_connection($executor);
+        # Hint: get_connection maintains the connection_id etc.
+        if ($status) {
+            say("ERROR: $who_am_i Getting a connection for $executor_role failed " .
+                "with $status. "  . Basics::return_status_text($status));
+            return GenTest_e::Result->new(
+                query       => '/* During connect attempt */',
+                status      => $status,
+            );
+        } else {
+            # Connecting might last long.
+            if ($executor->task() == GenTest_e::Executor::EXECUTOR_TASK_THREAD or
+                $executor->task() == GenTest_e::Executor::EXECUTOR_TASK_UNKNOWN) {
+                my $give_up_time = $executor->end_time();
+                if (defined $give_up_time and time() > $give_up_time) {
+                    $status = STATUS_SKIP;
+                    say("INFO: $who_am_i $executor_role has already exceeded " .
+                        "the end_time (2). " . Basics::return_rc_status_text($status));
+                    return GenTest_e::Result->new(
+                        query       => $query,
+                        status      => $status,
+                    );
+                }
             }
-         }
-      }
-      $dbh = $executor->dbh();
-   }
-   # Attention:
-   # Having a defined dbh does not imply that this connection will work.
-   # Just imagine some previous COMMIT RELEASE.
+        }
+        $dbh = $executor->dbh();
+    }
+    # Attention:
+    # Having a defined dbh does not imply that this connection will work.
+    # Just imagine some previous COMMIT RELEASE.
 
    my $trace_addition = ' /* E_R ' . $executor_role . ' QNO ' . (++$query_no) .
                         ' CON_ID ' . $executor->connectionId() . ' */ ';
@@ -1318,19 +1323,17 @@ sub execute {
                    if (STATUS_OK == $executor->is_connectable()) {
                       $status = STATUS_SKIP_RELOOP;
                       say("INFO: $message_part");
-                      say("INFO: $trace_addition : The server is connectable. Will return a " .
-                          "result containing the status " . status2text($status) . "($status).");
+                      say("INFO: $trace_addition : The server is connectable. " .
+                          Basics::return_rc_status_text($status));
                    } else {
                       $status = STATUS_CRITICAL_FAILURE;
                       say("ERROR: $message_part");
                       say("INFO: $trace_addition :  The server is not connectable. Will sleep " .
-                          "3s and than return a result containing the status " .
-                          status2text($status) . "($status).");
+                          "3s and than " . Basics::return_rc_status_text($status));
                       sleep(3);
                    }
                 } else {
-                   say("ERROR: $message_part. Will return a result containing the status " .
-                       status2text($status) . "($status).");
+                   say("ERROR: $message_part. " . Basics::return_rc_status_text($status));
                 }
                 return GenTest_e::Result->new(
                    query       => $query . '/* During additional auxiliary query */',
@@ -1513,8 +1516,8 @@ sub execute {
             my $status;
             if (STATUS_OK == $executor->is_connectable()) {
                 $status = STATUS_SKIP_RELOOP;
-                say("INFO: $trace_addition :  The server is connectable. Will return a result " .
-                    "containing the status " . status2text($status) . "($status).");
+                say("INFO: $trace_addition :  The server is connectable. " .
+                    Basics::return_rc_status_text($status));
             } else {
                 # FIXME:
                 # Check if STATUS_SERVER_CRASHED would be better.
@@ -1522,8 +1525,7 @@ sub execute {
                 # happen than?
                 $status = STATUS_CRITICAL_FAILURE;
                 say("INFO: $trace_addition :  The server is not connectable. Will sleep 3s and " .
-                    "than return a result containing the status " . status2text($status) .
-                    "($status).");
+                    "than " . Basics::return_rc_status_text($status));
                 # The sleep is for preventing the following scenario:
                 # A reporter like CrashRecovery has send SIGKILL/SIGSEGV/SIGABRT to the server and
                 # exited immediate with STATUS_SERVER_KILLED. Of course worker threads will detect
@@ -1662,7 +1664,7 @@ sub execute {
                 if (not defined $kill_dbh) {
                     my $status = STATUS_CRITICAL_FAILURE;
                     my $message_part = "ERROR: $who_am_i QueryKiller:";
-                    say("$message_part. Will return status : " . status2text($status) . "($status).");
+                    say("$message_part. " . Basics::return_rc_status_text($status));
                     $sth->finish();
                     return GenTest_e::Result->new(
                         query       => '/* During auxiliary connect */',
@@ -1825,12 +1827,12 @@ sub execute {
                             # And during experiments that caused RQG reporting finally a DEADLOCK.
                             # $dbh->do("SHUTDOWN");
                             say("ERROR: $full_result");
-                            say("ERROR: Executor: Will exit with status STATUS_DATABASE_CORRUPTION.");
-                            exit STATUS_DATABASE_CORRUPTION;
+                            say("ERROR: Executor: " . Basics::exit_status_text($result_status));
+                            exit $result_status;
                         } else {
                             # A process like rqg.pl which should not exit without cleanup.
                             say("ERROR: $full_result");
-                            say("ERROR: Executor: Will return a result containing status STATUS_DATABASE_CORRUPTION.");
+                            say("ERROR: Executor: " . Basics::return_rc_status_text($result_status));
                             return GenTest_e::Result->new(
                                query       => $query,
                                status      => $result_status,
@@ -1877,19 +1879,17 @@ sub execute {
                         if (STATUS_OK == $executor->is_connectable()) {
                             $status = STATUS_SKIP_RELOOP;
                             say("INFO: $message_part");
-                            say("INFO: $trace_addition : The server is connectable. Will return a " .
-                                "result containing the status " . status2text($status) . "($status).");
+                            say("INFO: $trace_addition : The server is connectable. " .
+                                Basics::return_rc_status_text($status));
                         } else {
                             $status = STATUS_CRITICAL_FAILURE;
                             say("ERROR: $message_part");
                             say("INFO: $trace_addition :  The server is not connectable. Will sleep " .
-                                "3s and than return a result containing the status " .
-                                status2text($status) . "($status).");
+                                "3s and than " . Basics::return_rc_status_text($status));
                             sleep(3);
                         }
                     } else {
-                         say("ERROR: $message_part. Will return a result containing the status " .
-                             status2text($status) . "($status).");
+                         say("ERROR: $message_part. " . Basics::return_rc_status_text($status));
                     }
                     return GenTest_e::Result->new(
                         query       => $query . '/* During additional auxiliary query */',
@@ -2443,19 +2443,22 @@ sub run_do {
     my $who_am_i = Basics::who_am_i;
 
     if (not defined $dbh) {
+        my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("FATAL ERROR: dbh is not defined. ".
-                    "Will exit with STATUS_INTERNAL_ERROR");
-        exit STATUS_INTERNAL_ERROR;
+                    Basics::exit_status_text($status));
+        exit $status;
     }
     if (not defined $role) {
+        my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("FATAL ERROR: role is not defined. " .
-                    "Will exit with STATUS_INTERNAL_ERROR");
-        exit STATUS_INTERNAL_ERROR;
+                    Basics::exit_status_text($status));
+        exit $status;
     }
     if (not defined $query) {
+        my $status = STATUS_INTERNAL_ERROR;
         Carp::cluck("FATAL ERROR: query is not defined. " .
-                    "Will exit with STATUS_INTERNAL_ERROR");
-        exit STATUS_INTERNAL_ERROR;
+                    Basics::exit_status_text($status));
+        exit $status;
     }
 
     SQLtrace::sqltrace_before_execution($query);
@@ -2470,12 +2473,12 @@ sub run_do {
             $dbh->errstr());
         my $status = $error_type;
         if (not defined $status) {
+            my $status = STATUS_INTERNAL_ERROR;
             Carp::cluck("FATAL ERROR: The type of the error got is unknown. " .
-                        "Will exit with STATUS_INTERNAL_ERROR");
-            exit STATUS_INTERNAL_ERROR;
+                        Basics::exit_status_text($status));
+            exit $status;
         } else {
-            say("ERROR: $who_am_i Role: " . $role . " Will return status : " .
-                status2text($status) . "($status).");
+            say("ERROR: $who_am_i Role: " . $role . " " . Basics::return_status_text($status));
             return $status;
         }
     }
@@ -2500,7 +2503,7 @@ sub set_safe_max_statement_time {
     # exp_server_kill($who_am_i, $aux_query);
     my $status = GenTest_e::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
     if (STATUS_OK != $status) {
-        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i " . $executor->role . " " . Basics::return_status_text($status));
         return $status;
     } else {
         return STATUS_OK;
@@ -2519,7 +2522,7 @@ sub restore_max_statement_time {
     # exp_server_kill($who_am_i, $aux_query);
     my $status = GenTest_e::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
     if (STATUS_OK != $status) {
-        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i " . $executor->role . " " . Basics::return_status_text($status));
         return $status;
     } else {
         return STATUS_OK;
@@ -2544,7 +2547,7 @@ sub set_innodb_buffer_pool_size {
                  '@@global.innodb_buffer_pool_size ' . $trace_addition;
     $status = GenTest_e::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
     if (STATUS_CRITICAL_FAILURE <= $status) {
-        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i " . $executor->role . " " . Basics::return_status_text($status));
         return $status;
     }
     #
@@ -2552,7 +2555,7 @@ sub set_innodb_buffer_pool_size {
                  '@@global.innodb_disable_resize_buffer_pool_debug ' . $trace_addition;
     $status = GenTest_e::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
     if (STATUS_CRITICAL_FAILURE <= $status) {
-        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i " . $executor->role . " " . Basics::return_status_text($status));
         return $status;
     }
     #
@@ -2560,7 +2563,7 @@ sub set_innodb_buffer_pool_size {
                  $trace_addition;
     $status = GenTest_e::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
     if (STATUS_CRITICAL_FAILURE <= $status) {
-        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i " . $executor->role . " " . Basics::return_status_text($status));
         return $status;
     }
     #
@@ -2569,7 +2572,7 @@ sub set_innodb_buffer_pool_size {
                  $trace_addition;
     $status = GenTest_e::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
     if (STATUS_CRITICAL_FAILURE <= $status) {
-        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i " . $executor->role . " " . Basics::return_status_text($status));
         return $status;
     }
 }
@@ -2586,7 +2589,7 @@ sub restore_innodb_buffer_pool_size {
                  '@innodb_buffer_pool_size_save ' . $trace_addition;
     $status = GenTest_e::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
     if (STATUS_CRITICAL_FAILURE <= $status) {
-        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i " . $executor->role . " " . Basics::return_status_text($status));
         return $status;
     }
     #
@@ -2594,7 +2597,7 @@ sub restore_innodb_buffer_pool_size {
                  '@innodb_disable_resize_buffer_pool_debug_save ' . $trace_addition;
     $status = GenTest_e::Executor::MySQL::run_do($executor->dbh, $executor->role, $aux_query);
     if (STATUS_CRITICAL_FAILURE <= $status) {
-        say("ERROR: $who_am_i " . $executor->role . " " . Auxiliary::build_wrs($status));
+        say("ERROR: $who_am_i " . $executor->role . " " . Basics::return_status_text($status));
         return $status;
     }
 }
