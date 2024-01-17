@@ -1,6 +1,6 @@
-# Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2018,2022 MariaDB Coporation Ab.
-# Copyright (c) 2023 MariaDB plc
+# Copyright (c) 2008, 2012 Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2018, 2022 MariaDB Coporation Ab.
+# Copyright (c) 2023, 2024 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -110,9 +110,17 @@ use constant CONNECT_TIMEOUT_THRESHOLD       => 60;   # Seconds
 # 3. The default value of 180 for $query_lifetime_threshold might look unfortunate small but
 #    its quite good for RQG test simplification.
 #
-# FIXME if possible/time permits:
-# $query_lifetime_threshold should be <= assigned duration
-# $query_lifetime_threshold should be ~ QueryTimeout + ...
+
+# QUERY_LIFETIME_THRESHOLD (to some extend misleading name)
+# ---------------------------------------------------------
+# QUERY_LIFETIME_THRESHOLD is used for the computation of query_lifetime_threshold.
+# In case the value for PROCESSLIST.time exceeds the value query_lifetime_threshold than some
+# query is declared to be suspicious.
+# Running a query is working along some sequence of steps. In the PROCESSLIST such a step is
+# called 'state'. PROCESSLIST.time just tells how long some thread is in the current state.
+# FIXME:
+# QUERY_LIFETIME_THRESHOLD should be < QueryTimeout(if used at all) + ...
+#
 use constant QUERY_LIFETIME_THRESHOLD        => 300;  # Seconds
 
 # Number of suspicious queries required before a deadlock is declared.
@@ -143,26 +151,32 @@ my $query_lifetime_threshold;
 my $actual_test_duration_exceed;
 my $reporter_query_threshold;
 my $connect_timeout_threshold;
-my $mdl_timeout_threshold;
+my $mdl_timeout_threshold1;
+my $mdl_timeout_threshold3;
 my $with_asan = 0;
 
 my $reporter;
 
 sub init {
-    # my $reporter = shift;
     $reporter = shift;
     $query_lifetime_threshold    = Runtime::get_runtime_factor() * QUERY_LIFETIME_THRESHOLD;
     $actual_test_duration_exceed = Runtime::get_runtime_factor() * ACTUAL_TEST_DURATION_EXCEED;
     $reporter_query_threshold    = Runtime::get_runtime_factor() * REPORTER_QUERY_THRESHOLD;
     $connect_timeout_threshold   = Runtime::get_runtime_factor() * CONNECT_TIMEOUT_THRESHOLD;
-    $mdl_timeout_threshold       = Runtime::get_runtime_factor() * OVERLOAD_ADD +
-                                   $reporter->serverVariable('lock_wait_timeout');
-    my $have_sanitizer           = $reporter->serverVariable('have_sanitizer');
+    my $mdl_timeout = $reporter->serverVariable('lock_wait_timeout');
+    # Observation 2023-11 on 10.6:
+    # lock_wait_timeout = 15, processlist entries with 'Waiting for table metadata lock',
+    # the query uses one table, time values up to 106s(no significant diff between with/without rr).
+    # No obvious defects.
+    # Assume waiting for MDL lock on one table.
+    $mdl_timeout_threshold1   = 100 + $mdl_timeout;
+    # Assume waiting for MDL locks on three tables.
+    $mdl_timeout_threshold3   = 100 + 3 * $mdl_timeout;
+    my $have_sanitizer        = $reporter->serverVariable('have_sanitizer');
     if (defined $have_sanitizer and "ASAN" eq $have_sanitizer) {
         $with_asan = 1;
     }
 }
-
 
 sub monitor {
     my $reporter = shift;
@@ -223,6 +237,7 @@ sub monitor {
 
 }
 
+my $executor;
 sub monitor_nonthreaded {
     # Version for OS != WIN
     my $reporter = shift;
@@ -234,7 +249,6 @@ sub monitor_nonthreaded {
 
     # For testing
     # system("killall -11 mariadbd mysqld"); # return STATUS_SERVER_CRASHED
-    my $dbh;
 
     # We directly call exit() in the handler because attempting to catch and handle the signal in
     # a more civilized manner does not work for some reason -- the read() call from the server gets
@@ -244,9 +258,9 @@ sub monitor_nonthreaded {
     # DBServer_e::MySQL::MySQL::server_is_operable cannot replace functionality of the current sub
     # because the criterions for declaring a Deadlock/Freeze differ.
 
-    my $exit_msg      = '';
+    my $exit_msg =      '';
     my $alarm_timeout = 0;
-    my $query         = 'INIT';
+    my $query =         '<initialize some executor>';
 
     sigaction SIGALRM, new POSIX::SigAction sub {
         # Concept:
@@ -255,130 +269,80 @@ sub monitor_nonthreaded {
         if (STATUS_OK != server_dead($reporter)) {
             exit STATUS_SERVER_CRASHED;
         }
-        say("ERROR: $who_am_i $exit_msg " .
-            "Will exit with STATUS_SERVER_DEADLOCKED later.");
+        my $status = STATUS_SERVER_DEADLOCKED;
+        say("ERROR: $who_am_i ALRM1 $exit_msg " .
+            Basics::exit_status_text($status) . " later.");
         $reporter->kill_with_core;
-        exit STATUS_SERVER_DEADLOCKED;
+        exit $status;
     } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
+
+    say("DEBUG: $who_am_i Try to get a connection") if $script_debug;
+    $executor =  GenTest_e::Executor->newFromDSN($dsn);
+    $executor->setId(1);
+    $executor->setRole("Deadlock");
+    $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_REPORTER);
 
     $alarm_timeout =    $connect_timeout_threshold + OVERLOAD_ADD;
     $exit_msg      =    "Got no connect to server within " . $alarm_timeout . "s. ";
     my $connect_start = time();
-    say("DEBUG: $who_am_i Try to get a connection") if $script_debug;
     alarm ($alarm_timeout);
-    $dbh = DBI->connect($dsn, undef, undef,
-                        { mysql_connect_timeout => $connect_timeout_threshold,
-                          PrintError            => 0,
-                          RaiseError            => 0});
+
+    # This will perform the connect and set max_statement_time = 0.
+    my $status = $executor->init();
+
     alarm (0);
-    if (not defined $dbh) {
-        say("WARN: $who_am_i The connect attempt to dsn $dsn failed: " . $DBI::errstr .
-            " after " . (time() - $connect_start) . "s.");
-        my $return = GenTest_e::Executor::MySQL::errorType($DBI::err);
-        if (not defined $return) {
-            say("ERROR: $who_am_i The type of the error got is unknown. " .
-                "Will exit with STATUS_INTERNAL_ERROR");
-            exit STATUS_INTERNAL_ERROR;
-        }
-        if (STATUS_OK != server_dead($reporter)) {
-            exit STATUS_SERVER_CRASHED;
-        } else {
-            # The DB server process is running and there are no signs of a server death in
-            # the seerver error log.
-            # Hence we have either
-            # - a server freeze (STATUS_SERVER_DEADLOCKED) or
-            # - the timeouts are too short.
-            say("ERROR: $who_am_i Assuming a server freeze or too short timeouts. " .
-                "Will exit with STATUS_SERVER_DEADLOCKED later.");
-            $reporter->kill_with_core;
-            exit STATUS_SERVER_DEADLOCKED;
-        }
-    }
-    say("DEBUG: $who_am_i Some connection got. Runtime was " . (time() - $connect_start) . "s.")
-        if $script_debug;
+    $status = give_up($status, $query);
+    return $status if STATUS_OK != $status;
+
+    my $result;
 
     $alarm_timeout = $reporter_query_threshold + OVERLOAD_ADD;
-    my $query_start = time();
-    $query    = '/*!100108 SET SESSION max_statement_time = 0 */';
-    say("DEBUG: $who_am_i Try to run '" . $query . "'") if $script_debug;
     $exit_msg = "Got no response from server to query '$query' within " . $alarm_timeout . "s.";
-    alarm ($alarm_timeout);
+
     # For testing: Syntax error -> STATUS_UNKNOWN_ERROR
     # $query    = "SHOW FULL OMO";          # Syntax error -> STATUS_SYNTAX_ERROR(21)
     # system("killall -9 mariadbd mysqld; sleep 1"); # Dead server  -> STATUS_SERVER_CRASHED(101)
     #
     # alarm (3);                            # Exceed $alarm_timeout -> STATUS_SERVER_DEADLOCKED
     # $query = "SELECT SLEEP(4)";
-    $dbh->do($query);
-    alarm (0);
-    my $err = $dbh->err();
-    if (defined $err) {
-        say("ERROR: $who_am_i The query '$query' failed with $err: " . $dbh->errstr());
-        $dbh->disconnect;
-        if (STATUS_OK != server_dead($reporter)) {
-            say("ERROR: $who_am_i Will exit with STATUS_SERVER_CRASHED.");
-            exit STATUS_SERVER_CRASHED;
-        }
-        my $return = GenTest_e::Executor::MySQL::errorType($err);
-        if (not defined $return) {
-            say("ERROR: $who_am_i The type of the error got is unknown. " .
-                "Will exit with STATUS_INTERNAL_ERROR");
-            exit STATUS_INTERNAL_ERROR;
-            # return STATUS_UNKNOWN_ERROR;
-        } else {
-            say("ERROR: $who_am_i Will return status $return" . ".");
-            return $return;
-        }
-    }
-    say("DEBUG: $who_am_i '" . $query . "' runtime was " . (time() - $query_start) . "s.")
-        if $script_debug;
 
-    if (inspect_processlist($dbh, $print)) {
-        say("ERROR: $who_am_i Declaring hang at DSN $dsn. " .
-            "Will exit with STATUS_SERVER_DEADLOCKED later.");
+    if (inspect_processlist($print)) {
+        my $status = STATUS_SERVER_DEADLOCKED;
+        say("ERROR: $who_am_i Declaring hang at DSN $dsn. " . Basics::exit_status_text($status) .
+            " later.");
 
         foreach $query (
             "SHOW ENGINE INNODB STATUS",
             "SHOW OPEN TABLES",          # Once disabled due to bug #46433
             "SELECT THREAD_ID, LOCK_MODE, LOCK_DURATION, LOCK_TYPE, TABLE_NAME " .
-                "FROM information_schema.METADATA_LOCK_INFO " .
-                "WHERE TABLE_SCHEMA != 'information_schema'" ,
-        ) {
-            say("INFO: $who_am_i Executing query '$query'");
-            $exit_msg = "Got no response from server to query '$query' within " .
-                        $alarm_timeout . "s.";
-            $query_start = time();
+            "FROM information_schema.METADATA_LOCK_INFO " .
+            "WHERE TABLE_SCHEMA != 'information_schema'" , ) {
             alarm ($alarm_timeout);
-            my $status_result = $dbh->selectall_arrayref($query);
+            $result = $executor->execute($query);
             alarm (0);
-            if (not defined $status_result) {
-                say("ERROR: $who_am_i The query '$query' failed with " . $DBI::err);
-                my $return = GenTest_e::Executor::MySQL::errorType($DBI::err);
-                if (not defined $return) {
-                    say("ERROR: $who_am_i The type of the error got is unknown. " .
-                        "Will exit with STATUS_INTERNAL_ERROR instead of STATUS_SERVER_DEADLOCKED");
-                    $dbh->disconnect;
-                    exit STATUS_INTERNAL_ERROR;
+            $status = $result->status;
+            give_up($status, $query);
+
+            my $result_set = $result->data;
+
+            say("INFO: $who_am_i --- " . $query . " ---");
+            my @row_refs = @{$result_set};
+            foreach my $row_ref (@row_refs) {
+                my @row = @{$row_ref};
+                my $sentence = "";
+                foreach my $element (@row) {
+                    $element = "undef" if not defined $element;
+                    $sentence .= "->" . $element . "<-";
                 }
-            } else {
-                say("INFO: $who_am_i --- " . $query . " ---");
-                my @row_refs = @{$status_result};
-                foreach my $row_ref (@row_refs) {
-                    my @row = @{$row_ref};
-                    my $sentence = "";
-                    foreach my $element (@row) {
-                        $element = "undef" if not defined $element;
-                        $sentence .= "->" . $element . "<-";
-                    }
-                    say("INFO: $who_am_i " . $sentence );
-                }
+                say("INFO: $who_am_i " . $sentence );
             }
         }
+        say("INFO: $who_am_i ----------------------");
         if (not defined Runtime::get_rr()) {
             my ($command, $output);
             $command = "gdb --batch --pid=" . $reporter->serverInfo('pid') .
-                          " --se=" . $reporter->serverInfo('binary') .
-                          " --command=" . Local::get_rqg_home . "/backtrace-all.gdb";
+                       " --se=" . $reporter->serverInfo('binary') .
+                       " --command=" . Local::get_rqg_home . "/backtrace-all.gdb";
             $output = `$command`;
             say("$output");
             # The backtrace above gives sometimes not sufficient information.
@@ -397,18 +361,18 @@ sub monitor_nonthreaded {
               $output = `$command`;
               say("$output");
             }
-            inspect_processlist($dbh, 1);
+            inspect_processlist(1);
         }
-        $dbh->disconnect;
+        $executor->disconnect;
 
         $reporter->kill_with_core;
         exit STATUS_SERVER_DEADLOCKED;
     } else {
-        $dbh->disconnect;
+        $executor->disconnect;
         say("INFO: $who_am_i Nothing obvious suspicious found.");
         return STATUS_OK;
     }
-}
+} # sub monitor_nonthreaded
 
 sub monitor_threaded {
     # Version for OS == WIN
@@ -505,7 +469,7 @@ sub dbh_thread {
     } else {
         return STATUS_OK;
     }
-}
+} # sub dbh_thread
 
 sub kill_with_core {
     if (defined $ENV{RQG_CALLBACK}) {
@@ -535,15 +499,16 @@ sub callbackDead {
 sub nativeDead {
     my $reporter = shift;
 
-    my $who_am_i = Basics::who_am_i();
+    my $status   = STATUS_OK;
 
     my $error_log = $reporter->serverInfo('errorlog');
     if (not defined $error_log) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
+        $status = STATUS_ENVIRONMENT_FAILURE;
         Carp::cluck("ERROR: $who_am_i error log is not defined. " .
-                    "Will exit with STATUS_ENVIRONMENT_FAILURE.");
+                    Basics::exit_status_text($status));
         exit $status;
     }
+
     my $pid_file =  $reporter->serverVariable('pid_file');
     my $pid =       $reporter->serverInfo('pid');
 
@@ -553,47 +518,71 @@ sub nativeDead {
         #     "Will check more.");
         # Maybe the server is around crashing.
         my $error_log = $reporter->serverInfo('errorlog');
-        my $found = Auxiliary::search_in_file($error_log, '\[ERROR\] (mariadbd|mysql) got signal');
-        if (not defined $found) {
-            # Technical problems!
-            my $status = STATUS_ENVIRONMENT_FAILURE;
-            say("FATAL ERROR: $who_am_i \$found is not defined. " .
-                "Will exit with STATUS_ENVIRONMENT_FAILURE.");
-            exit $status;
-        } elsif ($found) {
-            say("INFO: $who_am_i '\[ERROR\] <DB server> got signal' detected. " .
-                "Will exit with STATUS_SERVER_CRASHED.");
-            exit STATUS_SERVER_CRASHED;
-        } else {
-            $found = Auxiliary::search_in_file($error_log, 'Aborted \(core dumped\)');
-            if (not defined $found) {
-                # Technical problems!
-                my $status = STATUS_ENVIRONMENT_FAILURE;
-                say("FATAL ERROR: $who_am_i \$found is undef. " .
-                    "Will exit with STATUS_ENVIRONMENT_FAILURE.");
-                exit $status;
-            } elsif ($found) {
-                say("INFO: $who_am_i 'Aborted (core dumped)' detected. " .
-                    "Will exit with STATUS_SERVER_CRASHED.");
-                exit STATUS_SERVER_CRASHED;
-            } else {
-                return STATUS_OK;
-            }
-        }
-    } else {
-        say("INFO: $who_am_i:server_dead: The process of the DB server $pid is no more running. " .
-            "Will return STATUS_SERVER_CRASHED.");
-        exit STATUS_SERVER_CRASHED;
-    }
-}
 
+        my $content =   Auxiliary::getFileSlice($error_log, 1000000);
+        if (not defined $content or '' eq $content) {
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            say("FATAL ERROR: $who_am_i No server error log content got. " .
+                Basics::exit_status_text($status));
+            return $status;
+        }
+
+        # FIXME: @end_line_patterns is a redundancy to lib/DBServer_e/MySQL/MySQLd.pm
+        my @end_line_patterns = (
+            '^Aborted$',
+            'core dumped',
+            '^Segmentation fault$',
+            '(mariadbd|mysqld): Shutdown complete$',
+            '^Killed$',                              # SIGKILL by RQG or OS or user
+            '(mariadbd|mysqld) got signal',          # SIG(!=KILL) by DB server or RQG or OS or user
+        );
+
+        my $return = Auxiliary::content_matching($content, \@end_line_patterns, '', 0);
+        if      ($return eq Auxiliary::MATCH_YES) {
+            say("INFO: $who_am_i end_line_pattern in server error log content found.");
+            if ($status < STATUS_SERVER_CRASHED) {
+                $status = STATUS_SERVER_CRASHED;
+                say("INFO: $who_am_i " . Basics::exit_status_text($status));
+                exit $status;
+            }
+        } elsif ($return eq Auxiliary::MATCH_NO) {
+            # Do nothing
+        } else {
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i Problem when processing '" . $error_log . "' content. " .
+                Basics::exit_status_text($status));
+            exit $status;
+        }
+        return $status;
+    } else {
+        $status = STATUS_SERVER_CRASHED;
+        say("INFO: $who_am_i:server_dead: The process of the DB server $pid is no more running. " .
+            Basics::exit_status_text($status));
+        exit $status;
+    }
+} # End sub nativeDead
 
 sub report {
-    # When hitting during monitoring
-    # - a situation looking like a server hang than we have already initiated that the server gets
-    #   killed and exited with STATUS_SERVER_DEADLOCKED.
-    # - no suspicious situation than we have no reason to do anything.
-    # Hence we report nothing and return STATUS_OK.
+return STATUS_OK;
+    my $reporter   = shift;
+    # We are now after the OUTER loop in App/GenTest. There is nothing we can do here.
+    # 1. When hitting during monitoring a situation looking like a server hang than we have
+    #    already initiated that the server gets killed and exited the periodic reporter process
+    # 2. CrashRecovery might have done his job. We do not know sufficient about the current server.
+    # The RQG runner will later check the server regarding
+    #    process dead or dying, hang, corruption
+    # anyway.
+    # Hence the current task is only to detect if the DB server is alive or not.
+    # In case we have left the OUTER without detecting a server hang we might have now
+    # some hang. This will be detected after GenTest was finished when the RQG runner calls
+    # checkServers
+    if (STATUS_OK != server_dead($reporter)) {
+        my $status = STATUS_SERVER_CRASHED;
+        say("INFO: $who_am_i The DB server is no more running. " .
+            Basics::return_status_text($status));
+        return $status;
+    }
+#   # If we have some server freeze or not should be discovered by the RQG runner!
     return STATUS_OK;
 }
 
@@ -653,11 +642,38 @@ sub nativeReport {
     }
 
     exit STATUS_SERVER_DEADLOCKED;
-}
+} # End sub nativeReport
+
+sub give_up {
+    my ($status, $query) = @_;
+    if (STATUS_OK != $status) {
+        $executor->disconnect if defined $executor->dbh;
+        if (STATUS_SERVER_CRASHED == $status or STATUS_CRITICAL_FAILURE == $status) {
+            if (STATUS_OK != server_dead($reporter)) {
+                $status = STATUS_SERVER_CRASHED;
+            } else {
+                # The DB server process is running and there are no signs of a server death in
+                # the seerver error log.
+                # Hence we have either
+                # - a server freeze (STATUS_SERVER_DEADLOCKED) or
+                # - the timeouts are too short.
+                $status = STATUS_SERVER_DEADLOCKED;
+                say("ERROR: $who_am_i Assuming a server freeze or too short timeouts. " .
+                    Basics::exit_status_text($status) . " later.");
+                $reporter->kill_with_core;
+            }
+        } else {
+            say("INFO: $who_am_i the query '$query' harvested status $status.");
+            say("INFO: $who_am_i Will call 'make_backtrace' which will kill the server " .
+                "process if running+ set status to STATUS_CRITICAL_FAILURE.");
+            $status = STATUS_CRITICAL_FAILURE;
+        }
+        exit $status;
+    }
+} # End sub give_up
 
 sub inspect_processlist {
 # Input:
-# $dbh   -- connection handle
 # $print -- 0 --> print PROCESSLIST even if not suspicious
 #           1 --> print PROCESSLIST all time
 # Output:
@@ -665,7 +681,8 @@ sub inspect_processlist {
 # - if no connection related failure:
 #      if assumed hang    --> 1
 #      if no assumed hang --> 0
-    my ($dbh, $print) =     @_;
+#
+    my ($print) =           @_;
 
     my $declare_hang =      0;
     my $exit_msg;
@@ -673,6 +690,8 @@ sub inspect_processlist {
     my $threads =           0;
     my $threads_killed =    0;
     my $threads_waiting =   0;
+
+    # FIXME: Check if its needed or causes frictions with the other SIGALRM
     sigaction SIGALRM, new POSIX::SigAction sub {
         # Concept:
         # 1. Check first if the server process is gone.
@@ -681,59 +700,32 @@ sub inspect_processlist {
         if (STATUS_OK != server_dead($reporter)) {
             exit STATUS_SERVER_CRASHED;
         }
-        say("ERROR: $who_am_i $exit_msg " .
-            "Will exit with STATUS_SERVER_DEADLOCKED later.");
+        my $status = STATUS_SERVER_DEADLOCKED;
+        say("ERROR: $who_am_i ALRM2 $exit_msg " .
+            Basics::exit_status_text($status) . " later.");
         $reporter->kill_with_core;
         exit STATUS_SERVER_DEADLOCKED;
     } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
 
+    my $query = "SHOW FULL PROCESSLIST";
     my $alarm_timeout = $reporter_query_threshold + OVERLOAD_ADD;
-    my $query = "SHOW FULL PROCESSLIST /* Deadlock */";
-    # For testing:
-    # $query    = "SHOW FULL OMO";  # Syntax error -> STATUS_INTERNAL_ERROR
     $exit_msg = "Got no response from server to query '$query' within " . $alarm_timeout . "s.";
-
-    my $query_start = time();
-    my $processlist = $dbh->selectall_arrayref($query);
+    alarm ($alarm_timeout);
+    my $result =    $executor->execute($query);
     alarm (0);
-    my $err = $dbh->err();
-    if (defined $err) {
-        say("ERROR: $who_am_i The query '$query' failed with $err: " . $dbh->errstr());
-        $dbh->disconnect;
-        if (STATUS_OK != server_dead($reporter)) {
-            say("ERROR: $who_am_i Will exit with STATUS_SERVER_CRASHED.");
-            exit STATUS_SERVER_CRASHED;
-        }
-        my $return = GenTest_e::Executor::MySQL::errorType($err);
-        if (not defined $return) {
-            say("ERROR: $who_am_i The type of the error got is unknown. " .
-                "Will exit with STATUS_INTERNAL_ERROR");
-            exit STATUS_INTERNAL_ERROR;
-            # return STATUS_UNKNOWN_ERROR;
-        } else {
-            say("ERROR: $who_am_i Will return status $return" . ".");
-            return $return;
-        }
-    }
-    if (not defined $processlist) {
-        say("ERROR: $who_am_i The processlist content is undef. " .
-            "Will exit with STATUS_INTERNAL_ERROR");
-        $dbh->disconnect;
-        exit STATUS_INTERNAL_ERROR;
-    }
-    say("DEBUG: $who_am_i '" . $query . "' runtime was " . (time() - $query_start) . "s.")
-        if $script_debug;
+    my $status = $result->status;
+    give_up($status, $query);
 
-    my $suspicious        = 0;
+    my $processlist = $result->data;
 
     # TIME == n means n seconds within the current state
-
     my $processlist_report = "$who_am_i Content of processlist ---------- begin\n";
-    $processlist_report .= "$who_am_i ID -- COMMAND -- TIME -- STATE -- INFO\n";
+    $processlist_report .=   "$who_am_i ID -- COMMAND -- TIME -- STATE -- INFO -- " .
+                             "RQG_guess\n";
+    my $suspicious = 0;
     foreach my $process (@$processlist) {
         my $process_command = $process->[PROCESSLIST_PROCESS_COMMAND];
         $process_command = "<undef>" if not defined $process_command;
-        # next if $process_command eq 'Daemon';
         my $process_id   = $process->[PROCESSLIST_PROCESS_ID];
         my $process_info = $process->[PROCESSLIST_PROCESS_INFO];
         $process_info    = "<undef>" if not defined $process_info;
@@ -741,32 +733,73 @@ sub inspect_processlist {
         $process_time    = "<undef>" if not defined $process_time;
         my $process_state= $process->[PROCESSLIST_PROCESS_STATE];
         $process_state   = "<undef>" if not defined $process_state;
-        $processlist_report .=
-                    "$who_am_i -->" . $process_id . " -- " .
-                    $process_command . " -- " . $process_time . " -- " .
-                    $process_state . " -- " . $process_info;
-        if      ($process_info ne "<undef>" and $process_time ne "<undef>" and
-                 not $process_info =~ 'Deadlock' and
-                 ($process_command ne "Slave_SQL" and $process_time > $query_lifetime_threshold) or
-                 # Experiment begin
-                 # IMHO some somehow "Killed" SELECT should no more crawl through tables nor send
-                 # result sets after 60s.
-                 ($process_command eq "Killed" and $process_info =~ m{\^ *SELECT }i and
-                  $process_time > 60) or
-                 # Experiment end
-                 ($process_command eq "Slave_SQL" and $process_time > 60 and
-                  not $process_state =~ /has read all relay log; waiting for more updates/i)) {
+        $processlist_report .= "$who_am_i -->" . $process_id . " -- " .
+                               $process_command . " -- " . $process_time . " -- " .
+                               $process_state . " -- " . $process_info;
+
+        # 1. Up till today I have no criterion without undefined process_time value.
+        if      ($process_time eq "<undef>") {
+            $processlist_report .= " <--ok\n";
+        # 2. The printing of threads with command value 'Daemon' should be not omitted.
+        #    Maybe some criterions for detecting suspicious states gets found later.
+        } elsif ($process_command eq 'Daemon') {
+            $processlist_report .= " <--ok\n";
+        # 3. Sort out "Slave_SQL"
+        } elsif ($process_command eq "Slave_SQL") {
+            # 3.1. 10.4:  Slave has read all relay log; waiting for the slave I/O thread to
+            #           update it has read all relay log; waiting ... update  is "normal".
+            #      newer: Slave has read all relay log; waiting for more updates
+            #      can happen without meeting a falure.
+            if ($process_state =~ /has read all relay log; waiting for .{1,30} to update/i) {
+                $processlist_report .= " <--ok\n";
+            # 3.2. For "Slave_SQL" the value for time was usually between 30 and less than 60s.
+            } elsif ($process_time ne "<undef>" and $process_time > 60) {
+                say("WARN: $who_am_i Slave_SQL with time > 60ss detected. Fear failure.");
+                $suspicious++;
+                $processlist_report .= " <--suspicious\n";
+            } else {
+                $processlist_report .= " <--ok\n";
+            }
+        # 4. Unexpected long lasting query
+        } elsif ($process_info ne "<undef>" and $process_time > $query_lifetime_threshold) {
+            say("ERROR: $who_am_i Query with time > query_lifetime_threshold( " .
+                $query_lifetime_threshold . "s) detected. Assume failure.");
             $suspicious++;
             $processlist_report .= " <--suspicious\n";
-        } elsif ($process_info ne "<undef>" and $process_time ne "<undef>" and
-                 not $process_info =~ 'Deadlock' and $process_command ne "Slave_SQL" and
-                 $process_state =~     m{Waiting for table metadata lock} and
-                 $process_time > $mdl_timeout_threshold) {
-            $suspicious++;
-            $processlist_report .= " <--suspicious\n";
-            say("ERROR: $who_am_i Query with 'Waiting for table metadata lock' and time > " .
-                "mdl_timeout_threshold($mdl_timeout_threshold" . "s) detected. Assume failure.");
             $declare_hang = 1;
+        # 5. MDL timeouts must have an effect even with maybe some lag.
+        # Problem:
+        #    If more than one table has to be locked than the following could happen
+        #    1. Wait mdl_timeout - 1
+        #    2. Get the MDL lock on one of the tables.
+        #    3. Wait more than a second but less than mdl_timeout for the MDL lock on the
+        #       second table.
+        #    4. The processlist shows for that connection a time value > mdl_timeout.
+        } elsif ($process_info ne "<undef>" and $process_state =~ m{Waiting for table metadata}) {
+            if ($process_time > $mdl_timeout_threshold3) {
+                say("ERROR: $who_am_i Query with 'Waiting for table metadata lock' and time > " .
+                    "mdl_timeout_threshold3($mdl_timeout_threshold3" .
+                    "s) detected. Assume failure.");
+                $suspicious++;
+                $processlist_report .= " <--suspicious\n";
+                $declare_hang = 1;
+            } elsif ($process_time > $mdl_timeout_threshold1) {
+                say("WARN: $who_am_i Query with 'Waiting for table metadata lock' and time > " .
+                    "mdl_timeout_threshold1($mdl_timeout_threshold1" . "s) detected. Fear failure.");
+                $suspicious++;
+                $processlist_report .= " <--suspicious\n";
+            } else {
+                $processlist_report .= " <--ok\n";
+            }
+        # 6. Experimental
+        #    IMHO some "Killed" SELECT should no more crawl through tables nor send
+        #    result sets after 60s.
+        } elsif ($process_command eq "Killed" and $process_info =~ m{\^ *SELECT }i and
+                 $process_time > 60) {
+            say("WARN: $who_am_i Query with plain 'SELECT', 'Killed' and time > 60s detected. " .
+                "Fear failure.");
+            $suspicious++;
+            $processlist_report .= " <--suspicious\n";
         } else {
             $processlist_report .= " <--ok\n";
         }
@@ -776,31 +809,29 @@ sub inspect_processlist {
         if ($process_info =~ m{E_R Thread}) {
             $threads++;
             $threads_killed++   if $process_command =~ m{Killed};
-            $threads_waiting++  if $process_state =~    m{Waiting for table metadata lock};
+            $threads_waiting++  if $process_state =~   m{Waiting for table metadata lock};
         }
     }
     $processlist_report .= "$who_am_i Content of processlist ---------- end";
 
-    say("INFO: $who_am_i RQG worker threads $threads , threads_killed : $threads_killed ," .
+    say("INFO: $who_am_i RQG worker threads : $threads , threads_killed : $threads_killed ," .
         " threads_waiting : $threads_waiting");
 
     if ($suspicious > STALLED_QUERY_COUNT_THRESHOLD) {
-        say("ERROR: $who_am_i $suspicious suspicious queries detected. Thresholds are " .
-            STALLED_QUERY_COUNT_THRESHOLD . " queries and more than $query_lifetime_threshold s.");
+        say("ERROR: $who_am_i $suspicious suspicious queries detected. The threshold is " .
+            STALLED_QUERY_COUNT_THRESHOLD . ". Assume failure.");
         $declare_hang = 1;
     }
-
-    # For experiments only begin
-    $declare_hang = 1 if $threads_killed > $threads;
-    # For experiments only end
 
     say($processlist_report) if $declare_hang or $suspicious or $print or $script_debug;
 
     return $declare_hang;
-}
+} # End sub inspect_processlist
 
+# Do not add REPORTER_TYPE_END because the reporter 'CrashRecovery' might have restarted the
+# server. And Deadlock will not know sufficient about that server.
 sub type {
-    return REPORTER_TYPE_PERIODIC | REPORTER_TYPE_DEADLOCK;
+    return REPORTER_TYPE_PERIODIC | REPORTER_TYPE_DEADLOCK ;
 }
 
 1;
