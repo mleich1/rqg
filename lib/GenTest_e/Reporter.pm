@@ -88,6 +88,9 @@ sub new {
     }, @_);
 
     my $dsn = $reporter->dsn();
+
+    # Reached by initialization of reporters but the user 'Reporter' is not yet known.
+
     # - Errors must be handled (return undef) and not cause perl errors or similar.
     # - Even a SHOW VARIABLES could become the victim of some too short max_statement_time.
     # - SQL tracing should happen if enabled.
@@ -235,6 +238,11 @@ sub new {
     # general properties area for sub-classes
     $reporter->[REPORTER_CUSTOM_ATTRIBUTES] = {};
     $reporter->[REPORTER_START_TIME]        = time();
+
+    # Current $dsn
+    # dbi:mysql:host=127.0.0.1:port=24600:user=root:database=test:mysql_local_infile=1
+    $dsn =~ s/user=root/user=Reporter/g;
+    $reporter->[REPORTER_SERVER_DSN] = $dsn;
 
     return $reporter;
 }
