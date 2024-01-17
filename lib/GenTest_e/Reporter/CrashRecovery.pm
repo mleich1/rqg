@@ -1,6 +1,6 @@
 # Copyright (C) 2013 Monty Program Ab
-# Copyright (C) 2019, 2022  MariaDB Corporation Ab.
-# Copyright (C) 2023 MariaDB plc
+# Copyright (C) 2019, 2022 MariaDB Corporation Ab.
+# Copyright (C) 2023, 2024 MariaDB plc
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -113,9 +113,10 @@ sub report {
     our $server = $reporter->properties->servers->[0];
     my $status = $server->killServer;
     if (STATUS_OK != $status) {
+        $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i cleaning up the killed server failed with status $status. " .
-            "Will exit with STATUS_ENVIRONMENT_FAILURE.");
-        exit STATUS_ENVIRONMENT_FAILURE;
+            Basics::exit_status_text($status));
+        exit $status;
     }
 
     # Docu 2019-05
