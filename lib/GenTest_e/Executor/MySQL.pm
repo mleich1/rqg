@@ -1,7 +1,7 @@
-# Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2013, Monty Program Ab.
-# Copyright (c) 2018,2022 MariaDB Corporation Ab.
-# Copyright (c) 2023 MariaDB plc
+# Copyright (c) 2008, 2012 Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2013 Monty Program Ab.
+# Copyright (c) 2018, 2022 MariaDB Corporation Ab.
+# Copyright (c) 2023, 2024 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -1125,10 +1125,10 @@ sub init {
     } else {
         # say("DEBUG: $who_am_i connection id is : " . $executor->connectionId());
         if ($executor->task() != GenTest_e::Executor::EXECUTOR_TASK_THREAD) {
-            # The remaining 'tasks':
+            # SQL run by some executor of the remaining 'tasks'
             #     EXECUTOR_TASK_GENDATA, EXECUTOR_TASK_CACHER, EXECUTOR_TASK_REPORTER,
             #     EXECUTOR_TASK_UNKNOWN, EXECUTOR_TASK_CHECKER
-            # are all vulnerable to max_statement_time but must not suffer from that.
+            # must be not vulnerable to a short max_statement_time.
             $status = $executor->set_safe_max_statement_time ;
             return $status if $status != STATUS_OK;
         }
