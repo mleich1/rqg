@@ -1,9 +1,9 @@
 #!/usr/bin/perl
 
-# Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2008, 2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2016, 2022 MariaDB Corporation Ab
-# Copyright (c) 2023 MariaDB plc
+# Copyright (c) 2023, 2024 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -877,7 +877,11 @@ sub workerProcess {
     foreach my $i (0..2) {
         last if $self->config->property('upgrade-test') and $i>0;
         next unless $self->config->dsn->[$i];
-        my $executor = GenTest_e::Executor->newFromDSN($self->config->dsn->[$i],
+        my $dsn = $self->config->dsn->[$i];
+        # dbi:mysql:host=127.0.0.1:port=24600:user=root:database=test:mysql_local_infile=1
+        $dsn =~ s/user=root/user=$worker_role/g;
+        # dbi:mysql:host=127.0.0.1:port=24600:user=Thread1:database=test:mysql_local_infile=1
+        my $executor = GenTest_e::Executor->newFromDSN($dsn,
                                                      osWindows() ? undef : $self->channel());
         $executor->sqltrace($self->config->sqltrace);
         $executor->setId($i+1);
@@ -1039,40 +1043,51 @@ sub doGenData {
         # For experimenting:
         # system("killall -9 mysqld mariadbd; sleep 5");
 
-        if ( $self->config->gendata_sql ) {
-            # $self->config->gendata_sql might be just a string containing one file name
-            # or a list of comma separated file names.
-            # Transform it to an array with one element.
-            if ( not ref $self->config->gendata_sql eq 'ARRAY' ) {
-                my $gendata_sql = [ split /,/, $self->config->gendata_sql ];
-                $self->config->gendata_sql($gendata_sql);
-            }
-            # In case of missing file rather abort before
-            # - running any script processing at all (Scenario: The previous files exist.)
-            # - creating an Executor etc. (Scenario: The current file does not exist.)
-            foreach my $file ( @{$self->config->gendata_sql} )
-            {
-               if ( not -e $file ) {
-                   $gendata_result = STATUS_ENVIRONMENT_FAILURE;
-                   say("ERROR: $who_am_i The SQL file '$file' " .
-                       "does not exist.");
-                   say("ERROR: " . Basics::return_status_text($gendata_result));
-                   last;
-               }
-            }
-            last if STATUS_OK != $gendata_result;
-            foreach my $file ( @{$self->config->gendata_sql} )
-            {
-               say("INFO: $who_am_i Start processing the SQL file '$file'.");
-               $gendata_result = GenTest_e::App::GendataSQL->new(
-                    sql_file        => $file,
-                    debug           => $self->config->debug,
-                    dsn             => $dsn,
-                    server_id       => $i, # 'server_id'   => GDS_SERVER_ID,
-                    sqltrace        => $self->config->sqltrace,
-               )->run();
-               last if STATUS_OK != $gendata_result;
-            }
+        my $gt_users_file = tmpdir . "gt_users.sql";
+        if (Basics::make_file($gt_users_file, '') != STATUS_OK) {
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: " . Basics::return_status_text($status));
+        }
+        my $user;
+        my $sqls = '';
+        foreach my $num (1..$self->config->threads) {
+            $user = "'Thread" . $num . "'" . '@' . "'localhost'";
+            $sqls .= "CREATE USER " . $user . " Identified BY '';\n";
+            $sqls .=   "GRANT ALL ON *.* TO " . $user . " WITH GRANT OPTION;\n";
+        }
+        $user = "'Reporter'" . '@' . "'localhost'";
+        $sqls .= "CREATE USER " . $user . " Identified BY '';\n";
+        $sqls .= "GRANT ALL ON *.* TO " . $user . " WITH GRANT OPTION;\n";
+        if (Basics::append_string_to_file($gt_users_file, $sqls)) {
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: " . Basics::return_status_text($status));
+        }
+        say("INFO: File defining GenTest users '$gt_users_file' generated.");
+
+        # The RQG runner rqg.pl has already called a sub making the splitting if necessary
+        # + checking if the file exists etc.
+        foreach my $file (defined $self->config->gendata_sql ?
+                          (@{$self->config->gendata_sql} , $gt_users_file) : $gt_users_file) {
+           if ( not -e $file ) {
+               $gendata_result = STATUS_ENVIRONMENT_FAILURE;
+               say("ERROR: $who_am_i The SQL file '$file' " .
+                   "does not exist or is not a plan file.");
+               say("ERROR: " . Basics::return_status_text($gendata_result));
+               last;
+           }
+        }
+        last if STATUS_OK != $gendata_result;
+        foreach my $file ( defined $self->config->gendata_sql ?
+                          (@{$self->config->gendata_sql} , $gt_users_file) : $gt_users_file) {
+           say("INFO: $who_am_i Start processing the SQL file '$file'.");
+           $gendata_result = GenTest_e::App::GendataSQL->new(
+                sql_file        => $file,
+                debug           => $self->config->debug,
+                dsn             => $dsn,
+                server_id       => $i, # 'server_id'   => GDS_SERVER_ID,
+                sqltrace        => $self->config->sqltrace,
+           )->run();
+           last if STATUS_OK != $gendata_result;
         }
         last if STATUS_OK != $gendata_result;
 
