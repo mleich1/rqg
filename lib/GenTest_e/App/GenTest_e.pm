@@ -940,7 +940,7 @@ sub workerProcess {
     }
 
     # Forcefully deallocate the Mixer so that Validator destructors are called
-    undef $mixer; # so that destructors are called
+    undef $mixer;
     undef $self->[GT_QUERY_FILTERS];
 
     my $message_part= "INFO: $who_am_i Child process for $worker_role completed";
@@ -960,7 +960,6 @@ sub doGenData {
     $self->do_init();
 
     return STATUS_OK if defined $self->config->property('start-dirty');
-
 
     say("INFO: $who_am_i Begin of activity");
     my $gendata_result = STATUS_OK;
@@ -991,7 +990,7 @@ sub doGenData {
                varchar_length       => $self->config->property('varchar-length')
             )->run();
         }
-        last if STATUS_OK != $gendata_result;
+        last if STATUS_CRITICAL_FAILURE <= $gendata_result;
 
         # Original code:
         # next if not defined $self->config->gendata();
@@ -1038,7 +1037,7 @@ sub doGenData {
                notnull              => $self->config->notnull
             )->run();
         }
-        last if STATUS_OK != $gendata_result;
+        last if STATUS_CRITICAL_FAILURE <= $gendata_result;
 
         # For experimenting:
         # system("killall -9 mysqld mariadbd; sleep 5");
