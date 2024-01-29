@@ -2377,7 +2377,7 @@ sub getCollationMetaData {
     my $query = "SELECT collation_name,character_set_name FROM information_schema.collations";
     # exp_server_kill($who_am_i, $query);
 
-    my $result = $self->execute("$query");
+    my $result = $self->execute($query);
     my $res = $result->data;
     if (not defined $res) {
         # SQL syntax error, DB server dead but not empty result set

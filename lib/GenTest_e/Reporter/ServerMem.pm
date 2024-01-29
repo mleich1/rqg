@@ -29,7 +29,7 @@ use GenTest_e::Executor::MySQL;
 
 use DBI;
 
-my $who_am_i = "Reporter ServerMem ";
+my $who_am_i = "Reporter 'ServerMem':";
 my $start_rss;
 
 sub monitor {

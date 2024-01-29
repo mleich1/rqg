@@ -1594,7 +1594,7 @@ alarm ($max_gd_duration * Runtime::get_runtime_factor());
 $gentest_result = $gentest->doGenData();
 alarm (0);
 
-say("GenData returned status " . status2text($gentest_result) . " ($gentest_result)");
+say("GenData returned status " . status2text($gentest_result) . "($gentest_result).");
 $final_result = $gentest_result;
 $message =  "RQG GenData runtime in s : " . (time() - $gendata_start_time);
 $summary .= "SUMMARY: $message\n";
