@@ -59,7 +59,10 @@ set -o pipefail
 
 clean_source_dir
 
+patch_for_testing
+
 cd "$SOURCE_DIR"
+
 echo "# Build in '"$OOS_DIR"' at "`date --rfc-3339=seconds`             | tee -a "$BLD_PROT"
 echo "#=============================================================="  | tee -a "$BLD_PROT"
 # Especially debug builds tend to fail with higher optimization because of coding mistakes,
@@ -70,17 +73,7 @@ echo "#=============================================================="  | tee -a
 # sed -e '/-Werror/d' maintainer.cmake.tmp > cmake/maintainer.cmake
 # But we go here with DCMAKE_BUILD_TYPE=RelWithDebInfo.
 #
-git checkout storage/innobase/include/ut0new.h mysql-test/lib/My/SafeProcess/safe_process.cc
-if [ -e ../mtr-rr-friendly.patch ]
-then
-    # Use SIGABRT instead of SIGKILL so that we avoid rotten rr traces.
-    patch -lp1 < ../mtr-rr-friendly.patch
-fi
-if [ -e ../RelWithDebInfo_BP_in_core.patch ]
-then
-    # Take care that core files contain the buffer pool content.
-    patch -lp1 < ../RelWithDebInfo_BP_in_core.patch
-fi
+
 git_info
 
 cd "$OOS_DIR"
@@ -115,6 +108,7 @@ run_make
 
 install_till_end
 cd "$SOURCE_DIR"
-git checkout storage/innobase/include/ut0new.h mysql-test/lib/My/SafeProcess/safe_process.cc
+echo "Revert the patches made by the current buildscript"
+bash "$CHECKOUT_LST"
 exit 0
 

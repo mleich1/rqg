@@ -1,0 +1,13 @@
+diff --git a/storage/innobase/include/ut0new.h b/storage/innobase/include/ut0new.h
+index 4c8d2cf7a61..ee3511a83a3 100644
+--- a/storage/innobase/include/ut0new.h
++++ b/storage/innobase/include/ut0new.h
+@@ -236,7 +236,7 @@ struct ut_new_pfx_t {
+ #endif
+ };
+ 
+-#if defined(DBUG_OFF) && defined(HAVE_MADVISE) && defined(MADV_DODUMP)
++#if 0
+ static inline void ut_dontdump(void *ptr, size_t m_size, bool dontdump)
+ {
+ 	ut_a(ptr != NULL);

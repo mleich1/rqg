@@ -1,6 +1,6 @@
 #!/bin/bash
 # Copyright (C) 2021, 2022 MariaDB Corporation Ab.
-# Copyright (C) 2023 MariaDB plc
+# Copyright (C) 2023, 2024 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -229,6 +229,54 @@ function check_environment()
     touch "$BLD_PROT"
     rm -f "$SHORT_PROT"
     touch "$SHORT_PROT"
+
+    # Prepare for required patches
+    # 1. check if patch exists
+    # 2. collect required checkouts
+
+    CHECKOUT_LST="$SRV_DIR""/checkout.lst"
+    rm -f "$CHECKOUT_LST"
+
+    #    Try to reduce the amount of fake hangs if rr invoked.
+    RR_HANG_PATCH="$GENERAL_SOURCE_DIR""/rr_hang.patch"
+    if [ ! -f "$RR_HANG_PATCH" ]
+    then
+        echo "No plain file '$RR_HANG_PATCH' found."
+        exit 4
+    fi
+    echo "git checkout storage/innobase/include/os0file.h" >> "$CHECKOUT_LST"
+    #    Let mariabackup print its process id to STDOUT.
+    BACKUP_PID_PATCH="$GENERAL_SOURCE_DIR""/backup_pid_print.patch"
+    if [ ! -f "$BACKUP_PID_PATCH" ]
+    then
+        echo "No plain file '$BACKUP_PID_PATCH' found."
+        exit 4
+    fi
+    echo "git checkout extra/mariabackup/xtrabackup.cc" >> "$CHECKOUT_LST"
+    #    Use SIGABRT instead of SIGKILL so that we avoid rotten rr traces.
+    MTR_RR_PATCH="$GENERAL_SOURCE_DIR""/mtr-rr-friendly.patch"
+    if [ ! -f "$MTR_RR_PATCH" ]
+    then
+        echo "No plain file '$MTR_RR_PATCH' found."
+        exit 4
+    fi
+    echo "git checkout storage/innobase/include/ut0new.h" >> "$CHECKOUT_LST"
+    echo "git checkout mysql-test/lib/My/SafeProcess/safe_process.cc" >> "$CHECKOUT_LST"
+
+    #    Enable the inclusion of bufferpool content in core files
+    BP_IN_CORE_PATCH="$GENERAL_SOURCE_DIR""/RelWithDebInfo_BP_in_core.patch"
+    if [ ! -f "$BP_IN_CORE_PATCH" ]
+    then
+        echo "No plain file '$BP_IN_CORE_PATCH' found."
+        exit 4
+    fi
+    echo "git checkout storage/innobase/include/ut0new.h" >> "$CHECKOUT_LST"
+
+    cp "$CHECKOUT_LST" "$CHECKOUT_LST".res
+    cat "$CHECKOUT_LST" | sort -u > "$CHECKOUT_LST"
+    cat "$CHECKOUT_LST"
+    exit
+
     set +e
 }
 
@@ -436,5 +484,59 @@ function install_till_end()
     echo
 
     rm -r "$OOS_DIR"
+    set +e
+}
+
+function patch_for_testing()
+{
+    # SOURCE_DIR="$GENERAL_SOURCE_DIR""/""$RELEASE"
+    cd "$SOURCE_DIR"
+    # Try to reduce the amount of fake hangs if rr invoked.
+    patch -lp1 < "$RR_HANG_PATCH"
+    RC=$?
+    set -e
+    if [ $RC -gt 0 ]
+    then
+        echo "ERROR: Applying '$RR_HANG_PATCH' failed."
+        exit 4
+    fi
+    echo "1. '$RR_HANG_PATCH' applied"
+
+    #    Use SIGABRT instead of SIGKILL so that we avoid rotten rr traces.
+    patch -lp1 < "$MTR_RR_PATCH"
+    RC=$?
+    set -e
+    if [ $RC -gt 0 ]
+    then
+        echo "ERROR: Applying '$MTR_RR_PATCH' failed."
+        exit 4
+    fi
+    echo "2. '$MTR_RR_PATCH' applied"
+
+    #    Let mariabackup print its process id to STDOUT.
+    patch -lp1 < "$BACKUP_PID_PATCH"
+    RC=$?
+    set -e
+    if [ $RC -gt 0 ]
+    then
+        echo "ERROR: Applying '$BACKUP_PID_PATCH' failed."
+        exit 4
+    fi
+    echo "3. '$BACKUP_PID_PATCH' applied"
+
+    #    Enable the inclusion of bufferpool content in core files
+    BP_IN_CORE_PATCH="$GENERAL_SOURCE_DIR""/RelWithDebInfo_BP_in_core.patch"
+    patch -lp1 < "$BP_IN_CORE_PATCH"
+    RC=$?
+    set -e
+    if [ $RC -gt 0 ]
+    then
+        echo "ERROR: Applying '$BP_IN_CORE_PATCH' failed."
+        exit 4
+    fi
+    echo "4. '$BP_IN_CORE_PATCH' applied"
+
+    # git status       gets printed by other function later
+
     set +e
 }

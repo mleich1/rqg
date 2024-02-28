@@ -1,0 +1,16 @@
+diff --git a/extra/mariabackup/xtrabackup.cc b/extra/mariabackup/xtrabackup.cc
+index 7ae81fa97c6..40b283782c8 100644
+--- a/extra/mariabackup/xtrabackup.cc
++++ b/extra/mariabackup/xtrabackup.cc
+@@ -6814,6 +6814,11 @@ static int get_exepath(char *buf, size_t size, const char *argv0);
+ /* ================= main =================== */
+ int main(int argc, char **argv)
+ {
++    /* In case the program hangs tools using it might need its process id. */
++    /* FIXME: The message should rather look like                          */
++    /* 2024-02-26 13:54:13 0 [Note] Starting MariaDB 11.2.3-MariaDB-debug-log source revision dccce98388f63548230a0e8666d9a8e31c270dc8 as process 767203 */
++    printf("Starting Mariabackup as process %lu\n", (ulong) getpid());
++
+   char **server_defaults;
+   char **client_defaults;
+   char **backup_defaults;

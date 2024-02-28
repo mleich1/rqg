@@ -57,7 +57,10 @@ set -o pipefail
 
 clean_source_dir
 
+patch_for_testing
+
 cd "$SOURCE_DIR"
+
 echo "# Build in '"$OOS_DIR"' at "`date --rfc-3339=seconds`             | tee -a "$BLD_PROT"
 echo "#=============================================================="  | tee -a "$BLD_PROT"
 
@@ -91,5 +94,8 @@ cd "$OOS_DIR"
 run_make
 
 install_till_end
+cd "$SOURCE_DIR"
+echo "Revert the patches made by the current buildscript"
+bash "$CHECKOUT_LST"
 exit 0
 
