@@ -273,9 +273,9 @@ function check_environment()
     echo "git checkout storage/innobase/include/ut0new.h" >> "$CHECKOUT_LST"
 
     cp "$CHECKOUT_LST" "$CHECKOUT_LST".res
-    cat "$CHECKOUT_LST" | sort -u > "$CHECKOUT_LST"
-    cat "$CHECKOUT_LST"
-    exit
+    sort -u "$CHECKOUT_LST" > "$CHECKOUT_LST"".usrt"
+    mv "$CHECKOUT_LST"".usrt" "$CHECKOUT_LST"
+    bash "$CHECKOUT_LST"
 
     set +e
 }
