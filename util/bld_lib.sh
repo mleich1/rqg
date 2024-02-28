@@ -230,6 +230,8 @@ function check_environment()
     rm -f "$SHORT_PROT"
     touch "$SHORT_PROT"
 
+    cd "$SOURCE_DIR"
+
     # Prepare for required patches
     # 1. check if patch exists
     # 2. collect required checkouts
@@ -489,8 +491,8 @@ function install_till_end()
 
 function patch_for_testing()
 {
-    # SOURCE_DIR="$GENERAL_SOURCE_DIR""/""$RELEASE"
     cd "$SOURCE_DIR"
+
     # Try to reduce the amount of fake hangs if rr invoked.
     patch -lp1 < "$RR_HANG_PATCH"
     RC=$?
