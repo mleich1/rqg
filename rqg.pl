@@ -3,7 +3,7 @@
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab
 # Copyright (C) 2016, 2022 MariaDB Corporation Ab
-# Copyright (C) 2023 MariaDB plc
+# Copyright (C) 2023, 2024 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -1559,12 +1559,16 @@ if (not defined $gentest) {
 }
 
 # Gendata -- generate some initial data ------------------------------------------------------------
+my $alarm_msg;
 sigaction SIGALRM, new POSIX::SigAction sub {
     alarm(0);
     my $status = STATUS_ALARM;
-    say("ERROR: rqg.pl: max_gd_duration(" . $max_gd_duration . "s * " .
-        Runtime::get_runtime_factor() . ") was exceeded. " .
-        "Will kill DB servers and exit with STATUS_ALARM(" . $status . ") later.");
+    say("ERROR: SIGALRM located rqg.pl kicked in.");
+    if (not defined $alarm_msg or $alarm_msg eq '') {
+        say("ERROR: alarm_msg is undef or ''.");
+    } else {
+        say($alarm_msg);
+    }
     killServers();
     # IMHO it is extreme unlikely that content of $vardirs[0] == rqg_vardir explains why
     # max_gd_duration was exceeded.
@@ -1581,10 +1585,13 @@ sigaction SIGALRM, new POSIX::SigAction sub {
 
 my $gendata_start_time = time();
 $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENDATA);
+$alarm_msg = "ERROR: rqg.pl: max_gd_duration(" . $max_gd_duration . "s * " .
+             Runtime::get_runtime_factor() . ") was exceeded. " .
+             "Will kill DB servers and exit with STATUS_ALARM(" . $status . ") later.";
 alarm ($max_gd_duration * Runtime::get_runtime_factor());
 
 # For experimenting
-# The time span required for GenData will exceed 1s.
+# The usual time span required for GenData will exceed 1s.
 # And so the alarm will kick in.
 # alarm (1);
 
@@ -1593,6 +1600,7 @@ alarm ($max_gd_duration * Runtime::get_runtime_factor());
 
 $gentest_result = $gentest->doGenData();
 alarm (0);
+$alarm_msg = "";
 
 say("GenData returned status " . status2text($gentest_result) . "($gentest_result).");
 $final_result = $gentest_result;
