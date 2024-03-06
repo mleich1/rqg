@@ -29,23 +29,32 @@ fi
 
 set -u
 
-# Examples of RQG log name:
-#     - old layout    /data/results/1654696701/000001.log
-#     - new layout    /data/results/1654696701/000001/rqg.log
+# Examples:
+# ---------
+# RQG runs finished and of interest
+# - old style    /data/results/1654696701/<number_0>.log
+#                /data/results/1654696701/TBR-1219.log
+# - new style    /data/results/1654696701/<number_0>/rqg.log
+#                /data/results/1654696701/TBR-1219/rqg.log
+# <number_0> : 6 digits, first digit is 0
 #
-# Directory names consisting of less than six digits/no zero at begin
-# belong to ongoing RQG runs.
-# Example: /data/results/1654696701/1
+# RQG runs ongoing and not yet finished
+# - old style    /data/results/1654696701/<number_1>.log
+# - new style    /data/results/1654696701/<number_1>/rqg.log
+# <number_1> : less than 6 digits(*), first digit is > 0
+# (*) We would need >= 100000 concurrent RQG runs for reaching 6 digits.
+#     <number_1> is usually <= 270.
+#
+# The old style is no more supported.
 #
 set +e
 NUM_LOGS=`ls -d "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9]/rqg.log \
-"$WRK_DIR"/[A-Za-z]*/rqg.log \
-"$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9].log 2> /dev/null | wc -l `
+"$WRK_DIR"/[A-Za-z]*/rqg.log 2> /dev/null | wc -l `
 set -e
 if [ $NUM_LOGS -eq 0 ]
 then
    echo "The directory '$WRK_DIR' does not contain logs of finished RQG runs."
-   exit 1
+   exit 0
 fi
 
 TMP_RESULT="$WRK_DIR""/result.tmp"
@@ -93,24 +102,10 @@ function process_log()
     VAL=`echo "$INFO1" | grep 'Verdict: ignore' | wc -l`
 
     DIR_NAME=`dirname "$LOG_FILE"`
-
-#   ARCH   -- tar archive   In case of old layout maybe with rr trace.
-#   OBJECT -- Directory(new layout) or file(oldlayout) to be inspected with "du"
-#   SLF    -- Search pattern for finding the righ line in setup.txt
-
-    if   [ "$LOG_FILE" = "$DIR_NAME""/rqg.log" ]
-    then
-        ARCH="$DIR_NAME""/archive.tar.xz"
-        OBJECT="$DIR_NAME"
-        SLF="$DIR_NAME"
-    else
-        ARCH="$WRK_DIR""/"`basename -s log "$LOG_FILE"`"tar.xz"
-        OBJECT="$ARCH"
-        SLF=`basename "$LOG_FILE"`
-    fi
+    ARCH="$DIR_NAME""/archive.tar.xz"
     if [ $VAL -eq 0 ]
     then
-        SIZE_ALL=`du -sk "$OBJECT" 2>/dev/null | cut -f1`
+        SIZE_ALL=`du -sk "$DIR_NAME" 2>/dev/null | cut -f1`
         LINE_PART="$ARCH"" ""$SIZE_ALL"" KB"
         if [ ! -e "$ARCH" ]
         then
@@ -118,10 +113,13 @@ function process_log()
         fi
         echo "$INFO""        ""$LOG_FILE""    ""$LINE_PART"                      >> "$TMP_RESULT"
 
+        SLF="/"`basename "$DIR_NAME"`"/"
         # Example
         #^ignore_blacklist | STATUS_OK | --gendata=conf... --no_mask | 1207 | 001206.log
         SETUP=`grep "$SLF" "$WRK_DIR"/setup.txt | sed -e 's/^.* | S.* | \(--.*\)/| \1/g'`
-        echo "$INFO $LOG_FILE $SETUP"                                            >> "$TMP_SETUP"
+        echo "$INFO""        ""$SETUP"" | ""$LOG_FILE"                           >> "$TMP_SETUP"
+    else
+        rm -f "$LOG_FILE" "$ARCH"
     fi
     # sleep 1
     # ACTIVE=`ps -elf | grep '/bin/bash ./SUMMARY.sh' | wc -l`
@@ -135,8 +133,7 @@ function num_children {
 
 NPROC=`nproc`
 for LOG_FILE in `ls -d "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9]/rqg.log \
-"$WRK_DIR"/[A-Za-z]*/rqg.log \
-"$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9].log 2>/dev/null`
+"$WRK_DIR"/[A-Za-z]*/rqg.log 2>/dev/null`
 do
     num_children
     while [ $NUM_CHILDREN -gt $NPROC ]
