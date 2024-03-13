@@ -98,7 +98,7 @@ use constant EXECUTOR_FLAG_HASH_DATA         => 4;
 #     - run COMMIT/ROLLBACK RELEASE except maybe before finishing.
 #       If that fails
 #       - looking like server crash report STATUS_CRITICAL_FAILURE
-#       - other wise report a status not in (STATUS_SERVER_CRASHED,STATUS_CRITICAL_FAILURE)
+#       - otherwise report a status not in (STATUS_SERVER_CRASHED,STATUS_CRITICAL_FAILURE)
 # (3) Do not maintain EXECUTOR_ERROR_COUNTS.
 # (4) Do not fiddle with duration here.
 # (5) Assume to be the main process of the RQG runner which implies to avoid exiting here.
