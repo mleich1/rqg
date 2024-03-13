@@ -258,20 +258,19 @@ sub monitor_nonthreaded {
     # DBServer_e::MySQL::MySQL::server_is_operable cannot replace functionality of the current sub
     # because the criterions for declaring a Deadlock/Freeze differ.
 
-    my $exit_msg =      '';
+    my $alarm_msg =     '';
     my $alarm_timeout = 0;
     my $query =         '<initialize some executor>';
 
     sigaction SIGALRM, new POSIX::SigAction sub {
         # Concept:
         # 1. Check first if the server process is gone.
-        # 2. Set the error_exit_message for deadlock/freeze before setting the alarm.
+        # 2. Set the alarm_msg for deadlock/freeze before setting the alarm.
         if (STATUS_OK != server_dead($reporter)) {
             exit STATUS_SERVER_CRASHED;
         }
         my $status = STATUS_SERVER_DEADLOCKED;
-        say("ERROR: $who_am_i ALRM1 $exit_msg " .
-            Basics::exit_status_text($status) . " later.");
+        say("ERROR: $who_am_i ALRM1 $alarm_msg " . Basics::exit_status_text($status) . " later.");
         $reporter->kill_with_core;
         exit $status;
     } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
@@ -283,7 +282,7 @@ sub monitor_nonthreaded {
     $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_REPORTER);
 
     $alarm_timeout =    $connect_timeout_threshold + OVERLOAD_ADD;
-    $exit_msg      =    "Got no connect to server within " . $alarm_timeout . "s. ";
+    $alarm_msg =        "Got no connect to server within " . $alarm_timeout . "s. ";
     my $connect_start = time();
     alarm ($alarm_timeout);
 
@@ -291,13 +290,14 @@ sub monitor_nonthreaded {
     my $status = $executor->init();
 
     alarm (0);
-    $status = give_up($status, $query);
+    $alarm_msg =  '';
+    $status =     give_up($status, $query);
     return $status if STATUS_OK != $status;
 
     my $result;
 
     $alarm_timeout = $reporter_query_threshold + OVERLOAD_ADD;
-    $exit_msg = "Got no response from server to query '$query' within " . $alarm_timeout . "s.";
+    $alarm_msg =  "Got no response from server to query '$query' within " . $alarm_timeout . "s.";
 
     # For testing: Syntax error -> STATUS_UNKNOWN_ERROR
     # $query    = "SHOW FULL OMO";          # Syntax error -> STATUS_SYNTAX_ERROR(21)
@@ -685,7 +685,7 @@ sub inspect_processlist {
     my ($print) =           @_;
 
     my $declare_hang =      0;
-    my $exit_msg;
+    my $alarm_msg;
 
     my $threads =           0;
     my $threads_killed =    0;
@@ -695,24 +695,25 @@ sub inspect_processlist {
     sigaction SIGALRM, new POSIX::SigAction sub {
         # Concept:
         # 1. Check first if the server process is gone.
-        # 2. Set the error_exit_message for deadlock/freeze before setting the alarm.
+        # 2. Set the alarm_msg for deadlock/freeze before setting the alarm.
         alarm (0);
         if (STATUS_OK != server_dead($reporter)) {
             exit STATUS_SERVER_CRASHED;
         }
         my $status = STATUS_SERVER_DEADLOCKED;
-        say("ERROR: $who_am_i ALRM2 $exit_msg " .
+        say("ERROR: $who_am_i ALRM2 $alarm_msg " .
             Basics::exit_status_text($status) . " later.");
         $reporter->kill_with_core;
         exit STATUS_SERVER_DEADLOCKED;
     } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
 
-    my $query = "SHOW FULL PROCESSLIST";
+    my $query =   "SHOW FULL PROCESSLIST";
     my $alarm_timeout = $reporter_query_threshold + OVERLOAD_ADD;
-    $exit_msg = "Got no response from server to query '$query' within " . $alarm_timeout . "s.";
+    $alarm_msg =  "Got no response from server to query '$query' within " . $alarm_timeout . "s.";
     alarm ($alarm_timeout);
-    my $result =    $executor->execute($query);
+    my $result =  $executor->execute($query);
     alarm (0);
+    $alarm_msg =  '';
     my $status = $result->status;
     give_up($status, $query);
 
