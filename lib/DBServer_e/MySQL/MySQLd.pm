@@ -94,6 +94,7 @@ use constant MYSQLD_RR_OPTIONS                   => 34;
 # DB server in parallel.
 use constant MYSQLD_SERVER_ID                    => 35;
 use constant MYSQLD_BACKUP                       => 36;
+use constant MYSQLD_CURRENT_ERROR_FILE           => 37;
 
 use constant MYSQLD_PID_FILE                     => "mysql.pid";
 use constant MYSQLD_ERRORLOG_FILE                => "mysql.err";
@@ -523,11 +524,25 @@ sub pid {
 }
 
 sub logfile {
-    return $_[0]->vardir."/".MYSQLD_LOG_FILE;
+    return $_[0]->vardir . "/" . MYSQLD_LOG_FILE;
 }
 
+# To be used for error logging during+after server start
 sub errorlog {
-    return $_[0]->vardir."/".MYSQLD_ERRORLOG_FILE;
+    return $_[0]->vardir . "/" . MYSQLD_ERRORLOG_FILE;
+}
+
+# To be used for error logging during bootstrap
+sub booterrorlog {
+    return $_[0]->vardir . "/" . MYSQLD_BOOTERR_FILE;
+}
+
+sub set_current_error_file {
+    $_[0]->[MYSQLD_CURRENT_ERROR_FILE] = $_[1];
+}
+
+sub current_error_file {
+    return $_[0]->[MYSQLD_CURRENT_ERROR_FILE];
 }
 
 sub setStartDirty {
@@ -660,7 +675,8 @@ sub createMysqlBase  {
     my $command;
     my $command_begin = '';
     my $command_end   = '';
-    my $booterr       = $self->vardir . "/" . MYSQLD_BOOTERR_FILE;
+    my $booterr       = $self->booterrorlog();
+    $self->set_current_error_file($booterr);
 
     # Running
     #    push @$boot_options, "--log_error=$booterr"
@@ -746,8 +762,28 @@ sub createMysqlBase  {
     $command =      $command_begin . $command . $command_end;
     # The next line is could be useful/required for the pattern matching.
     say("Bootstrap command: ->" . $command . "<-");
+
+    # Start of experimental code which already helped when meeting some bootstrap hang.
+    my $alarm_timeout = 300;
+    my $alarm_msg = "Bootstrap did not finish within " . $alarm_timeout . "s.";
+    use POSIX;
+    sigaction SIGALRM, new POSIX::SigAction sub {
+        alarm(0);
+        my $status = STATUS_SERVER_DEADLOCKED;
+        say("ERROR: $who_am_i $alarm_msg " . Basics::return_status_text($status) . " later.");
+        my $pid = $self->server_pid_per_errorlog();
+        say("INFO: $who_am_i Will kill(with core) the boot pid: " . $pid );
+        system("kill -11 $pid; sleep 300");
+        $self->make_backtrace;
+        return $status;
+    } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
+
+    alarm($alarm_timeout);
     system($command);
     my $rc = $? >> 8;
+    alarm(0);
+    $alarm_msg = '';
+    # End of experimental code.
     if ($rc != 0) {
         my $status = STATUS_FAILURE;
         say("ERROR: Bootstrap failed");
@@ -816,8 +852,15 @@ sub startServer {
             Basics::return_status_text($status));
         return $status;
     }
+
     my $errorlog = $self->errorlog;
     unlink($errorlog);
+    if (STATUS_OK != Basics::make_file($errorlog, undef)) {
+        $status = STATUS_FAILURE;
+        say("ERROR: Will return STATUS_ALARM because of previous failure.");
+        return $status;
+    }
+
     if(0) { # Maybe needed in future.
         my $start_marker = "# [RQG] Before initiating a server start.";
         $self->addErrorLogMarker($start_marker);
@@ -836,6 +879,7 @@ sub startServer {
         sleep(1.1);
         # If searching maybe read forward to the last $start_marker line?
     }
+    $self->set_current_error_file($errorlog);
 
     # In case some extra tool like rr is needed than a process with it has to come up.
     # Dependency on general load on box.
@@ -2935,7 +2979,8 @@ sub backupDatadir {
     # Some deletions in $datadir in order to avoid confusion during analysis.
     unlink($errorlog);
     unlink("$datadir/core*");
-    unlink($server->errorlog);
+    unlink($server->booterrorlog);
+    return STATUS_OK;
 }
 
 # Extract important messages from the error log.
@@ -3549,7 +3594,7 @@ sub make_backtrace {
 
     my $vardir =    $self->vardir();
     my $error_log = $self->errorlog();
-    my $booterr   = $self->vardir . "/" . MYSQLD_BOOTERR_FILE;
+    my $booterr   = $self->booterrorlog();
 
     # (temporary) Hunt superfluous calls of make_backtrace.
     Carp::cluck("INFO: About who called $who_am_i");
@@ -4064,7 +4109,8 @@ sub server_pid_per_errorlog {
     my $self = shift;
 
     my $who_am_i =  Basics::who_am_i;
-    my $errorlog =  $self->errorlog;
+    my $errorlog = $self->current_error_file;
+
     # bin/mysqld gets called and writes into the server error log
     # - till mid 2023-01
     #   [Note] <path>/bin/mysqld (server 10.6.12-MariaDB-debug-log) starting as process 1794271 ...
