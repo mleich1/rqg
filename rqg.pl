@@ -1561,38 +1561,40 @@ if (not defined $gentest) {
 # Gendata -- generate some initial data ------------------------------------------------------------
 my $alarm_msg;
 sigaction SIGALRM, new POSIX::SigAction sub {
-    alarm(0);
-    my $status = STATUS_ALARM;
-    say("ERROR: SIGALRM located in rqg.pl kicked in.");
-    say($alarm_msg);
-    killServers();
-    # IMHO it is extreme unlikely that content of $vardirs[0] == rqg_vardir explains why
-    # max_gd_duration was exceeded.
-    # Free space as soon as possible because parallel RQG runs might need it.
-    # Welcome sideeffects:
-    # A far way smaller archive and far way shorter load during compressing the archive.
-    foreach my $i (0..$max_id) {
-        my $db_vardir = $vardirs[0] . "/" . ($i + 1);
-        File::Path::rmtree($db_vardir) if -e $db_vardir;
+    say("INFO: SIGALRM located in rqg.pl kicked in.");
+    if (not defined $alarm_msg or "" eq $alarm_msg) {
+        say("INFO: ALARM coming from somewhere else. Will ignore it.");
+    } else {
+        say($alarm_msg);
+        killServers();
+        # IMHO it is extreme unlikely that content of $vardirs[0] == rqg_vardir explains why
+        # max_gd_duration was exceeded.
+        # Free space as soon as possible because parallel RQG runs might need it.
+        # Welcome sideeffects:
+        # A far way smaller archive and far way shorter load during compressing the archive.
+        foreach my $i (0..$max_id) {
+            my $db_vardir = $vardirs[0] . "/" . ($i + 1);
+            File::Path::rmtree($db_vardir) if -e $db_vardir;
+        }
+        say("INFO: The vardirs of the servers were deleted.");
+
+        # exit_test($status); cannot be called here because it will try to rerun killServers().
+        # And that will assume additional fatal errors because the files containing the server
+        # pid do no more exist.
+
+        my $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
+
+        $message =  "RQG total runtime in s : " . (time() - $rqg_start_time);
+        $summary .= "SUMMARY: $message\n";
+        say("INFO: " . $message);
+
+        if (not defined $logfile) {
+            $logfile = $workdir . '/rqg.log';
+        }
+
+        Auxiliary::report_max_sizes;
+        run_end($status);
     }
-    say("INFO: The vardirs of the servers were deleted.");
-
-    # exit_test($status); cannot be called here because it will try to rerun killServers().
-    # And that will assume additional fatal errors because the files containing the server
-    # pid do no more exist.
-
-    my $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_FINISHED);
-
-    $message =  "RQG total runtime in s : " . (time() - $rqg_start_time);
-    $summary .= "SUMMARY: $message\n";
-    say("INFO: " . $message);
-
-    if (not defined $logfile) {
-        $logfile = $workdir . '/rqg.log';
-    }
-
-    Auxiliary::report_max_sizes;
-    run_end($status);
 } or die "ERROR: rqg.pl: Error setting SIGALRM handler: $!\n";
 
 my $gendata_start_time = time();

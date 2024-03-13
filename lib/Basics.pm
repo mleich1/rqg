@@ -1,5 +1,5 @@
 #  Copyright (c) 2021, 2022 MariaDB Corporation Ab.
-#  Copyright (c) 2023 MariaDB plc
+#  Copyright (c) 2023, 2024 MariaDB plc
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -621,7 +621,7 @@ sub return_rc_status_text {
 # several times per single RQG run.
 # In case the sequence
 # - passes
-#   Than we do no more need any details of it. Just "We got a pass" is sufficient.
+#   Than we do no more need any details of it. Just some "We got a pass" is sufficient.
 # - does not pass
 #   Than we need a huge amount of detail because the reason for the trouble might be in
 #       RQG code, DB server, Mariabackup(--backup or --prepare), environment, ...
@@ -637,55 +637,64 @@ my $stderr_save;
 sub direct_to_file {
     my ($output_file) = @_;
 
-    my $who_am_i = Basics::who_am_i();
+    my $who_am_i =  Basics::who_am_i();
+    my $status =    STATUS_OK;
+
+    if (not -e $output_file) {
+        $status = STATUS_ENVIRONMENT_FAILURE;
+        Carp::cluck("ERROR: The output_file '$output_file' does not exist.");
+        return $status;
+    }
 
     if (not open($stdout_save, ">&", STDOUT)) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
+        $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : Getting STDOUT failed with '$!' " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
     if (not open($stderr_save, ">&", STDERR)) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
+        $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : Getting STDERR failed with '$!' " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
     # say("DEBUG: $who_am_i : Redirecting all output to '$output_file'.");
-    unlink ($output_file);
+
     if (not open(STDOUT, ">>", $output_file)) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
+        $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
     # Redirect STDERR to the log of the RQG run.
     if (not open(STDERR, ">>", $output_file)) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
+        $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
+    return $status;
 }
 
 sub direct_to_stdout {
 
-    my $who_am_i = Basics::who_am_i();
+    my $who_am_i =  Basics::who_am_i();
+    my $status =    STATUS_OK;
+
     if (not defined $stdout_save or not $stderr_save) {
-        my $status = STATUS_INTERNAL_ERROR;
+        $status = STATUS_INTERNAL_ERROR;
         say("INTERNAL ERROR: $who_am_i If ever running 'direct_to_stdout' " .
             "than there must have been a 'direct_to_file' prior.");
         exit $status;
     }
-
     if (not open(STDOUT, ">&" , $stdout_save)) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
+        $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
     }
     if (not open(STDERR, ">&" , $stderr_save)) {
-        my $status = STATUS_ENVIRONMENT_FAILURE;
+        $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
             "Will exit with status " . status2text($status) . "($status)");
         exit $status;
@@ -695,6 +704,8 @@ sub direct_to_stdout {
     # Experimental
     # Reason: Same second but messages somehow not in order
     $| = 1;
+
+    return $status;
 }
 
 # --------------------------------------------------------------------------------------------------
