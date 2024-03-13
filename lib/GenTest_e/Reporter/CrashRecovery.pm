@@ -127,7 +127,10 @@ sub report {
 
     my $backup_status = $server->backupDatadir();
     if (STATUS_OK != $backup_status) {
-        return $backup_status;
+        $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: $who_am_i The file backup failed. " .
+            Basics::return_status_text($status));
+        return $status;
     }
 
     say("INFO: $who_am_i Attempting database recovery using the server ...");
