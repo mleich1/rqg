@@ -151,9 +151,9 @@ sub new {
         } else {
             # Getting a proper working reporter is essential.
             # Hence any status > 0 has to be treated as fatal for reporters.
+            $executor->disconnect();
             say("ERROR: " . $msg_snip);
             say("ERROR: $who_am_i Will return undef.");
-            $executor->disconnect();
             return undef;
         }
     }
@@ -241,7 +241,8 @@ sub new {
 
     # Current $dsn
     # dbi:mysql:host=127.0.0.1:port=24600:user=root:database=test:mysql_local_infile=1
-    $dsn =~ s/user=root/user=Reporter/g;
+    # FIXME
+    # $dsn =~ s/user=root/user=Reporter/g;
     $reporter->[REPORTER_SERVER_DSN] = $dsn;
 
     return $reporter;
