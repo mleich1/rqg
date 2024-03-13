@@ -1,6 +1,4 @@
-#!/usr/bin/perl
-
-# Copyright (c) 2008, 2012 Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2016, 2022 MariaDB Corporation Ab
 # Copyright (c) 2023, 2024 MariaDB plc
@@ -159,7 +157,8 @@ sub do_init {
 
         # This handler for TERM is valid for all worker threads and the ErrorFilter.
         # For debugging
-        # $SIG{TERM} = sub { say("DEBUG: $$ have just received TERM and will exit with exit status 0."); exit(0) };
+        # $SIG{TERM} = sub { say("DEBUG: GenTest_e::App::GenTest_e::do_init: Have just received " .
+        #                        "TERM and will exit with exit status 0."); exit(0) };
         $SIG{TERM} = sub { exit(0) };
         $SIG{CHLD} = "IGNORE" if osWindows();
         $SIG{INT}  = "IGNORE";
@@ -514,7 +513,7 @@ sub doGenTest {
                 # The reporter Deadlock initiates that the server gets killed with core.
                 # Some worker is affected by the no more responding server and exits here with 110.
                 # And on the way which follows the knowledge about the intentional server kill
-                # because of assumed Deadlock/Freeze gets lost.
+                # because of assumed Deadlock/Freeze got lost.
                 my $message_end   = " ended with status " . status2text($child_exit_status);
                 say($message_begin . "for " . $worker_pids{$worker_pid} . $message_end);
                 delete $worker_pids{$worker_pid};
@@ -562,7 +561,8 @@ sub doGenTest {
         # Wait for periodic process to return the status of its last execution.
         # Observation 2020-07-20
         # 1. The process of the last worker thread exited with STATUS_OK.
-        # 2. A monitoring round ended with GenTest_e::ReporterManager::monitor: Will return the (maximum) status 0
+        # 2. A monitoring round ended with
+        #       GenTest_e::ReporterManager::monitor: Will return the (maximum) status 0
         # 3. I guess we were than leaving OUTER, no activity required for worker threads.
         # 4. 12:33:18 [18207] Killing periodic reporting process with pid 108110...
         #    12:33:18 [108110] ERROR: Reporter 'Deadlock': Actual test duration(548s) is more than ACTUAL_TEST_DURATION_EXCEED(240s) ....
@@ -596,7 +596,15 @@ sub doGenTest {
 
         my $reaped = 0;
         my $reporter_status = STATUS_OK;
-        my $end_time = Time::HiRes::time() + Runtime::get_runtime_factor() * 60;
+        # There should be sufficient time for the following scenario:
+        # 1. We reach the current position because all "worker" have finished -> leave OUTER.
+        # 2. SIGTERM was sent to the periodic process running the code of Mariabackup_linux.
+        # 3. Mariabackup_linux intercepts the TERM and sends TERM to mariabackup and waits
+        #    till   maybe bash - maybe rr - mariabackup   have disappeared
+        #    end exits.
+        # The goal is to avoid that the timeout below is exceeded, SIGKILL is sent to the periodic
+        # process and    maybe bash - maybe rr    are left over till test end.
+        my $end_time = Time::HiRes::time() + Runtime::get_runtime_factor() * 120;
         while ($end_time > Time::HiRes::time()) {
             ($reaped, $reporter_status) = Auxiliary::reapChild($reporter_pid,
                                                                "Periodic reporting process");
@@ -793,7 +801,7 @@ sub reportingProcess {
 
     $| = 1;
     my $reporter_killed = 0;
-    local $SIG{TERM} = sub { $reporter_killed = 1 };
+    local $SIG{TERM} = sub { say("DEBUG: reportingProcess received TERM.") ; $reporter_killed = 1 };
 
     ## Reporter process does not use channel
     $self->channel()->close();
@@ -879,12 +887,13 @@ sub workerProcess {
         next unless $self->config->dsn->[$i];
         my $dsn = $self->config->dsn->[$i];
         # dbi:mysql:host=127.0.0.1:port=24600:user=root:database=test:mysql_local_infile=1
-        $dsn =~ s/user=root/user=$worker_role/g;
+        # FIXME:
+        # $dsn =~ s/user=root/user=$worker_role/g;
         # dbi:mysql:host=127.0.0.1:port=24600:user=Thread1:database=test:mysql_local_infile=1
         my $executor = GenTest_e::Executor->newFromDSN($dsn,
                                                      osWindows() ? undef : $self->channel());
         $executor->sqltrace($self->config->sqltrace);
-        $executor->setId($i+1);
+        $executor->setId($i + 1);
         $executor->setRole($worker_role);
         $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_THREAD);
         push @executors, $executor;
