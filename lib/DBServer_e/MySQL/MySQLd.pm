@@ -211,6 +211,9 @@ our @corruption_patterns = (
     '\[ERROR\] InnoDB: Corrupted page identifier at .{1,20}; set innodb_force_recovery=1 to ignore the record',
     '\[ERROR\] InnoDB: Flagged corruption of .{1,50} in table .{1,150} in CHECK TABLE; Wrong count',
     '\[ERROR\] InnoDB: Space id and page no stored in the page, read in are .{1,100}, should be ',
+    '\[ERROR\] InnoDB: OPT_PAGE_CHECKSUM mismatch on ',
+    '\[ERROR\] InnoDB: Encrypted page .{1,100} in file .{1,300} looks corrupted',
+    '\[ERROR\] InnoDB: Unable to decompress .{1,300}\.ibd',
 
 
     # (1) -- Seen together with some real corruption and corresponding error messages.
@@ -225,16 +228,12 @@ our @corruption_patterns = (
     # ?? [Note] InnoDB: Index is corrupt but forcing load into data dictionary
     # ?? [ERROR] InnoDB: n recs wrong 2817 2816
     # ?? [ERROR] InnoDB: Not applying INSERT_HEAP_REDUNDANT due to corruption on [page id: space=26, page number=49]
-    # ?? [ERROR] InnoDB: Cannot apply log to [page id: space=178, page number=0] of corrupted file './test/#sql-alter-271a94-2f.ibd'
     # ????[ERROR] [FATAL] InnoDB: Page old data size 1917 new data size 2278, page old max ins size 1940 new max ins size 1579
     # ?? [ERROR] InnoDB: Cannot find the dir slot for this record on that page;
-    # ?? [ERROR] InnoDB: Encrypted page [page id: space=12, page number=100] in file ./test/t8.ibd looks corrupted; key_version=1
     # ?? [ERROR] InnoDB: Missing FILE_CREATE, FILE_DELETE or FILE_MODIFY before FILE_CHECKPOINT for tablespace 1501
     # ?? [ERROR] InnoDB: Page [page id: space=9, page number=8] log sequence number 13603113 is in the future! Current system log sequence number 13123566.
-    # ?? [ERROR] InnoDB: OPT_PAGE_CHECKSUM mismatch on [page id: space=0, page number=417]
     # ?? [ERROR] InnoDB: Summed data size 1859, returned by func 30316
     # ?? [ERROR] InnoDB: Apparent corruption in space 0 page 1460 of index `IBUF_DUMMY` of table `IBUF_DUMMY`
-    # ?? [ERROR] InnoDB: Unable to decompress ./test/t2.ibd[page id: space=38, page number=31]
 );
 our @disk_full_patterns = (
     '(device full error|no space left on device)',
@@ -768,7 +767,6 @@ sub createMysqlBase  {
     my $alarm_msg = "Bootstrap did not finish within " . $alarm_timeout . "s.";
     use POSIX;
     sigaction SIGALRM, new POSIX::SigAction sub {
-        alarm(0);
         my $status = STATUS_SERVER_DEADLOCKED;
         say("ERROR: $who_am_i $alarm_msg " . Basics::return_status_text($status) . " later.");
         my $pid = $self->server_pid_per_errorlog();
@@ -778,9 +776,11 @@ sub createMysqlBase  {
         return $status;
     } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
 
+    say("DEBUG: $who_am_i Setting alarm with timeout $alarm_timeout" . "s.");
     alarm($alarm_timeout);
     system($command);
     my $rc = $? >> 8;
+    say("DEBUG: $who_am_i Reset alarm timeout.");
     alarm(0);
     $alarm_msg = '';
     # End of experimental code.
@@ -1146,6 +1146,7 @@ sub startServer {
             # $self->stop_server_for_debug(5, -11, 'mariadbd mysqld', 10);
             $start_time = time();
             $wait_end =   $start_time + $startup_timeout;
+            say("DEBUG: startup_timeout is $startup_timeout");
             while (1) {
                 Time::HiRes::sleep($wait_time);
                 if (not kill(0, $pid)) {
@@ -1230,7 +1231,7 @@ sub startServer {
                     # say("DEBUG: $who_am_i Waiting for finish of server startup.");
                 }
                 if (time() >= $wait_end) {
-                    my $status = STATUS_CRITICAL_FAILURE;
+                    my $status = STATUS_SERVER_DEADLOCKED;
                     say("ERROR: $who_am_i The server has not finished its start within the ".
                         "last $startup_timeout" . "s. Will crash the server, make a backtrace and " .
                         Basics::return_status_text($status));
@@ -2043,8 +2044,10 @@ sub checkDatabaseIntegrity {
     # EXECUTOR_TASK_CHECKER ensures that max_statement_time is set to 0 for the current executor.
     # Hence there should be no trouble if certain SQL lasts long because a table is big.
     $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_CHECKER);
+    say("DEBUG: $who_am_i Trying to connect.");
     $status = $executor->init();
     return $status if $status != STATUS_OK;
+    say("DEBUG: $who_am_i Connection got.");
 
     sub run_aux_sql {
     # Warnings:
@@ -3586,7 +3589,7 @@ sub make_backtrace {
     # For testing:
     # $rqg_homedir = undef;
     if (not defined $rqg_homedir) {
-        my $status = STATUS_SERVER_CRASHED;
+        my $status = STATUS_INTERNAL_ERROR;;
         say("ERROR: $who_am_i The RQG runner has not set RQG_HOME in environment." .
             Basics::exit_status_text($status));
         exit $status;
@@ -3851,13 +3854,13 @@ sub server_is_operable {
     }
     $who_am_i .=        " $server_name";
 
-    # $backtrace_timeout
+    # $finish_timeout
     # Value | Action
     # ------+------------------------------------------------------------------
     #     0 | Do not make a backtrace at all.
     # n > 0 | Wait up till n seconds if the DB server process disappears before
     #       | calling make_backtrace which crashes the server if running.
-    my $backtrace_timeout = 0;
+    my $finish_timeout = 0;
     my $pid = $self->find_server_pid;
     if (not $self->running) {
         say("ERROR: $who_am_i with process [" . $pid . "] is no more running.");
@@ -3892,17 +3895,19 @@ sub server_is_operable {
         my $errorlog_status = $self->checkErrorLog;
         return STATUS_ENVIRONMENT_FAILURE if STATUS_ENVIRONMENT_FAILURE == $errorlog_status;
         if (STATUS_DATABASE_CORRUPTION == $errorlog_status) {
-            say("INFO: $who_am_i Setting the status to DATABASE_CORRUPTION.");
             $status =            STATUS_DATABASE_CORRUPTION;
-            $backtrace_timeout = 60;
+            say("INFO: $who_am_i Will set status to " . status2text($status) .
+                " and crash the server.");
+            $self->crashServer();
+            $finish_timeout = 60;
         }
         my $return = Auxiliary::content_matching($content, \@end_line_patterns, '', 0);
         if      ($return eq Auxiliary::MATCH_YES) {
             say("INFO: $who_am_i end_line_pattern in server error log content found.");
-            $backtrace_timeout = 30;
+            $finish_timeout = 30;
             if ($status < STATUS_SERVER_CRASHED) {
-                say("INFO: $who_am_i Setting the status to STATUS_SERVER_CRASHED.");
                 $status = STATUS_SERVER_CRASHED;
+                say("INFO: $who_am_i Raising the status to " . status2text($status) . ".");
             }
         } elsif ($return eq Auxiliary::MATCH_NO) {
             # Do nothing
@@ -3913,13 +3918,13 @@ sub server_is_operable {
             return $status;
         }
 
-        if ($backtrace_timeout) {
+        if ($finish_timeout) {
             # FIXME:
             # What if '(mariadbd|mysqld): Shutdown complete$', trouble + server not dead?
             # FIXME: Do we wait here and than make_backtrace waits again?
-            say("INFO: $who_am_i Will poll up to " . $backtrace_timeout . "s if the server " .
+            say("INFO: $who_am_i Will poll up to " . $finish_timeout . "s if the server " .
                 "process finishes before calling 'make_backtrace'.");
-            my $end_time = time() + $backtrace_timeout;
+            my $end_time = time() + $finish_timeout;
             # say("DEBUG: Server pid is $pid");
             while (time() < $end_time) {
                 aux_pid_reaper();
@@ -3960,8 +3965,7 @@ sub server_is_operable {
 
         if (STATUS_OK != $status) {
             if (STATUS_SERVER_CRASHED == $status or STATUS_CRITICAL_FAILURE == $status) {
-                say("INFO: $who_am_i Will poll up to 30s if the server process finishes before " .
-                    "calling 'make_backtrace'.");
+                say("INFO: $who_am_i Will poll up to 30s if the server process finishes.");
                 my $end_time = time() + 30;
                 while (time() < $end_time) {
                     if (not $self->running) {
@@ -3972,19 +3976,20 @@ sub server_is_operable {
                 }
                 if (not $self->running) {
                     say("ERROR: $who_am_i with process [" . $pid . "] is no more running.");
-                    say("DEBUG: $who_am_i Will call 'make_backtrace' + set status to " .
-                        "STATUS_SERVER_CRASHED ");
                     $status = STATUS_SERVER_CRASHED;
+                    say("INFO: $who_am_i Setting status to " . status2text($status) . ".");
                 } else {
                     say("ERROR: $who_am_i with process [" . $pid . "] stays running.");
-                    say("DEBUG: $who_am_i Will call 'make_backtrace' which will kill the server " .
-                        "process if running + set status to STATUS_SERVER_DEADLOCKED.");
                     $status = STATUS_SERVER_DEADLOCKED;
+                    say("INFO: $who_am_i Setting status to " . status2text($status) . ".");
+                    say("INFO: $who_am_i Will crash the server.");
+                    $self->crashServer();
                 }
             } else {
-                say("INFO: $who_am_i Will call 'make_backtrace' which will kill the server " .
-                    "process if running+ set status to STATUS_CRITICAL_FAILURE.");
                 $status = STATUS_CRITICAL_FAILURE;
+                say("INFO: $who_am_i Setting status to " . status2text($status) . ".");
+                say("INFO: $who_am_i Will crash the server.");
+                $self->crashServer();
             }
             my $mbt_status = $self->make_backtrace();
             say("INFO: $who_am_i make_backtrace reported status $mbt_status.");
@@ -4009,6 +4014,12 @@ sub server_is_operable {
 
             $status = inspect_processlist($processlist,
                                           $self->serverVariable('lock_wait_timeout'), 1);
+            if (STATUS_SERVER_DEADLOCKED == $status) {
+                say("INFO: $who_am_i Setting status to " . status2text($status) . ".");
+                say("INFO: $who_am_i Will crash the server.");
+                $self->crashServer();
+                $self->make_backtrace();
+            }
             # Open problem:
             # GenTests stops the worker threads, finishes. The RQG runner calls server_is_operable.
             # There might be some delay till the entries of the worker threads have disappeared
