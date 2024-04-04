@@ -491,38 +491,49 @@ function install_till_end()
 
 function patch_for_testing()
 {
+    # Older MariaDB versions
+    # - do not need the patches that much like the higher versions
+    # - sometimes do not fit to the patches
+    IS_TOO_OLD=`echo "$RELEASE" | egrep '10\.4|10\.3|10\.2' | wc -l`
+    function cond_exit()
+    {
+        if [ "$IS_TOO_OLD" -eq 1 ]
+            then
+            echo "INFO: $RELEASE is just too old."
+        else
+            exit 4
+        fi
+    }
+
     cd "$SOURCE_DIR"
 
     # Try to reduce the amount of fake hangs if rr invoked.
     patch -lp1 < "$RR_HANG_PATCH"
     RC=$?
-    set -e
     if [ $RC -gt 0 ]
     then
         echo "ERROR: Applying '$RR_HANG_PATCH' failed."
-        exit 4
+        cond_exit
     fi
     echo "1. '$RR_HANG_PATCH' applied"
 
     #    Use SIGABRT instead of SIGKILL so that we avoid rotten rr traces.
     patch -lp1 < "$MTR_RR_PATCH"
     RC=$?
-    set -e
     if [ $RC -gt 0 ]
     then
         echo "ERROR: Applying '$MTR_RR_PATCH' failed."
-        exit 4
+        cond_exit
     fi
     echo "2. '$MTR_RR_PATCH' applied"
 
     #    Let mariabackup print its process id to STDOUT.
     patch -lp1 < "$BACKUP_PID_PATCH"
     RC=$?
-    set -e
     if [ $RC -gt 0 ]
     then
         echo "ERROR: Applying '$BACKUP_PID_PATCH' failed."
-        exit 4
+        cond_exit
     fi
     echo "3. '$BACKUP_PID_PATCH' applied"
 
@@ -530,15 +541,13 @@ function patch_for_testing()
     BP_IN_CORE_PATCH="$GENERAL_SOURCE_DIR""/RelWithDebInfo_BP_in_core.patch"
     patch -lp1 < "$BP_IN_CORE_PATCH"
     RC=$?
-    set -e
     if [ $RC -gt 0 ]
     then
         echo "ERROR: Applying '$BP_IN_CORE_PATCH' failed."
-        exit 4
+        cond_exit
     fi
     echo "4. '$BP_IN_CORE_PATCH' applied"
 
     # git status       gets printed by other function later
 
-    set +e
 }
