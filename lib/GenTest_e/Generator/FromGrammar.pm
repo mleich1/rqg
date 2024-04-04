@@ -1,7 +1,7 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2018-2021 MariaDB Corporation Ab.
-# Copyright (c) 2023 MariaDB plc
+# Copyright (c) 2023-2024 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -469,7 +469,12 @@ sub next {
 					} elsif (($item eq '_field_char_indexed') || ($item eq '_field_char_key')) {
 						my $fields_char_indexed = $executors->[0]->metaColumnsDataIndexType('char','indexed',$last_table, $last_database);
                         $last_field = $prng->arrayElement($fields_char_indexed);
+                        # Experiment begin
+                        # I am aware that this harvests most probably some SQL syntax error.
+                        # But its less annoying than some perl error.
+                        $last_field = 'not_existing_char_indexed' if not defined $last_field;
 						$item = '`'.$last_field.'`';
+                        # Experiment end
 					} elsif ($item eq '_collation') {
 						my $collations = $executors->[0]->metaCollations();
 						$item = '_'.$prng->arrayElement($collations);

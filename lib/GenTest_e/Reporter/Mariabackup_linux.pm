@@ -101,7 +101,7 @@ use POSIX;
 # Warning:
 # --------
 # There might be frictions with the timeouts used in App/GenTest.pm after the loop OUTER.
-use constant BACKUP_TIMEOUT  => 100;
+use constant BACKUP_TIMEOUT  => 200;
 use constant PREPARE_TIMEOUT => 200;
 
 my $first_reporter;
@@ -324,7 +324,7 @@ sub TERM_handler {
     Basics::direct_to_stdout();
     say("DEBUG: $who_am_i SIGTERM caught.");
     if(not -e $backup_prt) {
-        return($status);
+        return $status;
     } else {
         my $mb_pid = Auxiliary::get_string_after_pattern($backup_prt,
                      "Starting Mariabackup as process ");
@@ -406,7 +406,7 @@ sub TERM_handler {
             say("INFO: $who_am_i Send SIGSEGV to pid $mb_pid running mariabackup");
             kill 'SEGV' => $mb_pid;
             Basics::direct_to_file($reporter_prt);
-            sayFile($backup_prt);
+            # sayFile($backup_prt);
             return $status;
         }
     } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";

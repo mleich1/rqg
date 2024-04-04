@@ -1602,7 +1602,9 @@ $return = Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_GENDATA);
 $alarm_msg = "ERROR: rqg.pl: max_gd_duration(" . $max_gd_duration . "s * " .
              Runtime::get_runtime_factor() . ") was exceeded. " .
              "Will kill DB servers and exit with STATUS_ALARM(" . $status . ") later.";
-alarm ($max_gd_duration * Runtime::get_runtime_factor());
+my $alarm_timeout = $max_gd_duration * Runtime::get_runtime_factor();
+say("DEBUG: rqg.pl: Setting alarm with timeout $alarm_timeout" . "s.");
+alarm ($alarm_timeout);
 
 # For experimenting
 # The usual time span required for GenData will exceed 1s.
@@ -1613,6 +1615,7 @@ alarm ($max_gd_duration * Runtime::get_runtime_factor());
 # killServers();
 
 $gentest_result = $gentest->doGenData();
+say("DEBUG: rqg.pl: Reset alarm timeout.");
 alarm (0);
 $alarm_msg = "";
 

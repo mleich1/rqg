@@ -33,7 +33,7 @@ sub translate {
 }
 
 sub init {
-	return 1;
+    return 1;
 }
 
 1;

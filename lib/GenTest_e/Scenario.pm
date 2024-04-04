@@ -206,7 +206,7 @@ sub checkErrorLog {
   my ($crashes, $errors)= $server->checkErrorLogForErrors($marker);
   my @errors= (($opts && $opts->{CrashOnly}) ? @$crashes : (@$errors, @$crashes));
   foreach (@errors) {
-    if (m{\[ERROR\] InnoDB: Corruption: Page is marked as compressed but uncompress failed with error}so) 
+    if (m{\[ERROR\] InnoDB: Corruption: Page is marked as compressed but uncompress failed with error}so)
     {
         $self->addDetectedBug(13112);
         $status= STATUS_CUSTOM_OUTCOME if $status < STATUS_CUSTOM_OUTCOME;

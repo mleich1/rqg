@@ -284,11 +284,13 @@ sub monitor_nonthreaded {
     $alarm_timeout =    $connect_timeout_threshold + OVERLOAD_ADD;
     $alarm_msg =        "Got no connect to server within " . $alarm_timeout . "s. ";
     my $connect_start = time();
+    say("DEBUG: $who_am_i Setting alarm with timeout $alarm_timeout" . "s.");
     alarm ($alarm_timeout);
 
     # This will perform the connect and set max_statement_time = 0.
     my $status = $executor->init();
 
+    say("DEBUG: $who_am_i Reset alarm timeout.");
     alarm (0);
     $alarm_msg =  '';
     $status =     give_up($status, $query);
@@ -317,8 +319,10 @@ sub monitor_nonthreaded {
             "SELECT THREAD_ID, LOCK_MODE, LOCK_DURATION, LOCK_TYPE, TABLE_NAME " .
             "FROM information_schema.METADATA_LOCK_INFO " .
             "WHERE TABLE_SCHEMA != 'information_schema'" , ) {
+            say("DEBUG: $who_am_i Setting alarm with timeout $alarm_timeout" . "s.");
             alarm ($alarm_timeout);
             $result = $executor->execute($query);
+            say("DEBUG: $who_am_i Reset alarm timeout.");
             alarm (0);
             $status = $result->status;
             give_up($status, $query);
@@ -696,7 +700,6 @@ sub inspect_processlist {
         # Concept:
         # 1. Check first if the server process is gone.
         # 2. Set the alarm_msg for deadlock/freeze before setting the alarm.
-        alarm (0);
         if (STATUS_OK != server_dead($reporter)) {
             exit STATUS_SERVER_CRASHED;
         }
@@ -711,7 +714,9 @@ sub inspect_processlist {
     my $alarm_timeout = $reporter_query_threshold + OVERLOAD_ADD;
     $alarm_msg =  "Got no response from server to query '$query' within " . $alarm_timeout . "s.";
     alarm ($alarm_timeout);
+    say("DEBUG: $who_am_i Setting alarm with timeout $alarm_timeout" . "s.");
     my $result =  $executor->execute($query);
+    say("DEBUG: $who_am_i Reset alarm timeout.");
     alarm (0);
     $alarm_msg =  '';
     my $status = $result->status;

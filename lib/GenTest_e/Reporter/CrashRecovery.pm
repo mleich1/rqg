@@ -152,13 +152,15 @@ sub report {
     # In case $server->startServer failed than it makes a backtrace + cleanup.
     # The error log will get also checked.
     if ($recovery_status > STATUS_OK) {
-        if ($recovery_status == STATUS_SERVER_CRASHED or    # Real crash + backtrace
-            $recovery_status == STATUS_CRITICAL_FAILURE) {  # Timeout exceeded, kill + backtrace
+        if ($recovery_status == STATUS_SERVER_CRASHED    or    # Real crash + backtrace
+            $recovery_status == STATUS_SERVER_DEADLOCKED or    # Timeout exceeded, kill + backtrace
+            $recovery_status == STATUS_CRITICAL_FAILURE) {     # whatever, kill + backtrace
             say("DEBUG: $who_am_i Serious trouble during server restart. Hence setting " .
                 "recovery_status STATUS_RECOVERY_FAILURE.");
             $recovery_status = STATUS_RECOVERY_FAILURE;
         }
         say("ERROR: $who_am_i Status based on server start attempt is $recovery_status");
+        return $recovery_status;
     } else {
         $reporter->updatePid();
         say("INFO: $who_am_i " . $$ . " Server pid updated to ". $reporter->serverInfo('pid') . ".");
