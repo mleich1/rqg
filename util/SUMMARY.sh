@@ -66,8 +66,6 @@ rm -f "$TMP_RESULT"
 NEW_SETUP="$WRK_DIR""/setup.new"
 rm -f "$NEW_SETUP"
 set -e
-touch "$TMP_RESULT"
-touch "$TMP_SETUP"
 touch "$NEW_RESULT"
 touch "$NEW_SETUP"
 
@@ -102,6 +100,10 @@ function process_log()
     VAL=`echo "$INFO1" | grep 'Verdict: ignore' | wc -l`
 
     DIR_NAME=`dirname "$LOG_FILE"`
+    TMP_RESULT="$DIR_NAME""/result.rqg"
+    TMP_SETUP="$DIR_NAME""/setup.rqg"
+    rm -f "$TMP_RESULT"
+    rm -f "$TMP_SETUP"
     ARCH="$DIR_NAME""/archive.tar.xz"
     if [ $VAL -eq 0 ]
     then
@@ -128,10 +130,12 @@ function process_log()
 
 function num_children {
     NUM_CHILDREN=`ps -eo ppid | grep -w $$ | wc -l`
-    echo $NUM_CHILDREN >> otto
+    # echo $NUM_CHILDREN >> otto
 }
 
 NPROC=`nproc`
+# Do not use "$WRK_DIR"/* because that would include the not yet finished runs located in
+# "$WRK_DIR"/<less than 6 digits and not starting with 0>.
 for LOG_FILE in `ls -d "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9]/rqg.log \
 "$WRK_DIR"/[A-Za-z]*/rqg.log 2>/dev/null`
 do
@@ -145,8 +149,12 @@ do
     process_log "$LOG_FILE" &
 done
 wait
-sort "$TMP_RESULT"                                                               | tee -a "$NEW_RESULT"
-rm -f "$TMP_RESULT"
-sort "$TMP_SETUP"                                                                >> "$NEW_SETUP"
-rm -f "$TMP_SETUP"
+
+cat "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9]/result.rqg  \
+"$WRK_DIR"/[A-Za-z]*/result.rqg | sort | tee -a "$NEW_RESULT"
+cat "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9]/setup.rqg  \
+"$WRK_DIR"/[A-Za-z]*/setup.rqg | sort >> "$NEW_SETUP"
+rm -f "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9]/*.rqg \
+"$WRK_DIR"/[A-Za-z]*/*.rqg
+exit
 
