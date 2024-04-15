@@ -4,8 +4,31 @@ LANG=C
 RQG_DIR=`pwd`
 
 # set -x
+
 set -e
-set -o pipefail
+# We need some fault tolerance.
+# Example 1:
+#    We have some ongoing RQG testing campaign.
+#    The current script detects the file
+#        /data/results/1654696701/1/rqg.log
+#    of RQG runner 1 (== some ongoing RQG test) and
+#    starts a child process running "function process_log" into the background.
+#    The child process detects that /data/results/1654696701/1/rqg.log does no more exist.
+#    Reasons:
+#    most likely: That RQG run was finished with STATUS_OK and the RQG runner 1
+#                 deleted /data/results/1654696701/1 and exited.
+#    sometimes:   That RQG run was finished with some bad STATUS of interest and
+#                 /data/results/1654696701/1 was renamed to /data/results/1654696701/000013.
+#    sometimes:   The RQG test simplifier detected that this ongoing RQG run is worthless,
+#                 killed the RQG runner 1 and deleted /data/results/1654696701/1.
+#    rare:        RQG batch detected some resource shortage, killed the RQG runner 1 and
+#                 deleted /data/results/1654696701/1.
+# Example 2:
+#    A file "$WRK_DIR"/[A-Za-z]*/rqg.log does not exist at all.
+#    Most likely reason: There was never a /data/results/1654696701/000013 of some finished
+#                        RQG run with bad STATUS of interest which was manual renamed to some
+#                        "$WRK_DIR"/[A-Za-z]*.
+# set -o pipefail
 
 CALL_LINE="$0 $*"
 
@@ -74,8 +97,8 @@ touch "$NEW_SETUP"
 perl verdict.pl --batch_config=verdict_general.cfg --workdir=$RQG_DIR > /dev/null
 
 set +e
-
 NUM=`ls -d "$WRK_DIR"/RQG_Simplifier.cfg 2>/dev/null | wc -l`
+set -e
 if [ $NUM -gt 0 ]
 then
     MSG1="The directory '$WRK_DIR' contains a Simplifier run\n"
@@ -150,11 +173,12 @@ do
 done
 wait
 
+set +e
 cat "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9]/result.rqg  \
-"$WRK_DIR"/[A-Za-z]*/result.rqg | sort | tee -a "$NEW_RESULT"
+"$WRK_DIR"/[A-Za-z]*/result.rqg 2>/dev/null | sort | tee -a "$NEW_RESULT"
 cat "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9]/setup.rqg  \
-"$WRK_DIR"/[A-Za-z]*/setup.rqg | sort >> "$NEW_SETUP"
+"$WRK_DIR"/[A-Za-z]*/setup.rqg 2>/dev/null | sort >> "$NEW_SETUP"
 rm -f "$WRK_DIR"/[0-9][0-9][0-9][0-9][0-9][0-9]/*.rqg \
-"$WRK_DIR"/[A-Za-z]*/*.rqg
+"$WRK_DIR"/[A-Za-z]*/*.rqg 2>/dev/null
 exit
 
