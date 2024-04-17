@@ -653,8 +653,10 @@ sub createMysqlBase  {
     my @cleaned_boot_options;
     # The '.*' is for covering variables like '--loose-innodb_force_recovery'.
     foreach my $boot_option (@$boot_options) {
-        if ($boot_option =~ m{.*innodb.force.recovery} or
-            $boot_option =~ m{.*innodb.evict.tables.on.commit.debug})   {
+        if ($boot_option =~ m{.*innodb.force.recovery}               or
+            $boot_option =~ m{.*innodb.evict.tables.on.commit.debug} or
+            # 2024-04 Observation: ERROR: 1969  Query execution was interrupted (max_statement_time exceeded)
+            $boot_option =~ m{.*max.statement.time})                    {
             say("DEBUG: -->" . $boot_option . "<-- will be removed from the bootstrap options.");
             next;
         } else {
