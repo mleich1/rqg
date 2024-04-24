@@ -25,11 +25,11 @@ The main components
 2. The batch tool which manages to run concurrent RQG tests on the same testing
    box according to some config file is 'rqg_batch.pl'.
    In case of using the the mode
-   - 'Combinator' it runs some test battery consisting of different RQG tests, including
+   - 'Combinator' it runs some test campaign consisting of different RQG tests, including
      archiving of the remains of failing tests and aggregation of results.
      This replaces the older batch tools 'combinations.pl' and bughunt.pl'.
-     The properties of the test battery are defined in some config file (*.cc).
-   - 'Simplifier' it runs some test battery consisting of dynamic generated slightly different
+     The properties of the test campaign are defined in some config file (*.cc).
+   - 'Simplifier' it runs some test campaign consisting of dynamic generated slightly different
      RQG tests with the goal to achieve some simplified RQG test which replay some bad effect.
      This replaces the former tool 'simplify-grammar.pl' which is far way less powerful.
      Config file *.cfg
@@ -53,7 +53,7 @@ The main components
    - SET SESSION AUTOCOMMIT = OFF or similar
    - compute a value and assign it to some perl variable
    before running any other SQL. But he could also lose his connection from non bad reason like
-   COMMIT WORK RELEASE and perform than a reconnect.
+   COMMIT WORK RELEASE or getting killed and perform than a reconnect.
 7. Support the processing a file containing plain SQL within the work flow
    --gendata ....
    --gendata_sql
@@ -121,12 +121,13 @@ Please excuse
   - complicated usage variants of Combinations
   - optimizer tests
   - sophisticated setups with Galera, whatever replication, multi server setup etc. because I
-    do not see me able to check any modification regarding usability in these areas in the moment.
+    do not see me able to check any of my modification regarding usability in these areas in
+    the moment.
 - that some
   - git blame <a file in lib/GenTest_e or lib/DBServer_e and similar>
-    shows me all time as author.
+    shows me that often as author.
     All these files are derivates of the files under lib/GenTest and lib/DBServer.
-    My modification are
+    My modifications are
     - minor like adjust the code to my personal standards regarding readability
     till
     - intrusive with heavy improved checks etc.
@@ -202,6 +203,8 @@ Preparations for using RQG, my batch tool and build scripts
 
   - Edit /etc/sysctl.conf and add for example
         fs.aio-max-nr=99999999
+        kernel.panic = 30 # Hopefully useful. 30s for giving the cooling system
+                          # at least a bit time.
     and similar
         /etc/security/limits.conf
         * hard nofile 102400
@@ -212,10 +215,32 @@ Preparations for using RQG, my batch tool and build scripts
       https://rr-project.org/
   Around 60% of the page are instructions how to install the latest version of rr on
   Fedora and Ubuntu.
+  Warning:
+  Upgrades of the OS or rr have a high likelihood to devaluate existing rr traces.
+  Flip the automatic updates off
+    /etc/apt/apt.conf.d/20auto-upgrades
+    APT::Periodic::Unattended-Upgrade "0";
 
-- Stuff needed for build MariaDB and RQG testing
+- Stuff needed for gdb, core file generation etc.
+  - /etc/sysctl.d/10-ptrace.conf setting
+    kernel.yama.ptrace_scope = 0
 
-  Your .profile should set variables like
+- Stuff needed for server being far away/no power button reachable
+  https://www.unixtutorial.org/disable-sleep-on-ubuntu-server/
+    sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+
+- /etc/systemd/logind.conf
+  RemoveIPC=no     # Required because otherwise /dev/shm/ ..... content owned by some user
+                   # gets deleted when the user logs out or
+                   # the ISP cuts and reestablishes connection
+  UserTasksMax=66% # The kernel and/or systemd/logind seem to set a default UserTasksMax
+                   # share of 33% which than leads to some too small maximum number of
+                   # processes for the testing admin.
+
+- Clone my version of RQG
+  git clone https://github.com/mleich1/rqg --branch master RQG_mleich1
+
+  Your ~/.profile should set variables like
      # Used by my scripts for building MariaDB and RQG testing
      export GENERAL_SOURCE_DIR="/Server"
      export GENERAL_STORE_DIR="/data"
@@ -226,6 +251,11 @@ Preparations for using RQG, my batch tool and build scripts
 
   Copy the build scripts to a "default" location.
      sudo cp <RQG install dir>/util/bld_*.sh /usr/local/bin
+
+  Copy patches for MariaDB to GENERAL_SOURCE_DIR.
+  These patches serve mostly the testing with focus on InnoDB and analysis of failing tests.
+  For details and reasons please look into util/bld_lib.sh (~50% of code).
+     cp util/bld_patches/* "$GENERAL_SOURCE_DIR"
 
   cp <RQG install dir>/local_template.cfg <RQG install dir>/local.cfg
   Please edit <RQG install dir>/local.cfg so that it fits to your needs.
@@ -267,7 +297,7 @@ Assuming that you have set the environment variables to values like above
 
 How to make a single RQG run
 ----------------------------
-Please make a copy of the script RQG.sh and adjust it to your needs.
+Please make a copy of the script RQG.sh and adjust it to your needs or take the original.
 The log of the RQG run will be $GENERAL_STORE_DIR/results/SINGLE_RQG/rqg.log
 The remains of the RQG run will be in /dev/shm/rqg/SINGLE_RQG .
 They will contain symlinks to directories and files pointing to somewhere inside and outside
@@ -279,7 +309,7 @@ The next run with RQG.sh will drop and recreate directories $GENERAL_STORE_DIR/S
 How to run a batch of RQG runs with massive parallelization
 -----------------------------------------------------------
 Please make a copy of
-- the script BATCH.sh and adjust it to your needs
+- the script BATCH.sh and adjust it to your needs or take the original.
 - the batch configuration file conf/mariadb/InnoDB_standard.cc and adjust it to your needs
 
     ./<edited copy of BATCH.sh> <batch config file> <path to the installed binaries>
@@ -303,43 +333,66 @@ The workdir of the last maybe ongoing RQG batch (-> rqg_batch.pl) run is
     @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 Content of that workdir
-- Short build protocol of the first and second set of binaries assigned
-  basedir1.short
-  basedir2.short
-- hardlinks to archives of the binaries
-  basedir1.tar.xz
-  basedir2.tar.xz
-- GIT related information about RQG, source/branch for basedir1 and basedir2
-  SourceInfo.txt
-- copy of the configuration file (conf/mariadb/InnoDB_standard.cc or similar) used for
-  for this RQG batch run
-  The copy is named Combinator.cc or Simplifier.cfg
-- derivate of the configuration files used for making the RQG batch run and the verdicts
-  Verdict.cfg
-- Log file of the RQG batch resource control
-  resource.txt
-- Tabellaric overview about the RQG runs performed + the final verdict
-  result.txt
-  result.new in case you run util/SUMMARY.sh later in addition
-- Tabellaric overview ... with nearly full setup of the single RQG runs
-  setup.txt
-  setup.new in case you run util/SUMMARY.sh later in addition
-- Directories <number with up to three digits and never leading zeros) like 266
-  per active RQG runner.
-  Such a directory contains gendata files (*.zz), grammars *.yy), the RQG log etc.
-  The fate of that directory depends on the final verdict.
-  In case the result is not of interest than it gets dropped. Otherwise it gets
-  transformed to some directory for any finished RQG run with result of interest.
-- Directories <number with six digits and leading zeros> like 000113 for any
-  finished RQG run with result of interest.
-  Content:
-  - RQG log     rqg.log
-  - Archive of the remains of the test run excluding rr traces but maybe with core files
-    archive.tar.xz
-  - RQG grammars etc. like    rqg.zz, rqg.sql, rqg.yy
-  - Auxiliary files with names following the pattern     rqg*.*
-  - Directories for DB servers and their rr traces like
-    1/rr, 1_clone/rr, 2/rr
+-----------------------
+Short build protocol of the first and second set of binaries assigned
+   basedir1.short, basedir2.short
+
+Hardlinks to archives of the binaries
+   basedir1.tar.xz, basedir2.tar.xz
+
+GIT related information about RQG, source/branch for basedir1 and basedir2
+   SourceInfo.txt
+
+Configuration file used for the RQG batch run:
+   Combinator.cc if the Combinator is used (default)
+   Simplifier.cfg if the Simplifier is used
+   This is a copy of the configution file assigned to the RQG batch call
+   (conf/mariadb/InnoDB_standard.cc or similar).
+
+Configuration file for generating the verdicts about test results: Verdict.cfg
+   This is
+   - Combinator: a copy of verdict_general.cfg
+   - Simplifier: a derivate of verdict_general.cfg and Simplifier.cfg
+
+Log file of the RQG batch resource control: resource.txt
+
+Tabellaric overview about the RQG runs performed + the final verdict
+   result.txt
+   result.new in case you run util/SUMMARY.sh later in addition
+Tabellaric overview ... with nearly full setup of the single RQG runs
+   setup.txt
+   setup.new in case you run util/SUMMARY.sh later in addition
+
+Directories <number with up to three digits and never leading zeros) like 266
+per active RQG runner.
+   Such a directory contains
+   - if assigned at all the gendata file: rqg.zz
+   - if assigned at all the resulting gendata_sql file: rqg.sql
+   - the resulting grammar: rqg.yy
+   - the log of the RQG run: rqg.log
+   etc.
+   The fate of that directory depends on the final verdict.
+   In case the result is not of interest than it gets dropped. Otherwise it gets
+   transformed to some directory for any finished RQG run with result of interest.
+Directories <number with six digits and leading zeros> like 000113 for any
+finished RQG run with result of interest.
+   Content:
+   - the log of the RQG run: rqg.log
+   - Archive of the remains of the test run excluding rr traces but maybe with core files
+     archive.tar.xz
+   - RQG grammars etc. like    rqg.zz, rqg.sql, rqg.yy
+   - Auxiliary files with names following the pattern     rqg*.*
+   - Directories for DB servers and their rr traces like
+     1/rr, 1_clone/rr, 2/rr
+
+Please note that the effective RQG batch run and the corresponding crowd of RQG runs
+is made based on the files Combinator.cc, Simplifier.cfg, local.cfg, rqg.yy, etc.
+There are two reasons for that:
+1. The content of the RQG install can change by editing or "git pull".
+   In order to be able to replay some historic RQG batch/RQG run at least some of
+   the files effective used should be preserved.
+2. The content of preserved failing RQG runs becomes by that more uniform.
+   rqg.zz, rqg.sql, rqg.yy etc.
 
 The verdict is made based on verdict_general.cfg.
 Feel free to edit your version of it but never push that to the official repository.
@@ -676,6 +729,11 @@ DONE (incomplete and arbitrary sorted list):
     - So which order of steps to use?
     - How to avoid that we trade simplification and replay speed for simplicity?
 21. Optional invocation of rr
+22. Preserve the server binaries used without consuming more storage space than necessary.
+    Example:
+    /data/results/1712753570/basedir1.tar.xz is a hard link to
+    /data/binarchs/10.6-MDEV-33325_debug_Og_1712753549.tar.xz
+23. Cleanup script for some finished testing campaign which removes not needed archives etc.
 
 
 TODO (incomplete list):
@@ -749,46 +807,7 @@ TODO (incomplete list):
 -- Describe the work flow from
    1. bug hunting with RQG tests (rqg_batch.pl with cc config file)
    2. grammar simplification for one or more of the bugs found in 1.
-   3. How to develop ibased on 2. some final replay testcase which is maybe MTR based.
--- Find some way to preserve the server binaries used.
-   Purpose:
-   Lets assume at some point of time after the test run the binary gets modified or the
-   complete build gets thrown away.
-   But the analysis of core files requires corresponding binaries + reconstructing them is
-   some costly process and quite error prone (What if local non committed modifications?).
-   Hence preserving at least the server binaries used is recommended.
-   Letting rqg.pl do that is thinkable.
-   The difficulties show up as soon as
-   - more than one binary is used per test (upgrade or replication)
-     How to name/mark different binaries?
-   - batches of tests are performed
-     How to
-     a) avoid to preserve duplicates of binaries (storage space + efforts (time, CPU, IO) at runtime.
-     b) avoid the overhead of
-        We run a batch of RQG tests with the same basedirs.
-        All rqg.pl preserve the binary in their work directory. (time, CPU, IO at runtime)
-        rqg_batch.pl acts according to a) and throws duplicates away but needs to somehow
-        preserve the knowledge the test X was using preserved binary x.
-     c) somehow minimize that the rqg_batch.pl needs to act
-        - in advance and analyze what some RQG run is going to do (basedir etc.)
-        - after some RQG run and analyze results
-        because that
-        - must not cause that rqg_batch.pl loses its control over the active RQG runner
-          Just assume rqg_batch.pl exits when hitting a problem.
-        - should not cause to lose its control over too long timespans.
-          Assume some long lasting analysis or copy process.
-          During that controlling the RQG runner is with the current concept impossible.
-     rqg.pl
-     - creating files outside of his workdir and vardir
-     - inspecting files (example: server binaries already stored by rqg_batch.pl)
-       outside of $RQG_HOME
-     is strict out of discussion.
-     Idea:
-     rqg.pl could store the binary identifying information (location + md5sum, maybe GIT info) in
-     some file within its workdir.
-     rqg_batch.pl could process that file and preserve binaries and whatever information if
-     not already done for some finished RQG run.
-     IMHO acceptable weak point: Modification of binary during rqg_batch.pl runtime.
+   3. How to develop based on 2. some final replay testcase which is maybe MTR based.
 -- Let rqg_batch.pl run mysqltest simplification
 -- Implement several optional "strangler" which cause that some ongoing simplifications attempt
    is stopped in case it is extreme likely that we will get no more a replay with this one.
@@ -952,7 +971,7 @@ Hints
 6. Events like kill the server process initiated by reporters must happen within the assigned
    duration. In case the automatic test simplification shortens the duration than
    we could come into trouble.
-7. It could happen that the execution of a test battery or a RQG tests simplification does
+7. It could happen that the execution of a test campaign or a RQG tests simplification does
    not reach the CPU load wanted.
    Observation 2022-09:
    Big server, 270 (== upper limit reached) concurrent tests running under the simplifier,
