@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Typical use case
+# ----------------
+# QA on some MariaDB source tree: Run a testing campaign based on some Combinator config file.
+#
 # Please see this shell script rather as template how to call rqg_batch.pl even though
 # it might be already in its current state sufficient for doing a lot around RQG.
 #
@@ -124,15 +128,17 @@ MAX_RUNTIME=27000
 
 # Only one temporary 'God' (rqg_batch.pl vs. concurrent MTR, single RQG or whatever) on testing box
 # -------------------------------------------------------------------------------------------------
-# in order to avoid "ill" runs where
-# - current rqg_batch run ---- other ongoing rqg_batch run
-# - current rqg_batch run ---- ongoing MTR run
-# clash on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files) or
-# suffer from tmpfs full etc.
+# Countermeasures to prevent certain errors caused by the environment at test campaign runtime like
+# 1. Clash of tests on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files)
+#        current rqg_batch run ---- other ongoing rqg_batch run
+#        current rqg_batch run ---- ongoing MTR run
+# 2. The current test campaign suffers sooner or later from important filesystems full etc.
+#
 # Testing tool | Programs            | Standard locations
 # -------------+---------------------+---------------------------
 # rqg_batch.pl | perl, mysqld,   rr  | /dev/shm/rqg*/* /data/rqg/*
 # MTR          | perl, mariadbd, rr  | /dev/shm/var*
+#
 killall -9 perl mysqld mariadbd rr
 rm -rf /dev/shm/rqg*/* /dev/shm/var* /data/rqg/*
 
@@ -181,7 +187,7 @@ set -o pipefail
 #    one was assigned in the config file.
 #    Hence assigning "--no-mask" to combinations.pl was required in order to switch any masking off.
 #    rqg_batch.pl
-#    - also does not support "--mask=...", "--mask_level=..." on command line
+#    - does not support "--mask=...", "--mask_level=..." on command line
 #    - accepts any "--no-mask" from command line but passes it through to Combinator or Simplifier
 #    The Combinator
 #    - generates a snippet (might contain no-mask, mask, mask-level) of the call of a RQG runner
@@ -217,8 +223,8 @@ set -o pipefail
 #         Example: --microarch="Intel Skylake"
 #      in local.cfg
 #
-# --rr                                                                 \
 #    Preserve the 'rr' traces of the bootstrap, server starts and mariabackup calls.
+# --rr                                                                 \
 #
 #    Recommended settings (Info taken from rr help)
 #    '--chaos' randomize scheduling decisions to try to reproduce bugs
@@ -244,19 +250,19 @@ set -o pipefail
 
 # In case you distrust the rqg_batch.pl mechanics or the config file etc. than going with some
 # limited number of trials is often useful.
-# TRIALS=3
-# PARALLEL=2
-# TRIALS=2
-# PARALLEL=2
 # TRIALS=1
 # PARALLEL=1
+# TRIALS=2
+# PARALLEL=2
+# TRIALS=3
+# PARALLEL=2
 #
 
 nohup perl -w ./rqg_batch.pl                                           \
+--type=Combinator                                                      \
 --parallel=$PARALLEL                                                   \
 --basedir1=$BASEDIR1                                                   \
 --basedir2=$BASEDIR2                                                   \
---type=Combinator                                                      \
 --config=$CONFIG                                                       \
 --max_runtime=$MAX_RUNTIME                                             \
 --trials=$TRIALS                                                       \

@@ -1,5 +1,17 @@
 #!/bin/bash
 
+# Typical use case
+# ----------------
+# Have some simplified RQG test and begin with manual simplifications.
+#
+# Work in a loop consisting of
+#     1. Edit the RQG grammar or the Simplifier config file
+#     2. Run some testing campaign based on the assigned RQG grammar and config file until having
+#        - 1 replay of the desired outcome                                   or
+#        - exceeded TRIALS=1600 or MAX_RUNTIME=7200                          or
+#        - exceeded the quota for bad testing outcomes
+# till having some sufficient simplified test.
+#
 # Please see this shell script rather as template how to call rqg_batch.pl even though
 # it might be already in its current state sufficient for doing a lot around RQG.
 #
@@ -13,7 +25,7 @@ CALL_LINE="$0 $*"
 
 # Config file for rqg_batch.pl containing various settings for the RQG+server+InnoDB etc.
 # including settings for avoiding open bugs.
-# The template is: simplify_rqg_template.cfg
+# Template: simplify_rqg_template.cfg
 CONFIG=$1
 if [ "$CONFIG" = "" ]
 then
@@ -34,7 +46,7 @@ CASE0=`basename $CONFIG`
 CASE=`basename $CASE0 .cfg`
 if [ $CASE = $CASE0 ]
 then
-   echo "You need to assign a simplifier config file (extension .cfg)."
+   echo "You need to assign a Simplifier config file (extension .cfg)."
    echo "The call was ->$CALL_LINE<-"
    echo -e "$USAGE"
    exit
@@ -121,8 +133,10 @@ set +e
 #   Regular means: Not stopped by rqg_batch.pl because of whatever internal reason.
 #   Focus: Bad Combinator config or tests, defect in code of RQG or tools, exceptional bad DB server
 #          and experiments
-# - Stop of testing as soon as n=1 (--stop_on_replay=1) RQG runs finished with the verdict 'replay'.
-#   The simplifier config file (extension .cfg) to be used here should define which test outcome 
+# - Stop of testing as soon as <n> RQG runs finished with the verdict 'replay' if
+#   --stop_on_replay=<n> is set.
+#   We set "--stop_on_replay=1" in the current script.
+#   The simplifier config file (extension .cfg) to be used here should define which test outcome
 #   counts as 'replay'.
 #
 TRIALS=1600
@@ -130,15 +144,17 @@ MAX_RUNTIME=7200
 
 # Only one temporary 'God' (rqg_batch.pl vs. concurrent MTR, single RQG or whatever) on testing box
 # -------------------------------------------------------------------------------------------------
-# in order to avoid "ill" runs where
-# - current rqg_batch run ---- other ongoing rqg_batch run
-# - current rqg_batch run ---- ongoing MTR run
-# clash on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files) or
-# suffer from tmpfs full etc.
+# Countermeasures to prevent certain errors caused by the environment at test campaign runtime like
+# 1. Clash of tests on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files)
+#        current rqg_batch run ---- other ongoing rqg_batch run
+#        current rqg_batch run ---- ongoing MTR run
+# 2. The current test campaign suffers sooner or later from important filesystems full etc.
+#
 # Testing tool | Programs            | Standard locations
 # -------------+---------------------+---------------------------
 # rqg_batch.pl | perl, mysqld,   rr  | /dev/shm/rqg*/* /data/rqg/*
 # MTR          | perl, mariadbd, rr  | /dev/shm/var*
+#
 killall -9 perl mysqld mariadbd rr
 rm -rf /dev/shm/rqg*/* /dev/shm/var* /data/rqg/*
 
@@ -243,18 +259,18 @@ set -o pipefail
 
 # In case you distrust the rqg_batch.pl mechanics or the config file etc. than going with some
 # limited number of trials is often useful.
-# TRIALS=3
-# PARALLEL=2
-# TRIALS=2
-# PARALLEL=2
 # TRIALS=1
 # PARALLEL=1
+# TRIALS=2
+# PARALLEL=2
+# TRIALS=3
+# PARALLEL=2
 #
 
 nohup perl -w ./rqg_batch.pl                                           \
+--type=RQG_Simplifier                                                  \
 --parallel=$PARALLEL                                                   \
 --basedir1=$BASEDIR1                                                   \
---type=RQG_Simplifier                                                  \
 $GRAMMAR_PART                                                          \
 --config=$CONFIG                                                       \
 --max_runtime=$MAX_RUNTIME                                             \

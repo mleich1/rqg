@@ -1,5 +1,13 @@
 #!/bin/bash
 
+# Typical use case
+# ----------------
+# Have one or more bad effects of interest defined in some RQG test Simplifier config file.
+# Run some automatic simplification of the RQG test.
+# The simplification campaign will stop if
+# - the simplifier gives up based on certain criterions
+# - MAX_RUNTIME is exceeded
+#
 # Please see this shell script rather as template how to call rqg_batch.pl even though
 # it might be already in its current state sufficient for doing a lot around RQG.
 #
@@ -64,7 +72,7 @@ if [ "$GRAMMAR" != "" ]
 then
    if [ ! -f "$GRAMMAR" ]
    then
-      echo "The RQG grammar '$GRAMMAR' does not exist."
+      echo "The RQG grammar '$GRAMMAR' does not exist or is not a plain file."
       echo "The call was ->$CALL_LINE<-"
       echo -e "$USAGE"
       exit
@@ -75,7 +83,7 @@ else
    GRAMMAR_PART=""
 fi
 
-PROT="simp--""$CASE""-""$BASEDIR1_NAME"".prt"
+PROT="simp-""$CASE""-""$BASEDIR1_NAME"".prt"
 
 # Go with heavy load in case the rqg_batch.pl ResourceControl allows it.
 # The rqg_batch.pl ResourceControl should be capable to avoid trouble with resources.
@@ -118,20 +126,22 @@ TRIALS=$(($NPROC * 12))
 # MAX_RUNTIME is a limit for defining the size of a simplification campaign.
 # RQG batch run elapsed runtime =
 #    assigned max_runtime
-# +  time for stopping the active RQG Workers + cleanup (usually less than 5 seconds)
+# +  time for stopping the active RQG Workers + cleanup (usually less than 30 seconds)
 MAX_RUNTIME=72000
 
 # Only one temporary 'God' (rqg_batch.pl vs. concurrent MTR, single RQG or whatever) on testing box
 # -------------------------------------------------------------------------------------------------
-# in order to avoid "ill" runs where
-# - current rqg_batch run ---- other ongoing rqg_batch run
-# - current rqg_batch run ---- ongoing MTR run
-# clash on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files) or
-# suffer from tmpfs full etc.
+# Countermeasures to prevent certain errors caused by the environment at test campaign runtime like
+# 1. Clash of tests on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files)
+#        current rqg_batch run ---- other ongoing rqg_batch run
+#        current rqg_batch run ---- ongoing MTR run
+# 2. The current test campaign suffers sooner or later from important filesystems full etc.
+#
 # Testing tool | Programs            | Standard locations
 # -------------+---------------------+---------------------------
 # rqg_batch.pl | perl, mysqld,   rr  | /dev/shm/rqg*/* /data/rqg/*
 # MTR          | perl, mariadbd, rr  | /dev/shm/var*
+#
 killall -9 perl mysqld mariadbd rr
 rm -rf /dev/shm/rqg*/* /dev/shm/var* /data/rqg/*
 
@@ -230,10 +240,8 @@ set -o pipefail
 #       the likelihood to replay up till today never observed bugs becomes high enough.
 #       And than we would get some rr trace in addition.
 #
-#    "rr" tracing of all servers started ( lib/DBServer/MySQL/MySQLd.pm    sub startServer)
-#    This is the default.
-# --rr                                                                 \
 #    Preserve the 'rr' traces of the bootstrap, server starts and mariabackup calls.
+# --rr                                                                 \
 #
 #    Recommended settings (Info taken from rr help)
 #    '--chaos' randomize scheduling decisions to try to reproduce bugs
@@ -268,10 +276,10 @@ set -o pipefail
 #
 
 nohup perl -w ./rqg_batch.pl                                           \
+--type=RQG_Simplifier                                                  \
 --parallel=$PARALLEL                                                   \
 --basedir1=$BASEDIR1                                                   \
 $GRAMMAR_PART                                                          \
---type=RQG_Simplifier                                                  \
 --config=$CONFIG                                                       \
 --max_runtime=$MAX_RUNTIME                                             \
 --trials=$TRIALS                                                       \
