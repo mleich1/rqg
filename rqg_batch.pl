@@ -1192,7 +1192,7 @@ while($Batch::give_up <= 1) {
                 my $waittime_unit = 0.1;
                 my $start_time    = Time::HiRes::time();
                 my $end_waittime  = $start_time + $max_waittime;
-                my $measure_time  = $start_time + 2;
+                my $measure_time  = $start_time + 1;
                 my $phase         = Auxiliary::get_rqg_phase($rqg_workdir);
                 my $message       = '';
                 if (not defined $phase) {
@@ -1219,7 +1219,7 @@ while($Batch::give_up <= 1) {
                             # Than the Auxiliary::get_rqg_phase at end of while loop would
                             # cause error messages and return undef.
                             last if $Batch::worker_array[$free_worker][Batch::WORKER_PID] == -1;
-                            $measure_time = Time::HiRes::time() + 2;
+                            $measure_time = Time::HiRes::time() + 1;
                         } else {
                             Time::HiRes::sleep($waittime_unit);
                         }
