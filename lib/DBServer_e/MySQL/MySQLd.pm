@@ -427,10 +427,50 @@ sub new {
         return undef;
     }
 
-    $self->[MYSQLD_STDOPTS] = ["--basedir=".$self->basedir,
+    $self->[MYSQLD_STDOPTS] = ["--basedir=" . $self->basedir,
                                $self->_messages,
-                               "--character-sets-dir=".$self->[MYSQLD_CHARSETS],
-                               "--tmpdir=".$self->[MYSQLD_TMPDIR]];
+                               "--character-sets-dir=" . $self->[MYSQLD_CHARSETS],
+                               "--tmpdir=" . $self->[MYSQLD_TMPDIR],
+                               # Observation 2024-07:
+                               # The server error log contained a line showing that the server will
+                               # abort because of error. Than a RQG timeout kicked in because the
+                               # the main server process did not disappear in time.
+                               # The reason might be the backtrace generation of the server.
+                               # In general: Making a backtrace costs a lot time (elapsed and CPU)
+                               # Solution:
+                               # Skip the back tracing performed by the server.
+                               # RQG will make some backtrace anyway. And that with better GDB
+                               # options than the server.
+                               "--skip-stack-trace"];
+
+    # Certain MariaDB versions (~ Enterprise >= 10.6 and MariaDB Community >= 11.2)
+    # have the functionality to autoshrink InnoDB data files.
+    # These server binaries contains the string "autoshrink".
+    # All other versions fail during bootstrap and DB server start when meeting
+    #     innodb_data_file_path=<whatever allowed>:autoshrink
+    # Test setups might get generated without taking into account if "autoshrink" is supported.
+    #
+    # foreach my $server_option (@{$self->[MYSQLD_SERVER_OPTIONS]}) {
+    #     say("DEBUG: initial_option: " . $server_option);
+    # }
+    (my $ret, my $out) = Auxiliary::run_cmd("strings " . $self->[MYSQLD_MYSQLD] .
+                                            " | grep autoshrink | wc -l");
+    say("DEBUG: Search for 'autoshrink': ret ->$ret<- , out ->$out<-");
+
+    if (0 != $ret or 0 == $out) {
+        # "autoshrink" was not found.
+        foreach (@{$self->[MYSQLD_SERVER_OPTIONS]}) {
+            my $old_option = $_;
+            if ($_ =~ s/:autoshrink//g) {
+                say("DEBUG: Option: ->" . $old_option . "<- corrected to ->" . $_ . "<-");
+            }
+        }
+        foreach my $server_option (@{$self->[MYSQLD_SERVER_OPTIONS]}) {
+            say("DEBUG: final_option: " . $server_option);
+        }
+    } else {
+        say("DEBUG: Search for 'autoshrink' was found.");
+    }
 
     if ($self->[MYSQLD_START_DIRTY]) {
         say("Using existing data for server " . $self->version . " at " . $self->datadir);
@@ -441,6 +481,7 @@ sub new {
             return undef;
         }
     }
+
     return $self;
 }
 
@@ -654,6 +695,7 @@ sub createMysqlBase  {
     # The '.*' is for covering variables like '--loose-innodb_force_recovery'.
     foreach my $boot_option (@$boot_options) {
         if ($boot_option =~ m{.*innodb.force.recovery}               or
+            $boot_option =~ m{.*innodb.log_file.mmap}                or
             $boot_option =~ m{.*innodb.evict.tables.on.commit.debug} or
             # 2024-04 Observation: ERROR: 1969  Query execution was interrupted (max_statement_time exceeded)
             $boot_option =~ m{.*max.statement.time})                    {
@@ -1009,16 +1051,6 @@ sub startServer {
                     return $status;
                 }
             }
-            # In case of using 'rr' and core file generation enabled in addition
-            # - core files do not offer more information than already provided by rr traces
-            # - gdb -c <core file> <mysqld binary> gives sometimes rotten output from
-            #   whatever unknown reason
-            # - cores files consume ~ 1 GB or more in vardir (often located in tmpfs) temporary
-            #   And that is serious bigger than rr traces.
-            # So we prevent the writing of core files via ulimit.
-            # "--mark-stdio" causes that a "[rr <pid> <event number>] gets prepended to any line
-            # in the DB server error log.
-            #### $command = "ulimit -c 0; rr record " . $rr_options . " --mark-stdio $command";
             $command = "rr record " . $rr_options . " --mark-stdio $command";
             # say("DEBUG: ---- 1 ->" . $rr_options . "<-");
             # say("DEBUG: ---- 2 ->" . $command . "<-");
@@ -1891,10 +1923,6 @@ sub stopServer {
                 # Experiment
                 $res = STATUS_SERVER_SHUTDOWN_FAILURE;
             } else {
-                # FIXME:
-                # waitForServerToStop could return STATUS_INTERNAL_ERROR
-                # But return STATUS_INTERNAL_ERROR from here would probably not take care
-                # that the DB Server gets stopped.
                 if ($self->waitForServerToStop($shutdown_timeout) != STATUS_OK) {
                     # The server process has not disappeared.
                     # So try to terminate that process.
@@ -2060,14 +2088,14 @@ sub checkDatabaseIntegrity {
     #    in the caller.
     # 2. Please be aware that there might be natural reasons (certain timeouts etc.) why $aux_sql
     #    can fail. The status returned might cause confusion.
-        my ($aux_sql) = @_;
-        my $aux_result =  $executor->execute($aux_sql);
-        my $aux_status  =  $aux_result->status;
+        my ($aux_sql) =     @_;
+        my $aux_result =    $executor->execute($aux_sql);
+        my $aux_status =    $aux_result->status;
         if (STATUS_OK != $aux_status) {
-            my $aux_err =    $aux_result->err;
-            $aux_err    =    "<undef>" if not defined $aux_err;
-            my $aux_errstr = $aux_result->errstr;
-            $aux_errstr =    "<undef>" if not defined $aux_errstr;
+            my $aux_err =       $aux_result->err;
+            $aux_err    =       "<undef>" if not defined $aux_err;
+            my $aux_errstr =    $aux_result->errstr;
+            $aux_errstr =       "<undef>" if not defined $aux_errstr;
             say("ERROR: $who_am_i Helper Query ->" . $aux_sql . "<- failed with " .
                 "$aux_err : $aux_errstr . " . Basics::return_status_text($aux_status));
             $executor->disconnect();
@@ -2646,6 +2674,13 @@ sub checkDatabaseIntegrity {
                 say("WARN: maybe bug $msg_snip");
 
                 if (STATUS_TRANSACTION_ERROR == $status and $r_engine = "InnoDB") {
+                    if (1205 == $err) {
+                        my $sl_status = show_the_locks_per_table($r_schema, $r_table);
+                        say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
+                        $executor->disconnect();
+                        $status = $sl_status if $sl_status > $status;
+                        return check_errorlog_and_return($status);
+                    }
                     # Switching checks off somewhere in history could cause after switching them on
                     # ALTER TABLE `test` . `t5` FORCE<- failed with 1062 : Duplicate entry ...
                     # --> STATUS_TRANSACTION_ERROR.
@@ -4234,6 +4269,7 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
             #      can happen without meeting a falure.
             if ($process_state =~ /has read all relay log; waiting for .{1,30} to update/i) {
                 $processlist_report .= " <--ok\n";
+            } elsif ($process_state =~ /has read all relay log; waiting for for more updates/i) {
             # 3.2. For "Slave_SQL" the value for time was usually between 30 and less than 60s.
             } elsif ($process_time ne "<undef>" and $process_time > 60) {
                 say("WARN: $who_am_i Slave_SQL with time > 60ss detected. Fear failure.");
