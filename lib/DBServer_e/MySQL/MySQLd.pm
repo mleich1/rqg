@@ -2187,7 +2187,18 @@ sub checkDatabaseIntegrity {
 
     # For experimenting
     if (0) {
-        say("WARN: $who_am_i CREATE tables and damaged views");
+        say("WARN: $who_am_i CREATE tables and damaged views and some prepared XA command");
+        my $executor1 = GenTest_e::Executor->newFromDSN($dsn);
+        $executor1->setId($server_id);
+        $executor1->setRole("checkDatabaseIntegrity");
+        # EXECUTOR_TASK_CHECKER ensures that max_statement_time is set to 0 for the current executor1.
+        # Hence there should be no trouble if certain SQL lasts long because a table is big.
+        $executor1->setTask(GenTest_e::Executor::EXECUTOR_TASK_CHECKER);
+        say("DEBUG: $who_am_i Trying to connect.");
+        $status = $executor1->init();
+        return $status if $status != STATUS_OK;
+        say("DEBUG: $who_am_i Connection got.");
+
         # test.extra_v1 is damaged, base table/view missing
         $executor->execute("CREATE TABLE test.extra_t1 (col1 INT)");
         $executor->execute("CREATE VIEW test.extra_v1 AS SELECT * FROM test.extra_t1");
@@ -2204,6 +2215,15 @@ sub checkDatabaseIntegrity {
         $executor->execute("CREATE VIEW test.extra_v4 AS SELECT * FROM test.extra_v3");
         $executor->execute("DROP TABLE test.extra_t3");
         $executor->execute("RENAME TABLE test.extra_v4 TO test.extra_t3");
+
+        # There is some prepared XA command fiddling with test.extra_t4
+        $executor1->execute("CREATE TABLE test.extra_t4 (col1 INT)");
+        $executor1->execute("XA BEGIN 'xid175'");
+        $executor1->execute("INSERT INTO test.extra_t4 VALUES (1)");
+        $executor1->execute("XA END 'xid175'");
+        $executor1->execute("XA PREPARE 'xid175'");
+
+        $executor1->disconnect();
     }
 
     #
@@ -2378,7 +2398,7 @@ sub checkDatabaseIntegrity {
         # I fear that walk queries on certain system tables/views deliver result sets influenced
         # by the number of walk queries executed and similar. Hence no walk queries with result
         # set comparison on such tables/views.
-        # The tables/views in located in other schemas get a "SELECT * " during the walk query
+        # The tables/views located in other schemas get a "SELECT * " during the walk query
         # generation if needed.
         if ($r_schema eq 'information_schema' or $r_schema eq 'mysql' or $r_schema eq 'mariadb') {
             $aux_query = "SELECT * FROM " . $table_to_check;
@@ -2396,12 +2416,14 @@ sub checkDatabaseIntegrity {
         #    selecting on some view containing counters.
         # next if $r_schema eq 'information_schema' or $r_schema eq 'mysql' or $r_schema eq 'mariadb';
         next if $r_schema eq 'information_schema';
+        # `mysql` . `innodb_index_stats` contains counters.
+        next if $r_schema eq 'mysql' and $r_table eq 'innodb_index_stats';
 
         # GENERATE WALK QUERIES
         # ---------------------
         # Reasons for running the walk queries:
         # 1. CHECK TABLE ... EXTENDED might have a defect and miss to catch a key BTREE with
-        #    superflous, missing or wrong entries.
+        #    superfluous, missing or wrong entries.
         # 2. All the SQL above might miss to detect a diff between server and InnoDB DD.
         #
         # There is also a most probably very small risk to catch some optimizer bug.
@@ -2628,7 +2650,7 @@ sub checkDatabaseIntegrity {
         # The hope is to detect
         # - diffs between metadata and data in whatever btree
         # - diffs between server and InnoDB data dictionary
-        # in case they could happen and revealed by a table rebuild at all.
+        # in case they could happen and be revealed by a table rebuild at all.
         #
         # EXECUTOR_TASK_CHECKER ensures that innodb_lock_timeout is small.
         # Hence no extreme long waiting if ther are locks on the table. So there is some good
@@ -2660,27 +2682,36 @@ sub checkDatabaseIntegrity {
         # Fixed by removing sql_mode.yy from any test setup.
 
         if ($r_table_type eq "BASE TABLE") {
-            $aux_query = "ALTER TABLE " . $table_to_check . " FORCE";
-            my $res_check = $executor->execute($aux_query);
-            $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
+            our $aux_query = "ALTER TABLE " . $table_to_check . " FORCE";
+            our $msg_snip =  '';
 
-            if (STATUS_OK != $status) {
+            sub try_alter_table_force {
+                my $res_check =     $executor->execute($aux_query);
+                my $status =        $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
                 my $err =    $res_check->err;
                 $err =       "<undef>" if not defined $err;
                 my $errstr = $res_check->errstr;
                 $errstr =    "<undef>" if not defined $errstr;
-                my $msg_snip =     "$who_am_i Query ->" . $aux_query .
-                                   "<- failed with $err : $errstr";
-                say("WARN: maybe bug $msg_snip");
+                $msg_snip =  "Query ->" . $aux_query .
+                             "<- failed with status: $status, $err : $errstr";
+                if (STATUS_OK != $status) {
+                    say("WARN: $who_am_i might be a bug $msg_snip");
+                } else {
+                    say("INFO: $who_am_i Query ->" . $aux_query . "<- passed.");
+                }
+                return $status, $err, $errstr;
+            }
 
-                if (STATUS_TRANSACTION_ERROR == $status and $r_engine = "InnoDB") {
-                    if (1205 == $err) {
-                        my $sl_status = show_the_locks_per_table($r_schema, $r_table);
-                        say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
-                        $executor->disconnect();
-                        $status = $sl_status if $sl_status > $status;
-                        return check_errorlog_and_return($status);
-                    }
+            ($status, my $err, my $errstr) = try_alter_table_force;
+            if (STATUS_OK == $status) {
+                next;
+            }
+
+            if (STATUS_TRANSACTION_ERROR == $status and $r_engine = "InnoDB") {
+                if (1022 == $err or 1062 == $err) {
+                    # ER_DUP_KEY 1022     Can't write; duplicate key in table '%-.192s'
+                    # ER_DUP_ENTRY 1062   Duplicate entry '%-.192T' for key %d
+
                     # Switching checks off somewhere in history could cause after switching them on
                     # ALTER TABLE `test` . `t5` FORCE<- failed with 1062 : Duplicate entry ...
                     # --> STATUS_TRANSACTION_ERROR.
@@ -2690,8 +2721,32 @@ sub checkDatabaseIntegrity {
                         # run_aux_sql has already reported the fail + checked the server error log.
                         return $status;
                     } else {
-                        say("INFO: $who_am_i ->" . $aux_query1 . "<-: pass");
+                        say("INFO: $who_am_i Query ->" . $aux_query1 . "<- passed.");
                     }
+                    ($status, my $err, my $errstr) = try_alter_table_force;
+                    if (STATUS_OK == $status) {
+                        say("INFO: $who_am_i It looks like the previous failing ALTER was caused " .
+                            "by disabling checks in history.");
+                        $aux_query1 = 'SET @@session.unique_checks = @@global.unique_checks, ' .
+                                      '@@session.foreign_key_checks = @@global.foreign_key_checks';
+                        ($status, my $res_data) = run_aux_sql ($aux_query1);
+                        if (STATUS_OK != $status) {
+                            # run_aux_sql has already reported the fail + checked the server error log.
+                            return $status;
+                        } else {
+                            say("INFO: $who_am_i ->" . $aux_query1 . "<- passed.");
+                        }
+                        next;
+                    }
+                }
+
+                if (1205 == $err) {
+                    my $sl_status = show_the_locks_per_table($r_schema, $r_table);
+                    if (STATUS_OK != $sl_status) {
+                        $executor->disconnect();
+                        return check_errorlog_and_return($sl_status);
+                    }
+
                     # "Natural" problem observed 2023-06/07
                     #    ALTER TABLE <innodb table> FORCE harvests 1205 : Lock wait timeout exceeded
                     #    The reason is that some session executed
@@ -2706,7 +2761,7 @@ sub checkDatabaseIntegrity {
 
                     # Discover if XA commands are in prepared state
                     my $aux_query2 = "XA RECOVER";
-                    ($status, $res_data) = run_aux_sql ($aux_query2);
+                    ($status, my $res_data) = run_aux_sql ($aux_query2);
                     if (STATUS_OK != $status) {
                         # run_aux_sql has already reported the fail + checked the server error log.
                         return $status;
@@ -2741,48 +2796,31 @@ sub checkDatabaseIntegrity {
                                     my $errstr = $res_aux_query3->errstr;
                                     $errstr =    "<undef>" if not defined $errstr;
                                     say("WARN: $who_am_i Helper Query ->" . $aux_query3 .
-                                        "<- failed with $err : $errstr. Will ignore that.");
+                                        "<- failed with $err : $errstr. Might ignore that.");
                                     $executor->disconnect();
                                     my $status = check_errorlog_and_return($status_aux_query3);
                                     return $status if $status >= STATUS_CRITICAL_FAILURE;
                                 } else {
                                     say("INFO: $who_am_i XA transaction '$data' rolled back.");
                                 }
-
+                            }
+                            ($status, my $err, my $errstr) = try_alter_table_force;
+                            if (STATUS_OK == $status) {
+                                say("INFO: $who_am_i It looks like the previous failing ALTER was caused " .
+                                    "by some prepared XA transactions.");
+                                next;
+                            } else {
+                                say("INFO: $who_am_i It looks like the previous failing ALTER " .
+                                    "is a bug.");
+                                return $status;
                             }
                         }
                         say("INFO: $who_am_i No XA transaction(s) in prepared state found.");
-                    }
-                    # Try the ALTER TABLE ... again
-                    # say("DEBUG: Trying ->" . $aux_query . "<- again");
-                    my $aux_query16 =  $aux_query;
-                    my $res_check16 =  $executor->execute($aux_query16);
-                    my $status16    =  $res_check16->status;
-                    if (STATUS_OK != $status16) {
-                        my $err16 =    $res_check16->err;
-                        $err16    =    "<undef>" if not defined $err16;
-                        my $errstr16 = $res_check16->errstr;
-                        $errstr16 =    "<undef>" if not defined $errstr16;
-                        $status = STATUS_CRITICAL_FAILURE;
-                        say("ERROR: $who_am_i After fiddling with XA transactions and disabling " .
-                            "checks the retry of Query ->" . $aux_query16 .  "<-\n       failed " .
-                            "with $err16 : $errstr16 . " . Basics::return_status_text($status16));
+                        say("INFO: $who_am_i So it looks like the previous failing ALTER is a bug.");
                         $executor->disconnect();
-                        return check_errorlog_and_return($status16);
-                    } else {
-                        say("INFO: $msg_snip \nINFO: and passed after disabling checks and " .
-                            "rollback of prepared XA transactions.");
-                        $status = STATUS_OK;
-                        my $aux_query1 = 'SET @@session.unique_checks = @@global.unique_checks, ' .
-                                         '@@session.foreign_key_checks = @@global.foreign_key_checks';
-                        ($status, my $res_data) = run_aux_sql ($aux_query1);
-                        if (STATUS_OK != $status) {
-                            # run_aux_sql has already reported the fail + checked the server error log.
-                            return $status;
-                        } else {
-                            say("INFO: $who_am_i ->" . $aux_query1 . "<-: pass");
-                        }
+                        return check_errorlog_and_return(STATUS_DATABASE_CORRUPTION);
                     }
+                    return STATUS_DATABASE_CORRUPTION;
                 } elsif ((STATUS_SEMANTIC_ERROR == $status or STATUS_UNSUPPORTED == $status)
                          and $r_engine = "InnoDB") {
                     # The test might have run temporary with GLOBAL/SESSION innodb_strict_mode=OFF.
