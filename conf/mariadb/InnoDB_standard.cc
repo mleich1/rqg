@@ -1,5 +1,5 @@
 # Copyright (C) 2019, 2022 MariaDB corporation Ab. All rights reserved.
-# Copyright (C) 2023 MariaDB plc All rights reserved.
+# Copyright (C) 2023, 2024 MariaDB plc All rights reserved.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -352,7 +352,21 @@ $combinations = [ $grammars,
     # Since 11.2 (MDEV-14795) + it's complex + customers need it a lot.
     #     If 'autoshrink' is not supported than already bootstrap will fail.
     #     'loose' does not seem to help if the value assigned is unknown.
-    # '--mysqld=--loose-innodb_data_file_path=ibdata1:1M:autoextend:autoshrink' ,
+    '--mysqld=--loose-innodb_data_file_path=ibdata1:1M:autoextend:autoshrink' ,
+    '' ,
+    '' ,
+    '' ,
+  ],
+  [
+    '--redefine=conf/mariadb/redefine_innodb_log_write_ahead_size.yy' ,
+    '' ,
+    '' ,
+    '' ,
+  ],
+  [
+    '--redefine=conf/mariadb/redefine_innodb_log_size_dynamic.yy' ,
+    '' ,
+    '' ,
     '' ,
   ],
   [
