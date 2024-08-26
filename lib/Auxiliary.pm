@@ -1,5 +1,5 @@
 #  Copyright (c) 2018, 2022 MariaDB Corporation Ab.
-#  Copyright (c) 2023 MariaDB plc
+#  Copyright (c) 2023, 2024 MariaDB plc
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -2812,7 +2812,10 @@ sub get_ps_tree {
 
 sub print_ps_group {
     my $prgp = getpgrp;
-    my $cmd = "ps -T -u `id -u` -o uid,pid,ppid,pgid,sid,args | egrep '" . $prgp . "|UID  *PID' " .
+    # Warning(Observation 2024-08):
+    # I got output because some pid had a value of "<pgrp><additional number>".
+    # Hence the spaces around $prgp are important.
+    my $cmd = "ps -T -u `id -u` -o uid,pid,ppid,pgid,sid,args | egrep ' " . $prgp . " |UID  *PID' " .
            "| sort | cut -c1-200";
     my $ps_group = `$cmd`;
     say($ps_group);
