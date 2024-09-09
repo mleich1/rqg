@@ -171,9 +171,11 @@ our @corruption_patterns = (
     '\[ERROR\]( \[FATAL\]|) InnoDB: FIL_PAGE_TYPE=.{1,10} on BLOB',
     '\[ERROR\]( \[FATAL\]|) InnoDB: Trying to read',
     '\[ERROR\]( \[FATAL\]|) InnoDB: Apparent corruption',
+    '\[ERROR\] \[FATAL\] InnoDB: Unable to read page {1,150} into the buffer pool',
     '\[ERROR\] InnoDB: Corruption of an index tree',
     '\[ERROR\] InnoDB: Flagged corruption of',
     '\[ERROR\] InnoDB: The compressed page to be',
+    '\[ERROR\] InnoDB: tried to purge non-delete-marked record',
 
     # The next three occur usually together.
     '\[ERROR\] InnoDB indexes are inconsistent with what defined in \.frm for table ',
@@ -200,6 +202,8 @@ our @corruption_patterns = (
     # [ERROR] InnoDB: Table test/#sql-ib718 in InnoDB data dictionary has tablespace id 680, but the tablespace with that id has name test/s#P#p2#SP#p2sp0. Have you deleted or moved .ibd files?
     '\[ERROR\] InnoDB: Table test/#sql-ib.{1,10} in InnoDB data dictionary has tablespace id .{1,10}, but the tablespace with that id has name .{1,150}. Have you deleted or moved \.ibd files',
 
+    # 2024-05-08 17:35:11 0 [ERROR] InnoDB: Checksum mismatch in the first page of file .//undo006
+    '\[ERROR\] InnoDB: Checksum mismatch in the first page of file ',
     '\[ERROR\] mariadbd: Can\'t find record in ',
     '\[ERROR\] mariadbd: Incorrect information in file: \'.{1,200}\.frm\'' ,
 
@@ -431,6 +435,15 @@ sub new {
                                $self->_messages,
                                "--character-sets-dir=" . $self->[MYSQLD_CHARSETS],
                                "--tmpdir=" . $self->[MYSQLD_TMPDIR],
+                               # Without the following some
+                               #    ASAN build + bootstrap/server under "rr"
+                               # has a serious likelihood to end up with
+                               #  Program received signal SIGSEGV, Segmentation fault.
+                               #  0x00007fe63ca4651c in do_lookup_x (undef_name=undef_name@entry=0x3b59427b1a76 "pthread_getspecific",
+                               #     new_hash=new_hash@entry=1644473746, old_hash=old_hash@entry=0x7ffdc08d0260, ref=0x3b594279cc40,
+                               #     result=result@entry=0x7ffdc08d0270, scope=<optimized out>, i=0, version=0x0, flags=1,
+                               #     skip=<optimized out>, type_class=1, undef_map=0x7fe63ca774c0) at ./elf/dl-lookup.c:374
+                               "--plugin-dir=" . $self->basedir . "/lib/plugin",
                                # Observation 2024-07:
                                # The server error log contained a line showing that the server will
                                # abort because of error. Than a RQG timeout kicked in because the
@@ -790,7 +803,7 @@ sub createMysqlBase  {
         #    commands might be decorated with rr event ids which some consuming command
         #    is unable to understand. Example: cat <bootstrap file> | ....
         $command_begin = "ulimit -c 0; " .  $command_begin .
-                         " rr record " . $rr_options . " --mark-stdio ";
+                         " rr record " . $rr_options . " ";
         $command .= ' "--log_warnings=4" ' . Local::get_rqg_rr_add();
     }
 
@@ -1051,7 +1064,7 @@ sub startServer {
                     return $status;
                 }
             }
-            $command = "rr record " . $rr_options . " --mark-stdio $command";
+            $command = "rr record " . $rr_options . " $command";
             # say("DEBUG: ---- 1 ->" . $rr_options . "<-");
             # say("DEBUG: ---- 2 ->" . $command . "<-");
         }
@@ -2051,8 +2064,9 @@ sub checkDatabaseIntegrity {
 #
 # Code uses GenTest_e::Executor.
 #
-# Hint:
-# Error log checking (sub checkErrorLog) is currently only at end of the sub.
+# FIXME:
+# 1. Error log checking (sub checkErrorLog) should rather run after every SQL.
+# 2. Use an executor
 #
 
     our $self = shift;
@@ -2061,11 +2075,11 @@ sub checkDatabaseIntegrity {
     our $status =   STATUS_OK;
     our $executor;
 
-    my $server_id =     $self->server_id();
-    my $server_name =   "server[" . $server_id . "]";
-    $who_am_i .=        " $server_name: ";
-    my $err;
+    my $server_id =         $self->server_id();
+    my $server_name =       "server[" . $server_id . "]";
+    $who_am_i .=            " $server_name: ";
     my $omit_walk_queries = 0;
+    my $err;
 
     my $dsn =   $self->dsn();
     $executor = GenTest_e::Executor->newFromDSN($dsn);
@@ -2075,7 +2089,7 @@ sub checkDatabaseIntegrity {
     # Hence there should be no trouble if certain SQL lasts long because a table is big.
     $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_CHECKER);
     say("DEBUG: $who_am_i Trying to connect.");
-    $status = $executor->init();
+    $status =   $executor->init();
     return $status if $status != STATUS_OK;
     say("DEBUG: $who_am_i Connection got.");
 
@@ -2099,7 +2113,7 @@ sub checkDatabaseIntegrity {
             say("ERROR: $who_am_i Helper Query ->" . $aux_sql . "<- failed with " .
                 "$aux_err : $aux_errstr . " . Basics::return_status_text($aux_status));
             $executor->disconnect();
-            $aux_status = check_errorlog_and_return($aux_status);
+            $aux_status =       check_errorlog_and_return($aux_status);
             return $aux_status, undef;
         } else {
             return STATUS_OK, $aux_result->data;
@@ -2109,7 +2123,8 @@ sub checkDatabaseIntegrity {
     sub check_errorlog_and_return {
         my ($status) = @_;
 
-        my $errorlog_status = $self->checkErrorLog;
+        my $errorlog_status =   $self->checkErrorLog;
+        $executor->disconnect() if STATUS_OK != $errorlog_status;
         if ($status < $errorlog_status) {
             say("INFO: Raising the status from " . status2text($status) . " to " .
                 status2text($errorlog_status) . ".");
@@ -2217,7 +2232,7 @@ sub checkDatabaseIntegrity {
         $executor->execute("RENAME TABLE test.extra_v4 TO test.extra_t3");
 
         # There is some prepared XA command fiddling with test.extra_t4
-        $executor1->execute("CREATE TABLE test.extra_t4 (col1 INT)");
+        $executor->execute("CREATE TABLE test.extra_t4 (col1 INT)");
         $executor1->execute("XA BEGIN 'xid175'");
         $executor1->execute("INSERT INTO test.extra_t4 VALUES (1)");
         $executor1->execute("XA END 'xid175'");
@@ -2231,9 +2246,9 @@ sub checkDatabaseIntegrity {
     # SELECT 'test' WHERE 1 IS NULL --> not undef
     # GARBAGE                       --> undef and 1064
     my $aux_query = "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, ENGINE " .
-             "FROM information_schema.tables " .
-             "WHERE TABLE_SCHEMA NOT IN ('pbxt','performance_schema') " .
-             "ORDER BY TABLE_SCHEMA, TABLE_NAME";
+                    "FROM information_schema.tables " .
+                    "WHERE TABLE_SCHEMA NOT IN ('pbxt','performance_schema') " .
+                    "ORDER BY TABLE_SCHEMA, TABLE_NAME";
     ($status, my $res_databases_data) = run_aux_sql ($aux_query);
     if (STATUS_OK != $status) {
         # run_aux_sql has already reported the fail + checked the server error log.
@@ -2291,8 +2306,9 @@ sub checkDatabaseIntegrity {
                     # The list of tables is determined from the server data dictionary.
                     # Hence we have a diff between server and innodb data dictionary == corruption,
                     # some similar problem or a to be tolerated case which we need to handle here.
-                    $status = STATUS_DATABASE_CORRUPTION;
+                    $status =   STATUS_DATABASE_CORRUPTION;
                     say("ERROR: $who_am_i Raising status to STATUS_DATABASE_CORRUPTION.");
+                    $executor->disconnect();
                 }
                 say("ERROR: $who_am_i " . Basics::return_status_text($status));
                 return check_errorlog_and_return($status);
@@ -2913,6 +2929,8 @@ sub checkDatabaseIntegrity {
         }
         say("INFO: $who_am_i All checks on " . $table_to_check . " were successful.");
     } # End of loop over all tables (base tables and views)
+
+    $executor->disconnect();
 
     return check_errorlog_and_return($status);
 } # End of sub checkDatabaseIntegrity
@@ -4027,16 +4045,8 @@ sub server_is_operable {
         # say("DEBUG: The server[" . $server_id . "] with process [" . $pid . "] is running.");
         # say("DEBUG: port is " . $self->port );
 
-        my $dsn =       $self->dsn();
-        my $executor =  GenTest_e::Executor->newFromDSN($dsn);
-        $executor->setId($server_id);
-        $executor->setRole("server_is_operable");
-        $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_CHECKER);
-
         # For testing
         # $self->crashServer();
-
-        $status = $executor->init();
 
         if (STATUS_OK != $status) {
             if (STATUS_SERVER_CRASHED == $status or STATUS_CRITICAL_FAILURE == $status) {
@@ -4072,6 +4082,16 @@ sub server_is_operable {
                 "previous errors.");
             return $status;
         } else {
+            my $dsn =       $self->dsn();
+            my $executor =  GenTest_e::Executor->newFromDSN($dsn);
+            $executor->setId($server_id);
+            $executor->setRole("server_is_operable");
+            $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_CHECKER);
+            $status = $executor->init();
+            if (STATUS_OK != $status) {
+                return $status;
+            }
+
             my $dbh = $executor->dbh;
             my $query =     "SHOW FULL PROCESSLIST";
             my $result =    $executor->execute($query);
@@ -4093,6 +4113,7 @@ sub server_is_operable {
                 say("INFO: $who_am_i Setting status to " . status2text($status) . ".");
                 say("INFO: $who_am_i Will crash the server.");
                 $self->crashServer();
+                $executor->disconnect();
                 $self->make_backtrace();
             }
             # Open problem:
@@ -4310,7 +4331,7 @@ use constant PROCESSLIST_PROCESS_INFO        => 7;
             } elsif ($process_state =~ /has read all relay log; waiting for for more updates/i) {
             # 3.2. For "Slave_SQL" the value for time was usually between 30 and less than 60s.
             } elsif ($process_time ne "<undef>" and $process_time > 60) {
-                say("WARN: $who_am_i Slave_SQL with time > 60ss detected. Fear failure.");
+                say("WARN: $who_am_i Slave_SQL with time > 60s detected. Fear failure.");
                 $suspicious++;
                 $processlist_report .= " <--suspicious\n";
             } else {
