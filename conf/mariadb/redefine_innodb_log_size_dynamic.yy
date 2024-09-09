@@ -8,11 +8,22 @@ query_add:
     innodb_log_file_resize ;
 
 innodb_log_file_resize:
+                                |
+                                |
+                                |
+                                |
+                                |
+                                |
+                                |
+                                |
+                                |
+    innodb_log_file_resize_real ;
+
+innodb_log_file_resize_real:
     # Range:
     # >= MariaDB 10.8.3: 4194304 to 512GB (4MB to 512GB)
     # innodb_log_file_size must be >= innodb_log_buffer_size.
     # The default for innodb_log_buffer_size is 16777216B.
-    # Hence the first setting will most probably fail.
-    SET GLOBAL innodb_log_file_size =   4194304 |
-    SET GLOBAL innodb_log_file_size =  16777216 |
-    SET GLOBAL innodb_log_file_size =  67108864 ;
+    SET GLOBAL innodb_log_file_size =  104857600                               |
+    SET GLOBAL innodb_log_file_size =  104857600 + 52428800 |
+    SET GLOBAL innodb_log_file_size =  104857600 - 52428800 ;
