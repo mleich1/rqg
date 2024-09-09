@@ -1842,7 +1842,7 @@ while ( $gt_round <= $max_gt_rounds) {
     if ($final_result >= STATUS_CRITICAL_FAILURE) {
         say("RESULT: The core of the RQG run ended with status " . status2text($final_result) .
             " ($final_result)");
-        exit_test($final_result);
+        # Do not exit already here! Because for example backtraces are maybe not yet generated.
     }
 
     # Catch if some server is no more operable.
@@ -2441,6 +2441,9 @@ sub run_end {
     # but not the current process only.
     kill '-9', $$;
     Auxiliary::reapChildren;
+
+    show_processes();
+
     # Tolerate that we might fail before $vardirs[0] is set or checked and
     # avoid by that perl warnings etc.
     if (defined $vardirs[0] and -e $vardirs[0]) {
@@ -2450,6 +2453,77 @@ sub run_end {
     # The latter is rather unimportant.
     say(STATUS_PREFIX . status2text($status) . "($status)");
     safe_exit($status);
+}
+
+sub show_processes {
+
+    my $cmd1 = "ps -o user,pid,ppid,pgid,args -p " . $$;
+    $return = `$cmd1`;
+    if (not defined $return) {
+          # say("DEBUG: ->" . $cmd1 . "<- harvested some undef result.");
+    } elsif ('' eq $return) {
+          # say("DEBUG: ->" . $cmd1 . "<- harvested an empty string.");
+    } else {
+          say("INFO: About current process -- begin");
+          say($return);
+          # The remaining processes of our processgroup.
+          Auxiliary::print_ps_tree($$);
+          say("INFO: About current process -- end");
+    }
+
+    $cmd1 = "fuser " . join("/tcp ", @ports) . "/tcp 2>err";
+    # fuser 10443/tcp
+    # 10443/tcp:            5112
+    #  ps -elf | grep 5112
+    # 0 S mleich      5112    2731  0  80   0 -  4361 do_pol 12:11 pts/12   00:00:01 ssh sdp
+    # 0 S mleich      5113    5112  0  80   0 -  4377 do_pol 12:11 pts/12   00:00:01 ssh -W 192.168.7.2:22 sshserver
+    # my $cmd1 = "fuser " . join("/tcp ", @ports) . "/tcp 10443/tcp 10022/tcp 10022/tcp 2>err";
+    # err contains something like
+    my $return = `$cmd1`;
+    if (not defined $return) {
+        # say("DEBUG: ->" . $cmd1 . "<- harvested some undef result.");
+    } elsif ('' eq $return) {
+        # say("DEBUG: ->" . $cmd1 . "<- harvested an empty string.");
+    } else {
+        # say("DEBUG: ->" . $cmd1 . "<- harvested ->" . $return . "<-");
+        # Some typical return
+        # -> 150522 150522 150522<-
+        # Remove the leading space.
+        $return =~ s/^\s+//;
+        my @pid_list = split (/\s+/, $return);
+        # say("DEBUG: pid_list ->" . join("-", @pid_list) . "<-");
+        my %pid_hash;
+        foreach my $pid (@pid_list) {
+           $pid_hash{$pid} = 1;
+        }
+        say("INFO: Processes using the ports: " . join(' ', sort {$a <=> $b} keys %pid_hash) . "\n");
+        foreach my $pid (sort {$a <=> $b} keys %pid_hash) {
+            $cmd1 = "ps -o user,pid,ppid,pgid,args -p " . $pid;
+            $return = `$cmd1`;
+            if (not defined $return) {
+                  say("DEBUG: ->" . $cmd1 . "<- harvested some undef result.");
+            } elsif ('' eq $return) {
+                  say("DEBUG: ->" . $cmd1 . "<- harvested an empty string.");
+            } else {
+                  say("DEBUG: ->" . $cmd1 . "<- harvested ->" . $return . "<-");
+            }
+            Auxiliary::print_ps_tree($pid);
+            my $pgid = getpgrp($pid);
+            if($pgid != $pid) {
+                say("INFO: process with pid = pgid of process using the port.");
+                $cmd1 = "ps -o user,pid,ppid,pgid,args -p " . $pgid;
+                $return = `$cmd1`;
+                if (not defined $return) {
+                      say("DEBUG: ->" . $cmd1 . "<- harvested some undef result.");
+                } elsif ('' eq $return) {
+                      say("DEBUG: ->" . $cmd1 . "<- harvested an empty string.");
+                } else {
+                      say("DEBUG: ->" . $cmd1 . "<- harvested ->" . $return . "<-");
+                }
+                Auxiliary::print_ps_tree($pgid) if $pgid != $pid;
+            }
+        }
+    }
 }
 
 1;
