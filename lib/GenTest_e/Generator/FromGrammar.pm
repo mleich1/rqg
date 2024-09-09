@@ -553,92 +553,101 @@ sub next {
           " GENERATOR_RECONNECT : " . $generator->[GENERATOR_RECONNECT]);
    }
 
-   # Design
-   # ======
-   # 1. "threadN_init" or "query_init" or  "thread_init"
-   #    Run this
-   #    - ONLY ONCE per test for
-   #      - creating objects required from the begin on
-   #        Example: SQL base tables
-   #        Hint: I recommend to use "gendata_sql" for that instead.
-   #      - setting Perl stuff
-   #      == All stuff which cannot get lost when being disconnected from the server.
-   #         Hint: Temporary tables get lost with the session!
-   #    - direct after getting a connection first time for the current executor
-   #    - before running other top-level rules
-   #         "*_connect", "thread<n>", "query" or "thread"
-   #    This does not need to prepare 100% of the required and/or optimal playground for running
-   #    queries generated from  "thread<n>", "query" or "thread" later.
-   # 2. "threadN_connect" or "query_connect" or  "thread_connect"
-   #    Run this
-   #    - ONCE per ANY connect for creating the required and/or optimal conditions for
-   #      running later a mass of queries generated from the top-level rules
-   #         "thread<n>", "query" or "thread"
-   #      Typical content is anything which would get lost after some disconnect like
-   #         SET @aux = 13; SET SESSION  lock_wait_timeout = 1;
-   #    - never before the first "threadN_init" or "query_init" or  "thread_init"
-   #      Bad example:
-   #      SET lock_wait_timeout = 1;
-   #      When running this direct after the first connect within the test and and before
-   #      "*_init" than the "*_init" has significant chances to suffer from locking timeouts
-   #      which is usually unwanted.
-   #    - before the first query generated from the top-level rules
-   #         "thread<n>", "query" or "thread"
-   # 3. "thread<n>", "query" or "thread"
-   #    Generate with this the mass of queries.
-   #    Some previous
-   #    - "threadN_init" or "query_init" or "thread_init
-   #      executed once per test run
-   #    - "threadN_connect" or "query_connect" or  "thread_connect"
-   #      executed after the first connect and any reconnect
-   #    should take care that the right environment for that mass of queries is met.
-   if ($generator->[GENERATOR_SEQ_ID] == 0) {
-      # This means that we have never run a top-level "*_init" rule.
-      # So do this now in case there is such a rule.
-      if (exists $grammar_rules->{"thread".$generator->threadId()."_init"}) {
-         $starting_rule = "thread".$generator->threadId()."_init";
-      } elsif (exists $grammar_rules->{"query_init"}) {
-         $starting_rule = "query_init";
-      }
-   } elsif ($generator->[GENERATOR_RECONNECT] == 1) {
-      # This means that we had just a connect and maybe a run of a  top-level "*_init" rule.
-      # So in case there is a "*_connect" than run it now.
-      if (exists $grammar_rules->{"thread".$generator->threadId()."_connect"}) {
-         $starting_rule = "thread".$generator->threadId()."_connect";
-      } elsif (exists $grammar_rules->{"thread_connect"}) {
-         $starting_rule = "thread_connect";
-      } elsif (exists $grammar_rules->{"query_connect"}) {
-         $starting_rule = "query_connect";
-      }
-      # say("DEBUG: FromGrammar Setting GENERATOR_RECONNECT to 0");
-      $generator->[GENERATOR_RECONNECT] = 0;
-   }
+    # Design
+    # ======
+    # 1. "threadN_init" or "query_init" or  "thread_init"
+    #    Run this
+    #    - ONLY ONCE per test for
+    #      - creating objects required from the begin on
+    #        Example: SQL base tables
+    #        Hint: I recommend to use "gendata_sql" for that instead.
+    #      - setting Perl stuff
+    #      == All stuff which cannot get lost when being disconnected from the server.
+    #         Hint: Temporary tables get lost with the session!
+    #    - direct after getting a connection first time for the current executor
+    #    - before running other top-level rules
+    #         "*_connect", "thread<n>", "query" or "thread"
+    #    This does not need to prepare 100% of the required and/or optimal playground for running
+    #    queries generated from  "thread<n>", "query" or "thread" later.
+    # 2. "threadN_connect" or "query_connect" or  "thread_connect"
+    #    Run this
+    #    - ONCE per ANY connect for creating the required and/or optimal conditions for
+    #      running later a mass of queries generated from the top-level rules
+    #         "thread<n>", "query" or "thread"
+    #      Typical content is anything which would get lost after some disconnect like
+    #         SET @aux = 13; SET SESSION  lock_wait_timeout = 1;
+    #    - never before the first "threadN_init" or "query_init" or  "thread_init"
+    #      Bad example:
+    #      SET lock_wait_timeout = 1;
+    #      When running this direct after the first connect within the test and and before
+    #      "*_init" than the "*_init" has significant chances to suffer from locking timeouts
+    #      which is usually unwanted.
+    #    - before the first query generated from the top-level rules
+    #         "thread<n>", "query" or "thread"
+    # 3. "thread<n>", "query" or "thread"
+    #    Generate with this the mass of queries.
+    #    Some previous
+    #    - "threadN_init" or "query_init" or "thread_init
+    #      executed once per test run
+    #    - "threadN_connect" or "query_connect" or  "thread_connect"
+    #      executed after the first connect and any reconnect
+    #    should take care that the right environment for that mass of queries is met.
+    say("DEBUG: Thread" . $generator->threadId() .
+        " GENERATOR_SEQ_ID: " . $generator->[GENERATOR_SEQ_ID] .
+        " GENERATOR_RECONNECT: " . $generator->[GENERATOR_RECONNECT]);
+    if ($generator->[GENERATOR_SEQ_ID] == 0) {
+        # This means that we have never run a top-level "*_init" rule.
+        # So do this now in case there is such a rule.
+        if (exists $grammar_rules->{"thread" . $generator->threadId() . "_init"}) {
+            $starting_rule = "thread" . $generator->threadId() . "_init";
+        } elsif (exists $grammar_rules->{"query_init"}) {
+            $starting_rule = "query_init";
+        }
+    }
 
-	## Apply mask if any
-	$grammar = $generator->[GENERATOR_MASKED_GRAMMAR] if defined $generator->[GENERATOR_MASKED_GRAMMAR];
-	$grammar_rules = $grammar->rules();
+    if (not defined $starting_rule and $generator->[GENERATOR_RECONNECT] == 1) {
+        # This means that we had just a connect and maybe a run of a  top-level "*_init" rule
+        # in addition. So in case there is a "*_connect" than run it now.
+        if (exists $grammar_rules->{"thread" . $generator->threadId() . "_connect"}) {
+            $starting_rule = "thread" . $generator->threadId() . "_connect";
+        } elsif (exists $grammar_rules->{"thread_connect"}) {
+            $starting_rule = "thread_connect";
+        } elsif (exists $grammar_rules->{"query_connect"}) {
+            $starting_rule = "query_connect";
+        }
+        # say("DEBUG: FromGrammar Setting GENERATOR_RECONNECT to 0");
+        $generator->[GENERATOR_RECONNECT] = 0;
+    }
 
-   # FIXME: Couldn't we move that in some else part before the masking stuff?
-	# If no init starting rule, we look for rules named "threadN" or "query" or "thread"
+    if (not defined $starting_rule) {
+        # If no starting_rule has yet been found, we look for rules named "thread<n>" or
+        # "query" or "thread".
+        if (exists $grammar_rules->{"thread" . $generator->threadId()}) {
+            $starting_rule = "thread" . $generator->threadId();
+        } elsif (exists $grammar_rules->{"query"}) {
+            $starting_rule = "query";
+        }  elsif (exists $grammar_rules->{"thread"}) {
+            $starting_rule = "thread";
+        }
+    }
 
-	if (not defined $starting_rule) {
-		if (exists $grammar_rules->{"thread".$generator->threadId()}) {
-			$starting_rule = $grammar_rules->{"thread".$generator->threadId()}->name();
-		} else {
-			$starting_rule = "query";
-		}
-	}
+    ## Apply mask if any
+    $grammar = $generator->[GENERATOR_MASKED_GRAMMAR] if defined $generator->[GENERATOR_MASKED_GRAMMAR];
+    $grammar_rules = $grammar->rules();
 
-	my @sentence = expand(\%rule_counters,\%rule_invariants,($starting_rule));
+    my $starting_rule_for_print = $starting_rule;
+    $starting_rule_for_print = "<undef>" if not defined $starting_rule;
+    # say("DEBUG: Thread" . $generator->threadId() . " starting_rule '" . $starting_rule_for_print . "'");
 
+    my @sentence = expand(\%rule_counters, \%rule_invariants, ($starting_rule));
 
-	$generator->[GENERATOR_SEQ_ID]++;
+    $generator->[GENERATOR_SEQ_ID]++;
 
-	my $sentence = join ('', map { defined $_ ? $_ : '' } @sentence);
+    my $sentence = join ('', map { defined $_ ? $_ : '' } @sentence);
 
-	# Remove extra spaces while we are here
-	while ($sentence =~ s/\.\s/\./s) {};
-	while ($sentence =~ s/\s([\.,])/$1/s) {};
+    # Remove extra spaces while we are here
+    while ($sentence =~ s/\.\s/\./s) {};
+    while ($sentence =~ s/\s([\.,])/$1/s) {};
 	while ($sentence =~ s/\s\s/ /s) {};
 	while ($sentence =~ s/(\W)(AVG|BIT_AND|BIT_OR|BIT_XOR|COUNT|GROUP_CONCAT|MAX|MIN|STD|STDDEV_POP|STDDEV_SAMP|STDDEV|SUM|VAR_POP|VAR_SAMP|VARIANCE) /$1$2/s) {};
 
