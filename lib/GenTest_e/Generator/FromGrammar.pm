@@ -592,9 +592,6 @@ sub next {
     #    - "threadN_connect" or "query_connect" or  "thread_connect"
     #      executed after the first connect and any reconnect
     #    should take care that the right environment for that mass of queries is met.
-    say("DEBUG: Thread" . $generator->threadId() .
-        " GENERATOR_SEQ_ID: " . $generator->[GENERATOR_SEQ_ID] .
-        " GENERATOR_RECONNECT: " . $generator->[GENERATOR_RECONNECT]);
     if ($generator->[GENERATOR_SEQ_ID] == 0) {
         # This means that we have never run a top-level "*_init" rule.
         # So do this now in case there is such a rule.
