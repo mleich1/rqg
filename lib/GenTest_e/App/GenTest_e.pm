@@ -938,7 +938,7 @@ sub workerProcess {
         last if $query_result == STATUS_EOF;
         last if $ctrl_c == 1;
         if (time() > $self->[GT_TEST_END]) {
-             say("DEBUG: $who_am_i $worker_role Endtime exceeded. Will stop soon.") if $debug_here;
+             say("INFO: $who_am_i $worker_role Endtime exceeded. Will stop soon.");
              last;
         }
     }
