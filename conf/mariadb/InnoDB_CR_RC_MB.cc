@@ -1,5 +1,5 @@
 # Copyright (C) 2019, 2022 MariaDB corporation Ab. All rights reserved.
-# Copyright (C) 2023 MariaDB plc All rights reserved.
+# Copyright (C) 2023, 2024 MariaDB plc All rights reserved.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -44,10 +44,11 @@
 # Section Verdict setup ------------------------------------------------------------------------ end
 
 our $test_compression_encryption =
-  '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz --max_gd_duration=1800 ';
-
+  "--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz --max_gd_duration=1800 ";
 our $encryption_setup =
   '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
+our $encrypt_tables_and_log =
+  "--mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables ";
 
 our $compression_setup =
   # The availability of the plugins depends on 1. build mechanics 2. Content of OS install
@@ -61,66 +62,106 @@ our $compression_setup =
   # Use the smallest which is 1 instead of 6 (default).
   # The hope is that it raises the throughput and/or reduces the fraction of max_gd_timeout exceeded
   # and/or false alarms when running a test with compression.
-  '--mysqld=--plugin-load-add=provider_lzo.so --mysqld=--plugin-load-add=provider_bzip2.so --mysqld=--plugin-load-add=provider_lzma.so ' .
-  '--mysqld=--plugin-load-add=provider_snappy.so --mysqld=--plugin-load-add=provider_lz4.so --mysqld=--loose-innodb_compression_level=1';
+  "--mysqld=--plugin-load-add=provider_lzo.so --mysqld=--plugin-load-add=provider_bzip2.so --mysqld=--plugin-load-add=provider_lzma.so " .
+  "--mysqld=--plugin-load-add=provider_snappy.so --mysqld=--plugin-load-add=provider_lz4.so --mysqld=--loose-innodb_compression_level=1 ";
+
+our $full_text_gendata =
+  "--gendata=conf/engines/innodb/full_text_search.zz --max_gd_duration=1200 --short_column_names ";
+
+our $many_indexes_gendata =
+  "--gendata=conf/engines/many_indexes.zz --max_gd_duration=900 ";
+
+our $oltp_gendata =
+  "--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 ";
+
+our $table_stress_gendata =
+  "--gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql ";
+
+our $select_stability_rr =
+  "--mysqld=--transaction-isolation=REPEATABLE-READ --validator=SelectStability ";
+our $select_stability_ser =
+  "--mysqld=--transaction-isolation=SERIALIZABLE    --validator=SelectStability ";
+
+our $mariabackup =
+  # Default log_size is 100MB. Mariabackup --backup fails sometimes with
+  #    [ 'TBR-934', '\[00\] FATAL ERROR: .{1,100} xtrabackup_copy_logfile\(\) failed: redo log block is overwritten, ...
+  #     please increase redo log size.+RESULT: The RQG run ended with status STATUS_BACKUP_FAILURE' ],
+  # 200MB does not prevent that problem 100%. But it reduces the likelihood to get it and we
+  # check what happens in the region of "quite small redo log size" too.
+  "--reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M ";
 
 our $duration = 300;
 our $grammars =
 [
 
   # Suffers in old releases massive from https://jira.mariadb.org/browse/MDEV-19449
-  '--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy',    # This looked once like a dud.
-  # Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
-  '--gendata=conf/percona_qa/BT-16274/BT-16274.zz --max_gd_duration=900 --grammar=conf/percona_qa/BT-16274/BT-16274.yy ' .
-      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
-  # Heavy space consumption in tmpfs -> throtteling by ResourceControl -> CPU's 30% idle
-  '--gendata=conf/percona_qa/percona_qa.zz --max_gd_duration=900 --grammar=conf/percona_qa/percona_qa.yy ' .
-      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/redefine_temporary_tables.yy',
-  '--views --grammar=conf/mariadb/partitions_innodb.yy ' .
-      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy',
-  '--gendata=conf/engines/innodb/full_text_search.zz --max_gd_duration=1200 --short_column_names --grammar=conf/engines/innodb/full_text_search.yy ' .
-      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/redefine_temporary_tables.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy',
-  '--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy ' .
-      '--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy --redefine=conf/mariadb/modules/sql_mode.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy',
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy --redefine=conf/mariadb/instant_add.yy " .    # This looked once like a dud.
+  # Heavy space consumption
+  "--gendata=conf/percona_qa/BT-16274/BT-16274.zz --max_gd_duration=900 --grammar=conf/percona_qa/BT-16274/BT-16274.yy " .
+      "--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy --redefine=conf/mariadb/bulk_insert.yy " .
+      "--redefine=conf/mariadb/redefine_temporary_tables.yy "                                                         ,
+  # Heavy space consumption
+  "--gendata=conf/percona_qa/percona_qa.zz --max_gd_duration=900 --grammar=conf/percona_qa/percona_qa.yy " .
+      "--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy "                     .
+      "--redefine=conf/mariadb/bulk_insert.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy "                     .
+      "--redefine=conf/mariadb/redefine_temporary_tables.yy ",
+  "--views --grammar=conf/mariadb/partitions_innodb.yy " .
+      "--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy "                     .
+      "--redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy "                     .
+      "--redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy "                     .
+      "--redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy ",
+  "$full_text_gendata --grammar=conf/engines/innodb/full_text_search.yy " .
+      "--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy "                     .
+      "--redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy "                     .
+      "--redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy "                     .
+      "--redefine=conf/mariadb/redefine_temporary_tables.yy --redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy ",
+  "--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy " .
+      "--redefine=conf/mariadb/alter_table.yy --redefine=conf/mariadb/instant_add.yy "                     .
+      "--redefine=conf/mariadb/modules/alter_table_columns.yy --redefine=conf/mariadb/bulk_insert.yy "                     .
+      "--redefine=conf/mariadb/modules/foreign_keys.yy --redefine=conf/mariadb/modules/locks.yy "                     .
+      "--redefine=conf/mariadb/versioning.yy --redefine=conf/mariadb/sequences.yy --redefine=conf/mariadb/modules/locks-10.4-extra.yy ",
 
   # This can run even without "extra" main grammar
-  '--gendata --vcols --views --grammar=conf/mariadb/instant_add.yy',
+  "--gendata --vcols --views --grammar=conf/mariadb/instant_add.yy ",
 
-  '--grammar=conf/runtime/metadata_stability.yy --gendata=conf/runtime/metadata_stability.zz',
-  '--grammar=conf/mariadb/partitions_innodb.yy',
-  '--grammar=conf/mariadb/partitions_innodb.yy --gendata-advanced --skip-gendata',
-  '--grammar=conf/replication/replication.yy --gendata=conf/replication/replication-5.1.zz --max_gd_duration=1200', # rr on asan_Og exceeded 900 * 1.5
-  '--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz',
+  "--grammar=conf/runtime/metadata_stability.yy --gendata=conf/runtime/metadata_stability.zz ",
+  "--grammar=conf/mariadb/partitions_innodb.yy ",
+  "--grammar=conf/mariadb/partitions_innodb.yy --gendata-advanced --skip-gendata ",
+  "--grammar=conf/replication/replication.yy --gendata=conf/replication/replication-5.1.zz --max_gd_duration=1200 ", # rr on asan_Og exceeded 900 * 1.5
+  "--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz ",
 
   # DML-DML only
-  '--grammar=conf/engines/many_indexes.yy --gendata=conf/engines/many_indexes.zz',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata=conf/mariadb/oltp.zz --max_gd_duration=900 ',
-  '--grammar=conf/mariadb/oltp-transactional.yy --gendata-advanced --skip-gendata',
+  "$many_indexes_gendata --grammar=conf/engines/many_indexes.yy ",
+  "$oltp_gendata --grammar=conf/mariadb/oltp-transactional.yy ",
+  "--grammar=conf/mariadb/oltp-transactional.yy --gendata-advanced --skip-gendata ",
 
   # DDL-DDL, DDL-DML, DML-DML, syntax   stress test   for several storage engines
   # Certain new SQL features might be not covered.
   # Rather small tables with short lifetime.
-  '--gendata=conf/mariadb/concurrency.zz --gendata_sql=conf/mariadb/concurrency.sql --grammar=conf/mariadb/concurrency.yy',
+  "--gendata=conf/mariadb/concurrency.zz --gendata_sql=conf/mariadb/concurrency.sql --grammar=conf/mariadb/concurrency.yy ",
 
-  # heavy DML-DML
-  '--grammar=conf/mariadb/table_stress_innodb_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
-  # heavy DML-DML and FOREIGN KEYs
-  '--grammar=conf/mariadb/table_stress_innodb_fk_dml.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
+  # Heavy DML-DML                                                                                                                  #
+  # -------------                                                                                                                  #
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_dml.yy    "                                                    ,
+  # Heavy DML-DML and FOREIGN KEYs                                                                                                 #
+  # -------------                                                                                                                  #
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_fk_dml.yy "                                                    ,
 
-  # Main DDL-DDL, DDL-DML, DML-DML stress work horse   with generated virtual columns, fulltext indexes, KILL QUERY/SESSION, BACKUP STAGE
-  '--grammar=conf/mariadb/table_stress_innodb.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
+  # Main DDL-DDL, DDL-DML, DML-DML stress work horse with generated columns, fulltext indexes, KILL QUERY/SESSION, BACKUP STAGE
+  "--grammar=conf/mariadb/table_stress_innodb.yy $table_stress_gendata ",
   # Derivate of above which tries to avoid any DDL rebuilding the table, also without BACKUP STAGE
   #     IMHO this fits more likely to the average fate of production applications.
   #     No change of PK, get default ALGORITHM which is NOCOPY if doable, no BACKUP STAGE because too new or rare and RPL used instead.
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy.yy  --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
-  '--grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql --redefine=conf/mariadb/xa.yy',
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy.yy  ",
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy ",
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy --redefine=conf/mariadb/xa.yy ",
 
-  # Fiddle with FOREIGN KEYs and
-  # - especially TRUNCATE
-  '--gendata=conf/mariadb/fk_truncate.zz --grammar=conf/mariadb/fk_truncate.yy',
-  # - the full set of DDL like in the other table_stress_innodb*
-  '--grammar=conf/mariadb/table_stress_innodb_fk.yy      --gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql',
+  # Fiddle with FOREIGN KEYs and                                                                                                   #
+  # ----------------------------                                                                                                   #
+  # - especially TRUNCATE                                                                                                          #
+  "--gendata=conf/mariadb/fk_truncate.zz --grammar=conf/mariadb/fk_truncate.yy "                                                   ,
+  # - the full set of DDL like in the other table_stress_innodb*                                                                   #
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_fk.yy "                                                        ,
 
 
   # Tests checking transactional properties
@@ -128,16 +169,16 @@ our $grammars =
   # READ-UNCOMMITTED and READ-COMMITTED will be not assigned because they guarantee less than we can check in the moment.
   #
   # Disabled because not compatible with max_statement_timeout and other timeouts etc.
-  # ' --grammar=conf/transactions/transactions.yy --gendata=conf/transactions/transactions.zz --validators=DatabaseConsistency ',
-  ' --grammar=conf/transactions/repeatable_read.yy --gendata=conf/transactions/transactions.zz --validators=RepeatableRead ',
+  # "--grammar=conf/transactions/transactions.yy --gendata=conf/transactions/transactions.zz --validators=DatabaseConsistency ",
+  "--grammar=conf/transactions/repeatable_read.yy --gendata=conf/transactions/transactions.zz --validators=RepeatableRead ",
 
   "$test_compression_encryption                                                                                               ",
   "$test_compression_encryption                                                                --mysqld=--loose-innodb-encryption-threads=1 ",
   "$test_compression_encryption                                                                --mysqld=--loose-innodb-encryption-threads=7 ",
   "$test_compression_encryption                                                                --mysqld=--loose-innodb_encryption_rotate_key_age=1 ",
   "$test_compression_encryption                                                                --mysqld=--loose-innodb_encryption_rotate_key_age=2 ",
-  "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables                                ",
-  "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables --redefine=conf/mariadb/redefine_innodb_undo.yy --mysqld=--innodb-immediate-scrub-data-uncompressed=1 ",
+  "$test_compression_encryption $encrypt_tables_and_log                                 ",
+  "$test_compression_encryption $encrypt_tables_and_log --redefine=conf/mariadb/redefine_innodb_undo.yy --mysqld=--innodb-immediate-scrub-data-uncompressed=1 ",
 ];
 
 
@@ -187,6 +228,41 @@ $combinations = [ $grammars,
     " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=300 ",
   ],
   [
+    # Since 11.2 (MDEV-14795) + it's complex + customers need it a lot.
+    #     If 'autoshrink' is not supported than already bootstrap will fail.
+    #     'loose' does not seem to help if the value assigned is unknown.
+    '--mysqld=--loose-innodb_data_file_path=ibdata1:1M:autoextend:autoshrink' ,
+    '' ,
+    '' ,
+    '' ,
+  ],
+  [
+    '--redefine=conf/mariadb/redefine_innodb_log_write_ahead_size.yy' ,
+    '' ,
+    '' ,
+    '' ,
+  ],
+  [
+    '--redefine=conf/mariadb/redefine_innodb_log_size_dynamic.yy' ,
+    '' ,
+    '' ,
+    '' ,
+  ],
+  [
+    # lock_wait_timeout
+    #     Timeout in seconds for attempts to acquire metadata locks. Statements using metadata
+    #     locks include FLUSH TABLES WITH READ LOCK, LOCK TABLES, HANDLER and DML and DDL
+    #     operations on tables, stored procedures and functions, and views.
+    #     The timeout is separate for each attempt, of which there may be multiple in a
+    #     single statement. 0 (from MariaDB 10.3.0) means no wait.
+    #     <Certain but not all SQL> [WAIT n|NOWAIT] ... can set lock_wait_timeout explicitly
+    #     for that statement.
+    # innodb_lock_wait_timeout
+    #     Time in seconds that an InnoDB transaction waits for an InnoDB record lock
+    #     (or table lock) before giving up with the error
+    #     ERROR 1205 (HY000): Lock wait timeout exceeded; try restarting transaction
+    # table_lock_wait_timeout Removed: MariaDB 5.5
+    #
     # 2023-06
     # The combination lock-wait-timeout=<small> -- innodb-lock-wait-timeout=<a bit bigger>
     # seems to be important for catching problems too.
@@ -241,11 +317,10 @@ $combinations = [ $grammars,
     ' --reporters=CrashRecovery     --duration=100 ',
     ' --reporters=CrashRecovery     --duration=100 ',
     ' --reporters=CrashRecovery     --duration=300 ',
-# Need to fix the problem with the views  ' --reporters=RestartConsistency --duration=100 ',
-# Need to fix the problem with the views  ' --reporters=RestartConsistency --duration=300 ',
-    # Avoid '[00] FATAL ERROR: .{1,100} xtrabackup_copy_logfile() failed: redo log block is overwritten, please increase redo log size'
-    ' --reporters=Mariabackup_linux --duration=300 --mysqld=--loose-innodb-log-file-size=200M',
-    ' --reporters=Mariabackup_linux --duration=300 --mysqld=--loose-innodb-log-file-size=200M',
+    ' --reporters=RestartConsistency --duration=100 ',
+    ' --reporters=RestartConsistency --duration=300 ',
+    "$mariabackup ",
+    "$mariabackup ",
   ],
   [
     # No more supported since 10.6
@@ -359,6 +434,7 @@ $combinations = [ $grammars,
   [
     ' --threads=1  ',
     ' --threads=2  ',
+    ' --threads=9  ',
     ' --threads=9  ',
     ' --threads=33 ',
   ],
@@ -525,8 +601,4 @@ $combinations = [ $grammars,
   ],
 ];
 
-# Marko: (sentence is edited)
-# @matthias.leich You can be more mad DBA than usual:
-# enable STATS_AUTO_RECALC (on per default and needs innodb_stats_persistent enabled, also default)
-# and do not hesitate to run ALTER TABLE mysql.innodb_index_stats FORCE in parallel to normal
-# DDL/DML workload (including concurrent ALTER TABLE or ANALYZE TABLE on user tables).
+
