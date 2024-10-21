@@ -1744,13 +1744,14 @@ sub execute {
                         ($ct_Msg_text =~ /Deadlock found when trying to get lock/) or
                         ($ct_Msg_text =~ /Lock wait timeout exceeded/)             or
                         ($ct_Msg_text =~ /Query execution was interrupted/)          ) {
-                        say("DEBUG: Executor: For query '" . $query . "' harmless '" . $line .
-                            "' observed.") if $debug_here;
+                        say("INFO: Executor: For query '" . $query . "' most likely legitimate '" .
+                            $line . "' observed. Will return STATUS_SKIP.");
                         return GenTest_e::Result->new(
                             query       => $query,
                             status      => STATUS_SKIP,
                         );
                     }
+                    say("DEBUG: Query '" . $query . "' harvested '" . $line . "'.") if $debug_here;
                 }
 
                 # Dangling view test.extra_v1 AS SELECT * FROM test.extra_t1
