@@ -1,6 +1,6 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2016,2019 MariaDB Corporation
-# Copyright (c) 2023 MariaDB plc
+# Copyright (c) 2023, 2024 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -298,6 +298,8 @@ sub parseFromString {
     # - threadX_add
     # - query_init_add
     # _ threadX_init_add
+    # - query_connect_add
+    # _ threadX_connect_add
     # Grammars can have multiple additions like these, they all will be stored
     # and appended to the corresponding rule.
     #
@@ -313,7 +315,8 @@ sub parseFromString {
     #     rule1 | rule2 | rule3;
     #
     #
-    # Additions to '*_init' rules will be added as a part of a multiple-statement (--> ';'), e.g.
+    # Additions to '*_init' and "*_connect" rules will be added as a part of
+    # a multiple-statement (--> ';'), e.g.
     #
     # In grammar files we have:
     #   query_init:
@@ -336,10 +339,12 @@ sub parseFromString {
     # 2: query_init; query_init_add; thread2_init_add
     # 3: thread3_init
 
-    my @query_adds       = ();
-    my %thread_adds      = ();
-    my @query_init_adds  = ();
-    my %thread_init_adds = ();
+    my @query_adds  =           ();
+    my %thread_adds =           ();
+    my @query_init_adds =       ();
+    my %thread_init_adds =      ();
+    my @query_connect_adds  =   ();
+    my %thread_connect_adds =   ();
 
     foreach my $rule_string (@rule_strings) {
         my ($rule_name, $components_string) = $rule_string =~ m{^(.*?)\s*:(.*)$}sio;
@@ -382,6 +387,13 @@ sub parseFromString {
             @{$thread_init_adds{$1}} = () unless defined $thread_init_adds{$1};
             push @{$thread_init_adds{$1}}, $components_string;
         }
+        elsif ($rule_name =~ /^query_connect_add$/) {
+            push @query_connect_adds, $components_string;
+        }
+        elsif ($rule_name =~ /^thread(\d+)_connect_add$/) {
+            @{$thread_connect_adds{$1}} = () unless defined $thread_connect_adds{$1};
+            push @{$thread_connect_adds{$1}}, $components_string;
+        }
         else {
             say("WARN: Rule '$rule_name' is defined twice.") if exists $rules{$rule_name};
             $rules{$rule_name} = $components_string;
@@ -411,6 +423,23 @@ sub parseFromString {
                 ? $rules{'thread'.$tid.'_init'} . '; ' . $adds
                 : ( defined $rules{'query_init'}
                     ? $rules{'query_init'} . '; ' . $adds
+                    : $adds
+                )
+        );
+    }
+
+    if (@query_connect_adds) {
+        my $adds = join '; ', @query_connect_adds;
+        $rules{'query_connect'} = ( defined $rules{'query_connect'} ? $rules{'query_connect'} . '; ' . $adds : $adds );
+    }
+
+    foreach my $tid (keys %thread_connect_adds) {
+        my $adds = join '; ', @{$thread_connect_adds{$tid}};
+        $rules{'thread'.$tid.'_connect'} = (
+            defined $rules{'thread'.$tid.'_connect'}
+                ? $rules{'thread'.$tid.'_connect'} . '; ' . $adds
+                : ( defined $rules{'query_connect'}
+                    ? $rules{'query_connect'} . '; ' . $adds
                     : $adds
                 )
         );
