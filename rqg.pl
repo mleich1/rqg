@@ -481,28 +481,19 @@ if (defined $skip_gendata) {
     }
 }
 
-# FIXME_maybe:
-# Generate a SQL file $work_dir/rqg_usr.sql with
-#   my $snip_create = '@' . "'localhost' Identified BY '';\n";
-#   my $snip_grant =  '@' . "'localhost' WITH GRANT OPTION;\n";
-#   foreach my $num (1..$threads) {
-#       print GENUSER "CREATE USER 'rqg_thread$num'" .         $snip_create;
-#       print GENUSER "GRANT ALL ON *.* TO 'rqg_thread$num'" . $snip_grant;
+# In lib/GenTest_e/App/GenTest_e.pm
+# Generate a SQL file tmpdir . "gt_users.sql" containing (vague code)
+#   foreach $user in (<all threads>, reporter) {
+#       CREATE USER '<user_name>' ....
+#       GRANT ALL ON *.* TO ''<user_name>'
 #   }
-#   print GENUSER "CREATE USER 'rqg_reporter'" .          $snip_create;
-#   print GENUSER "GRANT ALL ON *.* TO 'rqg_reporter'" .  $snip_grant;
-#   print GENUSER <set certain timeouts to high values>
-#   ... maybe more ...
-# Add that to the begin of the list of gendata_sql_files.
-# Adjust the corresponding connects.
+# And than run it after the list of gendata_sql files.
 # Advantage:
 # - Better distinction between whatever threads showing up in the processlist.
 # - A thread running no query might be 'thread1' which just executes 'sleep 10'.
 #   == That thread is connected and might run further SQL soon.
 #   Limitation: A thread could be temporary disconnected!
-# - Permission related tests become better doable.
-# Less SQL somewhere for adjusting timeouts etc.
-
+# - Permission related tests become easier doable.
 my $gendata_sql_ref = Auxiliary::unify_gendata_sql(\@gendata_sql_files, $workdir);
 if (not defined $gendata_sql_ref) {
     help();
