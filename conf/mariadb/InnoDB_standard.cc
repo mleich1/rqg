@@ -92,6 +92,8 @@ our $mariabackup =
   # Default log_size is 100MB. Mariabackup --backup fails sometimes with
   #    [ 'TBR-934', '\[00\] FATAL ERROR: .{1,100} xtrabackup_copy_logfile\(\) failed: redo log block is overwritten, ...
   #     please increase redo log size.+RESULT: The RQG run ended with status STATUS_BACKUP_FAILURE' ],
+  # 200MB does not prevent that problem 100%. But it reduces the likelihood to get it and we
+  # check what happens in the region of "quite small redo log size" too.
   "--reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M ";
 
 our $duration = 300;
@@ -241,12 +243,24 @@ our $grammars =
   # DDL+DML together with Mariabackup                                                                                              #
   "--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz $mariabackup "                                    ,
 
+  "$test_compression_encryption                         --mysqld=--loose-innodb-encryption-threads=1 "                             ,
+  "$test_compression_encryption                         --mysqld=--loose-innodb-encryption-threads=7 "                             ,
+  "$test_compression_encryption                         --mysqld=--loose-innodb_encryption_rotate_key_age=1 "                      ,
+  "$test_compression_encryption                         --mysqld=--loose-innodb_encryption_rotate_key_age=2 "                      ,
+  "$test_compression_encryption                         --reporters=RestartConsistency "                                           ,
+  "$test_compression_encryption                         --reporters=CrashRecovery "                                                ,
+  "$test_compression_encryption $encrypt_tables_and_log $mariabackup "                                                             ,
+  "$test_compression_encryption $encrypt_tables_and_log --reporters=RestartConsistency "                                           ,
+  "$test_compression_encryption $encrypt_tables_and_log --reporters=CrashRecovery "                                                ,
+  "$test_compression_encryption $encrypt_tables_and_log --reporters=CrashRecovery "                                            .
+      "--redefine=conf/mariadb/redefine_innodb_undo.yy  --mysqld=--innodb-immediate-scrub-data-uncompressed=1 "                    ,
+
   # Tests checking transactional properties
   # =======================================
   # READ-UNCOMMITTED and READ-COMMITTED will be not assigned because they guarantee less than we can check in the moment.
   #
   # Disabled because not compatible with max_statement_timeout and other timeouts etc.
-  # "--grammar=conf/transactions/transactions.yy  --gendata=conf/transactions/transactions.zz --validators=DatabaseConsistency "   ,
+  # "--grammar=conf/transactions/transactions.yy --gendata=conf/transactions/transactions.zz --validators=DatabaseConsistency "    ,
   "--grammar=conf/transactions/repeatable_read.yy --gendata=conf/transactions/transactions.zz --validators=RepeatableRead "        ,
   ###
   # DML only together with --validator=SelectStability ----------------                                                            #
@@ -274,18 +288,6 @@ our $grammars =
   # "--grammar=conf/mariadb/optimizer.yy --gendata-advanced --skip-gendata ",
   # '--grammar=conf/optimizer/updateable_views.yy --mysqld=--init-file='.$ENV{RQG_HOME}.'/conf/optimizer/updateable_views.init',
   # "--grammar=conf/mariadb/functions.yy --gendata-advanced --skip-gendata ",
-
-  "$test_compression_encryption                         --mysqld=--loose-innodb-encryption-threads=1 "                             ,
-  "$test_compression_encryption                         --mysqld=--loose-innodb-encryption-threads=7 "                             ,
-  "$test_compression_encryption                         --mysqld=--loose-innodb_encryption_rotate_key_age=1 "                      ,
-  "$test_compression_encryption                         --mysqld=--loose-innodb_encryption_rotate_key_age=2 "                      ,
-  "$test_compression_encryption                         --reporters=RestartConsistency "                                           ,
-  "$test_compression_encryption                         --reporters=CrashRecovery "                                                ,
-  "$test_compression_encryption $encrypt_tables_and_log $mariabackup "                                                             ,
-  "$test_compression_encryption $encrypt_tables_and_log --reporters=RestartConsistency "                                           ,
-  "$test_compression_encryption $encrypt_tables_and_log --reporters=CrashRecovery "                                                ,
-  "$test_compression_encryption $encrypt_tables_and_log --reporters=CrashRecovery "                                            .
-      "--redefine=conf/mariadb/redefine_innodb_undo.yy  --mysqld=--innodb-immediate-scrub-data-uncompressed=1 "                    ,
 ];
 
 
