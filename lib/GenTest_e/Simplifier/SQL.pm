@@ -1,5 +1,6 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
+# Copyright (c) 2024 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -32,166 +33,166 @@ use GenTest_e::Constants;
 my $empty_child = DBIx::MyParsePP::Rule->new();
 my $myparse = DBIx::MyParsePP->new();
 
-use constant SIMPLIFIER_ORACLE		=> 0;
-use constant SIMPLIFIER_CACHE		=> 1;
-use constant SIMPLIFIER_QUERY_ROOT	=> 2;
-use constant SIMPLIFIER_PASSING_QUERIES	=> 3;
-use constant SIMPLIFIER_FAILING_QUERIES	=> 4;
+use constant SIMPLIFIER_ORACLE          => 0;
+use constant SIMPLIFIER_CACHE           => 1;
+use constant SIMPLIFIER_QUERY_ROOT      => 2;
+use constant SIMPLIFIER_PASSING_QUERIES => 3;
+use constant SIMPLIFIER_FAILING_QUERIES => 4;
 
 1;
 
 sub new {
-        my $class = shift;
+    my $class = shift;
 
-	my $simplifier = $class->SUPER::new({
-		'oracle'	=> SIMPLIFIER_ORACLE,
-		'cache'		=> SIMPLIFIER_CACHE
-	}, @_);
+    my $simplifier = $class->SUPER::new({
+        'oracle'     => SIMPLIFIER_ORACLE,
+        'cache'      => SIMPLIFIER_CACHE
+    }, @_);
 
-	$simplifier->[SIMPLIFIER_CACHE] = {} if not defined $simplifier->[SIMPLIFIER_CACHE];
+    $simplifier->[SIMPLIFIER_CACHE] = {} if not defined $simplifier->[SIMPLIFIER_CACHE];
 
-	return $simplifier;
+    return $simplifier;
 }
 
 sub simplify {
-	my ($simplifier, $initial_query) = @_;
+    my ($simplifier, $initial_query) = @_;
 
-	return $initial_query if $initial_query =~ m{^\s*$}sio;
+    return $initial_query if $initial_query =~ m{^\s*$}sio;
 
-	if ($simplifier->oracle($initial_query) != ORACLE_ISSUE_STILL_REPEATABLE) {
-		carp("Initial query $initial_query failed to reproduce the same issue.");
-		return undef;
-	}
+    if ($simplifier->oracle($initial_query) != ORACLE_ISSUE_STILL_REPEATABLE) {
+        carp("Initial query $initial_query failed to reproduce the same issue.");
+        return undef;
+    }
 
-	my $query_obj = $myparse->parse($initial_query);
+    my $query_obj = $myparse->parse($initial_query);
 
-	$simplifier->[SIMPLIFIER_CACHE] = {};
+    $simplifier->[SIMPLIFIER_CACHE] = {};
 
-	my $root = $query_obj->root();
-	
-	if (not defined $root) {
-		carp("Unable to parse query");
-		return undef;
-	}
+    my $root = $query_obj->root();
 
-	my $root_shrunk = $root->shrink(MYPARSEPP_SHRINK_SINGLES | MYPARSEPP_SHRINK_CHILDREN);
+    if (not defined $root) {
+        carp("Unable to parse query");
+        return undef;
+    }
 
-	$simplifier->[SIMPLIFIER_QUERY_ROOT] = $root_shrunk;
-	$simplifier->descend($root_shrunk, undef, 0);
+    my $root_shrunk = $root->shrink(MYPARSEPP_SHRINK_SINGLES | MYPARSEPP_SHRINK_CHILDREN);
 
-	$simplifier->[SIMPLIFIER_CACHE] = {};
+    $simplifier->[SIMPLIFIER_QUERY_ROOT] = $root_shrunk;
+    $simplifier->descend($root_shrunk, undef, 0);
 
-	my $final_query = $root_shrunk->toString();
+    $simplifier->[SIMPLIFIER_CACHE] = {};
 
-	if ($simplifier->oracle($final_query) != ORACLE_ISSUE_STILL_REPEATABLE) {
-		warn("Final query $final_query failed to reproduce the same issue.");
-		return undef;
-	} else {
-		return $final_query;
-	} 
+    my $final_query = $root_shrunk->toString();
+
+    if ($simplifier->oracle($final_query) != ORACLE_ISSUE_STILL_REPEATABLE) {
+        warn("Final query $final_query failed to reproduce the same issue.");
+        return undef;
+    } else {
+        return $final_query;
+    }
 }
 
 sub descend {
-	my ($simplifier, $parent, $grandparent, $parent_id) = @_;
+    my ($simplifier, $parent, $grandparent, $parent_id) = @_;
 
-	my $query_root = $simplifier->[SIMPLIFIER_QUERY_ROOT];
+    my $query_root = $simplifier->[SIMPLIFIER_QUERY_ROOT];
 
-	my @children = $parent->children();
-	return if $#children == -1;
+    my @children = $parent->children();
+    return if $#children == -1;
 
-	
-	# We start chopping from the end in order to remove GROUP BY/HAVING, etc., before we 
-	# start chewing on the SELECT list and the list of joined tables
- 
-	foreach my $child_id (reverse (0..$#children)) {
-		my $orig_child = $children[$child_id];
-		
-		# Do not remove the AS from "table1 AS alias1"
-		next if $orig_child->print() =~ m{^\s*AS}so;
 
-		# Do not further simplify WHERE or ON expressions that are already simple equalities/inequalities
-		# This avoids generating unrealistic expressions containing only a single field, such as t1 JOIN t2 ON (t1.f1)
-		next if $orig_child->print() =~ m{^\s*[A-Z0-9_`' .]*\s*(=|>|<|!=|<>|<=>|<=|>=)\s*[A-Z0-9_`' .]*\s*$}sgio;
-		
-		# No not remove FORCE KEY. This is sometimes useful when simplifying optimizer bugs 
-		# that use InnoDB tables and have unstable query plans due to unstable InnoDB row estimates
-#		next if $orig_child->print() =~ m{^\s*FORCE}so; 
+    # We start chopping from the end in order to remove GROUP BY/HAVING, etc., before we
+    # start chewing on the SELECT list and the list of joined tables
 
-		my $orig_parent = $grandparent->[$parent_id + 1];
+    foreach my $child_id (reverse (0..$#children)) {
+        my $orig_child = $children[$child_id];
 
-		if (defined $grandparent) {	
-			# replace parent with child
-			my $child_str = $orig_child->toString();
-			$grandparent->[$parent_id + 1] = $orig_child;
-			my $new_query1 = $query_root->toString();
-			$grandparent->[$parent_id + 1] = $orig_parent;
+        # Do not remove the AS from "table1 AS alias1"
+        next if $orig_child->print() =~ m{^\s*AS}so;
 
-			if ($simplifier->oracle($new_query1) == ORACLE_ISSUE_STILL_REPEATABLE) {
-				# Problem is still present, make tree modification permanent
-				$grandparent->[$parent_id + 1] = $orig_child;
-				$simplifier->descend($orig_child, $grandparent, $parent_id);
-			}
-		}
+        # Do not further simplify WHERE or ON expressions that are already simple equalities/inequalities
+        # This avoids generating unrealistic expressions containing only a single field, such as t1 JOIN t2 ON (t1.f1)
+        next if $orig_child->print() =~ m{^\s*[A-Z0-9_`' .]*\s*(=|>|<|!=|<>|<=>|<=|>=)\s*[A-Z0-9_`' .]*\s*$}sgio;
 
-		# remove the child altogether
+        # No not remove FORCE KEY. This is sometimes useful when simplifying optimizer bugs
+        # that use InnoDB tables and have unstable query plans due to unstable InnoDB row estimates
+#        next if $orig_child->print() =~ m{^\s*FORCE}so;
 
-		$parent->[$child_id + 1] = $empty_child;
-		my $new_query2 = $query_root->toString();
-		$parent->[$child_id + 1] = $orig_child;
-		my $removed_fragment2 = $orig_child->toString();
+        my $orig_parent = $grandparent->[$parent_id + 1];
 
-		next if $removed_fragment2 =~ m{^\s*$}sio;	# Empty fragment, skip
+        if (defined $grandparent) {
+            # replace parent with child
+            my $child_str = $orig_child->toString();
+            $grandparent->[$parent_id + 1] = $orig_child;
+            my $new_query1 = $query_root->toString();
+            $grandparent->[$parent_id + 1] = $orig_parent;
 
-		if ($new_query2 =~ m{^\s*$}sio) {		# New query is empty, we amputated too much
-			$simplifier->descend($orig_child, $parent, $child_id);
-		}
+            if ($simplifier->oracle($new_query1) == ORACLE_ISSUE_STILL_REPEATABLE) {
+                # Problem is still present, make tree modification permanent
+                $grandparent->[$parent_id + 1] = $orig_child;
+                $simplifier->descend($orig_child, $grandparent, $parent_id);
+            }
+        }
 
-		if ($simplifier->oracle($new_query2) == ORACLE_ISSUE_STILL_REPEATABLE) {
-			# Problem is still present, make tree modification permanent
-			$parent->[$child_id + 1] = $empty_child;
-		} else {
-			$simplifier->descend($orig_child, $parent, $child_id);
-		}
-	}
+        # remove the child altogether
+
+        $parent->[$child_id + 1] = $empty_child;
+        my $new_query2 = $query_root->toString();
+        $parent->[$child_id + 1] = $orig_child;
+        my $removed_fragment2 = $orig_child->toString();
+
+        next if $removed_fragment2 =~ m{^\s*$}sio;    # Empty fragment, skip
+
+        if ($new_query2 =~ m{^\s*$}sio) {        # New query is empty, we amputated too much
+            $simplifier->descend($orig_child, $parent, $child_id);
+        }
+
+        if ($simplifier->oracle($new_query2) == ORACLE_ISSUE_STILL_REPEATABLE) {
+            # Problem is still present, make tree modification permanent
+            $parent->[$child_id + 1] = $empty_child;
+        } else {
+            $simplifier->descend($orig_child, $parent, $child_id);
+        }
+    }
 }
 
 sub oracle {
-	my ($simplifier, $query) = @_;
+    my ($simplifier, $query) = @_;
 
-	my $cache = $simplifier->[SIMPLIFIER_CACHE];
-	my $oracle = $simplifier->[SIMPLIFIER_ORACLE];
+    my $cache = $simplifier->[SIMPLIFIER_CACHE];
+    my $oracle = $simplifier->[SIMPLIFIER_ORACLE];
 
-	if (not exists $cache->{$query}) {
-		my $outcome = $oracle->($query);
+    if (not exists $cache->{$query}) {
+        my $outcome = $oracle->($query);
 
-		if ($outcome == ORACLE_ISSUE_STILL_REPEATABLE) {
-			push @{$simplifier->[SIMPLIFIER_FAILING_QUERIES]}, $query;
-		} elsif ($outcome == ORACLE_ISSUE_NO_LONGER_REPEATABLE) {
-			push @{$simplifier->[SIMPLIFIER_PASSING_QUERIES]}, $query;
-		} elsif ($outcome != ORACLE_ISSUE_STATUS_UNKNOWN) {
-			die "Bad oracle() outcome; outcome = $outcome"; 
-		}
+        if ($outcome == ORACLE_ISSUE_STILL_REPEATABLE) {
+            push @{$simplifier->[SIMPLIFIER_FAILING_QUERIES]}, $query;
+        } elsif ($outcome == ORACLE_ISSUE_NO_LONGER_REPEATABLE) {
+            push @{$simplifier->[SIMPLIFIER_PASSING_QUERIES]}, $query;
+        } elsif ($outcome != ORACLE_ISSUE_STATUS_UNKNOWN) {
+            die "Bad oracle() outcome; outcome = $outcome";
+        }
 
-		$cache->{$query} = $outcome;
-	}
-		
-	return $cache->{$query};
+        $cache->{$query} = $outcome;
+    }
+
+    return $cache->{$query};
 }
 
 sub DESTROY {
-	my $simplifier = shift;
-	
-	my $tmpfile = tmpdir().abs($$).'-'.time();
+    my $simplifier = shift;
 
-	open (PASSING, ">$tmpfile-passing.txt");
-	print PASSING join (";\n", @{$simplifier->[SIMPLIFIER_PASSING_QUERIES]}).";\n" if defined $simplifier->[SIMPLIFIER_PASSING_QUERIES];
-	close PASSING;
+    my $tmpfile = tmpdir().abs($$).'-'.time();
 
-	open (FAILING, ">$tmpfile-failing.txt");
-	print FAILING join (";\n", @{$simplifier->[SIMPLIFIER_FAILING_QUERIES]}).";\n" if defined $simplifier->[SIMPLIFIER_FAILING_QUERIES];
-	close FAILING;
+    open (PASSING, ">$tmpfile-passing.txt");
+    print PASSING join (";\n", @{$simplifier->[SIMPLIFIER_PASSING_QUERIES]}).";\n" if defined $simplifier->[SIMPLIFIER_PASSING_QUERIES];
+    close PASSING;
 
-	say("Passing queries: ".$tmpfile."-passing.txt; failing queries: ".$tmpfile."-failing.txt");
+    open (FAILING, ">$tmpfile-failing.txt");
+    print FAILING join (";\n", @{$simplifier->[SIMPLIFIER_FAILING_QUERIES]}).";\n" if defined $simplifier->[SIMPLIFIER_FAILING_QUERIES];
+    close FAILING;
+
+    say("Passing queries: ".$tmpfile."-passing.txt; failing queries: ".$tmpfile."-failing.txt");
 }
 
 1;
