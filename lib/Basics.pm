@@ -634,46 +634,52 @@ sub return_rc_status_text {
 # called by Mariabackup_linux writes into the right "object".
 my $stdout_save;
 my $stderr_save;
+my $current_direction = "STDOUT"; # This is the setting at RQG startup.
 sub direct_to_file {
     my ($output_file) = @_;
 
     my $who_am_i =  Basics::who_am_i();
     my $status =    STATUS_OK;
+    if ("STDOUT" eq $current_direction) {
+        if (not -e $output_file) {
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            Carp::cluck("ERROR: The output_file '$output_file' does not exist.");
+            return $status;
+        }
 
-    if (not -e $output_file) {
-        $status = STATUS_ENVIRONMENT_FAILURE;
-        Carp::cluck("ERROR: The output_file '$output_file' does not exist.");
+        if (not open($stdout_save, ">&", STDOUT)) {
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i : Getting STDOUT failed with '$!' " .
+                "Will exit with status " . status2text($status) . "($status)");
+            exit $status;
+        }
+        if (not open($stderr_save, ">&", STDERR)) {
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i : Getting STDERR failed with '$!' " .
+                "Will exit with status " . status2text($status) . "($status)");
+            exit $status;
+        }
+        # say("DEBUG: $who_am_i : Redirecting all output to '$output_file'.");
+
+        if (not open(STDOUT, ">>", $output_file)) {
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
+                "Will exit with status " . status2text($status) . "($status)");
+            exit $status;
+        }
+        # Redirect STDERR to the log of the RQG run.
+        if (not open(STDERR, ">>", $output_file)) {
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
+                "Will exit with status " . status2text($status) . "($status)");
+            exit $status;
+        }
+        $current_direction = "FILE";
         return $status;
+    } else {
+        say("WARN: Outputdirection is already $current_direction.");
     }
 
-    if (not open($stdout_save, ">&", STDOUT)) {
-        $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Getting STDOUT failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-    }
-    if (not open($stderr_save, ">&", STDERR)) {
-        $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Getting STDERR failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-    }
-    # say("DEBUG: $who_am_i : Redirecting all output to '$output_file'.");
-
-    if (not open(STDOUT, ">>", $output_file)) {
-        $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-    }
-    # Redirect STDERR to the log of the RQG run.
-    if (not open(STDERR, ">>", $output_file)) {
-        $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-    }
-    return $status;
 }
 
 sub direct_to_stdout {
@@ -681,29 +687,34 @@ sub direct_to_stdout {
     my $who_am_i =  Basics::who_am_i();
     my $status =    STATUS_OK;
 
-    if (not defined $stdout_save or not $stderr_save) {
-        $status = STATUS_INTERNAL_ERROR;
-        say("INTERNAL ERROR: $who_am_i If ever running 'direct_to_stdout' " .
-            "than there must have been a 'direct_to_file' prior.");
-        exit $status;
+    if ("FILE" eq $current_direction) {
+        if (not defined $stdout_save or not $stderr_save) {
+            $status = STATUS_INTERNAL_ERROR;
+            say("INTERNAL ERROR: $who_am_i If ever running 'direct_to_stdout' " .
+                "than there must have been a 'direct_to_file' prior.");
+            exit $status;
+        }
+        if (not open(STDOUT, ">&" , $stdout_save)) {
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
+                "Will exit with status " . status2text($status) . "($status)");
+            exit $status;
+        }
+        if (not open(STDERR, ">&" , $stderr_save)) {
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
+                "Will exit with status " . status2text($status) . "($status)");
+            exit $status;
+        }
+        close($stdout_save);
+        close($stderr_save);
+        # Experimental
+        # Reason: Same second but messages somehow not in order
+        $| = 1;
+        $current_direction = "STDOUT";
+    } else {
+        say("WARN: Outputdirection is already $current_direction.");
     }
-    if (not open(STDOUT, ">&" , $stdout_save)) {
-        $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-    }
-    if (not open(STDERR, ">&" , $stderr_save)) {
-        $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
-            "Will exit with status " . status2text($status) . "($status)");
-        exit $status;
-    }
-    close($stdout_save);
-    close($stderr_save);
-    # Experimental
-    # Reason: Same second but messages somehow not in order
-    $| = 1;
 
     return $status;
 }
