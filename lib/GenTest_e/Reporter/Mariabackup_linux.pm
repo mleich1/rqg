@@ -202,7 +202,7 @@ sub init {
         $backup_backup_prefix =     $no_rr_prefix;
         $backup_prepare_prefix =    $no_rr_prefix;
     } else {
-        $ENV{'_RR_TRACE_DIR'} = $clone_vardir . '/rr';
+        $ENV{'_RR_TRACE_DIR'} =     $clone_vardir . '/rr';
         $backup_prepare_prefix =    $rr_prefix;
         if ($dbdir =~ /^\/dev\/shm\/rqg\//) {
             # Per standardlayout "/dev/shm/rqg" is a directory but not a mount point.
@@ -214,21 +214,27 @@ sub init {
         }
     }
 
-    $source_port    = $reporter->serverVariable('port');
-    $clone_port    =         $source_port + 4;
-    $datadir         = $reporter->serverVariable('datadir');
+    $source_port =  $reporter->serverVariable('port');
+    $clone_port  =  $source_port + 4;
+    $datadir =      $reporter->serverVariable('datadir');
     $datadir =~ s{[\\/]$}{}sgio;
 
 
 
     $clone_datadir = $clone_vardir . "/data";
 
-    $backup_backup_cmd = "$backup_backup_prefix $backup_binary --port=$source_port --backup " .
+    # A DB server under high load can write a huge amount of committed changes per time unit.
+    # In case that exceeds the read speed of Mariabackup serious than we need to increase the
+    # innodb_log_file_size in order to prevent that mariabackup --backup fails.
+    # Observation 2022-07:
+    # The DB server writes to /dev/shm/<somewhere> and mariabackup --backup reads from there.
+    # The PMEM emulation used in the server writes gives the DB server some serious speed advantage
+    # causing a lot trouble.
+    $backup_backup_cmd =    "$backup_backup_prefix $backup_binary --port=$source_port --backup " .
                             "--datadir=$datadir --target-dir=$clone_datadir " .
                             "--log-copy-interval=1 > $backup_prt 2>&1";
-    $backup_prepare_cmd = $backup_prepare_prefix . " $backup_binary --port=$clone_port " .
+    $backup_prepare_cmd =    $backup_prepare_prefix . " $backup_binary --port=$clone_port " .
                              "--prepare --target-dir=$clone_datadir > $backup_prt 2>&1";
-#   exit 200;
 }
 
 sub monitor {
@@ -268,21 +274,6 @@ sub monitor {
     $status = $executor->init();
     return $status if STATUS_OK != $status;
 
-#   my $dbh = DBI->connect($dsn, undef, undef, {
-#       mysql_connect_timeout  => Runtime::get_connect_timeout(),
-#       PrintError             => 0,
-#       RaiseError             => 0,
-#       AutoCommit             => 0,
-#       mysql_multi_statements => 0,
-#       mysql_auto_reconnect   => 0
-#   });
-#   if (not defined $dbh) {
-#       $status = STATUS_CRITICAL_FAILURE;
-#       say("ERROR: $who_am_i Connect to dsn '" . $dsn . "'" . " failed: " . $DBI::errstr .
-#           ' ' . Basics::exit_status_text($status));
-#       exit $status;
-#   }
-
     my $basedir = $source_server->basedir();
 
     unlink($reporter_prt);
@@ -302,12 +293,12 @@ sub monitor {
         Basics::direct_to_file($reporter_prt);
     }
     # Reuse data for the clone if possible or adjust it.
-    our $clone_basedir = $basedir;
-    my $clone_user    = $source_server->user();
+    our $clone_basedir =    $basedir;
+    my $clone_user =        $source_server->user();
     # Use the standard layout like in MySQLd.pm.
     # FIXME: Standardization without duplicate code would be better.
-    my $clone_tmpdir  = $clone_vardir . "/tmp";
-    my $clone_rrdir   = $clone_vardir . '/rr';
+    my $clone_tmpdir =  $clone_vardir . "/tmp";
+    my $clone_rrdir =   $clone_vardir . '/rr';
 
     ## Create clone database server directory structure
     if (STATUS_OK != Auxiliary::make_dbs_dirs($clone_vardir)) {
@@ -326,8 +317,6 @@ sub monitor {
     # FIXME: Do we really need all this?
 
     my $lc_messages_dir = $reporter->serverVariable('lc_messages_dir');
-#   my $datadir         = $reporter->serverVariable('datadir');
-#   $datadir =~ s{[\\/]$}{}sgio;
     # 2020-02-27 The start of the server on the backupped data failed because this data
     # goes with a different InnoDB page size than the server default of 16K.
     my $innodb_page_size        = $reporter->serverVariable('innodb_page_size');
@@ -395,7 +384,7 @@ sub monitor {
         #    till it gives up or gets killed by other RQG components.
         sleep 1;
         my $status = STATUS_OK;
-        say("INFO: $who_am_i SIGTERM caught. Will exit later with STATUS_OK.");
+        say("INFO: $who_am_i SIGTERM caught. Will return later STATUS_OK.");
         $executor->disconnect() if defined $executor;
         $clone_err =     $clone_server->errorlog;
         if (-e $clone_err) {
@@ -418,20 +407,13 @@ sub monitor {
         }
         Basics::direct_to_stdout();
         say("INFO: $who_am_i " . Basics::exit_status_text($status));
-        exit $status;
+        return $status;
     }
 
     # For experimenting:
     # $backup_binary = "not_exists ";
     # my $backup_backup_cmd = "$backup_binary --port=$source_port --hickup " .
 
-    # A DB server under high load can write a huge amount of committed changes per time unit.
-    # In case that exceeds the read speed of Mariabackup serious than we need to increase the
-    # innodb_log_file_size in order to prevent that mariabackup --backup fails.
-    # Observation 2022-07:
-    # The DB server writes to /dev/shm/<somewhere> and mariabackup --backup reads from there.
-    # The PMEM emulation used in the server writes gives the DB server some serious speed advantage.
-    # There was a lot trouble.
     #
     # --log-copy-interval defines the copy interval between checks done by the log copying thread.
     # The given value is in milliseconds.
@@ -497,13 +479,13 @@ sub monitor {
             say(Basics::exit_status_text($aux_result));
             sayFile($backup_prt);
             $executor->disconnect();
-            exit $aux_result;
+            return $aux_result;
         } else {
             say("DEBUG: METADATA_LOCK_INFO thread_id<->lock_mode<->lock_duration<->lock_type");
             foreach my $lock_check_val (@$key_aux_ref) {
                 my $r_thread_id =     $lock_check_val->[0];
                 say("INFO: $who_am_i The thread_id $r_thread_id holds a backup lock. " .
-                    "Killing its connection.");
+                    "Killing soft its connection.");
                 $executor->execute("KILL SOFT CONNECTION $r_thread_id");
             }
             return STATUS_OK;
@@ -537,7 +519,7 @@ sub monitor {
         # Disadvantage:
         # The caller of that could be killed earlier or the call fails because of kill query
         # or timeout or ...
-        get_METADATA_LOCK_INFO;
+        my $return =    get_METADATA_LOCK_INFO;
         # 6. In case mariabackup ... finishes within some grace period go on.
         #    If not report a failure, send SIGSEGV and return STATUS_BACKUP_FAILURE.
         my $found =     0;
@@ -614,6 +596,7 @@ sub monitor {
                 Basics::return_status_text($status) . " later.");
             sayFile($reporter_prt);
             remove_clone_dbs_dirs($clone_vardir);
+            $executor->disconnect();
             return $status;
         } else {
             # Nothing to do
@@ -621,21 +604,20 @@ sub monitor {
 
         # It is quite likely that the source DB server does no more react because of
         # crash, server freeze or similar.
-        my $dbh = DBI->connect($dsn, undef, undef, {
-            mysql_connect_timeout  => Runtime::get_connect_timeout(),
-            PrintError             => 0,
-            RaiseError             => 0,
-            AutoCommit             => 0,
-            mysql_multi_statements => 0,
-            mysql_auto_reconnect   => 0
-        });
-        if (not defined $dbh) {
-            $status = STATUS_CRITICAL_FAILURE;
-            say("ERROR: $who_am_i Connect to dsn '" . $dsn . "'" . " failed: " . $DBI::errstr .
-                Basics::exit_status_text($status));
-            exit $status;
+        my $aux_query =     'SET @aux = 1';
+        my $aux_result =    $executor->execute($aux_query);
+        my $aux_status =    $aux_result->status;
+        if (STATUS_OK != $aux_status) {
+            my $aux_err =       $aux_result->err;
+            $aux_err    =       "<undef>" if not defined $aux_err;
+            my $aux_errstr =    $aux_result->errstr;
+            $aux_errstr =       "<undef>" if not defined $aux_errstr;
+            say("ERROR: $who_am_i Helper Query ->" . $aux_query . "<- on source server failed " .
+                "with $aux_err : $aux_errstr . " . Basics::return_status_text($aux_status));
+            $executor->disconnect();
+            exit $aux_status;
         }
-        $dbh->disconnect();
+        $executor->disconnect();
         $status = STATUS_BACKUP_FAILURE;
         say("ERROR: $who_am_i Backup returned $res. The command output is around end of " .
             "'$reporter_prt'. " . Basics::exit_status_text($status));
@@ -775,25 +757,29 @@ sub monitor {
     my $server_name =   "server[$name]";
     $clone_err =     $clone_server->errorlog();
 
-# FIXME:
-# Handler for the foolowing are missing
-# 1. SIGTERM
-# 1. SIGTERM
-
     # system("ls -ld " . $clone_datadir . "/ib_logfile*");
     say("INFO: Attempt to start a DB server on the cloned data.");
     say("INFO: Per Marko messages like InnoDB: 1 transaction(s) which must be rolled etc. " .
         "are normal. MB prepare is not allowed to do rollbacks.");
     $status = $clone_server->startServer();
     if ($status != STATUS_OK) {
-        Basics::direct_to_stdout();
-        # It is intentional to exit with STATUS_BACKUP_FAILURE.
-        $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $who_am_i Starting a DB server on the cloned data failed.");
-        sayFile($clone_err);
-        sayFile($reporter_prt);
-        say("ERROR: $who_am_i " . Basics::exit_status_text($status));
-        exit $status;
+        # Experimental
+        if (defined $th_status) {
+            # defined $th_status == TERM got
+            #     $th_status == STATUS_OK --> return STATUS_OK (== $th_status)
+            #     $th_status != STATUS_OK --> return $th_status
+            Basics::direct_to_stdout();
+            return $th_status;
+        } else {
+            Basics::direct_to_stdout();
+            # It is intentional to exit with STATUS_BACKUP_FAILURE.
+            $status = STATUS_BACKUP_FAILURE;
+            say("ERROR: $who_am_i Starting a DB server on the cloned data failed.");
+            sayFile($clone_err);
+            sayFile($reporter_prt);
+            say("ERROR: $who_am_i " . Basics::exit_status_text($status));
+            exit $status;
+        }
     }
 
     if ($reporter->testEnd() <= time() + 10) {
