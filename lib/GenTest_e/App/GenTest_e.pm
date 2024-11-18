@@ -303,9 +303,11 @@ sub doGenTest {
     #    STATUS_ENVIRONMENT_FAILURE because its their first connect attempt.
 
     $self->[GT_TEST_START] = time() + 1.0 * $self->config->threads;
-    say("INFO: GenTest_e: (Planned) Start of running queries : " . $self->[GT_TEST_START] .
-        " -- " . isoTimestamp($self->[GT_TEST_START]));
+    say("INFO: GenTest_e: (Planned) Start of running queries (" . 'GT_TEST_START' . "): " .
+        $self->[GT_TEST_START] . " -- " . isoTimestamp($self->[GT_TEST_START]));
     $self->[GT_TEST_END] = $self->[GT_TEST_START] + $self->config->duration;
+    say("INFO: GenTest_e: (Planned) End of running queries ("   .   'GT_TEST_END' . "): " .
+        $self->[GT_TEST_END] .   " -- " . isoTimestamp($self->[GT_TEST_END]));
 
     $self->[GT_CHANNEL] = GenTest_e::IPC::Channel->new();
 
@@ -818,7 +820,9 @@ sub reportingProcess {
     # before the periodic reporters become active first time.
     # But is that of any importance?
     Time::HiRes::sleep(($self->config->threads + 1) / 10);
-    say("INFO: Periodic reporting process at begin of activity");
+    say("INFO: Periodic reporting process at begin of activity.");
+    say("INFO: Periodic reporting process: (Planned) End of running queries (" .   'GT_TEST_END' .
+    "): " . $self->[GT_TEST_END] . " -- " . isoTimestamp($self->[GT_TEST_END]));
 
     my $previous_status = STATUS_OK;
     my $status          = STATUS_OK;
