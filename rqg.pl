@@ -1763,7 +1763,7 @@ while ( $gt_round <= $max_gt_rounds) {
             # checkDatabaseIntegrity on slave runs its m'th walkquery on table t1 and gets 100 rows.
             # The SQL thread on slave runs some SQL from the master.
             # checkDatabaseIntegrity on slave runs its m+1'th walkquery on table t1 and gets
-            # "no such table" or 83 rows.
+            # "no such table", different number of rows or different content.
             #
             # Do not abort immediate if waitForSlaveSync or waitForNodeSync deliver a bad status.
             # The checkDatabaseIntegrity and checkServers which follow later might give valuable
