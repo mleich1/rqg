@@ -1,4 +1,5 @@
 # Copyright (C) 2016, 2020 MariaDB Corporation Ab.
+# Copyright (C) 2023 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -72,7 +73,7 @@
 # Time in seconds that the server waits for idle read-only transactions before killing the connection.
 # If set to 0, the default, connections are never killed.
 # --mysqld=--loose-idle_readonly_transaction_timeout=0
-# Default Value: 0 
+# Default Value: 0
 #
 # idle_transaction_timeout
 # Time in seconds that the server waits for idle transactions before killing the connection.
@@ -100,7 +101,7 @@
 # be multiple in a single statement. 0 (from MariaDB 10.3.0) means no wait. See WAIT and NOWAIT.
 # Default Value:
 #       86400 (1 day) >= MariaDB 10.2.4
-#       31536000 (1 year) <= MariaDB 10.2.3 
+#       31536000 (1 year) <= MariaDB 10.2.3
 # --mysqld=--lock_wait_timeout=86400
 #
 # table_lock_wait_timeout
@@ -125,7 +126,7 @@
 # The first reconnect attempt takes place immediately.
 # Default Value:
 #       60 (1 minute) (>= MariaDB 10.2.4)
-#       3600 (1 hour) (<= MariaDB 10.2.3) 
+#       3600 (1 hour) (<= MariaDB 10.2.3)
 # --mysqld=--slave_net_timeout=60
 #
 

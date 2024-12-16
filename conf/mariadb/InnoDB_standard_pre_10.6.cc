@@ -22,7 +22,7 @@
 # This is a derivate of InnoDB_standard.cc and should be used for MariaDB version < 10.6
 # The differences to InnoDB_standard.cc
 # 1. No grammars where the main GenTest part runs any DDL.
-#    DDL is atomic sind MariaDB version >= 10.6.
+#    DDL is roughly atomic sice MariaDB version >= 10.6.
 # 2. No grammars which uses system versioning.
 #
 #
