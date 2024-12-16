@@ -407,20 +407,12 @@ sub monitor {
         }
         Basics::direct_to_stdout();
         say("INFO: $who_am_i " . Basics::exit_status_text($status));
-        return $status;
+        exit $status;
     }
 
     # For experimenting:
     # $backup_binary = "not_exists ";
     # my $backup_backup_cmd = "$backup_binary --port=$source_port --hickup " .
-
-    #
-    # --log-copy-interval defines the copy interval between checks done by the log copying thread.
-    # The given value is in milliseconds.
-
-#   my $backup_backup_cmd = "$backup_backup_prefix $backup_binary --port=$source_port --backup " .
-#                           "--datadir=$datadir --target-dir=$clone_datadir " .
-#                           "--log-copy-interval=1 > $backup_prt 2>&1";
 
     # Mariabackup could hang.
     my $alarm_msg      = '';
