@@ -137,8 +137,12 @@ sub run {
         my $result = $executor->execute($sql_cmd, EXECUTOR_FLAG_SILENT);
         if(STATUS_OK != $result->status) {
             # Report the SQL command and the error because the tracing might be not enabled.
+            my $err =       $result->err();
+            $err =          "<undef>" if not defined $err;
+            my $errstr =    $result->errstr();
+            $errstr =       "<undef>" if not defined $errstr;
             say("ERROR: GenTest_e::App::GendataSQL run_sql_cmd : Executing ->$sql_cmd<- " .
-                "failed: " .  $result->err() . " " . $result->errstr());
+                "failed: status($result->status), " .  $result->err() . " " . $result->errstr());
             say("HINT: A SQL statement creating a STORED PROGRAM in '$sql_file' must not extend " .
                 "over more than one line. Setting a delimiter is not supported.");
             say("ERROR: Will return STATUS_ENVIRONMENT_FAILURE.");
