@@ -258,6 +258,7 @@ sub monitor {
     return STATUS_OK if $last_call + 15 > time();
     $last_call = time();
 
+    # mariabckup --backup is ahead
     if ($reporter->testEnd() <= time() + 10) {
         $status = STATUS_OK;
         say("INFO: $who_am_i Endtime is nearly exceeded. " . Basics::return_status_text($status));
@@ -656,7 +657,8 @@ sub monitor {
     };
     # say("DEBUG: abspath to FBackup stuff ->" . Cwd::abs_path($rqg_backup_dir . "/data") . "<-");
 
-    if ($reporter->testEnd() <= time() + 5) {
+    # mariabckup --prepare is ahead
+    if ($reporter->testEnd() <= time() + 10) {
         $status = STATUS_OK;
         Basics::direct_to_stdout();
         remove_clone_dbs_dirs($clone_vardir);
@@ -696,6 +698,7 @@ sub monitor {
     unlink($backup_prt);
     # system("ls -ld " . $clone_datadir . "/ib_logfile*");
 
+    # Start on backupped data is ahead
     if ($reporter->testEnd() <= time() + 15) {
         $status = STATUS_OK;
         Basics::direct_to_stdout();
@@ -774,6 +777,7 @@ sub monitor {
         }
     }
 
+    # Certain checks are ahead
     if ($reporter->testEnd() <= time() + 10) {
         $status = STATUS_OK;
         Basics::direct_to_stdout();
@@ -896,7 +900,7 @@ sub monitor {
     # - (rare)   mysqldump is ill
 
     # Going with stopServer (first shutdown attempt, SIGKILL maybe later) is intentional.
-    # I can at least imagine that some server on backup data can be started, passes checks
+    # I can at least imagine that some server on backupped data can be started, passes checks
     # but is otherwise somehow damaged. And these damages become maybe visible when having
     # - heavy DML+DDL including some runtime of more than 60s which we do not have here
     # - a "friendly" shutdown
