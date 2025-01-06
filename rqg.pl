@@ -3,7 +3,7 @@
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab
 # Copyright (C) 2016, 2022 MariaDB Corporation Ab
-# Copyright (C) 2023, 2024 MariaDB plc
+# Copyright (C) 2023, 2025 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -1719,7 +1719,7 @@ while ( $gt_round <= $max_gt_rounds) {
     }
 
     $gentest_result = $gentest->doGenTest();
-    say("GenTest returned status " . status2text($gentest_result) . " ($gentest_result)");
+    say("GenTest returned status " . status2text($gentest_result) . "($gentest_result)");
     $final_result = $gentest_result;
     $message =      "RQG GenTest runtime in s : " . (time() - $gentest_start_time);
     $summary .=     "SUMMARY: $message\n";
@@ -1806,13 +1806,16 @@ while ( $gt_round <= $max_gt_rounds) {
         my $check_status = $server[$server_num - 1]->checkDatabaseIntegrity();
         if ($check_status != STATUS_OK) {
             say("ERROR: Database Integrity check for server[$server_num] failed " .
-                "with status $check_status.");
+                "with status " . status2text($check_status) . " ($check_status).");
             # Maybe we crashed just now.
             my $is_operable = $server[$server_num - 1]->server_is_operable;
             if (STATUS_OK != $is_operable) {
-                say("ERROR: server_is_operable server[$server_num] reported status $is_operable.");
+                say("ERROR: server_is_operable server[$server_num] reported status " .
+                    status2text($is_operable) . " ($is_operable).");
                 if ($is_operable > $check_status) {
-                    say("ERROR: Raising check_status from $check_status to $is_operable.");
+                    say("ERROR: Raising check_status from " .
+                        status2text($check_status) . " ($check_status) to " .
+                        status2text($is_operable) . " ($is_operable).");
                     $check_status = $is_operable;
                 }
                 if ($server_num > 1 and
@@ -1940,7 +1943,9 @@ sub checkServers {
             # (-> STATUS_SERVER_DEADLOCKED). And than we raise here the status to
             # STATUS_SERVER_DEADLOCKED which is misleading.
             if ($status > $current_status and $current_status != STATUS_RECOVERY_FAILURE) {
-                say("ERROR: $who_am_i Raising current_status from $current_status to $status");
+                say("ERROR: $who_am_i Raising current_status from " .
+                    status2text($current_status) . "($current_status) to " .
+                    status2text($status) . "($status).");
                 $current_status = $status;
             }
             if ($server_num > 1 and
@@ -1952,13 +1957,23 @@ sub checkServers {
             }
         }
     }
-    if ($current_status > STATUS_CRITICAL_FAILURE) {
+    # Status:
+    # STATUS_CRITICAL_FAILURE(100) - either (unexpected server crash)
+    #                                or (bug in RQG or problem in environment)
+    #                                Hence try to  make a backtrace.
+    # STATUS_SERVER_CRASHED(101)   - either (MariaDB bug) or (bug in RQG or problem in environment)
+    #                                Hence try to  make a backtrace.
+    # All other STATUSES >= STATUS_SERVER_KILLED(102) and STATUS < STATUS_CRITICAL_FAILURE do not
+    # need a backtrace generation or RQG is buggy.
+    if ($current_status <  STATUS_CRITICAL_FAILURE) {
+        # Nothing to do.
+    } elsif ($current_status >= STATUS_SERVER_KILLED) {
         exit_test($current_status);
-    } elsif ($current_status == STATUS_CRITICAL_FAILURE) {
+    } else {
         # Experimental:
         # I assume that the first server is "ill". Most probably a freeze.
-        say("ERROR: $who_am_i status is STATUS_CRITICAL_FAILURE. Assuming that the first server " .
-            "is somehow ill. Will kill it and initiate making a backtrace.");
+        say("ERROR: $who_am_i status is " . status2text($status) . "($status). Assuming " .
+            "server[$server_num] is somehow ill. Will kill it and initiate making a backtrace.");
         $server[0]->crashServer;
         $server[0]->make_backtrace();
         exit_test($current_status);
