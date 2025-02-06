@@ -2,15 +2,11 @@
 
 # Typical use case
 # ----------------
-# Have some simplified RQG test and begin with manual simplifications.
-#
-# Work in a loop consisting of
-#     1. Edit the RQG grammar or the Simplifier config file
-#     2. Run some testing campaign based on the assigned RQG grammar and config file until having
-#        - 1 replay of the desired outcome                                   or
-#        - exceeded TRIALS=1600 or MAX_RUNTIME=7200                          or
-#        - exceeded the quota for bad testing outcomes
-# till having some sufficient simplified test.
+# Have some simplified RQG test.
+# Run some testing campaign until having
+# - 10 replays of the desired outcome                                 or
+# - exceeded TRIALS=1600 or MAX_RUNTIME=7200                          or
+# - exceeded the quota for bad testing outcomes
 #
 # Please see this shell script rather as template how to call rqg_batch.pl even though
 # it might be already in its current state sufficient for doing a lot around RQG.
@@ -282,9 +278,10 @@ $GRAMMAR_PART                                                          \
 --config=$CONFIG                                                       \
 --max_runtime=$MAX_RUNTIME                                             \
 --trials=$TRIALS                                                       \
---stop_on_replay=1                                                     \
+--rr                                                                   \
+--rr_options="--chaos --wait"                                          \
+--stop_on_replay=10                                                    \
 --discard_logs                                                         \
---noarchiving                                                          \
 --no-mask                                                              \
 --script_debug=_nix_                                                   \
 > $PROT 2>&1 &
