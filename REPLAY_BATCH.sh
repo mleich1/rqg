@@ -13,7 +13,7 @@ CALL_LINE="$0 $*"
 
 # Config file for rqg_batch.pl containing various settings for the RQG+server+InnoDB etc.
 # including settings for avoiding open bugs.
-# Example: conf/mariadb/InnoDB_standard.cc
+# Template: conf/mariadb/InnoDB_standard.cc
 CONFIG=$1
 if [ "$CONFIG" = "" ]
 then
@@ -114,9 +114,9 @@ set +e
 #   Regular means: Not stopped by rqg_batch.pl because of whatever internal reason.
 #   Focus: Bad Combinator config or tests, defect in code of RQG or tools, exceptional bad DB server
 #          and experiments
-# - Stop of testing as soon as n RQG runs finished with the verdict 'replay'.
-#   It is not recommended to set --stop_on_replay at all in the current script because BATCH.sh is
-#   used for QA production. Use REPLAY_BATCH.sh instead.
+# - Stop of testing as soon as n RQG runs finished with the verdict 'replay' if
+#   --stop_on_replay=<n> is set.
+#   We set "--stop_on_replay=30" --> n = 30 in the current script.
 #
 TRIALS=10000
 MAX_RUNTIME=27000
@@ -128,7 +128,7 @@ MAX_RUNTIME=27000
 # 1. Clash of tests on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files)
 #        current rqg_batch run ---- other ongoing rqg_batch run
 #        current rqg_batch run ---- ongoing MTR run
-# 2. The current test campaign suffers sooner or later from important filesystems full etc.
+# 2. The current test campaign suffers maybe sooner or later from important filesystems full etc.
 #
 # Testing tool | Programs            | Standard locations
 # -------------+---------------------+---------------------------
@@ -210,6 +210,10 @@ set -o pipefail
 #
 # 8. Use "rr" (https://github.com/mozilla/rr/wiki/Usage) for tracing DB servers and other
 #    programs.
+#
+#    Preserve the 'rr' traces of the bootstrap, server starts and mariabackup calls.
+# --rr                                                                 \
+#
 #    RECOMMENDATION:
 #    Assign within
 #    - the RQG Batch config file when rr should be invoked including rr options which
@@ -218,11 +222,6 @@ set -o pipefail
 #    - rr options which are dependent of the testing box
 #         Example: --microarch="Intel Skylake"
 #      in local.cfg
-#
-#    Preserve the 'rr' traces of the bootstrap, server starts and mariabackup calls.
-# --rr                                                                 \
-#
-#    Recommended settings (Info taken from rr help)
 #    '--chaos' randomize scheduling decisions to try to reproduce bugs
 #    '--wait'  Wait for all child processes to exit, not just the initial process.
 # --rr_options='--chaos --wait'                                        \
