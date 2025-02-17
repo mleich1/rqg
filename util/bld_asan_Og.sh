@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # HINT:
-# This build variant is medium frequent used. It is
+# This build variant is not frequent used. It is
 # - good for generating rr traces or core files which are medium comfortable to analyze because of
 #   minimal compiler optimization
 # - good for finding bugs where the likelihood to hit them on other builds types
@@ -90,7 +90,7 @@ cmake -DCONC_WITH_{UNITTEST,SSL}=OFF -DWITH_EMBEDDED_SERVER=OFF -DWITH_UNIT_TEST
 -DPLUGIN_{ARCHIVE,TOKUDB,MROONGA,OQGRAPH,ROCKSDB,CONNECT,SPIDER,SPHINX,COLUMNSTORE,PERFSCHEMA,XPAND}=NO  \
 -DWITH_SAFEMALLOC=OFF -DWITH_SSL=bundled                                                           \
 -DCMAKE_BUILD_TYPE=Debug -DWITH_DBUG_TRACE=OFF                                                     \
--DWITH_ASAN=ON                                                                                     \
+-DWITH_ASAN:BOOL=ON                                                                                \
 -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" "$SOURCE_DIR"    2>&1          | tee -a "$BLD_PROT"
 
 END_TS=`date '+%s'`
