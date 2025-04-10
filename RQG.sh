@@ -9,7 +9,7 @@ export LANG=C
 USAGE="USAGE: $0 <Basedir>"
 CALL_LINE="$0 $*"
 
-# killall -9 perl ; killall -9 mysqld ;  killall -9 rr
+# killall -9 perl ; killall -9 mysqld mariadbd ;  killall -9 rr
 # rm -rf /dev/shm/rqg*/* /dev/shm/var_* /data/rqg/*
 
 RQG_HOME=`pwd`
@@ -19,7 +19,7 @@ RUNID=SINGLE_RUN
 BASEDIR1="$1"
 if [ "$BASEDIR1" = "" ]
 then
-   echo "You need to assign a basedir == path to MariaDB binaries like '/work/10.3/bld_asan'"
+   echo "You need to assign a basedir == path to MariaDB binaries like '/Server_bin/bb-10.6-monty_debug_Og'"
    echo "The call was ->$CALL_LINE<-"
    echo $USAGE
    exit
