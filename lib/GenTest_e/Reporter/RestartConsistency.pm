@@ -1,5 +1,5 @@
 # Copyright (C) 2016, 2021 MariaDB Corporation Ab.
-# Copyright (C) 2023 MariaDB plc
+# Copyright (C) 2023, 2025 MariaDB plc
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -63,7 +63,7 @@ sub report {
     say("INFO: $who_am_i At begin of report.");
 
     # In case of two servers, we will be called twice.
-    # Only kill the first server and ignore the second call.
+    # Only stop the first server and ignore the second call.
 
     $first_reporter = $reporter if not defined $first_reporter;
     return STATUS_OK if $reporter ne $first_reporter;
@@ -138,60 +138,20 @@ sub report {
 
     my $datadir = $reporter->serverVariable('datadir');
     $datadir =~ s{[\\/]$}{}sgio;
-    my $orig_datadir = $datadir.'_orig';
-
-    my $engine = $reporter->serverVariable('storage_engine');
-
-    say("INFO: $who_am_i Copying datadir... (interrupting the copy operation may cause investigation problems later)");
-    if (osWindows()) {
-        system("xcopy \"$datadir\" \"$orig_datadir\" /E /I /Q");
-    } else {
-        system("cp -r $datadir $orig_datadir");
+    my $backup_status = $server->backupDatadir();
+    if (STATUS_OK != $backup_status) {
+        $status = STATUS_ENVIRONMENT_FAILURE;
+        say("ERROR: $who_am_i The file backup failed. " .
+            Basics::return_status_text($status));
+        return $status;
     }
-    $errorlog_before = $server->errorlog.'_orig';
-    # move($server->errorlog, $server->errorlog.'_orig');
-    move($server->errorlog, $errorlog_before);
     unlink("$datadir/core*");    # Remove cores from any previous crash
 
     say("INFO: $who_am_i Restarting server ...");
-
     $server->setStartDirty(1);
     my $recovery_status = $server->startServer();
+    # startServer checks the errorlog!!
     $errorlog_after = $server->errorlog;
-    open(RECOVERY, $server->errorlog);
-
-    while (<RECOVERY>) {
-        $_ =~ s{[\r\n]}{}siog;
-        say($_);
-        if ($_ =~ m{registration as a STORAGE ENGINE failed.}sio) {
-            say("ERROR: $who_am_i Storage engine registration failed");
-            $recovery_status = STATUS_DATABASE_CORRUPTION;
-        } elsif ($_ =~ m{corrupt|crashed}) {
-            say("WARN: $who_am_i Log message '$_' might indicate database corruption");
-        } elsif ($_ =~ m{exception}sio) {
-            $recovery_status = STATUS_DATABASE_CORRUPTION;
-        } elsif ($_ =~ m{ready for connections}sio) {
-            say("INFO: $who_am_i Server restart was apparently successfull.")
-                if $recovery_status == STATUS_OK ;
-            last;
-        } elsif ($_ =~ m{device full error|no space left on device}sio) {
-            # Give a clear comment explaining on which facts the status STATUS_ENVIRONMENT_FAILURE
-            # is based on.
-            $recovery_status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: $who_am_i device full error or no space left on device found in server " .
-                "error log. " . Basics::return_status_text($recovery_status));
-            last;
-        } elsif (
-            ($_ =~ m{got signal}sio) ||
-            ($_ =~ m{segfault}sio) ||
-            ($_ =~ m{segmentation fault}sio)
-        ) {
-            say("ERROR: $who_am_i Recovery has apparently crashed.");
-            $recovery_status = STATUS_DATABASE_CORRUPTION;
-        }
-    }
-
-    close(RECOVERY);
 
     if ($recovery_status > STATUS_OK) {
         say("ERROR: $who_am_i Restart has failed. " . Basics::return_status_text($recovery_status));
@@ -340,7 +300,7 @@ sub dump_database {
     }
     my $databases_string = join(' ', grep { $_ !~ m{^(rqg|mysql|information_schema|performance_schema)$}sgio } @all_databases );
 
-    # FIXME: Replace what follows by calling a function located in lib/DBServer_e/MySQL/MySQLd.pm.
+    # FIXME maybe: Replace what follows by calling a function located in lib/DBServer_e/MySQL/MySQLd.pm.
     say("INFO: $who_am_i Dumping the server $suffix restart");
     # From the manual https://mariadb.com/kb/en/library/mysqldump
     # -f, --force
@@ -358,12 +318,28 @@ sub dump_database {
                              "--databases $databases_string > $dump_file 2>$dump_err_file ");
     $dump_result = $dump_result >> 8;
     if (0 < $dump_result) {
-        say("ERROR: $who_am_i Dumping the server $suffix restart failed with $dump_result.");
-        sayFile($dump_err_file);
-        return STATUS_ENVIRONMENT_FAILURE;
-    } else {
-        return STATUS_OK;
+        say("WARNING: $who_am_i Dumping the server $suffix restart failed with $dump_result.");
+        if (not open (DUMP_ERR_FILE, '<', $dump_err_file)) {
+            say("ERROR: $who_am_i Open file '<$dump_err_file' failed : $!");
+            return STATUS_ENVIRONMENT_FAILURE;
+        }
+        my $unknown_line_found = 0;
+        while(my $line = <DUMP_ERR_FILE>) {
+            my $pattern = 'references invalid table.s. or column.s. or definer.invoker of view ' .
+                          'lack rights to use them';
+            if (not $line =~ m{$pattern} ) {
+                say("ERROR: ->" . $line . "<- detected.");
+                $unknown_line_found = 0;
+                last;
+            }
+        }
+        if (not close (DUMP_ERR_FILE)) {
+            say("ERROR: Close file '$dump_err_file' failed : $!");
+            return STATUS_ENVIRONMENT_FAILURE;
+        }
+        return STATUS_ALARM if $unknown_line_found;
     }
+    return STATUS_OK;
 }
 
 sub compare_dumps {
@@ -391,12 +367,19 @@ sub compare_dumps {
     #   - the number after AUTO_INCREMENT
     my $dump_before = $vardir . '/server_before.dump';
     my $dump_after  = $vardir . '/server_after.dump';
+    my $dump_before_error = "$vardir/server_before.dump_err";
+    my $dump_after_error = "$vardir/server_after.dump_err";
     my $diff_result = system("diff -U 50 $dump_before $dump_after");
     $diff_result = $diff_result >> 8;
 
     if ($diff_result == 0) {
 		say("INFO: $who_am_i No differences between server contents before and after restart.");
-		return STATUS_OK;
+        my $diff_result = system("diff -U 50 $dump_before_error $dump_after_error");
+        if ($diff_result == 0) {
+		    return STATUS_OK;
+        } else {
+            return STATUS_CRITICAL_FAILURE;
+        }
     } else {
 		say("WARN: $who_am_i Dumps before and after shutdown+restart differ.");
         my $dump_before_egalized = $dump_before . "_e";
