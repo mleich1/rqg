@@ -1,7 +1,7 @@
 # Copyright (c) 2008, 2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013 Monty Program Ab.
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
-# Copyright (c) 2023, 2024 MariaDB plc
+# Copyright (c) 2023, 2025 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -143,7 +143,10 @@ use constant  ER_FILE_NOT_FOUND                                 => 1017; # Can't
 use constant  ER_CHECKREAD                                      => 1020; # Record has changed since last read in table '%-.192s'
 use constant  ER_DISK_FULL                                      => 1021; # Disk full (%s); waiting for someone to free some space... (errno: %M)
 use constant  ER_DUP_KEY                                        => 1022; # Can't write; duplicate key in table '%-.192s'
+use constant  ER_ERROR_ON_CLOSE                                 => 1023; # Error on close of '%-.192s' (errno: %M)
+use constant  ER_ERROR_ON_READ                                  => 1024; # Error reading file '%-.200s' (errno: %M)
 use constant  ER_ERROR_ON_RENAME                                => 1025; # Error on rename of '%-.210s' to '%-.210s' (errno: %M)
+use constant  ER_ERROR_ON_WRITE                                 => 1026; # Error writing file '%-.200s' (errno: %M)
 use constant  ER_FILSORT_ABORT                                  => 1028; # Sort aborted
 use constant  ER_GET_ERRNO                                      => 1030; # Got error %M from storage engine %s
 use constant  ER_ILLEGAL_HA                                     => 1031; # Storage engine %s of the table %`s.%`s doesn't have this option
@@ -559,7 +562,10 @@ my %err2type = (
     ER_DUP_KEY()                                        => STATUS_TRANSACTION_ERROR,
     ER_DUP_KEYNAME()                                    => STATUS_SEMANTIC_ERROR,
     ER_DUP_SIGNAL_SET()                                 => STATUS_SEMANTIC_ERROR,
+    ER_ERROR_ON_CLOSE()                                 => STATUS_ENVIRONMENT_FAILURE,
+    ER_ERROR_ON_READ()                                  => STATUS_ENVIRONMENT_FAILURE,
     ER_ERROR_ON_RENAME()                                => STATUS_SEMANTIC_ERROR,
+    ER_ERROR_ON_WRITE()                                 => STATUS_ENVIRONMENT_FAILURE,
     ER_EVENT_ALREADY_EXISTS()                           => STATUS_SEMANTIC_ERROR,
     ER_EVENT_DOES_NOT_EXIST()                           => STATUS_SEMANTIC_ERROR,
     ER_EVENT_INTERVAL_NOT_POSITIVE_OR_TOO_BIG()         => STATUS_SEMANTIC_ERROR,
@@ -1141,7 +1147,8 @@ sub init {
             my $status = GenTest_e::Executor::MySQL::run_do($executor->dbh, $executor->role,
                                                             $aux_query);
             if (STATUS_OK != $status) {
-                say("ERROR: $who_am_i " . $executor->role . " " . Basics::return_status_text($status));
+                say("ERROR: $who_am_i " . $executor->role . " " .
+                    Basics::return_status_text($status));
                 return $status;
             } else {
                 return STATUS_OK;
