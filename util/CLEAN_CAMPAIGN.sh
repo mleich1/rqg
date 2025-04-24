@@ -20,7 +20,7 @@ then
 # else
 #   # Picking "last_result_dir" is usual in other scripts.
 #   # But there is some signigficant risk that the test campaign is not finished yet
-#   # or results of interest not yet saved.
+#   # or results of interest are not yet saved.
 #   MY_DIR="last_result_dir"
 fi
 echo "Inspecting ->$MY_DIR<-"

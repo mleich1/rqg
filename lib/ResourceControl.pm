@@ -1,5 +1,5 @@
 #  Copyright (c) 2018 - 2022 MariaDB Corporation Ab.
-#  Copyright (c) 2023 MariaDB plc
+#  Copyright (c) 2023 - 2025 MariaDB plc
 #  Use is subject to license terms.
 #
 #  This program is free software; you can redistribute it and/or modify
@@ -964,8 +964,10 @@ sub ask_tool {
 sub print_statistics {
     $min_keep_worker =     "<undef>" if not defined $min_keep_worker;
     $min_decrease_worker = "<undef>" if not defined $min_decrease_worker;
-    say("STATISTICS: slowdir free from total free in %: " .
-        ($slowdir_free_init * 100 / ($slowdir_free_init + $vardir_free_init)));
+    if (defined $slowdir_free_init and defined $vardir_free_init) {
+        say("STATISTICS: slowdir free from total free in %: " .
+            ($slowdir_free_init * 100 / ($slowdir_free_init + $vardir_free_init)));
+    };
     say("STATISTICS: max vardir used in %:              $max_vardir_percent");
     say("STATISTICS: max slowdir used in %:             $max_slowdir_percent");
     say("STATISTICS: load determined count:             $load_count");
