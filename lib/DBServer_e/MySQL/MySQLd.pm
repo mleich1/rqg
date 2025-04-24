@@ -141,7 +141,7 @@ our @end_line_patterns = (
     '^Segmentation fault$',
     '(mariadbd|mysqld): Shutdown complete$',
     '^Killed$',                              # SIGKILL by RQG or OS or user
-    '(mariadbd|mysqld) got signal',          # SIG(!=KILL) by DB server or RQG or OS or user
+    ' got signal',                           # SIG(!=KILL) by DB server or RQG or OS or user
 );
 
 # Note:
@@ -245,7 +245,9 @@ our @disk_full_patterns = (
     '\[ERROR\] InnoDB: The InnoDB system tablespace ran out of space',
     'Error writing file .{1,300} \(Errcode: 28 "No space left on device"\)',
     'ERROR: Creating the directory .{1,1000} failed : No space left on device',
+    '\[ERROR\] InnoDB: preallocating .{1,20} bytes for file .{1,300} failed with error 28',
 );
+
 
 our @pattern_matrix;
 use constant NO_SPACE               => 'no_space';
@@ -822,13 +824,28 @@ sub createMysqlBase  {
     # The next line is could be useful/required for the pattern matching.
     say("Bootstrap command: ->" . $command . "<-");
 
-    # Start of experimental code which already helped when meeting some bootstrap hang.
     my $alarm_timeout = 300;
-    my $alarm_msg = "Bootstrap did not finish within " . $alarm_timeout . "s.";
+    my $alarm_msg =     "Bootstrap did not finish within " . $alarm_timeout . "s.";
     use POSIX;
     sigaction SIGALRM, new POSIX::SigAction sub {
         my $status = STATUS_SERVER_DEADLOCKED;
-        say("ERROR: $who_am_i $alarm_msg " . Basics::return_status_text($status) . " later.");
+        say("ERROR: $who_am_i $alarm_msg");
+        my $errorlog_status = $self->checkErrorLog(undef, $booterr);
+        if (STATUS_OK != $errorlog_status) {
+            if (STATUS_ENVIRONMENT_FAILURE == $errorlog_status) {
+                say("ERROR: $who_am_i Will crash the server and " .
+                Basics::return_status_text($errorlog_status));
+                # IMHO in case of STATUS_ENVIRONMENT_FAILURE during server startup the server
+                # error log contains sufficient information and a backtrace is not needed.
+                $self->killServer;
+                return $errorlog_status;
+            }
+            say("ERROR: $who_am_i Will crash the server if needed, make a backtrace and " .
+                Basics::return_status_text($errorlog_status));
+            $self->make_backtrace();
+            return $errorlog_status;
+        }
+        say("ERROR: " . Basics::return_status_text($status) . " later.");
         my $pid = $self->server_pid_per_errorlog();
         say("INFO: $who_am_i Will kill(with core) the boot pid: " . $pid );
         system("kill -11 $pid; sleep 300");
@@ -843,7 +860,8 @@ sub createMysqlBase  {
     say("DEBUG: $who_am_i Reset alarm timeout.");
     alarm(0);
     $alarm_msg = '';
-    # End of experimental code.
+    my $errorlog_status = $self->checkErrorLog(undef, $booterr);
+    return $errorlog_status if STATUS_OK != $errorlog_status;
     if ($rc != 0) {
         my $status = STATUS_FAILURE;
         say("ERROR: Bootstrap failed");
@@ -1160,14 +1178,38 @@ sub startServer {
                     # Auxiliary::print_ps_tree($$);
                     last;
                 } else {
-                    # Maybe the startup failed and aux_pid can get reaped.
+                    # The server pid was not found.
+                    # Thinkable reasons:
+                    # 1. The startup is ongoing but before writing the server pid.
+                    # 2. The startup failed already before writing the server pid.
+                    # In case aux_pid can get reaped than the startup has already failed.
                     aux_pid_reaper();
                     if (not kill(0, $self->[MYSQLD_AUXPID])) {
                         my $status = STATUS_SERVER_CRASHED;
                         say("ERROR: $who_am_i The auxiliary process is no more running. " .
                             Basics::return_status_text($status));
-                        # The status reported by cleanup_dead_server does not matter.
-                        $self->cleanup_dead_server;
+                        my $errorlog_status = $self->checkErrorLog;
+                        if (STATUS_OK != $errorlog_status) {
+                            if (STATUS_ENVIRONMENT_FAILURE == $errorlog_status) {
+                                # 1. The current branch was entered because of undef $pid
+                                #    == The id of the main DB server process was unknown.
+                                # 2. Its possible
+                                #    - that the id can be found in the server log now
+                                #    - and likely that the main DB server process has disappeared
+                                #    because of the status.
+                                # Just try to clean up as much as possible.
+                                say("ERROR: $who_am_i Will kill the server if possible and " .
+                                Basics::return_status_text($errorlog_status));
+                                # IMHO in case of STATUS_ENVIRONMENT_FAILURE during server startup the server
+                                # error log contains sufficient information and a backtrace is not needed.
+                                $self->killServer;
+                                return $errorlog_status;
+                            }
+                            say("ERROR: $who_am_i Will crash the server if needed, make a backtrace and " .
+                                Basics::return_status_text($errorlog_status));
+                            $self->make_backtrace();
+                            return $errorlog_status;
+                        }
                         $self->make_backtrace();
                         # Check if the port was occupied if observing the corresponding message.
                         # lsof -n -i :24600 | grep LISTEN
@@ -2312,6 +2354,12 @@ sub checkDatabaseIntegrity {
             $err =       "<undef>" if not defined $err;
             my $errstr = $res_tables->errstr;
             $errstr =    "<undef>" if not defined $errstr;
+            if (STATUS_SERVER_CRASHED == $status or STATUS_CRITICAL_FAILURE == $status) {
+                # If Lost connection + there should be no concurrent sessions killing our session.
+                say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err: $errstr");
+                say("ERROR: $who_am_i " . Basics::return_status_text($status));
+                return check_errorlog_and_return($status);
+            }
             if (1462 == $err) {
                 # Recursive VIEW
                 say("INFO: $who_am_i Query ->" . $aux_query . "<- failed with to be tolerated " .
@@ -2917,7 +2965,7 @@ sub checkDatabaseIntegrity {
                 if (1 == $innodb_strict_mode) {
                     # Maybe the table was created under innodb_strict_mode = 0.
                     say("INFO: $who_am_i innodb_strict_mode is 1. Maybe the table was " .
-                        "created or altered under innodb_strict_mode = 0");
+                        "created or altered under innodb_strict_mode = 0. Trying that");
                     my $aux_query15 =  'SET SESSION innodb_strict_mode = 0';
                     ($status, my $res_data) = run_aux_sql ($aux_query15);
                     # run_aux_sql has already reported the fail ...
@@ -3164,14 +3212,20 @@ sub checkErrorLogForErrors {
 
 
 sub checkErrorLog {
-# $marker
-# $marker not in call --> search in server error log from begin.
-#
 # Functionality:
-# Read the server error log starting from begin or marker line by line.
-# In case a pattern matches a line than return a status which fits to the pattern_type.
+# $marker not defined --> search in error log starting from begin.
+# $marker defined     --> search in error log starting from $marker
 #
-    my ($self, $marker)= @_;
+# In case certain pattern match lines than return a status which fits to the pattern_type.
+#
+# error logs can be
+# - server error log (mysql.err) written during server start
+#   This is the default which gets used if $general_error_log is undef in the call of the sub..
+# - error log written during bootstrap or mariabackup --prepare
+#   In call of the sub $general_error_log needs to contain the corresponding value.
+#
+
+    my ($self, $marker, $general_error_log)= @_;
 
     my $who_am_i = Basics::who_am_i;
 
@@ -3185,7 +3239,19 @@ sub checkErrorLog {
 
     my $basedir =           $self->basedir;
 
-    open(ERRLOG, $self->errorlog);
+    $general_error_log = $self->errorlog if not defined $general_error_log;
+
+    if (! -f $general_error_log) {
+        my $errorlog_status = STATUS_INTERNAL_ERROR;
+        say("INTERNAL ERROR: $who_am_i : general_error_log '$general_error_log' does not exist " .
+            "or is not a plain file. " . Basics::return_status_text($errorlog_status));
+        return($errorlog_status);
+    }
+
+    if (not open(ERRLOG, $general_error_log)) {
+        say("ERROR: Open file '$general_error_log' failed : $!");
+        return STATUS_INTERNAL_ERROR;
+    };
     while (<ERRLOG>)
     {
         next unless !$marker or $found_marker or /^$marker$/;
