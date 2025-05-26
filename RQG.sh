@@ -83,7 +83,7 @@ perl -w ./rqg.pl                                                                
 --minor_runid=SINGLE_RUN                                                                      \
 --seed=random                                                                                 \
 --queries=1000000                                                                             \
---reporter=ErrorLog,Backtrace,Deadlock,None                                                   \
+--reporter=ErrorLog,Deadlock,None                                                             \
 --validator=None                                                                              \
 --sqltrace=MarkErrors                                                                         \
 --duration=300                                                                                \

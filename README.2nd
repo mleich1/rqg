@@ -216,7 +216,7 @@ Preparations for using RQG, my batch tool and build scripts
   Around 60% of the page are instructions how to install the latest version of rr on
   Fedora and Ubuntu.
   Warning:
-  Upgrades of the OS or rr have a high likelihood to devaluate existing rr traces.
+  Upgrades of the OS or rr have a high likelihood to devalue existing rr traces.
   Flip the automatic updates off
     /etc/apt/apt.conf.d/20auto-upgrades
     APT::Periodic::Unattended-Upgrade "0";
