@@ -1,7 +1,7 @@
 # Copyright (c) 2008, 2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013 Monty Program Ab.
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
-# Copyright (c) 2023, 2025 MariaDB plc
+# Copyright (c) 2023, 2026 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -221,6 +221,7 @@ use constant  ER_CRASHED_ON_USAGE                               => 1194; # Table
 use constant  ER_CRASHED_ON_REPAIR                              => 1195; # In minimum Aria
 use constant  ER_TRANS_CACHE_FULL                               => 1197;
 use constant  ER_LOCK_WAIT_TIMEOUT                              => 1205; # Lock wait timeout exceeded;
+use constant  ER_LOCK_TABLE_FULL                                => 1206; # The total number of locks exceeds the lock table size. innodb_buffer_pool_size maybe too small
 use constant  ER_WRONG_ARGUMENTS                                => 1210; # Incorrect arguments to %s
 use constant  ER_LOCK_DEADLOCK                                  => 1213; # Deadlock found when trying to get lock; try restarting transaction
 use constant  ER_TABLE_CANT_HANDLE_FT                           => 1214; # The storage engine %s doesn't support FULLTEXT indexes
@@ -630,6 +631,7 @@ my %err2type = (
     ER_KEY_NOT_FOUND()                                  => STATUS_DATABASE_CORRUPTION,
     ER_LOCK_DEADLOCK()                                  => STATUS_TRANSACTION_ERROR,
     ER_LOCK_OR_ACTIVE_TRANSACTION()                     => STATUS_SEMANTIC_ERROR,
+    ER_LOCK_TABLE_FULL()                                => STATUS_RUNTIME_ERROR,
     ER_LOCK_WAIT_TIMEOUT()                              => STATUS_TRANSACTION_ERROR,
     ER_MALFORMED_DEFINER()                              => STATUS_SEMANTIC_ERROR,
     ER_MISSING()                                        => STATUS_SYNTAX_ERROR,

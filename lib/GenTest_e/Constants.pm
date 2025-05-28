@@ -1,7 +1,7 @@
 # Copyright (c) 2008,2011 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013 Monty Program Ab.
 # Copyright (c) 2018,2022 MariaDB Corporation Ab.
-# Copyright (c) 2023 MariaDB plc
+# Copyright (c) 2023, 2025 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -50,6 +50,7 @@ require Exporter;
    STATUS_SYNTAX_ERROR
    STATUS_SEMANTIC_ERROR
    STATUS_TRANSACTION_ERROR
+   STATUS_RUNTIME_ERROR
 
    STATUS_TEST_FAILURE
 
@@ -124,6 +125,9 @@ use constant STATUS_TRANSACTION_ERROR          => 23;   # Lock wait timeouts, de
 use constant STATUS_TEST_FAILURE               => 24;   # Boundary between genuine errors and false positives due to randomness
 
 use constant STATUS_SELECT_REDUCTION           => 5;    # A coefficient to substract from error codes in order to make them non-fatal
+
+use constant STATUS_RUNTIME_ERROR            => 24;     # In Elena's RQG: Lock wait timeouts, deadlocks, duplicate keys, etc.
+                                                        # Here only a few errors.
 
 use constant STATUS_REQUIREMENT_UNMET_SELECT   => 25;
 use constant STATUS_ERROR_MISMATCH_SELECT      => 26;   # A SELECT query caused those errors, however the test can continue
