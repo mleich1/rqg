@@ -373,7 +373,7 @@ sub monitor_nonthreaded {
         exit STATUS_SERVER_DEADLOCKED;
     } else {
         $executor->disconnect;
-        say("INFO: $who_am_i Nothing obvious suspicious found.");
+        say("INFO: $who_am_i Nothing obviously suspicious found.");
         return STATUS_OK;
     }
 } # sub monitor_nonthreaded
