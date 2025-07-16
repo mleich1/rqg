@@ -1,6 +1,6 @@
 # Copyright (c) 2008, 2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
-# Copyright (c) 2023, 2024 MariaDB plc
+# Copyright (c) 2023, 2025 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -109,8 +109,9 @@ sub new {
     # This is exact one connect attempt!
     if ($status != STATUS_OK) {
         $executor->disconnect();
-        say("ERROR: $who_am_i No connection for monitoring got. Will return undef.");
-        return undef;
+        say("ERROR: $who_am_i No connection for monitoring got. Will return the status got " .
+            status2text($status). " ($status)");
+        return $status;
     }
 
     my $query = "SHOW VARIABLES";

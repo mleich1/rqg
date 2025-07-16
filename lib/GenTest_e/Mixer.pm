@@ -1,6 +1,6 @@
 # Copyright (c) 2008,2011 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2018, 2021 MariaDB Corporation Ab.
-# Copyright (c) 2023 MariaDB plc
+# Copyright (c) 2023, 2025 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -440,7 +440,7 @@ sub next {
                 # set content. lib/GenTest_e/Executor/MySQL.pm will than set the status
                 # STATUS_DATABASE_CORRUPTION. So the command which follows avoids the warning
                 # because of non initialized variable.
-                $result_err = 0 if not defined $result_err;
+                $result_err = "<undef>" if not defined $result_err;
                 say("ERROR: $mixer_role in Mixer : Critical failure " .
                     status2text($result_status) . " (" . $result_status .
                     "), Error $result_err reported at dsn " . $executor->dsn());

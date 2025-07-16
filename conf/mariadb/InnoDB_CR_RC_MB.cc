@@ -1,5 +1,5 @@
 # Copyright (C) 2019, 2022 MariaDB corporation Ab. All rights reserved.
-# Copyright (C) 2023, 2024 MariaDB plc All rights reserved.
+# Copyright (C) 2023, 2025 MariaDB plc All rights reserved.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -23,7 +23,7 @@
 # Suite for "torturing" preferably InnoDB with concurrent DDL/DML/.... and
 # - (CR) injected server crash, restart with crash recovery + check
 # - (RC) Shutdown, restart + check
-# - (MB) periodic Mariabckup, restart on backupped data + check
+# - (MB) periodic Mariabackup, restart on backupped data + check
 #
 # This suite is a derivate of InnoDB_standard.cc.
 #

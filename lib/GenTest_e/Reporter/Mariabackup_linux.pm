@@ -1,5 +1,5 @@
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
-# Copyright (c) 2023, 2024 MariaDB plc
+# Copyright (c) 2023, 2025 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -549,12 +549,15 @@ sub monitor {
     {
         my $th_status;
         alarm ($alarm_timeout);
-        local $SIG{TERM} =  sub { $th_status = TERM_handler ; say("DEBUG: TERM_handler th_status : $th_status")};
+        local $SIG{TERM} =  sub { $th_status = TERM_handler ;
+                                  say("DEBUG: TERM_handler th_status : $th_status")};
         # Code for revealing that the TERM_handler gets used at all.
         #     my $my_pid = $$;
         #     system("(set -x; sleep 3; kill -15 $my_pid; sleep 1) 2>/tmp/out &");
         system("$backup_backup_cmd");
         $res = $?;
+        # FIXME maybe: Process the return code and for "mariabackup: Error: failed to copy datafile"
+        say("INFO: $who_am_i $backup_backup_cmd exited " . ($? >> 8));
         alarm (0);
         return $th_status if defined $th_status;
     }

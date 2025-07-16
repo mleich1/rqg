@@ -1,5 +1,5 @@
 # Copyright (C) 2019, 2022 MariaDB corporation Ab. All rights reserved.
-# Copyright (C) 2023, 2024 MariaDB plc All rights reserved.
+# Copyright (C) 2023, 2025 MariaDB plc All rights reserved.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -404,7 +404,7 @@ $combinations = [ $grammars,
   [
     # The default since 10.2.4 is
     '--mysqld=--sql_mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' ,
-    # TRADITIONAL is the same as:
+    # TRADITIONAL is:
     # STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,STRICT_ALL_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,TRADITIONAL
     # == The default + (STRICT_ALL_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,TRADITIONAL) - NO_ENGINE_SUBSTITUTION
     '--mysqld=--sql_mode=traditional' ,
@@ -471,6 +471,25 @@ $combinations = [ $grammars,
     '',
     '',
     '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+  ],
+  [
+    # innodb_log_buffer_size (2025)
+    #    Global, not dynamic, Block size: 4096
+    #    Default Value: 16777216 (16MB)
+    #    Range: 262144 to 2147479552 (256KB to 2GB - 4K) (>= MariaDB 10.11.8)
+    #    Range: 262144 to 18446744073709551615 (<= MariaDB 10.11.7)
+    # We try here 2M because I harvested an assert when trying a non default value first time.
+    ' --mysqld=--innodb_log_buffer_size=2M ',
     '',
     '',
     '',

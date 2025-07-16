@@ -1,7 +1,7 @@
 # Copyright (c) 2008, 2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013 Monty Program Ab.
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
-# Copyright (c) 2023, 2026 MariaDB plc
+# Copyright (c) 2023, 2025 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -1745,13 +1745,20 @@ sub execute {
                     # - a history where
                     #   - base tables of a view were dropped
                     #   - a table/view name gets picked but that object does no more or did never exist
-                    # checkDatabaseIntegrity within MySQLd.pm picks only existing views and base tables.
+                    #   - we have reached the MAXVALUE of a SEQUENCE and CYCLE was not specified
+                    #     or similar (a sequence gets handled as special table)
+                    #
+                    # checkDatabaseIntegrity within MySQLd.pm picks only existing views and base
+                    # tables. This is ensured by running before or after GenTest. 
+                    # But nevertheless the CHECK ... could fail because some other
+                    # - base table/view/sequence used by the base table/view to be checked might be missing 
                     if ((# The semantic error Table/View to be checked does no more or did never exist
                          # has to be accepted.
                          $ct_Msg_text =~ /Table \'$ct_table\' doesn\'t exist/ and
                          'checkDatabaseIntegrity' ne $executor->role             ) or
                         ($ct_Msg_text =~ /Deadlock found when trying to get lock/) or
                         ($ct_Msg_text =~ /Lock wait timeout exceeded/)             or
+                        ($ct_Msg_text =~ /Table .{1,200} was not locked with LOCK TABLES/) or
                         ($ct_Msg_text =~ /Query execution was interrupted/)          ) {
                         say("INFO: Executor: For query '" . $query . "' most likely legitimate '" .
                             $line . "' observed. Will return STATUS_SKIP.");
@@ -1808,11 +1815,14 @@ sub execute {
                         #       in the GENERATED ALWAYS AS clause of `col_string_g`
                         # Per Marko: The InnoDB messages come only if CHECK ... EXTENDED
                         #            + harmless/to be expected.
+                        # CHECK TABLE <name of a sequence> could harvest
+                        # test.seq4 check Warning Sequence 'test.seq4' has run out
                         if ($ct_Msg_text =~ /InnoDB: Unpurged clustered index record/            or
                             $ct_Msg_text =~ /InnoDB: Clustered index record with stale history/  or
                             $ct_Msg_text =~ /InnoDB: Clustered index record not found for index/ or
                             $ct_Msg_text =~ /Function or expression .{1,200} cannot be used in the GENERATED ALWAYS .{1,200}/ or
-                            $ct_Msg_text =~ /Expression depends on the \@\@sql_mode .{1,30}/       )
+                            $ct_Msg_text =~ /Expression depends on the \@\@sql_mode .{1,30}/     or 
+                            $ct_Msg_text =~ /Sequence .{1,200} has run out/          )
                         {
                             say("DEBUG: Executor: For query '" . $query . "' harmless '" . $line . "' observed.")
                                 if $debug_here;
@@ -1823,7 +1833,7 @@ sub execute {
                                 $result_status = STATUS_DATABASE_CORRUPTION;
                         }
                     }
-                    if ('Error') {
+                    if ('Error' eq $ct_Msg_type) {
                         say("ERROR: Executor: The query '$query' passed but has a result set line\n" .
                             "ERROR: ->$line<-.\n");
                         $result_status = STATUS_DATABASE_CORRUPTION;
@@ -2198,7 +2208,9 @@ sub currentSchema {
             return undef, $status;
         }
         my $err    = $res->err;
+        $err       = "<undef>" if not defined $err;
         my $errstr = $res->errstr;
+        $errstr    = "<undef>" if not defined $errstr;
         say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with status : $status, " .
             " $err : $errstr. Will return undef, $status");
         return undef, $status;
@@ -2392,6 +2404,7 @@ sub getCollationMetaData {
     if (not defined $res) {
         # SQL syntax error, DB server dead but not empty result set
         my $error = $result->err;
+        $error    = "<undef>" if not defined $error;
         say("FATAL ERROR: $who_am_i The query ->$query<- failed with error $error. " .
             "Will return undef.");
         return undef;

@@ -506,6 +506,12 @@ sub new {
 sub basedir {
     return $_[0]->[MYSQLD_BASEDIR];
 }
+# Changing the basedir is needed for upgrade/downgrade tests.
+sub setbasedir {
+    my ($self, $basedir) = @_;
+    $self->[MYSQLD_BASEDIR]= $basedir;
+}
+
 
 sub clientBindir {
     return $_[0]->[MYSQLD_CLIENT_BINDIR];
@@ -2273,7 +2279,7 @@ sub checkDatabaseIntegrity {
     } # End sub show_the_locks_per_table
 
     # For experimenting
-    if (1) {
+    if (0) {
         say("WARN: $who_am_i CREATE tables and damaged views and some prepared XA command");
         my $executor1 = GenTest_e::Executor->newFromDSN($dsn);
         $executor1->setId($server_id);
@@ -2988,6 +2994,14 @@ sub checkDatabaseIntegrity {
                         }
 
                     } else {
+                        # Observation: 2025-07-07
+                        # ALTER TABLE ... FORCE failed with status:
+                        # 22, 1292 : Incorrect date value: '0000-00-00' for column ...
+                        # sql_mode 'traditional' contains NO_ZERO_IN_DATE, NO_ZERO_DATE
+                        # The reason was some:
+                        # INSERT IGNORE INTO t1 values ('0');
+                        # Warnings:
+                        # Warning 1265    Data truncated for column 'col1' at row 1
                         say("INFO: $who_am_i It looks like the previous failing ALTER is a bug.");
                         return $status;
                     }
@@ -4309,8 +4323,15 @@ sub server_pid_per_errorlog {
     my $self = shift;
 
     my $who_am_i =  Basics::who_am_i;
-    my $errorlog = $self->current_error_file;
-
+    my $errorlog =  $self->current_error_file;
+    if (not defined $errorlog) {
+        say("ERROR: $who_am_i The server error log is undef. Will return undef.");
+        return undef;
+    }
+    if (not -e $self->current_error_file) {
+        say("ERROR: $who_am_i The server error log '$errorlog' does not exist. Will return undef.");
+        return undef;
+    }
     # bin/mysqld gets called and writes into the server error log
     # - till mid 2023-01
     #   [Note] <path>/bin/mysqld (server 10.6.12-MariaDB-debug-log) starting as process 1794271 ...
@@ -4319,7 +4340,7 @@ sub server_pid_per_errorlog {
     my $pid = Auxiliary::get_string_after_pattern($errorlog, "Starting .{1,500} as process ");
     if (not defined $pid) {
         # File does not exist and similar.
-        say("ERROR: $who_am_i Trouble with '$errorlog'. Will return undef.");
+        say("ERROR: $who_am_i Trouble with server error log '$errorlog'. Will return undef.");
         return undef;
     } elsif ('' eq $pid) {
         # No such line found or line found but no value.
