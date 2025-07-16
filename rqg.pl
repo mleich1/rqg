@@ -367,6 +367,7 @@ if (not $batch) {
         run_end($status);
     }
 }
+
 # system("find $workdir -follow");
 # system("find $vardirs[0] -follow");
 # Example from RQG stand alone run:
@@ -601,8 +602,6 @@ if (not defined $rpl_mode or $rpl_mode eq '') {
 $result = Auxiliary::check_value_supported (
              'rpl_mode', Auxiliary::RQG_RPL_ALLOWED_VALUE_LIST, $rpl_mode);
 if ($result != STATUS_OK) {
-    Auxiliary::print_list("The values supported for 'rpl_mode' are :" ,
-                          Auxiliary::RQG_RPL_ALLOWED_VALUE_LIST);
     my $status = STATUS_ENVIRONMENT_FAILURE;
     run_end($status);
 }
@@ -1009,6 +1008,7 @@ Auxiliary::set_rqg_phase($workdir, Auxiliary::RQG_PHASE_PREPARE);
 my $max_id = $number_of_servers - 1;
 # say("DEBUG: max_id is $max_id");
 
+
 # Generate the infrastructure for all required servers.
 # -----------------------------------------------------
 foreach my $server_id (0.. $max_id) {
@@ -1173,7 +1173,7 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
     # We will initialize and start it now
     $server[0] = DBServer_e::MySQL::MySQLd->new(
                                     basedir          => $basedirs[1],
-                                    vardir           => $vardirs[1],
+                                    vardir           => $workdir . "/" . (1),
                                     port             => $ports[0],
                                     start_dirty      => $start_dirty,
                                     valgrind         => $valgrind,
@@ -1190,7 +1190,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         my $status = STATUS_ENVIRONMENT_FAILURE;
         exit_test($status);
     }
-
 
     my $status = $server[0]->startServer;
     if ($status > STATUS_OK) {
@@ -1248,8 +1247,8 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
     }
     $server[1] = DBServer_e::MySQL::MySQLd->new(
                    basedir           => $basedirs[2],
-                   vardir            => $vardirs[1],        # Same vardir as for the first server!
-                   port              => $ports[0],          # Same port as for the first server!
+                   vardir            => $workdir . "/" . (1), # Same vardir as for the first server!
+                   port              => $ports[0],            # Same port as for the first server!
                    start_dirty       => 1,
                    valgrind          => $valgrind,
                    valgrind_options  => $valgrind_options,
@@ -1629,15 +1628,23 @@ my $check_status = STATUS_OK;
 
 # Catch if some server is no more operable.
 # ----------------------------------------
-# checkServers runs for any server involved DBServer_e::MySQL::MySQLd::server_is_operable.
+# checkServers runs for any server involved and checkServer for the server assigned
+# DBServer_e::MySQL::MySQLd::server_is_operable.
 # server_is_operable checks server process, error log, connectability and processlist.
-$check_status = checkServers($final_result); # Exits if status >= STATUS_CRITICAL_FAILURE
-$final_result = $check_status if $check_status > $final_result;
-if ($final_result > STATUS_OK) {
-    say("INFO: The testing will go on even though GenData+Servercheck ended with status " .
-        status2text($final_result) . "($final_result) because GenData is slightly imperfect.");
-    $final_result = STATUS_OK;
-    say("INFO: Hence reducing the status to " . status2text($final_result) . "($final_result).");
+if (defined $upgrade_test) {
+    # For testing:
+    # $check_status = checkServer($final_result, 11); # --> not defined server
+    $check_status = checkServer($final_result, 0); # Exits if status >= STATUS_CRITICAL_FAILURE
+    $final_result = $check_status if $check_status > $final_result;
+} else {
+   $check_status = checkServers($final_result); # Exits if status >= STATUS_CRITICAL_FAILURE
+   $final_result = $check_status if $check_status > $final_result;
+   if ($final_result > STATUS_OK) {
+       say("INFO: The testing will go on even though GenData+Servercheck ended with status " .
+           status2text($final_result) . "($final_result) because GenData is slightly imperfect.");
+       $final_result = STATUS_OK;
+       say("INFO: Hence reducing the status to " . status2text($final_result) . "($final_result).");
+   }
 }
 
 # Dump here the inital content
@@ -1732,18 +1739,28 @@ while ( $gt_round <= $max_gt_rounds) {
 
     # Catch if some server is no more operable.
     # ----------------------------------------
-    $check_status = checkServers($final_result); # Exits if status >= STATUS_CRITICAL_FAILURE
-    $final_result = $check_status if $check_status > $final_result;
-    if ($final_result > STATUS_OK) {
-        say("INFO: The testing will go on even though GenTest+Servercheck ended with status " .
-            status2text($final_result) . "($final_result). Need to look for corruptions.");
-        # say("DEBUG: No reduction of final status.");
+    if (defined $upgrade_test) {
+        $check_status = checkServer($final_result, 0); # Exits if status >= STATUS_CRITICAL_FAILURE
+        $final_result = $check_status if $check_status > $final_result;
+    } else {
+        $check_status = checkServers($final_result); # Exits if status >= STATUS_CRITICAL_FAILURE
+        $final_result = $check_status if $check_status > $final_result;
+        if ($final_result > STATUS_OK) {
+            say("INFO: The testing will go on even though GenData+GenTest+Servercheck ended with status " .
+                status2text($final_result) . "($final_result) Need to look for corruptions.");
+            $final_result = STATUS_OK;
+            say("INFO: Hence reducing the status to " . status2text($final_result) . "($final_result).");
+        }
     }
 
     # For experimenting:
     # killServers();
     # system('kill -11 $SERVER_PID1; sleep 10'); # Not suitable for crash recovery tests
 
+    # Check every DB server for  whatever physical or logical corruptions.
+    # In case of replication (MariaDB RPL or Galera) take care that the servers
+    # are in sync first.
+    # --------------------------------------------------------------------------
     $server_num = 0;
     foreach my $srv (@server) {
         $server_num++;
@@ -1753,11 +1770,8 @@ while ( $gt_round <= $max_gt_rounds) {
         }
         my $status = STATUS_OK;
         if ($server_num > 1) {
-            # checkDatabaseIntegrity will follow soon.
-            # In case of any type of synchronous replication (MariaDB RPL of Galera?) finished
-            # synchronization must be guaranteed. Otherwise objects (schemas, tables, ...) or
-            # rows in tables within slave might disappear, show up first time, get altered etc.
-            # during the checks and cause false alarms.
+            # In case the synchronization is not guaranteed we could harvest a fail during
+            # checkDatabaseIntegrity.
             # Example:
             # There is some replication lag from whatever reason.
             # checkDatabaseIntegrity on slave runs its m'th walkquery on table t1 and gets 100 rows.
@@ -1765,9 +1779,12 @@ while ( $gt_round <= $max_gt_rounds) {
             # checkDatabaseIntegrity on slave runs its m+1'th walkquery on table t1 and gets
             # "no such table", different number of rows or different content.
             #
+            # RQG builtin statement based replication is per se synchronized and no more active.
+            #
             # Do not abort immediate if waitForSlaveSync or waitForNodeSync deliver a bad status.
             # The checkDatabaseIntegrity and checkServers which follow later might give valuable
             # information.
+            #
             if (($rpl_mode eq Auxiliary::RQG_RPL_STATEMENT)   or
                 ($rpl_mode eq Auxiliary::RQG_RPL_MIXED)       or
                 ($rpl_mode eq Auxiliary::RQG_RPL_ROW)           ) {
@@ -1790,7 +1807,6 @@ while ( $gt_round <= $max_gt_rounds) {
                     $final_result = STATUS_REPLICATION_FAILURE ;
                 }
             }
-            # RQG builtin statement based replication is per se synchronized.
         }
 
         Auxiliary::update_sizes();
@@ -1897,7 +1913,96 @@ if ($stop_status != STATUS_OK) {
 
 exit_test($final_result);
 
-exit;
+sub checkServer {
+    my ($current_status, $server_num) = @_;
+    my $who_am_i =       Basics::who_am_i;
+
+    # Attention:
+    # The first (counting like humans) or master server is defined in $server[0].
+    Carp::cluck("ERROR: \$current_status is not defined.") if not defined $current_status;
+    if (not defined $server[$server_num]) {
+        Carp::cluck("ERROR: $who_am_i server[$server_num] is not defined.");
+        exit_test(STATUS_INTERNAL_ERROR);
+    }
+    my $srv = $server[$server_num];
+    $who_am_i .= " server[$server_num] ";
+
+    # In case of $current_status in (STATUS_SERVER_CRASHED, STATUS_CRITICAL_FAILURE) give the
+    # corresponding servers more time to finish the crash.
+    if (STATUS_SERVER_CRASHED == $current_status or STATUS_CRITICAL_FAILURE == $current_status) {
+        sleep 10;
+    }
+
+    # Catch if the server specified is no more operable.
+    # --------------------------------------------------
+    # The check is based on server_is_operable: DB server process, error log, processlist.
+    #
+    # For debugging
+    # $server[1]->crashServer if $server_num > 1;
+    # my $status = $server[$server_num]->server_is_operable;
+
+    my $status = $srv->server_is_operable;
+    # Returns:
+    # - STATUS_OK                    (DB process running + server connectable)
+    # - STATUS_SERVER_DEADLOCKED     (DB process running + server not connectable)
+    # - If DB process not running --> make_backtrace returns --> take that return
+    #   - STATUS_SERVER_CRASHED      (no internal problems)
+    #   - STATUS_ENVIRONMENT_FAILURE (internal error)
+    #   - STATUS_INTERNAL_ERROR      (internal error)
+    #   - STATUS_CRITICAL_FAILURE    (waitForServerToStop failed)
+    if (STATUS_OK != $status) {
+        say("ERROR: $who_am_i server_is_operable reported status " . status2text($current_status) .
+            "($current_status),");
+        # Observation 2023-01:
+        # Start, make load, kill the server during that, restart with success.
+        # During the checking of tables happens a server crash (-> STATUS_RECOVERY_FAILURE)
+        # but is not finished yet. server_is_operable gets no connection, calls making a
+        # backtrace which detects that the server process is not yet dead
+        # (-> STATUS_SERVER_DEADLOCKED). And than we raise here the status to
+        # STATUS_SERVER_DEADLOCKED which is misleading.
+        if ($status > $current_status and $current_status != STATUS_RECOVERY_FAILURE) {
+            say("ERROR: $who_am_i Raising current_status from " .
+                status2text($current_status) . "($current_status) to " .
+                status2text($status) . "($status).");
+            $current_status = $status;
+        }
+        if ($server_num > 1 and
+            defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE and
+            $status < STATUS_ENVIRONMENT_FAILURE) {
+            say("ERROR: Setting current_status STATUS_REPLICATION_FAILURE because its not " .
+                "the first server and some kind of replication ($rpl_mode) is involved.");
+            $current_status = STATUS_REPLICATION_FAILURE;
+        }
+    }
+    # Status:
+    # STATUS_CRITICAL_FAILURE(100) - either (unexpected server crash)
+    #                                or (bug in RQG or problem in environment)
+    #                                Hence try to  make a backtrace.
+    # STATUS_SERVER_CRASHED(101)   - either (MariaDB bug) or (bug in RQG or problem in environment)
+    #                                Hence try to  make a backtrace.
+    # All other STATUSES >= STATUS_SERVER_KILLED(102) and STATUS < STATUS_CRITICAL_FAILURE do not
+    # need a backtrace generation or RQG is buggy.
+    if ($current_status <  STATUS_CRITICAL_FAILURE) {
+        # Nothing to do.
+    } elsif ($current_status >= STATUS_SERVER_KILLED) {
+        exit_test($current_status);
+    } else {
+        # Experimental:
+        # I assume that the server is "ill". Frequent a freeze.
+        say("ERROR: $who_am_i status is " . status2text($status) . "($status). Assuming " .
+            "the server is somehow ill. Will kill it and initiate making a backtrace.");
+        $srv->crashServer;
+        $srv->make_backtrace();
+        exit_test($current_status);
+    }
+
+    if ($current_status > STATUS_OK) {
+        say("ERROR: $who_am_i " . Basics::return_status_text($final_result) .
+            " because of previous errors.");
+    }
+    return $current_status;
+
+} # End of sub checkServer
 
 sub checkServers {
     my $current_status = shift;
@@ -1988,7 +2093,6 @@ sub checkServers {
 } # End of sub checkServers
 
 #################################################
-
 
 # Return if STATUS_OK!
 sub compare_servers {
