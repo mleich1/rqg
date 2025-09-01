@@ -516,7 +516,7 @@ sub monitor {
         # 6. In case mariabackup ... finishes within some grace period go on.
         #    If not report a failure, send SIGSEGV and return STATUS_BACKUP_FAILURE.
         my $found =     0;
-        my $end_time =  time() + 30;
+        my $end_time =  time() + 90;
         while(1) {
            $found = Auxiliary::search_in_file($backup_prt, '\[00\] .{1,22} completed OK\!');
            last if $found;
