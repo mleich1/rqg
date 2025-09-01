@@ -284,7 +284,6 @@ $GRAMMAR_PART                                                          \
 --trials=$TRIALS                                                       \
 --stop_on_replay=1                                                     \
 --discard_logs                                                         \
---noarchiving                                                          \
 --no-mask                                                              \
 --script_debug=_nix_                                                   \
 > $PROT 2>&1 &
