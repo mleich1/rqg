@@ -1472,7 +1472,7 @@ sub startServer {
         }
     }
     # Auxiliary::print_ps_tree($$);
-    # $self->dbh is a function and tries to make a connect.
+    # $self->dbh is a sub and tries to make a connect.
     my $dbh = $self->dbh;
     if (not defined $dbh) {
         my $status = STATUS_FAILURE;
@@ -1980,7 +1980,8 @@ sub stopServer {
         # Need to check if $dbh is defined, in case the server has crashed
         if (defined $dbh) {
             my $start_time = time();
-            $res = $dbh->func('shutdown','127.0.0.1','root','admin');
+            # $res = $dbh->func('shutdown','127.0.0.1','root','admin');
+            $res = $dbh->do('SHUTDOWN');
             if (!$res) {
                 ## If shutdown fails, we want to know why:
                 say("ERROR: $who_am_i Shutdown failed due to " . $dbh->err . ": " . $dbh->errstr);
@@ -1994,7 +1995,8 @@ sub stopServer {
                     say("ERROR: $who_am_i Did not shut down properly. Terminate it");
                     sayFile($errorlog);
                     $res = $self->term;
-                    # If SIGTERM does not work properly then SIGKILL is used.
+                    # The sub term tries SIGTERM first and if that does not work properly
+                    # then SIGKILL is used.
                     if ($res == STATUS_OK) {
                         $check_shutdown = 1;
                     }
