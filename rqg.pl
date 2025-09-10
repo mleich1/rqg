@@ -1754,10 +1754,13 @@ while ( $gt_round <= $max_gt_rounds) {
     }
 
     # For experimenting:
-    # killServers();
-    # system('kill -11 $SERVER_PID1; sleep 10'); # Not suitable for crash recovery tests
+    # killServers(); # Kill all known servers
+    #
+    # Variants not suitable for crash recovery tests
+    # system('kill -11 $SERVER_PID1; sleep 10'); # Kill master
+    # system('kill -11 $SERVER_PID2; sleep 10'); # Kill slave
 
-    # Check every DB server for  whatever physical or logical corruptions.
+    # Check every DB server for whatever physical or logical corruptions.
     # In case of replication (MariaDB RPL or Galera) take care that the servers
     # are in sync first.
     # --------------------------------------------------------------------------
@@ -1795,6 +1798,9 @@ while ( $gt_round <= $max_gt_rounds) {
                     say("ERROR: waitForSlaveSync failed with $status. ".
                         "Setting final_result to STATUS_REPLICATION_FAILURE.");
                     $final_result = STATUS_REPLICATION_FAILURE ;
+                    # Maybe the master (unlikely) or the slave (likely) shows trouble.
+                    $check_status = checkServers($final_result); # Exits if ....
+                    $final_result = $check_status if $check_status > $final_result;
                 }
             }
             if ($rpl_mode eq Auxiliary::RQG_RPL_GALERA) {
@@ -1804,6 +1810,9 @@ while ( $gt_round <= $max_gt_rounds) {
                     # STATUS_REPLICATION_FAILURE is a guess.
                     say("ERROR: waitForNodeSync Some Galera cluster nodes were not in sync. " .
                         "Setting final_result to STATUS_REPLICATION_FAILURE.");
+                    # Maybe whatever server shows trouble.
+                    $check_status = checkServers($final_result); # Exits if ....
+                    $final_result = $check_status if $check_status > $final_result;
                     $final_result = STATUS_REPLICATION_FAILURE ;
                 }
             }
