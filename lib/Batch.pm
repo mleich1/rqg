@@ -1,5 +1,5 @@
 #  Copyright (c) 2018, 2022 MariaDB Corporation Ab.
-#  Copyright (c) 2023 MariaDB plc
+#  Copyright (c) 2023, 2025 MariaDB plc
 #  Use is subject to license terms.
 #
 #  This program is free software; you can redistribute it and/or modify
@@ -1282,7 +1282,6 @@ sub reap_workers {
                     } else {
                         $verdict_replay++;
                     }
-                    # FIXME: MLML Cleanup is open
                 } elsif ($verdict eq Verdict::RQG_VERDICT_INIT) {
                     # The RQG worker was definitely not the 'victim' of a stop_worker because
                     # that gets marked as RQG_VERDICT_STOPPED.
