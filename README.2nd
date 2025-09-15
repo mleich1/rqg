@@ -161,7 +161,7 @@ Preparations for using RQG, my batch tool and build scripts
 -----------------------------------------------------------
 - Stuff needed for plain RQG and the mysqltest simplifier
   sudo apt-get install libdbi-perl
-  sudo apt-get install libdbd-mariadb-perl
+  not for Ubuntu 24.04 required: sudo apt-get install libdbd-mariadb-perl
   sudo apt-get install libdbd-mysql
   sudo apt-get install libdbd-mysql-perl
   sudo apt-get install libtext-csv-perl
