@@ -310,10 +310,7 @@ sub monitor {
         $executor->disconnect();
         exit $status;
     }
-
-    if ($script_debug) {
-        system("find $clone_vardir -follow") if $script_debug;
-    }
+    system("find $clone_vardir -follow") if $script_debug;
 
     # FIXME: Do we really need all this?
 
@@ -920,7 +917,7 @@ sub monitor {
         return $status;
     }
     remove_clone_dbs_dirs($clone_vardir);
-    # system("find $clone_vardir -follow");
+    system("find $clone_vardir -follow") if $script_debug;
     Basics::direct_to_stdout();
     # Even if the backup operation was successful the protocol should be rather not deleted.
     # Maybe it contains warnings or error messages RQG currently does not care about.
