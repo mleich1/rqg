@@ -29,5 +29,5 @@ FOUND=`grep " init ===============================================" "$WRK_DIR"/r
         sed -e "s/init =*/init/g"`
 TITLE="$FOUND\n"`grep -i "Number | Worker | Verdict" "$WRK_DIR"/result.txt`
 export TITLE WRK_DIR
-watch -n2 'echo "$TITLE"; tail -40 "$WRK_DIR"/result.txt'
+watch -n2 'echo "$TITLE"; tail -30 "$WRK_DIR"/result.txt'
 
