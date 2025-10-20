@@ -1,5 +1,5 @@
 # Copyright (C) 2020,2021 MariaDB corporation Ab. All rights reserved.
-# Copyright (C) 2023 MariaDB plc
+# Copyright (C) 2023, 2025 MariaDB plc All rights reserved.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -22,6 +22,10 @@
 # Suite for "torturing" preferably InnoDB with concurrent DDL/DML/....
 # interrupted by intentional server crash followed by restart with recovery and checks.
 #
+# InnoDB_CrashRecovery.cc is similar to InnoDB_standard.cc. This was done to simplify maintenance
+# of InnoDB_CrashRecovery.cc. It is also the reason why variables like $mariabackup are set but
+# never used in the current testing campaign.
+#
 
 # Section Verdict setup ---------------------------------------------------------------------- start
 #
@@ -39,10 +43,11 @@
 # Section Verdict setup ------------------------------------------------------------------------ end
 
 our $test_compression_encryption =
-  '--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz --max_gd_duration=1800 ';
-
+  "--grammar=conf/mariadb/innodb_compression_encryption.yy --gendata=conf/mariadb/innodb_compression_encryption.zz --max_gd_duration=1800 ";
 our $encryption_setup =
   '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
+our $encrypt_tables_and_log =
+  "--mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables ";
 
 our $compression_setup =
   # The availability of the plugins depends on 1. build mechanics 2. Content of OS install
@@ -56,8 +61,33 @@ our $compression_setup =
   # Use the smallest which is 1 instead of 6 (default).
   # The hope is that it raises the throughput and/or reduces the fraction of max_gd_timeout exceeded
   # and/or false alarms when running a test with compression.
-  '--mysqld=--plugin-load-add=provider_lzo.so --mysqld=--plugin-load-add=provider_bzip2.so --mysqld=--plugin-load-add=provider_lzma.so ' .
-  '--mysqld=--plugin-load-add=provider_snappy.so --mysqld=--plugin-load-add=provider_lz4.so --mysqld=--loose-innodb_compression_level=1';
+  "--mysqld=--plugin-load-add=provider_lzo.so --mysqld=--plugin-load-add=provider_bzip2.so --mysqld=--plugin-load-add=provider_lzma.so " .
+  "--mysqld=--plugin-load-add=provider_snappy.so --mysqld=--plugin-load-add=provider_lz4.so --mysqld=--loose-innodb_compression_level=1 ";
+
+our $full_text_gendata =
+  "--gendata=conf/engines/innodb/full_text_search.zz --max_gd_duration=1200 --short_column_names ";
+
+our $many_indexes_gendata =
+  "--gendata=conf/engines/many_indexes.zz --max_gd_duration=900 ";
+
+our $oltp_gendata =
+  "--gendata=conf/mariadb/oltp.zz --max_gd_duration=900 ";
+
+our $table_stress_gendata =
+  "--gendata=conf/mariadb/table_stress.zz --gendata_sql=conf/mariadb/table_stress.sql ";
+
+our $select_stability_rr =
+  "--mysqld=--transaction-isolation=REPEATABLE-READ --validator=SelectStability ";
+our $select_stability_ser =
+  "--mysqld=--transaction-isolation=SERIALIZABLE    --validator=SelectStability ";
+
+our $mariabackup =
+  # Default log_size is 100MB. Mariabackup --backup fails sometimes with
+  #    [ 'TBR-934', '\[00\] FATAL ERROR: .{1,100} xtrabackup_copy_logfile\(\) failed: redo log block is overwritten, ...
+  #     please increase redo log size.+RESULT: The RQG run ended with status STATUS_BACKUP_FAILURE' ],
+  # 200MB does not prevent that problem 100%. But it reduces the likelihood to get it and we
+  # check what happens in the region of "quite small redo log size" too.
+  "--reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M ";
 
 our $duration = 300;
 our $grammars =
@@ -91,20 +121,18 @@ our $grammars =
 
     # That encryption stuff was/is error prone.
     "$test_compression_encryption                                                                ",
-    "$test_compression_encryption --mysqld=--innodb-encrypt-log                                  ",
-    "$test_compression_encryption                               --mysqld=--innodb-encrypt-tables ",
-    "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables ",
-    "$test_compression_encryption --mysqld=--innodb-encrypt-log --mysqld=--innodb-encrypt-tables --redefine=conf/mariadb/redefine_innodb_undo.yy --mysqld=--innodb-immediate-scrub-data-uncompressed=1 ",
+    "$test_compression_encryption $encrypt_tables_and_log ",
+    "$test_compression_encryption $encrypt_tables_and_log --redefine=conf/mariadb/redefine_innodb_undo.yy --mysqld=--innodb-immediate-scrub-data-uncompressed=1 ",
 
 ];
 
 
 #
-# Excessive sql tracing via RQG makes the RQG logs rather fat and is frequent of low value only.
+# Excessive sql tracing via RQG makes the RQG logs rather fat and the content is frequent of low value only.
 #     --sqltrace=MarkErrors
 #
 
-# Reason for not writing '--reporters=Backtrace,ErrorLog,Deadlock':
+# Reason for not writing '--reporters=ErrorLog,Deadlock':
 # Current RQG requires using either
 #   --reporters=<list> ... but never --reporters=... again
 # or
@@ -143,25 +171,63 @@ $combinations = [ $grammars,
     " --duration=$duration --mysqld=--loose-innodb_fatal_semaphore_wait_threshold=300 ",
   ],
   [
+    # Since 11.2 (MDEV-14795) + it's complex + customers need it a lot.
+    #     If 'autoshrink' is not supported than already bootstrap will fail.
+    #     'loose' does not seem to help if the value assigned is unknown.
+    '--mysqld=--loose-innodb_data_file_path=ibdata1:1M:autoextend:autoshrink' ,
+    '' ,
+    '' ,
+    '' ,
+  ],
+  [
+    '--redefine=conf/mariadb/redefine_innodb_log_write_ahead_size.yy' ,
+    '' ,
+    '' ,
+    '' ,
+  ],
+  [
+    '--redefine=conf/mariadb/redefine_innodb_log_size_dynamic.yy' ,
+    '' ,
+    '' ,
+    '' ,
+  ],
+  [
+    # lock_wait_timeout
+    #     Timeout in seconds for attempts to acquire metadata locks. Statements using metadata
+    #     locks include FLUSH TABLES WITH READ LOCK, LOCK TABLES, HANDLER and DML and DDL
+    #     operations on tables, stored procedures and functions, and views.
+    #     The timeout is separate for each attempt, of which there may be multiple in a
+    #     single statement. 0 (from MariaDB 10.3.0) means no wait.
+    #     <Certain but not all SQL> [WAIT n|NOWAIT] ... can set lock_wait_timeout explicitly
+    #     for that statement.
+    # innodb_lock_wait_timeout
+    #     Time in seconds that an InnoDB transaction waits for an InnoDB record lock
+    #     (or table lock) before giving up with the error
+    #     ERROR 1205 (HY000): Lock wait timeout exceeded; try restarting transaction
+    # table_lock_wait_timeout Removed: MariaDB 5.5
+    #
     # 2023-06
     # The combination lock-wait-timeout=<small> -- innodb-lock-wait-timeout=<a bit bigger>
-    # seems to be important too.
+    # seems to be important for catching problems too.
     '--mysqld=--lock-wait-timeout=15    --mysqld=--innodb-lock-wait-timeout=10' ,
     # The defaults 2023-06
     '--mysqld=--lock-wait-timeout=86400 --mysqld=--innodb-lock-wait-timeout=50' ,
   ],
-# [
-#   # The default is innodb_fast_shutdown=1.
-#   '--mysqld=--loose-innodb_fast_shutdown=1' ,
-#   '' ,
-#   '' ,
-#   '' ,
-#   '--mysqld=--loose-innodb_fast_shutdown=0' ,
-# ],
   [
-    '--mysqld=--sql_mode=traditional' ,
-    # Below the default since 10.2.4
+    # The default is innodb_fast_shutdown=1. The value 0 is important for upgrade tests too.
+    '--mysqld=--loose-innodb_fast_shutdown=1' ,
+    '' ,
+    '' ,
+    '' ,
+    '--mysqld=--loose-innodb_fast_shutdown=0' ,
+  ],
+  [
+    # The default since 10.2.4 is
     '--mysqld=--sql_mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION' ,
+    # TRADITIONAL is:
+    # STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,STRICT_ALL_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,TRADITIONAL
+    # == The default + (STRICT_ALL_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,TRADITIONAL) - NO_ENGINE_SUBSTITUTION
+    '--mysqld=--sql_mode=traditional' ,
   ],
   [
     # innodb_file_per_table
@@ -169,6 +235,7 @@ $combinations = [ $grammars,
     # Page compression is only available with file-per-table tablespaces.
     # Note that this value is also used when a table is re-created with an ALTER TABLE which requires a table copy.
     # Scope: Global, Dynamic: Yes, Data Type: boolean, Default Value: ON
+    # Deprecated in MariaDB 11.0.1
     '',
     ' --mysqld=--innodb_file_per_table=0 ',
     ' --mysqld=--innodb_file_per_table=1 ',
@@ -224,9 +291,58 @@ $combinations = [ $grammars,
     '',
     '',
     '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+  ],
+  [
+    # innodb_log_buffer_size (2025)
+    #    Global, not dynamic, Block size: 4096
+    #    Default Value: 16777216 (16MB)
+    #    Range: 262144 to 2147479552 (256KB to 2GB - 4K) (>= MariaDB 10.11.8)
+    #    Range: 262144 to 18446744073709551615 (<= MariaDB 10.11.7)
+    # We try here 2M because I harvested an assert when trying a non default value first time.
+    ' --mysqld=--innodb_log_buffer_size=2M ',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
   ],
   [
     ' --redefine=conf/mariadb/redefine_checks_off.yy ',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
     '',
     '',
     '',
@@ -244,7 +360,7 @@ $combinations = [ $grammars,
     #
     # Binary logging is less likely disabled.
     # But this has to be checked too.
-    # In adition certain bugs replay better if binary logging is not enabled.
+    # In adition certain bugs replay better or faster if binary logging is not enabled.
     '',
   ],
   [
@@ -264,16 +380,23 @@ $combinations = [ $grammars,
     # max-statement-time and the reporter Querytimeout makes sense.
     #
     ' --mysqld=--loose-max-statement-time=30 ',
+    # mleich 2023-10: It seems that a not limited statement-time replays certain bugs better.
+    ' ',
   ],
   [
+    # mleich 2025-08:
+    # Per experience with the current set of tests and the test simplifier most bugs have the
+    # highest replay likelihood with the number of "worker" threads in the range between 3 to 6.
     ' --threads=1  ',
     ' --threads=2  ',
+    ' --threads=3  ',
+    ' --threads=6  ',
     ' --threads=9  ',
     ' --threads=33 ',
   ],
   [
-    # rr
-    # - trace analysis is serious more comfortable than analyzing cores
+    # rr (https://rr-project.org/)
+    # - trace analysis is serious more comfortable and therefore faster than analyzing core files
     #   -> 2/3 of all runs should use it
     # - replays certain bugs significant less likely than without rr
     #   -> at least 1/3 of all runs go without it
@@ -282,14 +405,26 @@ $combinations = [ $grammars,
     #   -> runs with rr use --mysqld=--innodb-use-native-aio=0
     #   -> runs without rr use --mysqld=--innodb-use-native-aio=1 so that InnoDB using
     #      libaio/liburing is covered at all
-    #
-    # In case rr denies to work because it does not know the CPU family than the rr option
-    # --microarch can be set like in the next line.
+    # - tracing could cause fake hangs of the server
+    #   -> runs with rr use "--loose-innodb-write-io-threads=2"
+    #   -> runs with rr should not be combined with --mysqld=--thread-handling=pool-of-threads
+    #      "pool-of-threads" seems to expect some behaviour what the OS but not "rr" guarantees.
+    # - rr might deny to work because it does not know the CPU family
+    #   -> setting the rr option
+    #      "--microarch \"Intel Kabylake\"' "
+    #      or similar could help
+    # - rr+InnoDB running on some usual filesystem like ext4 need the setting
+    #      --mysqld=--innodb_flush_method=fsync
+    #   Otherwise already bootstrap fails.
+    #   Needing such an assignment is a property specific to the testing box.
+    #   So rather set this in local.cfg variable $rqg_slow_dbdir_rr_add.
+    # - used and combined with certain gdb related server settings do not make much sense
+    #   -> set --mysqld=--loose-gdb --mysqld=--loose-debug-gdb
     # Recommendations:
-    # - Check if some newer version of rr can fix that problem.
-    # - Needing such an assignment is a property specific to the testing box.
-    #   So rather set this in local.cfg variable $rr_options_add.
-    # " --mysqld=--innodb-use-native-aio=0 --rr=Extended --rr_options='--chaos --wait --microarch=\"Intel Kabylake\"' ",
+    # - Generate/adjust the file local.cfg to what is required by
+    #      cp local_template.cfg local.cfg
+    #      edit local.cfg so that the settings are made
+    # - Check if some newer version of rr can fix some problem met.
     #
     # Experiments (try the values 1000, 300, 150) with the rr option "--num-cpu-ticks=<value>"
     # showed some remarkable impact on the user+nice versus system CPU time.
@@ -297,15 +432,13 @@ $combinations = [ $grammars,
     # per second. And that seems to cause a higher fraction of tests invoking rr where the
     # max_gd_timeout gets exceeded. Per current experience the impact on the fraction of bugs found
     # or replayed is rather more negative than positive. But there is one case where this helped.
-    " --mysqld=--innodb-use-native-aio=0 --mysqld=--loose-gdb --mysqld=--loose-debug-gdb --rr=Extended --rr_options='--wait' ",
-    " --mysqld=--innodb-use-native-aio=0 --mysqld=--loose-gdb --mysqld=--loose-debug-gdb --rr=Extended --rr_options='--chaos --wait' ",
+    #
+    # The settings --rr_options='--wait' and --rr_options='--chaos --wait' do not significant
+    # differ regarding the fraction of most probably false server hangs.
+    " --rr=Extended --rr_options='--wait' ",
+    " --rr=Extended --rr_options='--chaos --wait' ",
     # Coverage for libaio or liburing.
     " --mysqld=--innodb_use_native_aio=1 ",
-    # rr+InnoDB running on usual filesystem on HDD or SSD need
-    #     --mysqld=--innodb_flush_method=fsync
-    # Otherwise already bootstrap fails.
-    # Needing such an assignment is a property specific to the testing box.
-    # So rather set this in local.cfg variable $rqg_slow_dbdir_rr_add.
   ],
   [
     # Default Value: OFF
@@ -322,7 +455,8 @@ $combinations = [ $grammars,
     #   >= MariaDB 10.5.15, MariaDB 10.6.7, MariaDB 10.7.3, MariaDB 10.8.2: none
     #   <= MariaDB 10.5.14, MariaDB 10.6.6, MariaDB 10.7.2, MariaDB 10.8.1: all
     # Valid Values: inserts, none, deletes, purges, changes, all
-    # Deprecated: MariaDB 10.9.0
+    # Deprecated: MariaDB 10.9.0 Removed: MariaDB 11.0.0
+    # There were many serious bugs if innodb_change_buffering values != 'none'.
     '',
     '',
     '',
@@ -354,26 +488,45 @@ $combinations = [ $grammars,
   [
     # 1. innodb_page_size >= 32K requires a innodb-buffer-pool-size >=24M
     #    otherwise the start of the server will fail.
-    # 2. An innodb-buffer-pool-size=5M should work well with innodb_page_size < 32K
+    # 2. An innodb-buffer-pool-size=5M "should" work well with innodb_page_size < 32K.
     # 3. A huge innodb-buffer-pool-size will not give an advantage if the tables are small.
     # 4. Small innodb-buffer-pool-size and small innodb_page_size stress Purge more.
+    #    Small innodb-buffer-pool-size allows to have more concurrent RQG tests and the
+    #    testing box --> higher CPU load and higher overload of IO in the memory.
     # 5. Gendata is faster when using a big innodb-buffer-pool-size.
-    # 6. If huge innodb-buffer-pool sizes
+    # 6. Checking if huge innodb-buffer-pool sizes
     #    - get accepted at all
     #    - work well
     #    does not fit into the characteristics of the current test battery.
+    # 7. When going with certain innodb_page_size - small buffer_pool_sizes than we could harvest
+    #    7.1 an abort of the server with a message like
+    #        [ERROR] [FATAL] InnoDB: Over 95 percent of the buffer pool is occupied by lock heaps or
+    #        the adaptive hash index! ... or review if innodb_buffer_pool_size=7M could be bigger.
+    #    7.2 no abort but a message like
+    #        [Note] InnoDB: Small buffer pool size ... can cause a deadlock if the buffer pool
+    #        fills up
+    #        maybe followed by the "promised" deadlock or something different later
+    # Hence the following combinations for any pagesize
+    # a) extreme low innodb-buffer-pool-size which avoids 1. and maybe 7.1 but is nearby 7.2
+    # b) extreme low innodb-buffer-pool-size raised which should avoid 1., 7.1 and 7.2
+    # c) low innodb-buffer-pool-size=256MB
     ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=5M   ',
+    ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=6M   ',
     ' --mysqld=--innodb_page_size=4K  --mysqld=--innodb-buffer-pool-size=256M ',
     ' --mysqld=--innodb_page_size=8K  --mysqld=--innodb-buffer-pool-size=8M   ',
     ' --mysqld=--innodb_page_size=8K  --mysqld=--innodb-buffer-pool-size=256M ',
     ' --mysqld=--innodb_page_size=16K --mysqld=--innodb-buffer-pool-size=8M   ',
+    ' --mysqld=--innodb_page_size=16K --mysqld=--innodb-buffer-pool-size=10M  ',
     ' --mysqld=--innodb_page_size=16K --mysqld=--innodb-buffer-pool-size=256M ',
     ' --mysqld=--innodb_page_size=32K --mysqld=--innodb-buffer-pool-size=24M  ',
     ' --mysqld=--innodb_page_size=32K --mysqld=--innodb-buffer-pool-size=256M ',
     ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=24M  ',
+    ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=29M  ',
     ' --mysqld=--innodb_page_size=64K --mysqld=--innodb-buffer-pool-size=256M ',
   ],
   [
+    # vardir_type
+    # -----------
     # slow (usually SSD/HDD) at all in order to cover
     # - maybe a device with slow IO
     # - a filesystem type != tmpfs
@@ -381,6 +534,10 @@ $combinations = [ $grammars,
     # - some higher CPU and RAM IO load by not spending to much time on slow devices
     # - tmpfs
     #
+    # The file local.cfg must contain definitions where these vardirs are located on
+    # the current testing box.
+    #
+    # vardir_type
     # 90% fast to 10% slow (if HDD or SSD) or 50% fast to 50% slow (if ext4 in virtual memory)
     # in order to
     # - get extreme load for CPU and RAM IO because that seems to be better for bug detection/replay

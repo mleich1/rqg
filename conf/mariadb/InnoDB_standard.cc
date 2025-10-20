@@ -313,7 +313,7 @@ our $grammars =
 #     --sqltrace=MarkErrors
 #
 
-# Reason for not writing '--reporters=Backtrace,ErrorLog,Deadlock':
+# Reason for not writing '--reporters=ErrorLog,Deadlock':
 # Current RQG requires using either
 #   --reporters=<list> ... but never --reporters=... again
 # or
@@ -559,9 +559,13 @@ $combinations = [ $grammars,
     ' ',
   ],
   [
+    # mleich 2025-08:
+    # Per experience with the current set of tests and the test simplifier most bugs have the
+    # highest replay likelihood with the number of "worker" threads in the range between 3 to 6.
     ' --threads=1  ',
     ' --threads=2  ',
-    ' --threads=9  ',
+    ' --threads=3  ',
+    ' --threads=6  ',
     ' --threads=9  ',
     ' --threads=33 ',
   ],
@@ -589,7 +593,7 @@ $combinations = [ $grammars,
     #   Otherwise already bootstrap fails.
     #   Needing such an assignment is a property specific to the testing box.
     #   So rather set this in local.cfg variable $rqg_slow_dbdir_rr_add.
-    # - used and certain gdb related server settings do not make much sense
+    # - used and combined with certain gdb related server settings do not make much sense
     #   -> set --mysqld=--loose-gdb --mysqld=--loose-debug-gdb
     # Recommendations:
     # - Generate/adjust the file local.cfg to do what is required by
