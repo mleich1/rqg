@@ -298,8 +298,8 @@ my $simplifier = GenTest_e::Simplifier::Mysqltest->new(
                     ($mtr_exit_code == 0) &&
                     ($iteration > 1)
                 ) {
-                    unlink('t/'.$testfile);
-                    unlink('r/'.$resultfile);
+                    unlink($testfile);
+                    unlink($resultfile_full_path);
                 }
 
                 say $mysqltest_output if $iteration > 1 && $mtr_exit_code != 0;
