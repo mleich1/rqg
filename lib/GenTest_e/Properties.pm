@@ -152,7 +152,6 @@ sub new {
         }
     }
 
-
     ## Pick up defaults
 
     my $defaults = $props->[PROPS_DEFAULTS];
@@ -201,7 +200,7 @@ sub new {
     $message .= "The following properties are not legal: ".
         join(", ", map {"'--".$_."'"} sort @illegal). ". " if $#illegal >= 0;
 
-    $message .= "The following required properties  are missing: ".
+    $message .= "The following required properties are missing: ".
         join(", ", map {"'--".$_."'"} sort @missing). ". " if $#missing >= 0;
 
     if (defined $message) {
