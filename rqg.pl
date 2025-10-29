@@ -39,7 +39,7 @@
 #
 
 use Carp;
-use File::Basename;          # We use dirname
+use File::Basename;   # We use dirname
 use Cwd qw(abs_path); # We use abs_path
 use POSIX;            # For sigalarm stuff, getcwd
 my $rqg_home;
@@ -122,8 +122,7 @@ my @dsns;    # To be filled around starting the servers.
 my @server;  # To be filled around starting the servers
 
 my (@basedirs, @mysqld_options, @vardirs, @engine, @vcols, @views,
-    # $dbdir_type, $vardir_type, $rpl_mode, $major_runid, $minor_runid, $batch,
-    $dbdir_type, $vardir_type,            $major_runid, $minor_runid, $batch,
+    $dbdir_type, $vardir_type, $major_runid, $minor_runid, $batch,
     $help, $help_dbdir_type, $help_sqltrace, $help_rr, $debug,
     @validators, @reporters, @transformers, $filter,
     $gendata_advanced, $skip_gendata, @gendata_sql_files, $grammar_file, @redefine_files,
@@ -443,7 +442,7 @@ say("Please see http://forge.mysql.com/wiki/Category:RandomQueryGenerator for mo
 # say("Starting \n# $0 \\\n# " . join(" \\\n# ", @ARGV_saved));
 $message = "# -------- Informations useful for bug reports --------------------------------------" .
            "----------------------\n" .
-           "# git clone https://github.com/mleich1/rqg --branch <pick the right branch> RQG\n#\n"  .
+           "# git clone https://github.com/mleich1/rqg --branch master RQG\n#\n"  .
            "# " . Auxiliary::get_git_info($rqg_home) . "\n" .
            "# rqg.pl  : " . RQG_RUNNER_VERSION . "\n#\n" .
            "# $0 \\\n# " . join(" \\\n# ", @ARGV_saved) . "\n#--------\n";
