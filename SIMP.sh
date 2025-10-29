@@ -1,116 +1,67 @@
 #!/bin/bash
 
+# set -x
+
 # Typical use case
 # ----------------
-# Have one or more bad effects of interest defined in some RQG test Simplifier config file.
-# Run some automatic simplification of the RQG test.
-# The simplification campaign will stop if
-# - the simplifier gives up based on certain criterions
-# - MAX_RUNTIME is exceeded
-#
-# Please see this shell script rather as template how to call rqg_batch.pl even though
-# it might be already in its current state sufficient for doing a lot around RQG.
+# Simplify some RQG test which replayed some bad effect.
 #
 
 export LANG=C
-
-  USAGE="USAGE:   $0 <Config file for the RQG test Simplifier> <Basedir == path to MariaDB binaries> [<YY grammar>]"
-EXAMPLE="EXAMPLE: $0 simp_1.cfg /Server_bin/bb-10.2-marko_asan_Og table_stress.yy"
-USAGE="\n$USAGE\n\n$EXAMPLE\n"
 CALL_LINE="$0 $*"
 
+set -e
+source util/rqg_lib.sh
+
+set_simplifier_usage
+
 # Config file for rqg_batch.pl containing various settings for the RQG+server+InnoDB etc.
-# including settings for avoiding open bugs.
+# - various settings for the RQG+server+InnoDB
+# - a text pattern for the failure to replay
+# - the setup of the test to simplify
 # Template: simplify_rqg_template.cfg
-CONFIG=$1
-if [ "$CONFIG" = "" ]
-then
-   echo "You need to assign a config file for the RQG test Simplifier as first parameter."
-   echo "The call was ->$CALL_LINE<-"
-   echo -e "$USAGE"
-   exit
-fi
-if [ ! -e "$CONFIG" ]
-then
-   echo "The config file for the RQG test Simplifier '$CONFIG' does not exist."
-   echo "The call was ->$CALL_LINE<-"
-   echo -e "$USAGE"
-   exit
-fi
+CONFIG="$1"
+check_simplifier_config
 
-CASE0=`basename $CONFIG`
-CASE=`basename $CASE0 .cfg`
-if [ $CASE = $CASE0 ]
-then
-   echo "You need to assign a Simplifier config file (extension .cfg)."
-   echo "The call was ->$CALL_LINE<-"
-   echo -e "$USAGE"
-   exit
-fi
-
-
-# Path to MariaDB binaries
+# Path to MariaDB binaries for first server
 BASEDIR1="$2"
-if [ "$BASEDIR1" = "" ]
-then
-   echo "You need to assign a basedir (path to MariaDB binaries) as second parameter."
-   echo "The call was ->$CALL_LINE<-"
-   echo -e "$USAGE"
-   exit
-fi
-if [ ! -d "$BASEDIR1" ]
-then
-   echo "BASEDIR1 '$BASEDIR1' does not exist or is not a directory."
-   exit
-fi
+check_basedir1
 BASEDIR1_NAME=`basename "$BASEDIR1"`
 BASEDIR2="$BASEDIR1"
 
-# Optional YY grammar
-GRAMMAR="$3"
-if [ "$GRAMMAR" != "" ]
-then
-   if [ ! -f "$GRAMMAR" ]
-   then
-      echo "The RQG grammar '$GRAMMAR' does not exist or is not a plain file."
-      echo "The call was ->$CALL_LINE<-"
-      echo -e "$USAGE"
-      exit
-   else
-      GRAMMAR_PART="--grammar=$GRAMMAR"
-   fi
-else
-   GRAMMAR_PART=""
-fi
+set +e
+# Check if there is already some running MariaDB or MySQL server or test
+prevent_conflicts
+# Calculate the maximum number of concurrent RQG tests
+set_parallel
 
 PROT="simp-""$CASE""-""$BASEDIR1_NAME"".prt"
 
-# Go with heavy load in case the rqg_batch.pl ResourceControl allows it.
-# The rqg_batch.pl ResourceControl should be capable to avoid trouble with resources.
-# Per experience:
-# More general load on the testing raises the likelihood to find or replay a
-# concurrency bug.
-NPROC=`nproc`
-GUEST_ON_BOX=`who | egrep -v "$USER|root" | wc -l`
-echo "Number of guests logged into the box: $GUEST_ON_BOX"
-# GUEST_ON_BOX=0
-if [ $GUEST_ON_BOX -gt 0 ]
-then
-   # Colleagues are on the box and most probably running rr replay.
-   # So do not raise the load too much.
-   PARALLEL=$((8 * $NPROC / 10))
-else
-   PARALLEL=$(($NPROC * 3))
-fi
-# If $PARALLEL > ~270 than we get trouble with some resources.
-if [ $PARALLEL -gt 270 ]
-then
-   PARALLEL=270
-fi
-
+# The size of a simplification campaign is controlled by many limiters.
+# ---------------------------------------------------------------------
+# - the "exit" file   last_batch_workdir/exit
+#   This file does not exist after rqg_batch.pl was called.
+#   But as soon that file gets created by the user or similar rqg_batch.pl will stop all RQG runs.
+# - Stop of testing as soon the elapsed runtime of testing campaign exceeds the value assigned to
+#   --max_runtime or the default of 432000 (in seconds) = 5 days
+#   We set "--max_runtime=$MAX_RUNTIME" in the current script.
+#   Focus: Define the size of a testing campaign by a time related limit.
+#          This is important for running 'production' like QA.
+#          Per experience: total runtime < MAX_RUNTIME + 10s
+# - Stop of testing as soon as the number of RQG runs regular finished exceeds the value assigned
+#   to --trials or the default 99999.
+#   We set "--trials=$TRIALS" in the current script.
+#   Regular means: Not stopped by rqg_batch.pl because of whatever internal reason.
+#   Focus: Bad Simplifier config or tests, defect in code of RQG or tools, exceptional bad DB server
+#          and experiments
+# - Stop of testing as soon as n RQG runs finished with the verdict 'replay'.
+#   It does not make sense to set --stop_on_replay in the current script because the simplification
+#   process would abort after some fixed number of replays.
+#   Use REPLAY_SIMP.sh instead.
+#
 # The value computed for TRIALS tries to be a good compromise for the contradicting goals
 # - reach at least a fair likelihood to replay some concurrency problem
-# - give up early enough in case its most probably some mistake in test setup
+# - give up early enough in case there is most probably some mistake in test setup
 # - try to avoid some "overuse" of a small box
 # In case of
 # - no replay at all
@@ -129,22 +80,6 @@ TRIALS=$(($NPROC * 12))
 # +  time for stopping the active RQG Workers + cleanup (usually less than 30 seconds)
 MAX_RUNTIME=72000
 
-# Only one temporary 'God' (rqg_batch.pl vs. concurrent MTR, single RQG or whatever) on testing box
-# -------------------------------------------------------------------------------------------------
-# Countermeasures to prevent certain errors caused by the environment at test campaign runtime like
-# 1. Clash of tests on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files)
-#        current rqg_batch run ---- other ongoing rqg_batch run
-#        current rqg_batch run ---- ongoing MTR run
-# 2. The current test campaign suffers sooner or later from important filesystems full etc.
-#
-# Testing tool | Programs            | Standard locations
-# -------------+---------------------+---------------------------
-# rqg_batch.pl | perl, mysqld,   rr  | /dev/shm/rqg*/* /data/rqg/*
-# MTR          | perl, mariadbd, rr  | /dev/shm/var*
-#
-killall -9 perl mysqld mariadbd rr
-rm -rf /dev/shm/rqg*/* /dev/shm/var* /data/rqg/*
-
 # There should be usually sufficient space in VARDIR for just a few fat core files caused by ASAN.
 # Already the RQG runner will take care that everything important inside his VARDIR will be
 # saved in his WORKDIR and empty his VARDIR. rqg_batch.pl will empty the VARDIR of this RQG
@@ -154,31 +89,32 @@ rm -rf /dev/shm/rqg*/* /dev/shm/var* /data/rqg/*
 export ASAN_OPTIONS=abort_on_error=1,disable_coredump=0
 echo "Have set "`env | grep ASAN`
 
-# If an YY grammar was assigned than offer it for editing
-if [ "$GRAMMAR" != "" ]
-then
-   vi "$GRAMMAR"
-fi
+# If an YY grammar was assigned than check it and offer it for editing
+# Optional YY grammar
+GRAMMAR="$3"
+check_edit_optional_grammar
 
 rm -f $PROT
 
 set -o pipefail
-# Options
-# -------
-# 0. Please take care that there must be a '\' at line end.
-#
-# 1. Remove the logs of RQG runs achieving STATUS_OK/verdict 'ignore_*'.
+
+# Options (Hint: Please take care that there must be a '\' at line end.)
+# ----------------------------------------------------------------------
+# 1. Remove the logs of RQG test runs achieving STATUS_OK/verdict 'ignore_*'.
 #    Their stuff grammar/datadir was not archived and is already thrown away.
 #    So basically:
 #    Do not assign '--discard_logs' in case you want to see logs of RQG runs which achieved
-#    the verdict 'ignore_*' (blacklist match or STATUS_OK or stopped by rqg_batch.pl)
+#    the verdict 'ignore_*' (blacklist match or STATUS_OK or stopped by rqg_batch.pl).
+#    The current scripts sets '--discard_logs'.
 # --discard_logs                                                       \
 #
-# 2. Per default the data (data dir of server, core etc.) of some RQG replaying or being at least
-#    of interest gets archived.
-#    In case you do not want that archiving than you can disable it.
-#    But thats is rather suitable for runs of the test simplifier only.
-#    rr tracing enabled requires that archiving is not disabled.
+# 2. Per default of rqg_batch.pl the data (data dir of server, core etc.) of some RQG test
+#    replaying a problem or being at least of interest gets archived.
+#    This makes mostly no sense for runs of the automatic simplifier.
+#    Hence its disabled within the current script.
+#    Exception: You are extreme greedy to catch remains of tests failing because of already
+#               known and new bugs. But you will lose a lot simplification speed.
+#    Please note that rr tracing enabled requires that archiving is not disabled.
 # --noarchiving                                                        \
 #
 # 3. Do not abort if hitting Perl errors or STATUS_ENVIRONMENT_FAILURE. IMHO some rather
@@ -211,6 +147,8 @@ set -o pipefail
 # --dryrun=replay                                                      \
 #
 # 7. rqg_batch stops immediate all RQG runner if reaching the assigned number of replays
+#    This makes mostly no sense for runs of the automatic simplifier.
+#    Hence its not assigned within the current script.
 #    Stop after the first replay
 # --stop_on_replay                                                     \
 #    Stop after the n'th replay
@@ -218,21 +156,23 @@ set -o pipefail
 #
 # 8. Use "rr" (https://github.com/mozilla/rr/wiki/Usage) for tracing DB servers and other
 #    programs.
-#
-#    Attention:
-#    1. rr tracing makes the test simplification process serious slower.
-#    2. The combination of rr tracing and --noarchiving makes no sense and is therefore
-#       not supported.
-#    3. Only the combination of rr tracing, archiving not disabled and some config file with
-#       - some never hit searchpattern like
-#         $patterns_replay =
-#         [
-#             [ 'whatever' , '1234_fake_pattern_4321' ],
-#         ];
-#       - simplify_chain
-#         first_replay and thread1_replay and rvt_simp set to comment
-#       - a big number of trials like 3200
-#       could sometimes make sense.
+#    This makes in most cases no sense for runs of the automatic simplifier because rr tracing
+#    makes the test simplification process serious slower.
+#    Hence its not assigned within the current script.
+#    The rare exceptions:
+#    A) Some bad effect shows up only if the DB server was started under rr.
+#       Seen 2025-10 first time.
+#    B) "Misuse" the automatic as some test variator for catching unknown problems.
+#       1. Edit the simplifier config file
+#          Set some never hit searchpattern like
+#          $patterns_replay =
+#          [
+#              [ 'whatever' , '1234_fake_pattern_4321' ],
+#          ];
+#          Set in simplify_chain "first_replay", "thread1_replay" and rvt_simp to comment.
+#       2. Set a big number of trials like 10000.
+#          Remove "--noarchiving".
+#          Enable the rr tracing
 #       Impact:
 #       The simplifier tries to replay some never replayable text pattern via manipulations
 #       of the YY grammar and running corresponding RQG tests. There is some chance that certain
@@ -248,18 +188,16 @@ set -o pipefail
 #    '--wait'  Wait for all child processes to exit, not just the initial process.
 # --rr_options='--chaos --wait'                                        \
 #
-#    "rr" checks which CPU is used in your box.
-#    In case your version of "rr" is too old or your CPU is too new than the check might fail
-#    and cause that the call of 'rr' fails.
-#    Example:
-#    Box having "Intel Skylake" CPU's, "rr" version 4 contains the string "Intel Skylake" but
-#    claims to have met some unknown CPU.
-#    Please becareful with the single and double quotes.
+#    rr_options required because of the hardware of the testing box like
 # --rr_options='--chaos --wait --microarch=\"Intel Skylake\"'          \
+#        Please becareful with the single and double quotes.
+#    should be rather set in the file local.cfg.
 #
 # 9. SQL tracing within RQG (Client side tracing)
+#    This makes mostly no sense for runs of the automatic simplifier.
+#    Hence its not assigned within the current script.
 # --sqltrace=Simple                                                    \
-#
+# --sqltrace=MarkErrors                                                \
 #
 
 # perl -w -d:ptkdb ./rqg_batch.pl                                      \
@@ -290,28 +228,6 @@ $GRAMMAR_PART                                                          \
 > $PROT 2>&1 &
 
 # Avoid that "tail -f ..." starts before the file exists.
-STATE=2
-NUM=0
-while [ $STATE -eq 2 ]
-do
-   sleep 0.1
-   NUM=$(($NUM + 1))
-   if [ $NUM -gt 20 ]
-   then
-      STATE=1
-   fi
-   if [ -f $PROT ]
-   then
-      STATE=0
-   fi
-done
-
-if [ $STATE -eq 1 ]
-then
-   echo "ERROR: Most probably in RQG mechanics or setup."
-   echo "ERROR: The (expected) protocol file '$PROT' did not show up"
-   exit 4
-fi
-
+wait_for_protocol
 tail -n 40 -f $PROT
 
