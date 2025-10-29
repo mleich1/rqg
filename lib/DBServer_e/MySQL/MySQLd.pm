@@ -106,7 +106,7 @@ use constant MYSQLD_DEFAULT_DATABASE             => "test";
 use constant MYSQLD_WINDOWS_PROCESS_STILLALIVE   => 259;
 
 # Timeouts
-# -----------------------------------
+# --------------------------------------
 # All timout values etc. are in seconds.
 # in lib/Runtime.pm
 # use constant RUNTIME_FACTOR_RR                   => 2;
@@ -155,7 +155,8 @@ our @end_line_patterns = (
 #       ERROR 1462 (ER_VIEW_RECURSIVE): %`s.%`s contains view recursion
 # and than its not a great message but rather harmless
 
-# I cannot exclude that some patterns will be never written into the server error log.
+# I cannot exclude that some patterns mentioned here will be never written into
+# the server error log.
 # Patterns for MyISAM, Aria, Memory are missing.
 #
 # Some purposes of @corruption_patterns
@@ -169,6 +170,7 @@ our @end_line_patterns = (
 #    Hint: There exist a few InnoDB messages mentioning some harmless "temporary" corruption.
 #          Such "temporary" corruptions get fixed automatic a bit later.
 our @corruption_patterns = (
+    '\[ERROR\] Invalid \(old\?\) table or database name',
     '\[ERROR\]( \[FATAL\]|) InnoDB: FIL_PAGE_TYPE=.{1,10} on BLOB',
     '\[ERROR\]( \[FATAL\]|) InnoDB: Trying to read',
     '\[ERROR\]( \[FATAL\]|) InnoDB: Apparent corruption',
@@ -354,8 +356,9 @@ sub new {
 
     $self->[MYSQLD_CLIENT_BINDIR] = dirname($self->[MYSQLD_DUMPER]);
 
+    # Observed 2025-10 OOS build: /dev/shm/build_dir/extra/mariabackup/mariadb-backup
     $self->[MYSQLD_BACKUP]= $self->_find([$self->basedir],
-            osWindows()?["client/Debug","client/RelWithDebInfo","client/Release","bin"]:["client","bin"],
+            osWindows()?["client/Debug","client/RelWithDebInfo","client/Release","bin"]:["client","bin","extra/mariabackup"],
             osWindows()?"mariabackup.exe":"mariabackup");
     if (not defined $self->[MYSQLD_BACKUP]) {
         say("ERROR: No fitting backup binary in '" . $self->basedir . "' found.");
@@ -463,7 +466,7 @@ sub new {
 
     # Certain MariaDB versions (~ Enterprise >= 10.6 and MariaDB Community >= 11.2)
     # have the functionality to autoshrink InnoDB data files.
-    # These server binaries contains the string "autoshrink".
+    # These server binaries contain the string "autoshrink".
     # All other versions fail during bootstrap and DB server start when meeting
     #     innodb_data_file_path=<whatever allowed>:autoshrink
     # Test setups might get generated without taking into account if "autoshrink" is supported.
@@ -506,7 +509,7 @@ sub new {
 sub basedir {
     return $_[0]->[MYSQLD_BASEDIR];
 }
-# Changing the basedir is needed for upgrade/downgrade tests.
+# Changing the basedir might be needed for upgrade/downgrade tests.
 sub setbasedir {
     my ($self, $basedir) = @_;
     $self->[MYSQLD_BASEDIR]= $basedir;
@@ -2124,7 +2127,7 @@ sub checkDatabaseIntegrity {
 #    - intentional kill + restart (--> reporter CrashRecovery)
 #    - Dump, shutdown + restart, dump + compare dumps (--> reporter Restart*)
 #      FIXME: The reporter runs some integrity check at end.
-#           Remove that because 4. will be run anyway.
+#           Remove that because 4. will be run anyway later.
 #           Slight disadvantage:
 #           The final status might be STATUS_DATA_CORRUPTION even if the reason of the corruption
 #           is some faulty
@@ -2140,8 +2143,6 @@ sub checkDatabaseIntegrity {
 # 1. Error log checking (sub checkErrorLog) should rather run after every SQL used here.
 # 2. Use an executor where possible (Walk queries?)
 #
-#   my $debug_here =    0;
-
     our $self = shift;
 
     our $who_am_i = Basics::who_am_i;
@@ -2788,11 +2789,13 @@ sub checkDatabaseIntegrity {
         # 2023-08-16
         # Start the server with some quite strict sql_mode like 'traditional'.
         #   connect of session 1
+        #   The SESSION SQL_MODE is 'traditional'.
         #   SET SESSION SQL_MODE= '';
         #   CREATE TABLE `table100_innodb_int_autoinc` (tscol2 TIMESTAMP DEFAULT 0);
-        #      pass but harvest ER_INVALID_DEFAULT (1067) if SESSION SQL_MODE= 'traditional'
+        #      get a pass
         #   disconnect:
         #   connect of session 2:
+        #   The SESSION SQL_MODE is 'traditional'.
         #   ALTER TABLE `test` . `table100_innodb_int_autoinc` FORCE;
         #      and harvest ER_INVALID_DEFAULT (1067): Invalid default value for 'tscol2'
         #      --> status STATUS_SEMANTIC_ERROR
@@ -2805,7 +2808,7 @@ sub checkDatabaseIntegrity {
             our $aux_query = "ALTER TABLE " . $table_to_check . " FORCE";
             our $msg_snip =  '';
 
-                # FIXME: Check this routine!
+            # FIXME: Check this routine!
             # What happens if check_errorlog_and_return detects errors?
             sub try_alter_table_force {
                 my $res_check = $executor->execute($aux_query);
@@ -3247,16 +3250,12 @@ sub checkErrorLog {
     my $who_am_i = Basics::who_am_i;
 
     my $found_marker= 0;
-    if(0) {
-        say("INFO: $who_am_i Checking server log for important errors starting from " .
-            ($marker ? "marker $marker" : 'the beginning'));
-    }
 
     my $errorlog_status =   STATUS_OK;
 
     my $basedir =           $self->basedir;
 
-    $general_error_log = $self->errorlog if not defined $general_error_log;
+    $general_error_log =    $self->errorlog if not defined $general_error_log;
 
     if (! -f $general_error_log) {
         my $errorlog_status = STATUS_INTERNAL_ERROR;
@@ -3264,6 +3263,9 @@ sub checkErrorLog {
             "or is not a plain file. " . Basics::return_status_text($errorlog_status));
         return($errorlog_status);
     }
+    say("INFO: $who_am_i Checking server error log ->" . $general_error_log .
+        "<- for important errors starting from " .
+        ($marker ? "marker $marker" : 'the beginning'));
 
     if (not open(ERRLOG, $general_error_log)) {
         say("ERROR: Open file '$general_error_log' failed : $!");
@@ -3282,10 +3284,11 @@ sub checkErrorLog {
         $shrinked =~    s{$basedir}{<basedir>}g;
 
         foreach my $rec_ref (@pattern_matrix) {
-        my ( $pattern_type, $pattern) = @{$rec_ref};
-        if ( $shrinked =~ /$pattern/sio ) {
-            # say("MATCH: ->" . $pattern . "<- in ->" . $_ . "<-->" . $shrinked . "<-");
-            if      ( NO_SPACE eq $pattern_type ) {
+            my ( $pattern_type, $pattern) = @{$rec_ref};
+            if ( $shrinked =~ m{$pattern}sg ) {
+                say("DEBUG:  $who_am_i Match: ->" . $pattern . "<- in ->" . $_ . "<-->" .
+                    $shrinked . "<-") if $debug_here;
+                if ( NO_SPACE eq $pattern_type ) {
                     my $status = STATUS_ENVIRONMENT_FAILURE;
                     say("ERROR: $who_am_i Found ->" . $_ . "<- " .
                         Basics::return_status_text($status) . " later.");
@@ -3312,15 +3315,22 @@ sub checkErrorLog {
                     # - dangerous <no more space>
                     # - bad <whatever corruption>
                     # might follow.
+                } else {
+                    my $status = STATUS_INTERNAL_ERROR;
+                    say("ERROR: $who_am_i Found ->" . $_ . "<- pattern_type: " . $pattern_type);
+                    say("ERROR: $who_am_i This patterntype is not correct handled. " .
+                        Basics::return_status_text($status) . " later.");
+                    return $status;
                 }
             } else {
-                # say("NO MATCH: ->" . $pattern . "<- in ->" . $_ . "<-->" . $shrinked<-");
+                say("DEBUG:  $who_am_i No match: ->" . $pattern . "<- in ->" . $_ . "<-->" .
+                    $shrinked . "<-") if $debug_here;
             }
         }
     }
     close(ERRLOG);
     if (STATUS_DATABASE_CORRUPTION == $errorlog_status) {
-        sayFile($self->errorlog);
+        sayFile($general_error_log);
     }
     return $errorlog_status;
 } # End sub checkErrorLog
