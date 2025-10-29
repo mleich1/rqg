@@ -622,26 +622,26 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_undo_log_truncate=OFF ',
     ' --mysqld=--innodb_undo_log_truncate=ON ',
   ],
-  [
-    # innodb_change_buffering
-    # Scope: Global     Dynamic: Yes
-    # Data Type: enumeration (>= MariaDB 10.3.7), string (<= MariaDB 10.3.6)
-    # Default Value:
-    #   >= MariaDB 10.5.15, MariaDB 10.6.7, MariaDB 10.7.3, MariaDB 10.8.2: none
-    #   <= MariaDB 10.5.14, MariaDB 10.6.6, MariaDB 10.7.2, MariaDB 10.8.1: all
-    # Valid Values: inserts, none, deletes, purges, changes, all
-    # Deprecated: MariaDB 10.9.0 Removed: MariaDB 11.0.0
-    # There were many serious bugs if innodb_change_buffering values != 'none'.
-    '',
-    '',
-    '',
-    ' --mysqld=--loose_innodb_change_buffering=inserts ',
-    ' --mysqld=--loose_innodb_change_buffering=none ',
-    ' --mysqld=--loose_innodb_change_buffering=deletes ',
-    ' --mysqld=--loose_innodb_change_buffering=purges ',
-    ' --mysqld=--loose_innodb_change_buffering=changes ',
-    ' --mysqld=--loose_innodb_change_buffering=all ',
-  ],
+# [
+#   # innodb_change_buffering
+#   # Scope: Global     Dynamic: Yes
+#   # Data Type: enumeration (>= MariaDB 10.3.7), string (<= MariaDB 10.3.6)
+#   # Default Value:
+#   #   >= MariaDB 10.5.15, MariaDB 10.6.7, MariaDB 10.7.3, MariaDB 10.8.2: none
+#   #   <= MariaDB 10.5.14, MariaDB 10.6.6, MariaDB 10.7.2, MariaDB 10.8.1: all
+#   # Valid Values: inserts, none, deletes, purges, changes, all
+#   # Deprecated: MariaDB 10.9.0 Removed: MariaDB 11.0.0
+#   # There were many serious bugs if innodb_change_buffering values != 'none'.
+#   '',
+#   '',
+#   '',
+#   ' --mysqld=--loose_innodb_change_buffering=inserts ',
+#   ' --mysqld=--loose_innodb_change_buffering=none ',
+#   ' --mysqld=--loose_innodb_change_buffering=deletes ',
+#   ' --mysqld=--loose_innodb_change_buffering=purges ',
+#   ' --mysqld=--loose_innodb_change_buffering=changes ',
+#   ' --mysqld=--loose_innodb_change_buffering=all ',
+# ],
   [
     # Global, not dynamic
     # Default Value: 3 (>= MariaDB 11.0), 0 (<= MariaDB 10.11)
