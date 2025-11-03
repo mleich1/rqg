@@ -16,19 +16,22 @@
 # Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301
 # USA
 
-# Library with functions used in shell scripts for RQG testing campaigns managed
-# by rqg_batch.pl
+# Library with functions used in shell scripts for
+# - RQG testing campaigns executed by rqg_batch.pl
+# - a single RQG test executed by rqg.pl
 
+USAGE1="The current working directory '$PWD' must contain some RQG install."
+USAGE1="$USAGE1\nAny maybe set variable RQG_HOME will get ignored."
 function set_combinator_usage()
 {
-    USAGE="USAGE: $0 <Config file for the RQG test Combinator> <Basedir1 == path to MariaDB binaries> [<Basedir2>]"
+    USAGE="USAGE: $0 <Config file for the RQG test Combinator (extension .cc)> <Basedir1 == path to MariaDB binaries> [<Basedir2>]"
     EXAMPLE="EXAMPLE: $0 conf/mariadb/InnoDB_standard.cc /Server_bin/bb-10.2-marko_asan_Og "
-    USAGE="\n$USAGE\n\n$EXAMPLE\n"
+    USAGE="\n$USAGE\n\n$EXAMPLE\n\n$USAGE1"
 }
 
 function set_simplifier_usage()
 {
-    USAGE="USAGE:   $0 <Config file for the RQG test Simplifier> <Basedir == path to MariaDB binaries> [<YY grammar>]"
+    USAGE="USAGE:   $0 <Config file for the RQG test Simplifier (extension .cfg)> <Basedir == path to MariaDB binaries> [<YY grammar>]"
     EXAMPLE="EXAMPLE: $0 simp_1.cfg /Server_bin/bb-10.2-marko_asan_Og table_stress.yy"
     USAGE="\n$USAGE\n\n$EXAMPLE\n"
 }
@@ -37,27 +40,27 @@ function check_simplifier_config()
 {
     if [ "$CONFIG" = "" ]
     then
-        echo "You need to assign a config file for the RQG test Simplifier as first parameter."
-        echo "The call was ->$CALL_LINE<-"
+        echo "You need to assign a config file as first parameter."
+        echo "The call was -->$CALL_LINE<--"
         echo -e "$USAGE"
-        exit
+        exit 8
     fi
     if [ ! -e "$CONFIG" ]
     then
-       echo "The config file for the RQG test Simplifier '$CONFIG' does not exist."
-       echo "The call was ->$CALL_LINE<-"
+       echo "The config file '$CONFIG' does not exist."
+       echo "The call was -->$CALL_LINE<--"
        echo -e "$USAGE"
-       exit
+       exit 8
     fi
 
     CASE0=`basename $CONFIG`
     CASE=`basename $CASE0 .cfg`
     if [ $CASE = $CASE0 ]
     then
-        echo "You need to assign a Combinator config file (extension .cc)."
-        echo "The call was ->$CALL_LINE<-"
+        echo "The config file must have the extension .cfg)."
+        echo "The call was -->$CALL_LINE<--"
         echo -e "$USAGE"
-        exit
+        exit 8
     fi
 }
 
@@ -65,27 +68,27 @@ function check_combinator_config()
 {
     if [ "$CONFIG" = "" ]
     then
-        echo "You need to assign a config file for the RQG test Combinator as first parameter."
-        echo "The call was ->$CALL_LINE<-"
+        echo "You need to assign a config file as first parameter."
+        echo "The call was -->$CALL_LINE<--"
         echo -e "$USAGE"
-        exit
+        exit 8
     fi
     if [ ! -e "$CONFIG" ]
     then
-       echo "The config file for the RQG test Combinator '$CONFIG' does not exist."
-       echo "The call was ->$CALL_LINE<-"
+       echo "The config file '$CONFIG' does not exist."
+       echo "The call was -->$CALL_LINE<--"
        echo -e "$USAGE"
-       exit
+       exit 8
     fi
 
     CASE0=`basename $CONFIG`
     CASE=`basename $CASE0 .cc`
     if [ $CASE = $CASE0 ]
     then
-        echo "You need to assign a Combinator config file (extension .cc)."
-        echo "The call was ->$CALL_LINE<-"
+        echo "The config file must have the must have the extension .cc."
+        echo "The call was -->$CALL_LINE<--"
         echo -e "$USAGE"
-        exit
+        exit 8
     fi
 }
 
@@ -94,14 +97,14 @@ function check_basedir1()
     if [ "$BASEDIR1" = "" ]
     then
         echo "You need to assign a basedir (path to MariaDB binaries) as second parameter."
-        echo "The call was ->$CALL_LINE<-"
+        echo "The call was -->$CALL_LINE<--"
         echo -e "$USAGE"
-        exit
+        exit 8
     fi
     if [ ! -d "$BASEDIR1" ]
     then
         echo "BASEDIR1 '$BASEDIR1' does not exist or is not a directory."
-        exit
+        exit 8
     fi
 }
 
@@ -115,7 +118,7 @@ function set_check_basedir2()
     if [ ! -d "$BASEDIR2" ]
     then
         echo "BASEDIR2 '$BASEDIR2' does not exist or is not a directory."
-        exit
+        exit 8
     fi
 }
 
@@ -126,9 +129,9 @@ function check_edit_optional_grammar()
         if [ ! -f "$GRAMMAR" ]
         then
             echo "The RQG grammar '$GRAMMAR' does not exist or is not a plain file."
-            echo "The call was ->$CALL_LINE<-"
+            echo "The call was -->$CALL_LINE<--"
             echo -e "$USAGE"
-            exit
+            exit 8
         else
             GRAMMAR_PART="--grammar=$GRAMMAR"
             vi "$GRAMMAR"
@@ -199,7 +202,7 @@ function prevent_conflicts()
     rm active_runs.tmp
     if [ $FOUND -eq 1 ]
     then
-        exit 4;
+        exit 2
     fi
 }
 
