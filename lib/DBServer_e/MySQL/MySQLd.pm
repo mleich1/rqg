@@ -852,14 +852,16 @@ sub createMysqlBase  {
             }
             say("ERROR: $who_am_i Will crash the server if needed, make a backtrace and " .
                 Basics::return_status_text($errorlog_status));
-            $self->make_backtrace();
+            my $mbt_status = $self->make_backtrace();
+            # FIXME: Adjust $status depending of $mbt_status if useful.
             return $errorlog_status;
         }
         say("ERROR: " . Basics::return_status_text($status) . " later.");
         my $pid = $self->server_pid_per_errorlog();
         say("INFO: $who_am_i Will kill(with core) the boot pid: " . $pid );
         system("kill -11 $pid; sleep 300");
-        $self->make_backtrace;
+        my $mbt_status = $self->make_backtrace;
+        # FIXME: Adjust $status depending of $mbt_status if useful.
         return $status;
     } or die "ERROR: $who_am_i Error setting SIGALRM handler: $!\n";
 
@@ -875,7 +877,8 @@ sub createMysqlBase  {
     if ($rc != 0) {
         my $status = STATUS_FAILURE;
         say("ERROR: Bootstrap failed");
-        $self->make_backtrace;
+        my $mbt_status = $self->make_backtrace;
+        # FIXME: Adjust $status depending of $mbt_status if useful.
         say("ERROR: " . Basics::return_status_text($status));
         return $status;
     } else {
@@ -1217,10 +1220,12 @@ sub startServer {
                             }
                             say("ERROR: $who_am_i Will crash the server if needed, make a backtrace and " .
                                 Basics::return_status_text($errorlog_status));
-                            $self->make_backtrace();
+                            my $mbt_status = $self->make_backtrace();
+                            # FIXME: Adjust $status depending of $mbt_status if useful.
                             return $errorlog_status;
                         }
-                        $self->make_backtrace();
+                         my $mbt_status = $self->make_backtrace();
+                        # FIXME: Adjust $status depending of $mbt_status if useful.
                         # Check if the port was occupied if observing the corresponding message.
                         # lsof -n -i :24600 | grep LISTEN
                         return $status;
@@ -1258,7 +1263,8 @@ sub startServer {
                     # The status reported by cleanup_dead_server does not matter.
                     # cleanup_dead_server takes care of $self->[MYSQLD_AUXPID].
                     $self->cleanup_dead_server;
-                    $self->make_backtrace();
+                    my $mbt_status = $self->make_backtrace();
+                    # FIXME: Adjust $status depending of $mbt_status if useful.
                     # sayFile($errorlog);
                     return $status;
                 }
@@ -1285,7 +1291,6 @@ sub startServer {
                     my $status = STATUS_ENVIRONMENT_FAILURE;
                     say("FATAL ERROR: $who_am_i \$found is undef. Will KILL the server and " .
                         Basics::return_status_text($status));
-                    sayFile($errorlog);
                     $self->killServer;
                     # No call of make_backtrace because the problem is around the existence of the
                     # server error log or similar.
@@ -1478,9 +1483,14 @@ sub startServer {
     # $self->dbh is a sub and tries to make a connect.
     my $dbh = $self->dbh;
     if (not defined $dbh) {
-        my $status = STATUS_FAILURE;
+        # In this case the reporter 'Deadlock' would check if the server process exists
+        # - yes --> Set STATUS_SERVER_DEADLOCKED and crash the server with SIGSEGV
+        # - no  --> Set STATUS_SERVER_CRASHED
+        my $status = STATUS_CRITICAL_FAILURE;
         say("ERROR: $who_am_i We did not get a connection to the just started server. " .
             Basics::return_status_text($status));
+        my $mbt_status = $self->make_backtrace();
+        # FIXME: Adjust $status depending of $mbt_status if useful.
         return $status;
     } else {
         # Attempt to catch problems similar to https://jira.mariadb.org/browse/MDEV-31386
@@ -1494,6 +1504,8 @@ sub startServer {
             my $status = STATUS_CRITICAL_FAILURE;
             say("ERROR: $who_am_i ->" . $query . "<- failed with $error. " .
                 Basics::return_status_text($status));
+            my $mbt_status = $self->make_backtrace();
+            # FIXME: Adjust $status depending of $mbt_status if useful.
             return $status;
         } else {
             # say("DEBUG: $who_am_i ->" . $query . "<- passed");
@@ -3239,7 +3251,7 @@ sub checkErrorLog {
 # In case certain pattern match lines than return a status which fits to the pattern_type.
 #
 # error logs can be
-# - server error log (mysql.err) written during server start
+# - server error log (mysql.err) written during server start and use
 #   This is the default which gets used if $general_error_log is undef in the call of the sub..
 # - error log written during bootstrap or mariabackup --prepare
 #   In call of the sub $general_error_log needs to contain the corresponding value.
@@ -3265,7 +3277,7 @@ sub checkErrorLog {
     }
     say("INFO: $who_am_i Checking server error log ->" . $general_error_log .
         "<- for important errors starting from " .
-        ($marker ? "marker $marker" : 'the beginning'));
+        ($marker ? "marker $marker" : 'the beginning')) if $debug_here;
 
     if (not open(ERRLOG, $general_error_log)) {
         say("ERROR: Open file '$general_error_log' failed : $!");
@@ -3774,21 +3786,27 @@ sub make_backtrace {
 # $status == The status from the make_backtrace point of view.
 #            Starting point is STATUS_SERVER_CRASHED.
 # == The caller needs to transform that to what he thinks like
-#    STATUS_RECOVERY_FAILURE and similar.
+#    STATUS_RECOVERY_FAILURE, STATUS_SERVER_DEADLOCKED and similar.
 #
 # ATTENTION:
 # Every piece in RQG wanting a backtrace should call the routine from here.
-# IMHO it is rather questionable if the current Reporter Backtrace is needed in its current form.
-# The reasons:
-# The server could die intentional or non intentional
-# - during bootstrap
-# - during server start
-# - during gendata -- GenTest_e initiates backtracing based on the reporter Backtrace
-# - during gentest -- GenTest_e initiates backtracing based on the reporter Backtrace
-# - during some reporter Reporter initiates a shutdown or TERM server
-# - during stopping the servers smooth after GenTest_e failed
-# - via SIGABRT/SIGSEGV/SIGKILL sent by some reporter
-# Hint: Backtraces of mariabackup are also needed.
+# The old reporter 'Backtrace' should be no more used.
+# It is replaced by calls of 'make_backtrace' whenever needed like in
+# - lib/DBServer_e/MySQL/MySQLd.pm
+# - lib/GenTest_e/Reporter/Mariabackup_linux.pm
+# - rqg.pl
+#
+# Statuses returned
+# STATUS_INTERNAL_ERROR (failure in RQG code) --> return STATUS_INTERNAL_ERROR
+# STATUS_SERVER_CRASHED (process is no more running) --> try to make backtrace
+# STATUS_ENVIRONMENT_FAILURE (whatever file is missing) --> return STATUS_ENVIRONMENT_FAILURE
+# STATUS_CRITICAL_FAILURE (the server was killed intentional) --> try to make backtrace
+# When trying to make a backtrace
+# - If server is/was running under rr call Auxiliary::make_rr_backtrace which returns
+#   STATUS_INTERNAL_ERROR, STATUS_ENVIRONMENT_FAILURE or STATUS_SERVER_CRASHED --> return that
+# - otherwise try to obtain a core file and make backtrace from that
+#   STATUS_ENVIRONMENT_FAILURE (whatever file is missing) --> return STATUS_ENVIRONMENT_FAILURE
+#   STATUS_SERVER_CRASHED --> return STATUS_SERVER_CRASHED
 #
 
     my $self = shift;
@@ -3801,7 +3819,7 @@ sub make_backtrace {
     # For testing:
     # $rqg_homedir = undef;
     if (not defined $rqg_homedir) {
-        my $status = STATUS_INTERNAL_ERROR;;
+        my $status = STATUS_INTERNAL_ERROR;
         say("ERROR: $who_am_i The RQG runner has not set RQG_HOME in environment." .
             Basics::exit_status_text($status));
         exit $status;
@@ -3809,7 +3827,7 @@ sub make_backtrace {
 
     my $vardir =    $self->vardir();
     my $error_log = $self->errorlog();
-    my $booterr   = $self->booterrorlog();
+    my $booterr =   $self->booterrorlog();
 
     # (temporary) Hunt superfluous calls of make_backtrace.
     Carp::cluck("INFO: About who called $who_am_i");
@@ -3819,7 +3837,7 @@ sub make_backtrace {
     if (-e $error_log) {
         aux_pid_reaper();
         sayFile($error_log);
-        # What is with    if (osWindows())
+        # What is with    if (osWindows()) ?
         if ($self->running) {
             say("DEBUG: $who_am_i The server with process [" .
                 $self->serverpid . "] is not yet dead.");
@@ -3873,8 +3891,8 @@ sub make_backtrace {
     $status = STATUS_SERVER_CRASHED;
 
     my $core;
-    my $datadir        = $self->datadir();
-    my $start_time     = Time::HiRes::time();
+    my $datadir =       $self->datadir();
+    my $start_time =    Time::HiRes::time();
     my $wait_timeout;
     my $max_end_time;
 
@@ -3888,8 +3906,8 @@ sub make_backtrace {
         return STATUS_ENVIRONMENT_FAILURE;
     }
 
-    $max_end_time   = $start_time + $wait_timeout;
-    my $pid            = $self->serverpid();
+    $max_end_time = $start_time + $wait_timeout;
+    my $pid =       $self->serverpid();
     while (not defined $core and Time::HiRes::time() < $max_end_time) {
         sleep 1;
         $core = <$datadir/core*>;
@@ -4299,7 +4317,7 @@ sub find_server_pid {
     my $pid_per_pidfile =  $self->server_pid_per_pidfile;
     my $pid_per_errorlog = $self->server_pid_per_errorlog;
     if (not defined $pid_per_pidfile and not defined $pid_per_errorlog) {
-        say("DEBUG: server pid neither in pidfile nor error log found.");
+        # say("DEBUG: server pid neither in pidfile nor error log found.");
         $self->[MYSQLD_SERVERPID] = undef;
     } elsif (defined $pid_per_pidfile and not defined $pid_per_errorlog) {
         $self->[MYSQLD_SERVERPID] = $pid_per_pidfile;
