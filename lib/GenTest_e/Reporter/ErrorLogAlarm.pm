@@ -1,4 +1,5 @@
 # Copyright (c) 2011,2012 Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2025 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -24,77 +25,54 @@ use strict;
 use GenTest_e;
 use GenTest_e::Reporter;
 use GenTest_e::Constants;
+use DBServer_e::MySQL::MySQLd;
 
-# Modify this to look for other patterns in the error log. 
-# Note: do not modify $pattern to be defined using double quotes (") but leave as single quotes (') 
-# as double quotes require a different escaping sequence for "[" (namely "\\[" it seems)
-my $pattern = '^Error:|^ERROR|\[ERROR\]|allocated at line|missing DBUG_RETURN|^safe_mutex:|Invalid.*old.*table or database|InnoDB: Warning|InnoDB: Error:|InnoDB: Operating system error|Error while setting value|\[Warning\] Invalid';
-
-# Modify this to filter out false positive patern matches (will improve over time)
-my $reject_pattern = 'Lock wait timeout exceeded|Deadlock found when trying to get lock|innodb_log_block_size has been changed|Sort aborted:';
+my $who_am_i =  "Reporter 'ErrorLogAlarm':";
 
 # Path to error log. Is assigned first time monitor() is called.
+# Note: We cannot do the same for $basedir because some upgrade could happen.
 my $errorlog;
 
 sub monitor {
-    if (defined $ENV{RQG_CALLBACK}) {
-	say "ErrorLogAlarm monitor not yet implemented for Callback environments";
-	return STATUS_OK;
-    }
     my $reporter = shift;
 
     if (not defined $errorlog) {
         $errorlog = $reporter->serverInfo('errorlog');
         if ($errorlog eq '') {
             # Error log was not found. Report the issue and continue.
-            say("WARNING: Error log not found! ErrorLogAlarm Reporter does not work as intended!");
+            say("WARN: $who_am_i Error log not found! ErrorLogAlarm Reporter does not work as intended!");
             return STATUS_OK;
         } else {
-            # INFO
-            say("ErrorLogAlarm Reporter will monitor the log file ".$errorlog);
+            say("INFO: $who_am_i will monitor the log file '" . $errorlog . "'.");
         }
     }
 
-    if ((-e $errorlog) && (-s $errorlog > 0)) {
-        open(LOG, $errorlog);
-        while(my $line = <LOG>) {
-            # Case insensitive search required for (observed) programming 
-            # incosistencies like "InnoDB: ERROR:" instead of "InnoDB: Error:"
-            if(($line =~ m{$pattern}i) && ($line !~ m{$reject_pattern}i)) {
-                say("ALARM from ErrorLogAlarm reporter: Pattern '$pattern' was".
-                    " found in error log. Matching line was:");
-                say($line);
-                close LOG;
-                return STATUS_ALARM;
-            }
-        }
-        close LOG;
-
-        ## Alternative, non-portable implementation:
-        #my $grepresult = system('grep '.$pattern.' '.$errorlog.' > /dev/null 2>&1');
-        #if ($grepresult == 0) {
-        #    say("ALARM $pattern found in error log file.");
-        #    return STATUS_ALARM;
-        #}
-
+    my $basedir =   $reporter->serverVariable('basedir');
+    my $status =    DBServer_e::MySQL::MySQLd::checkErrorLogBase($errorlog, $basedir, undef);
+    # (2025-11) Statuses which could be returned: STATUS_INTERNAL_ERROR, STATUS_ENVIRONMENT_FAILURE,
+    #           STATUS_DATABASE_CORRUPTION, STATUS_CRITICAL_FAILURE, STATUS_OK
+    if ( $status >= STATUS_CRITICAL_FAILURE ) {
+        say("ERROR: $who_am_i " . Basics::exit_status_text($status));
+        exit $status;
+    } elsif ( $status > STATUS_OK ) {
+        say("ERROR: $who_am_i " . Basics::return_status_text($status));
+        return $status;
+    } else {
+        say("INFO: $who_am_i " . Basics::return_status_text($status));
+        return $status;
     }
-    return STATUS_OK;
 }
 
-
-sub report {
-    my $reporter = shift;
-    my $logfile = $reporter->serverInfo('errorlog');
-    my $description = 
-        'ErrorLogAlarm Reporter raised an alarm. Found pattern \''.$pattern.
-        '\' in error log file '.$logfile;
-    
-    return STATUS_OK, undef;
-}
+# sub report {
+# This gets called after the periodic reporting process is gone and GenTest is around the end.
+# But the RQG runner will make some big and thorough integrity check anyway soon.
+# Hence a sub "report" is not needed at all.
+#   return STATUS_OK;
+# }
 
 
 sub type {
-    return REPORTER_TYPE_PERIODIC | REPORTER_TYPE_ALWAYS;
+    return REPORTER_TYPE_PERIODIC ;
 }
 
 1;

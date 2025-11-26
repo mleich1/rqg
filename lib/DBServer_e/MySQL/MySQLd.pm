@@ -3261,13 +3261,35 @@ sub checkErrorLog {
 
     my $who_am_i = Basics::who_am_i;
 
-    my $found_marker= 0;
-
-    my $errorlog_status =   STATUS_OK;
-
     my $basedir =           $self->basedir;
-
     $general_error_log =    $self->errorlog if not defined $general_error_log;
+
+    my $status = checkErrorLogBase($general_error_log, $basedir, $marker);
+
+    return $status;
+} # End sub checkErrorLog
+
+sub checkErrorLogBase {
+# Functionality:
+# $marker not defined --> search in error log starting from begin.
+# $marker defined     --> search in error log starting from $marker
+#
+# In case certain pattern match lines than return a status which fits to the pattern_type.
+#
+# error logs can be
+# - server error log (mysql.err) written during server start
+#   This is the default which gets used if $general_error_log is undef in the call of the sub..
+# - error log written during bootstrap or mariabackup --prepare
+#   In call of the sub $general_error_log needs to contain the corresponding value.
+#
+
+    my ($general_error_log, $basedir, $marker)= @_;
+    # $general_error_log should be with full path.
+
+    my $who_am_i = Basics::who_am_i;
+
+    my $found_marker =      0;
+    my $errorlog_status =   STATUS_OK;
 
     if (! -f $general_error_log) {
         my $errorlog_status = STATUS_INTERNAL_ERROR;
@@ -3345,7 +3367,7 @@ sub checkErrorLog {
         sayFile($general_error_log);
     }
     return $errorlog_status;
-} # End sub checkErrorLog
+} # End sub checkErrorLogBase
 
 
 sub serverVariables {
