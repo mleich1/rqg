@@ -1,6 +1,6 @@
 # Copyright (c) 2008,2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2016,2019 MariaDB Corporation
-# Copyright (c) 2023, 2024 MariaDB plc
+# Copyright (c) 2023, 2025 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -141,7 +141,7 @@ sub dump_transformed_grammar {
     if ($script_debug) {
         my $my_string = "# Grammar after ($number) $action\n" . $grammar_string;
         my $file_name = "t" . $number . ".tyy";
-        Auxiliary::make_file($file_name, $my_string);
+        Basics::make_file($file_name, $my_string);
     }
 }
 
@@ -206,7 +206,7 @@ sub parseFromString {
     my $comp_separator = "§_comp_separator_§\n";
 
     # Check if the grammar contains one of the separators used here.
-    # Reason for 'yes'
+    # Thinkable reasons for 'yes'
     # 1. The grammar author used words like '§_rule_separator_§'.
     # 2. The grammar is "infected" by some bug in current or historic Grammar.pm.
     my $tmp_grammar_string = $grammar_string;
@@ -289,7 +289,7 @@ sub parseFromString {
     dump_transformed_grammar ("->\n" . join("<-\n->",@rule_strings) . "\n<-", 14,
                               "after egalization inside of rules.");
 
-    my %rules;
+    our %rules;
 
     # Redefining grammars might want to *add* something to an existing rule
     # rather than replace them. For now we recognize additions only to init queries
@@ -313,7 +313,6 @@ sub parseFromString {
     # In the resulting grammar we will have:
     #   query:
     #     rule1 | rule2 | rule3;
-    #
     #
     # Additions to '*_init' and "*_connect" rules will be added as a part of
     # a multiple-statement (--> ';'), e.g.
@@ -366,28 +365,43 @@ sub parseFromString {
             if (defined $components_string and $components_string ne '') {
                 Carp::cluck("ERROR: rule_string is defined and not empty ->" . $components_string .
                             "<- and even though that the rule_name is undef.");
-                return STATUS_INTERNAL_ERROR;
+                exit STATUS_INTERNAL_ERROR;
             }
             say("DEBUG: Rule name is undef.") if $script_debug;
             next;
         }
         say("ALARM: rule_name is ''") if $rule_name eq '';
 
-        if ($rule_name =~ /^query_add$/) {
+        if ($rule_name =~ /^thread$/) {
+            my $new_rule_name = 'query';
+            say("INFO: Converting the rule name '$rule_name' to '$new_rule_name'.");
+            $rules{$new_rule_name} = $components_string;
+        }
+        elsif ($rule_name =~ /^thread_connect$/) {
+            my $new_rule_name = 'query_connect';
+            say("INFO: Converting the rule name '$rule_name' to '$new_rule_name'.");
+            $rules{$new_rule_name} = $components_string;
+        }
+        elsif ($rule_name =~ /^thread_init$/) {
+            my $new_rule_name = 'query_init';
+            say("INFO: Converting the rule name '$rule_name' to '$new_rule_name'.");
+            $rules{$new_rule_name} = $components_string;
+        }
+        elsif ($rule_name =~ /^query_add$/ or $rule_name =~ /^thread_add$/) {
             push @query_adds, $components_string;
         }
         elsif ($rule_name =~ /^thread(\d+)_add$/) {
             @{$thread_adds{$1}} = () unless defined $thread_adds{$1};
             push @{$thread_adds{$1}}, $components_string;
         }
-        elsif ($rule_name =~ /^query_init_add$/) {
+        elsif ($rule_name =~ /^query_init_add$/ or $rule_name =~ /^thread_init_add$/) {
             push @query_init_adds, $components_string;
         }
         elsif ($rule_name =~ /^thread(\d+)_init_add$/) {
             @{$thread_init_adds{$1}} = () unless defined $thread_init_adds{$1};
             push @{$thread_init_adds{$1}}, $components_string;
         }
-        elsif ($rule_name =~ /^query_connect_add$/) {
+        elsif ($rule_name =~ /^query_connect_add$/ or $rule_name =~ /^thread_connect_add$/) {
             push @query_connect_adds, $components_string;
         }
         elsif ($rule_name =~ /^thread(\d+)_connect_add$/) {
@@ -401,49 +415,77 @@ sub parseFromString {
     }
     dump_transformed_grammar ("->\n" . join("<-\n->",@rule_strings) . "\n<-", 15, "after *_add step 1");
 
+    sub conditional_make_rule {
+        my $rule_name = shift;
+        if (not exists $rules{$rule_name}) {
+            $rules{$rule_name} = undef;
+            say("DEBUG: The grammar rule '$rule_name' did not exist. " .
+                "Hence it was created with undef content.");
+        }
+    }
+
+    conditional_make_rule('query');
     if (@query_adds) {
         my $adds = join ' | ', @query_adds;
         $rules{'query'} = ( defined $rules{'query'} ? $rules{'query'} . ' | ' . $adds : $adds );
     }
 
     foreach my $tid (keys %thread_adds) {
+        my $rule_name = 'thread' . $tid;
+        conditional_make_rule($rule_name);
+        $rules{$rule_name} = ( defined $rules{$rule_name} ? $rules{$rule_name} : $rules{'query'} );
         my $adds = join ' | ', @{$thread_adds{$tid}};
-        $rules{'thread'.$tid} = ( defined $rules{'thread'.$tid} ? $rules{'thread'.$tid} . ' | ' . $adds : $adds );
+        $rules{$rule_name} = ( defined $rules{$rule_name} ? $rules{$rule_name} . ' | ' . $adds : $adds );
     }
 
+    conditional_make_rule('query_init');
     if (@query_init_adds) {
         my $adds = join '; ', @query_init_adds;
         $rules{'query_init'} = ( defined $rules{'query_init'} ? $rules{'query_init'} . '; ' . $adds : $adds );
     }
 
     foreach my $tid (keys %thread_init_adds) {
+        my $rule_name = 'thread' . $tid . '_init';
+        conditional_make_rule($rule_name);
+        $rules{$rule_name} = ( defined $rules{$rule_name} ? $rules{$rule_name} : $rules{'query_init'} );
         my $adds = join '; ', @{$thread_init_adds{$tid}};
-        $rules{'thread'.$tid.'_init'} = (
-            defined $rules{'thread'.$tid.'_init'}
-                ? $rules{'thread'.$tid.'_init'} . '; ' . $adds
-                : ( defined $rules{'query_init'}
-                    ? $rules{'query_init'} . '; ' . $adds
-                    : $adds
-                )
-        );
+        $rules{$rule_name} = ( defined $rules{$rule_name} ? $rules{$rule_name} . '; ' . $adds : $adds);
     }
 
+    conditional_make_rule('query_connect');
     if (@query_connect_adds) {
         my $adds = join '; ', @query_connect_adds;
         $rules{'query_connect'} = ( defined $rules{'query_connect'} ? $rules{'query_connect'} . '; ' . $adds : $adds );
     }
 
     foreach my $tid (keys %thread_connect_adds) {
+        my $rule_name = 'thread' . $tid . '_connect';
+        conditional_make_rule($rule_name);
+        $rules{$rule_name} = ( defined $rules{$rule_name} ? $rules{$rule_name} : $rules{'query_connect'});
         my $adds = join '; ', @{$thread_connect_adds{$tid}};
-        $rules{'thread'.$tid.'_connect'} = (
-            defined $rules{'thread'.$tid.'_connect'}
-                ? $rules{'thread'.$tid.'_connect'} . '; ' . $adds
-                : ( defined $rules{'query_connect'}
-                    ? $rules{'query_connect'} . '; ' . $adds
-                    : $adds
-                )
-        );
+        $rules{$rule_name} = ( defined $rules{$rule_name} ? $rules{$rule_name} . '; ' . $adds : $adds);
     }
+
+    # foreach my $rule_name (sort keys %rules) {
+    foreach my $rule_name ('query', 'query_init', 'query_connect') {
+        if (not defined $rules{$rule_name}) {
+            delete $rules{$rule_name};
+            say("DEBUG: The grammar root rule '$rule_name' had undef content. " .
+                "Hence it was deleted.");
+        }
+    }
+    if (not defined $rules{'query'}) {
+        # Experiment:
+        # Setting the activity here or somewhere later to an empty command does not make much sense.
+        # Therefore the worker thread exits in order to free ressources.
+        $rules{'query'} = "\n    { exit 0 }";
+        say("DEBUG: The grammar root rule 'query' had undef content. " .
+            "Hence the content was changed to ->" . $rules{'query'} . "<-");
+    }
+
+    # foreach my $rule_name (sort keys %rules) {
+    #     say("DEBUG: $rule_name ->" . $rules{$rule_name} . "<-");
+    # }
 
     my $new_grammar_string = '';
     foreach my $rule_name (sort keys %rules) {
