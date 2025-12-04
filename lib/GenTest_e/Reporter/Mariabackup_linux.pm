@@ -413,7 +413,7 @@ sub monitor {
     # my $backup_backup_cmd = "$backup_binary --port=$source_port --hickup " .
 
     # Mariabackup could hang.
-    my $alarm_msg      = '';
+    my $alarm_msg =     '';
     my $alarm_timeout = 0;
 
     # 1. Observation 2021-12

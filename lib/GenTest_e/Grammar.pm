@@ -424,10 +424,23 @@ sub parseFromString {
         }
     }
 
+    # Construct the final rules 'query', 'query_init' and 'query_connect' first
+    # because the final 'thread<number>', 'thread<number>_init' and
+    # 'thread<number>_connect' might need their content later.
     conditional_make_rule('query');
     if (@query_adds) {
         my $adds = join ' | ', @query_adds;
         $rules{'query'} = ( defined $rules{'query'} ? $rules{'query'} . ' | ' . $adds : $adds );
+    }
+    conditional_make_rule('query_init');
+    if (@query_init_adds) {
+        my $adds = join '; ', @query_init_adds;
+        $rules{'query_init'} = ( defined $rules{'query_init'} ? $rules{'query_init'} . '; ' . $adds : $adds );
+    }
+    conditional_make_rule('query_connect');
+    if (@query_connect_adds) {
+        my $adds = join '; ', @query_connect_adds;
+        $rules{'query_connect'} = ( defined $rules{'query_connect'} ? $rules{'query_connect'} . '; ' . $adds : $adds );
     }
 
     foreach my $tid (keys %thread_adds) {
@@ -437,13 +450,6 @@ sub parseFromString {
         my $adds = join ' | ', @{$thread_adds{$tid}};
         $rules{$rule_name} = ( defined $rules{$rule_name} ? $rules{$rule_name} . ' | ' . $adds : $adds );
     }
-
-    conditional_make_rule('query_init');
-    if (@query_init_adds) {
-        my $adds = join '; ', @query_init_adds;
-        $rules{'query_init'} = ( defined $rules{'query_init'} ? $rules{'query_init'} . '; ' . $adds : $adds );
-    }
-
     foreach my $tid (keys %thread_init_adds) {
         my $rule_name = 'thread' . $tid . '_init';
         conditional_make_rule($rule_name);
@@ -451,13 +457,6 @@ sub parseFromString {
         my $adds = join '; ', @{$thread_init_adds{$tid}};
         $rules{$rule_name} = ( defined $rules{$rule_name} ? $rules{$rule_name} . '; ' . $adds : $adds);
     }
-
-    conditional_make_rule('query_connect');
-    if (@query_connect_adds) {
-        my $adds = join '; ', @query_connect_adds;
-        $rules{'query_connect'} = ( defined $rules{'query_connect'} ? $rules{'query_connect'} . '; ' . $adds : $adds );
-    }
-
     foreach my $tid (keys %thread_connect_adds) {
         my $rule_name = 'thread' . $tid . '_connect';
         conditional_make_rule($rule_name);

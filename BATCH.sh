@@ -13,6 +13,13 @@
 export LANG=C
 CALL_LINE="$0 $*"
 
+if [ ! -e "./util/rqg_lib.sh" ]
+then
+    echo "ERROR: The curren working directory '$PWD' does not contain some RQG install."
+    echo "       The required file './util/rqg_lib.sh' was not found."
+    exit 4
+fi
+
 set -e
 source util/rqg_lib.sh
 
