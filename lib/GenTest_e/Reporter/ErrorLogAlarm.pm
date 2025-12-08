@@ -33,6 +33,8 @@ my $who_am_i =  "Reporter 'ErrorLogAlarm':";
 # Note: We cannot do the same for $basedir because some upgrade could happen.
 my $errorlog;
 
+our $ErrorLogPosition = 0;
+
 sub monitor {
     my $reporter = shift;
 
@@ -46,9 +48,18 @@ sub monitor {
             say("INFO: $who_am_i will monitor the log file '" . $errorlog . "'.");
         }
     }
+    my @filestats = stat($errorlog);
+    my $filesize =     $filestats[7];
+    # say("DEBUG: $who_am_i filesize : $filesize, ErrorLogPosition : $ErrorLogPosition");
+    if ($filesize < $ErrorLogPosition) {
+        $ErrorLogPosition = 0;
+        say("INFO: $who_am_i It looks like the old file '$errorlog' was replaced by a new one. " .
+            "Setting ErrorLogPosition to 0.");
+    }
 
     my $basedir =   $reporter->serverVariable('basedir');
-    my $status =    DBServer_e::MySQL::MySQLd::checkErrorLogBase($errorlog, $basedir, undef);
+    (my $status, $ErrorLogPosition) =  DBServer_e::MySQL::MySQLd::checkErrorLogBase(
+                                           $errorlog, $basedir, undef, $ErrorLogPosition);
     # (2025-11) Statuses which could be returned: STATUS_INTERNAL_ERROR, STATUS_ENVIRONMENT_FAILURE,
     #           STATUS_DATABASE_CORRUPTION, STATUS_CRITICAL_FAILURE, STATUS_OK
     if ( $status >= STATUS_CRITICAL_FAILURE ) {

@@ -840,7 +840,7 @@ sub createMysqlBase  {
     sigaction SIGALRM, new POSIX::SigAction sub {
         my $status = STATUS_SERVER_DEADLOCKED;
         say("ERROR: $who_am_i $alarm_msg");
-        my $errorlog_status = $self->checkErrorLog(undef, $booterr);
+        my ($errorlog_status, $position) = $self->checkErrorLog(undef, $booterr);
         if (STATUS_OK != $errorlog_status) {
             if (STATUS_ENVIRONMENT_FAILURE == $errorlog_status) {
                 say("ERROR: $who_am_i Will crash the server and " .
@@ -872,7 +872,7 @@ sub createMysqlBase  {
     say("DEBUG: $who_am_i Reset alarm timeout.");
     alarm(0);
     $alarm_msg = '';
-    my $errorlog_status = $self->checkErrorLog(undef, $booterr);
+    my ($errorlog_status, $position) = $self->checkErrorLog(undef, $booterr);
     return $errorlog_status if STATUS_OK != $errorlog_status;
     if ($rc != 0) {
         my $status = STATUS_FAILURE;
@@ -1181,6 +1181,7 @@ sub startServer {
 
             my $start_time = time();
             my $wait_end =   $start_time + $tool_startup + $pid_seen_timeout;
+            our $ErrorLogPosition = 0;
             while (time() < $wait_end) {
                 Time::HiRes::sleep($wait_time);
                 $pid = $self->find_server_pid;
@@ -1201,7 +1202,8 @@ sub startServer {
                         my $status = STATUS_SERVER_CRASHED;
                         say("ERROR: $who_am_i The auxiliary process is no more running. " .
                             Basics::return_status_text($status));
-                        my $errorlog_status = $self->checkErrorLog;
+                        (my $errorlog_status, $ErrorLogPosition) =
+                            $self->checkErrorLog(undef, undef, $ErrorLogPosition);
                         if (STATUS_OK != $errorlog_status) {
                             if (STATUS_ENVIRONMENT_FAILURE == $errorlog_status) {
                                 # 1. The current branch was entered because of undef $pid
@@ -1399,7 +1401,8 @@ sub startServer {
                 return $status;
             }
             $self->printInfo;
-            my $errorlog_status = $self->checkErrorLog;
+            (my $errorlog_status, $ErrorLogPosition) = $self->checkErrorLog(undef, undef,
+                                                                            $ErrorLogPosition);
             if (STATUS_OK != $errorlog_status) {
                 say("ERROR: $who_am_i Will crash the server if needed, make a backtrace and " .
                     Basics::return_status_text($errorlog_status));
@@ -2198,10 +2201,10 @@ sub checkDatabaseIntegrity {
             say("ERROR: $who_am_i Helper Query ->" . $aux_sql . "<- failed with " .
                 "$aux_err : $aux_errstr . " . Basics::return_status_text($aux_status));
             $executor->disconnect();
-            $aux_status =       check_errorlog_and_return($aux_status);
+            $aux_status =  check_errorlog_and_return($aux_status);
             return $aux_status, undef;
         } else {
-            $aux_status =       check_errorlog_and_return($aux_status);
+            $aux_status =  check_errorlog_and_return($aux_status);
             if (STATUS_OK != $aux_status) {
                 $executor->disconnect();
                 return $aux_status, undef;
@@ -2211,10 +2214,20 @@ sub checkDatabaseIntegrity {
         }
     }
 
+    # Observation 2025-12
+    # A test fiddles with dynamic InnDB server variables. During the test run was for some not
+    # small time span some extreme CPU consumption of some perl process belonging to RQG observed.
+    # Obvious reason:
+    # The server error log became huge during the test. Checking that log all time from begin
+    # till end duplicates work which was already done.
+    # $ErrorLogPosition serves for memorizing till which position the server error log was checked.
+    # Checking only the chunk starting at $ErrorLogPosition till file end fixed the problem.
+    our $ErrorLogPosition =  0;
     sub check_errorlog_and_return {
         my ($status) = @_;
 
-        my $errorlog_status =   $self->checkErrorLog;
+        (my $errorlog_status, $ErrorLogPosition) =  $self->checkErrorLog(undef, undef,
+                                                                         $ErrorLogPosition);
         $executor->disconnect() if STATUS_OK != $errorlog_status;
         if ($status < $errorlog_status) {
             say("INFO: Raising the status from " . status2text($status) . " to " .
@@ -3257,16 +3270,16 @@ sub checkErrorLog {
 #   In call of the sub $general_error_log needs to contain the corresponding value.
 #
 
-    my ($self, $marker, $general_error_log)= @_;
+    my ($self, $marker, $general_error_log, $position)= @_;
 
     my $who_am_i = Basics::who_am_i;
 
     my $basedir =           $self->basedir;
     $general_error_log =    $self->errorlog if not defined $general_error_log;
 
-    my $status = checkErrorLogBase($general_error_log, $basedir, $marker);
+    (my $status, $position) = checkErrorLogBase($general_error_log, $basedir, $marker, $position);
 
-    return $status;
+    return $status, $position;
 } # End sub checkErrorLog
 
 sub checkErrorLogBase {
@@ -3282,8 +3295,9 @@ sub checkErrorLogBase {
 # - error log written during bootstrap or mariabackup --prepare
 #   In call of the sub $general_error_log needs to contain the corresponding value.
 #
+    my $debug_here = 0;
 
-    my ($general_error_log, $basedir, $marker)= @_;
+    my ($general_error_log, $basedir, $marker, $position)= @_;
     # $general_error_log should be with full path.
 
     my $who_am_i = Basics::who_am_i;
@@ -3297,14 +3311,22 @@ sub checkErrorLogBase {
             "or is not a plain file. " . Basics::return_status_text($errorlog_status));
         return($errorlog_status);
     }
+    $position = 0 if not defined $position;
     say("INFO: $who_am_i Checking server error log ->" . $general_error_log .
         "<- for important errors starting from " .
-        ($marker ? "marker $marker" : 'the beginning')) if $debug_here;
+        ($marker ? "marker $marker" : "<undef>") . " and " .
+        "position $position"); # if $debug_here;
 
     if (not open(ERRLOG, $general_error_log)) {
         say("ERROR: Open file '$general_error_log' failed : $!");
         return STATUS_INTERNAL_ERROR;
     };
+    if (not seek(ERRLOG, $position, 0)) {
+        my $errorlog_status = STATUS_ENVIRONMENT_FAILURE;
+        print("ERROR: $who_am_i Seek to position $position of '$general_error_log' " .
+              "failed: $!. " . Basics::return_status_text($errorlog_status));
+        return $errorlog_status;
+    }
     while (<ERRLOG>)
     {
         next unless !$marker or $found_marker or /^$marker$/;
@@ -3362,11 +3384,13 @@ sub checkErrorLogBase {
             }
         }
     }
+    $position = tell ERRLOG;
     close(ERRLOG);
     if (STATUS_DATABASE_CORRUPTION == $errorlog_status) {
         sayFile($general_error_log);
     }
-    return $errorlog_status;
+    say("DEBUG: $who_am_i Returning status ; $errorlog_status, position : $position"); # if $debug_here;
+    return $errorlog_status, $position;
 } # End sub checkErrorLogBase
 
 
@@ -4144,7 +4168,7 @@ sub server_is_operable {
         # This status is usually more nearby the reason
         #    Example: No more space on device or some corruption followed by
         #             crash (SEGV, assert or RQG kills the server)
-        my $errorlog_status = $self->checkErrorLog;
+        my ($errorlog_status, $position) = $self->checkErrorLog;
         return STATUS_ENVIRONMENT_FAILURE if STATUS_ENVIRONMENT_FAILURE == $errorlog_status;
         if (STATUS_DATABASE_CORRUPTION == $errorlog_status) {
             $status =            STATUS_DATABASE_CORRUPTION;
