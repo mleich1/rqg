@@ -1,5 +1,5 @@
 #  Copyright (c) 2018, 2022 MariaDB Corporation Ab.
-#  Copyright (c) 2023, 2024 MariaDB plc
+#  Copyright (c) 2023, 2025 MariaDB plc
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -2668,6 +2668,10 @@ sub search_in_file {
 # Check if basedir contains a mysqld and clients
 
 sub make_rr_backtrace {
+# Statuses returned
+# STATUS_INTERNAL_ERROR (error in RQG code)
+# STATUS_ENVIRONMENT_FAILURE (unexpected state in environment)
+#
     my ($vardir) = @_;
 
     my $who_am_i = Basics::who_am_i;
