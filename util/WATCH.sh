@@ -25,9 +25,9 @@ then
    exit
 fi
 
-FOUND=`grep " init ===============================================" "$WRK_DIR"/result.txt | \
-        sed -e "s/init =*/init/g"`
-TITLE="$FOUND\n"`grep -i "Number | Worker | Verdict" "$WRK_DIR"/result.txt`
+TITLE="\
+ <timestamp>        | Number | Worker | Verdict          | RQG log                                  | OrderId | Runtime | Derivate used      | Parent of derivate | RQG Status - Extra information\n\
+--------------------+--------+--------+------------------+------------------------------------------+---------+---------+--------------------+--------------------+-------------------------------"
 export TITLE WRK_DIR
-watch -n2 'echo "$TITLE"; tail -30 "$WRK_DIR"/result.txt'
+watch --no-title -n2 'echo "$TITLE"; tail -30 "$WRK_DIR"/result.txt'
 
