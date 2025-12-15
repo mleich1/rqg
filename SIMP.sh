@@ -10,13 +10,20 @@
 export LANG=C
 CALL_LINE="$0 $*"
 
+if [ ! -e "./util/rqg_lib.sh" ]
+then
+    echo "ERROR: The curren working directory '$PWD' does not contain some RQG install."
+    echo "       The required file './util/rqg_lib.sh' was not found."
+    exit 4
+fi
+
 set -e
 source util/rqg_lib.sh
 
 set_simplifier_usage
 
-# Config file for rqg_batch.pl containing various settings for the RQG+server+InnoDB etc.
-# - various settings for the RQG+server+InnoDB
+# Config file for rqg_batch.pl containing
+# - various settings for the RQG+server+InnoDB etc.
 # - a text pattern for the failure to replay
 # - the setup of the test to simplify
 # Template: simplify_rqg_template.cfg

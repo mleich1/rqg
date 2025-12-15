@@ -13,6 +13,13 @@
 export LANG=C
 CALL_LINE="$0 $*"
 
+if [ ! -e "./util/rqg_lib.sh" ]
+then
+    echo "ERROR: The curren working directory '$PWD' does not contain some RQG install."
+    echo "       The required file './util/rqg_lib.sh' was not found."
+    exit 4
+fi
+
 set -e
 source util/rqg_lib.sh
 
@@ -132,10 +139,6 @@ set -o pipefail
 # --dryrun=replay                                                      \
 #
 # 7. rqg_batch stops immediate all RQG runner if reaching the assigned number of replays
-#    This requires that the combinator config file contains a definition of what is a replay.
-#    It is a rare used feature.
-#    Stop after the first replay
-# --stop_on_replay                                                     \
 #    Stop after the n'th replay
 # --stop_on_replay=<n>                                                 \
 #    The current script sets
