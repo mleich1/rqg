@@ -2,10 +2,26 @@
 
 # set -x
 
-# Typical use case
-# ----------------
-# Have some simplified RQG test revealing some problem and generate some rr trace for it.
+# Typical use cases
+# -----------------
+# Have some simplified RQG test revealing some problem.
+# Assume that a replay test based on
+# - a client-side SQL trace
+# - some other tool than RQG
+# should be constructed.
 #
+# A) It looks like you might be able to transform the RQG test into some MTR based test.
+#    Reasons and solutions:
+#    - The RQG test replays with the setting "--threads=1"
+#      --> Transform the client-side SQL trace to some MTR based test.
+#          In case it makes sense than maybe simplify it further with the tool
+#          "./util/simplify-mysqltest_e.pl".
+#    - The RQG test replays with a small number of concurrent threads.
+#      -->  Transform the client-side SQL trace to some MTR based test test using the 
+#           inofficial tool "mysqltest_background.sh" of Matthias.
+#
+# B) Transform the client-side SQL trace to a test using pquery of Roel.
+#      
 # Please see this shell script rather as template how to call rqg_batch.pl even though
 # it might be already in its current state sufficient for doing a lot around RQG.
 #
@@ -45,7 +61,7 @@ prevent_conflicts
 # Calculate the maximum number of concurrent RQG tests
 set_parallel
 
-PROT="rr_replay_simp-""$CASE""-""$BASEDIR1_NAME"".prt"
+PROT="sql_replay_simp-""$CASE""-""$BASEDIR1_NAME"".prt"
 
 # The size of a replay campaign is controlled by many limiters.
 # -------------------------------------------------------------
@@ -149,21 +165,20 @@ set -o pipefail
 #
 #    Preserve the 'rr' traces of the bootstrap, server starts and mariabackup calls.
 # --rr                                                                 \
+#    RECOMMENDATION:
+#    Use RR_REPLAY_SIMP.sh instead.
 #
 #    Recommended settings (Info taken from rr help)
 #    '--chaos' randomize scheduling decisions to try to reproduce bugs
 #    '--wait'  Wait for all child processes to exit, not just the initial process.
 #    Both settings do not depend on the hardware of the testing box.
 # --rr_options='--chaos --wait'                                        \
-#
-#    rr_options required because of the hardware of the testing box like
-# --rr_options='--chaos --wait --microarch=\"Intel Skylake\"'          \
-#        Please becareful with the single and double quotes.
-#    should be rather set in the file local.cfg.
+#    RECOMMENDATION:
+#    Use RR_REPLAY_SIMP.sh instead.
 #
 # 9. SQL tracing within RQG (Client side tracing)
 # --sqltrace=Simple                                                    \
-# --sqltrace=MarkErrors                                                \
+#
 #
 
 # perl -w -d:ptkdb ./rqg_batch.pl                                      \
@@ -180,6 +195,7 @@ set -o pipefail
 #
 
 nohup perl -w ./rqg_batch.pl                                           \
+--sqltrace=MarkErrors                                                  \
 --type=RQG_Simplifier                                                  \
 --parallel=$PARALLEL                                                   \
 --basedir1=$BASEDIR1                                                   \
@@ -187,10 +203,9 @@ $GRAMMAR_PART                                                          \
 --config=$CONFIG                                                       \
 --max_runtime=$MAX_RUNTIME                                             \
 --trials=$TRIALS                                                       \
---rr                                                                   \
---rr_options="--chaos --wait"                                          \
 --stop_on_replay=1                                                     \
 --discard_logs                                                         \
+--noarchiving                                                          \
 --no-mask                                                              \
 --script_debug=_nix_                                                   \
 > $PROT 2>&1 &
