@@ -1245,7 +1245,7 @@ while($Batch::give_up <= 1) {
                         say("INFO: $message");
                         Batch::stop_worker_till_phase(Auxiliary::RQG_PHASE_PREPARE,
                                                             Batch::STOP_REASON_RESOURCE);
-                        Batch::adjust_workers_range;
+                        Batch::decrease_workers_range;
                     }
                 } else {
                     # No fractions of seconds because its not needed and makes prints too long.

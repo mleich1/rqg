@@ -385,7 +385,7 @@ sub set_workers_range {
         "workers_mid ($workers_mid_got -> $workers_mid), " .
         "workers_min ($workers_min_got -> $workers_min)");
 }
-sub adjust_workers_range {
+sub decrease_workers_range {
     # Needed after getting LOAD_DECREASE, reducing the load till all is ok
     $workers_mid = count_active_workers();
     # Experimental: Old value was 0.75
@@ -469,9 +469,9 @@ sub count_active_workers {
 #
 # Attention
 # ---------
-# reap_workers returns logically also the number of active RQG Workers but
-# - more exact because based on some just performed bookkeeping
-# - needs more runtime
+# reap_workers returns the number of active RQG Workers too but
+# - more exact because it is based on some just performed bookkeeping
+# - needs significant more runtime
 #
     my $active_workers = 0;
     for my $worker_num (1..$workers_max) {
@@ -740,7 +740,7 @@ sub stop_worker_oldest_not_using_parent {
                            "Will ask for emergency_exit.");
         }
     }
-}
+} # End of sub stop_worker_oldest_not_using_parent
 
 
 sub stop_worker_till_phase {
@@ -802,7 +802,7 @@ sub stop_worker_till_phase {
     say("DEBUG: Batch::stop_worker_young: $stop_count RQG workers with phase <= '$phase' stopped.")
         if Auxiliary::script_debug("T6");
     return $stop_count;
-}
+} # End of sub stop_worker_till_phase
 
 sub emergency_exit {
     my ($status, $reason) = @_;
@@ -853,7 +853,7 @@ sub check_resources {
     my $finished_runs = $verdict_replay + $verdict_interest + ($verdict_ignore - $stopped);
     if ($first_load_up) {
         if ($finished_runs > $workers_mid) {
-            $first_load_up = 0;
+            $first_load_up =    0;
             say("INFO: Declaring the first_load_up+balance_out phase to be over.");
         }
     }
@@ -866,7 +866,7 @@ sub check_resources {
         my $current_time = Time::HiRes::time();
         my $divisor;
         if (0 == $workers_mid - $workers_min) {
-            $divisor = 1;
+            $divisor =  1;
             # Most likely caused by $workers_max set to exceptional low value by intention.
             # say("DEBUG: workers_mid - workers_min is 0");
         } else {
@@ -904,9 +904,9 @@ sub check_resources {
             # actualization of $previous_workers which happens only in check_resources.
             my $status = STATUS_INTERNAL_ERROR;
             emergency_exit($status,
-               "ERROR: previous_workers($previous_workers) + 2 <= active_workers($active_workers)");
+                "ERROR: previous_workers($previous_workers) + 2 <= active_workers($active_workers)");
         } elsif ($previous_workers + 1 == $active_workers) {
-            # One worker started and none have finished.
+            # One worker was started and none have finished.
             # So starting some additional worker would be a raise in resource consumption.
             if ($no_raise_before > $current_time) {
                 # We would raise the amount of workers but had some bad state not long enough ago.
@@ -932,8 +932,8 @@ sub check_resources {
                 }
             }
         } elsif ($previous_workers == $active_workers) {
-            # One worker started and one has finished   or
-            # no started and no has finished.
+            # One worker was started and one has finished   or
+            # no was started and no has finished.
             # So starting some additional worker would be a raise in resource consumption.
             if ($no_raise_before > $current_time) {
                 # We would raise the amount of workers but had some bad state not long enough ago.
@@ -944,6 +944,7 @@ sub check_resources {
                     $no_raise_before = $current_time + $delay / 2; # FIXME maybe: Is that good?
                     $return_status   = STATUS_OK;
                 } else {
+                    # $active_workers + 1 > $workers_mid
                     # Should we raise $workers_mid by 1?
                     if ($last_load_keep     + 60 / 2 < $current_time and
                         $last_load_decrease + 60     < $current_time)   {
@@ -958,8 +959,8 @@ sub check_resources {
                 }
             }
         } else {
-            # One worker started and more than one have finished    or
-            # no worker started and one or more have finished.
+            # One worker was started and more than one have finished    or
+            # no worker was started and one or more have finished.
             # This should be non critical.
             $no_raise_before = $current_time + 0; # FIXME maybe: Is that good?
             $return_status   = STATUS_OK;
@@ -989,7 +990,7 @@ sub check_resources {
                 $no_raise_before = $current_time + 60;
             }
             if ($active_workers < $workers_mid) {
-                adjust_workers_range;
+                decrease_workers_range;
             }
             my $current_active_workers = $active_workers;
             if (0 == stop_worker_till_phase(Auxiliary::RQG_PHASE_PREPARE, STOP_REASON_RESOURCE) ) {
@@ -1005,7 +1006,7 @@ sub check_resources {
                     }
                 }
                 if (0 == $worker_number) {
-                    my $status = STATUS_ENVIRONMENT_FAILURE;
+                    my $status = STATUS_INTERNAL_ERROR;
                     emergency_exit($status, "ERROR: ResourceControl::report delivered '$load_status' " .
                                    "but no active RQG worker detected.");
                 } else {
@@ -1074,7 +1075,7 @@ sub check_resources {
 # FIXME: Rename and describe
 # 1. It is some
 #    - init regarding $first_load_up
-#    - reset when called the non first time reagrding $last_load_* and $no_raise_before
+#    - reset when called the non first time regarding $last_load_* and $no_raise_before
 # 2. Its called
 #    - once in lib/Combinator.pm
 #    - several times (like per phase and campaign) in lib/Simplifier.pm
@@ -1090,19 +1091,19 @@ sub check_resources {
 #    only and nowhere else.
 #
 sub init_load_control {
-    my $current_time    = Time::HiRes::time();
+    my $current_time =      Time::HiRes::time();
     if (not defined $first_load_up) {
-        $first_load_up = 1;
+        $first_load_up =    1;
     } else {
-        $first_load_up = 0;
+        $first_load_up =    0;
     }
-    $last_load_decrease = $current_time;
-    $last_load_keep     = $current_time;
-    $no_raise_before    = 0;
+    $last_load_decrease =   $current_time;
+    $last_load_keep =       $current_time;
+    $no_raise_before =      0;
 }
 
 
-my $archive_warning_emitted = 0;
+my $archive_warning_emitted =   0;
 sub reap_workers {
 
 # 1. Reap finished workers so that processes in zombie state disappear.
