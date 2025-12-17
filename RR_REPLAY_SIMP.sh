@@ -45,7 +45,7 @@ prevent_conflicts
 # Calculate the maximum number of concurrent RQG tests
 set_parallel
 
-PROT="rr_replay_simp-""$CASE""-""$BASEDIR1_NAME"".prt"
+PROT="rr_replay_simp--""$CASE""--""$BASEDIR1_NAME"".prt"
 
 # The size of a replay campaign is controlled by many limiters.
 # -------------------------------------------------------------
