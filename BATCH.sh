@@ -47,7 +47,7 @@ prevent_conflicts
 # Calculate the maximum number of concurrent RQG tests
 set_parallel
 
-PROT="batch-""$CASE""-""$BASEDIR1_NAME"".prt"
+PROT="batch--""$CASE""--""$BASEDIR1_NAME"".prt"
 
 # The size of a testing campaign is controlled by many limiters.
 # --------------------------------------------------------------

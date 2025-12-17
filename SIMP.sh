@@ -42,7 +42,7 @@ prevent_conflicts
 # Calculate the maximum number of concurrent RQG tests
 set_parallel
 
-PROT="simp-""$CASE""-""$BASEDIR1_NAME"".prt"
+PROT="simp--""$CASE""--""$BASEDIR1_NAME"".prt"
 
 # The size of a simplification campaign is controlled by many limiters.
 # ---------------------------------------------------------------------

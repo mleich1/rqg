@@ -68,7 +68,7 @@ then
    exit
 fi
 
-PROT="replay-batch-""$CASE""-""$BASEDIR1_NAME"".prt"
+PROT="replay_batch--""$CASE""--""$BASEDIR1_NAME"".prt"
 
 # Go with heavy load in case the rqg_batch.pl ResourceControl allows it.
 # The rqg_batch.pl ResourceControl should be capable to avoid trouble with resources.
