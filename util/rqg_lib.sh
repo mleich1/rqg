@@ -213,15 +213,28 @@ function set_parallel()
     # Per experience:
     # More general load on the testing box raises the likelihood to find or replay a
     # concurrency bug.
+    # PARALLEL should limit the maximum number of concurrent RQG runs in order to
+    # - avoid OS limits        and
+    # - avoid that
+    #   - colleagues logged into the testing box and most probably running rr replay
+    #   - I observing a RQG testing campaign
+    #   suffer extreme from the high load
     NPROC=`nproc`
-    GUEST_ON_BOX=`who | egrep -v "$USER|root" | wc -l`
+    # GUEST_ON_BOX=`who | egrep -v "$USER|root" | wc -l`
+    GUEST_ON_BOX=`who -u | sed -e "s/ .*//g" | sort -u | egrep -v "$USER|root" | wc -l`
     echo "Number of guests logged into the box: $GUEST_ON_BOX"
     # GUEST_ON_BOX=0
     if [ $GUEST_ON_BOX -gt 0 ]
     then
-       # Colleagues are on the box and most probably running rr replay.
-       # So do not raise the load too much.
-       PARALLEL=$((8 * $NPROC / 10))
+       # Assume
+       # - 1 processing unit per guest
+       # - 2 processing units for automatic test campaign management (rqg_batch.pl etc.)
+       #   and manual observation (shellscripts, look into log files etc.).
+       # - the remaining processing units can be used for the concurrent RQG runs
+       # Old
+       #    PARALLEL=$((8 * $NPROC / 10))
+       # New
+       PARALLEL=$(($NPROC - $GUEST_ON_BOX - 2))
     else
        PARALLEL=$(($NPROC * 3))
     fi
