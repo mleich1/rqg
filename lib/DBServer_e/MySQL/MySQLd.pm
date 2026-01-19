@@ -1,6 +1,6 @@
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, 2022, MariaDB Corporation Ab
-# Copyright (c) 2023, 2025 MariaDB plc
+# Copyright (c) 2023, 2026 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -75,6 +75,21 @@ use constant MYSQLD_SERVER_VARIABLES             => 31;
 use constant MYSQLD_SQL_RUNNER                   => 32;
 use constant MYSQLD_RR                           => 33;
 use constant MYSQLD_RR_OPTIONS                   => 34;
+# The error log was read up till that position.
+# The value gets
+# - initialized with 0 before bootstrap and before server start
+# - maintained in checkErrorlog
+# Purpose:
+# Prevent to process already checked messages again because
+# - error logs can become huge like > 1MB
+# - certain routines run a lot SQL for checking the data consistency and
+#   check frequent the error log after any SQL
+# - pattern matching costs significant CPU
+# Observation 2026-01:
+# A test fiddled with dynamic InnoDB server variables. This caused a big server error log > 1MB.
+# During the test run was for some not small time span some extreme CPU consumption of
+# some perl process belonging to RQG.
+use constant MYSQLD_ERRORLOG_POS                 => 35;
 # RQG server id   1 till number of servers.
 # It is recommended to
 # - set the server variable server_id to the same value
@@ -208,7 +223,7 @@ our @corruption_patterns = (
     # 2024-05-08 17:35:11 0 [ERROR] InnoDB: Checksum mismatch in the first page of file .//undo006
     '\[ERROR\] InnoDB: Checksum mismatch in the first page of file ',
     '\[ERROR\] mariadbd: Can\'t find record in ',
-    '\[ERROR\] mariadbd: Incorrect information in file: \'.{1,200}\.frm\'' ,
+#   '\[ERROR\] mariadbd: Incorrect information in file: \'.{1,200}\.frm\'' ,
 
     '\[ERROR\] InnoDB: Failed to read page .{1,20} from file \'\.//undo.{1,10}\': Page read from tablespace is corrupted',
     '\[ERROR\] InnoDB: Duplicate FTS_DOC_ID value on table ',
@@ -497,8 +512,9 @@ sub new {
         say("Using existing data for server " . $self->version . " at " . $self->datadir);
     } else {
         say("Creating server " . $self->version . " database at " . $self->datadir);
-        if ($self->createMysqlBase != STATUS_OK) {
-            say("ERROR: Bootstrap failed. Will return undef.");
+        my $status =    $self->createMysqlBase;
+        if ($status != STATUS_OK) {
+            say("ERROR: Bootstrap failed with status $status. Will return undef.");
             return undef;
         }
     }
@@ -526,6 +542,14 @@ sub sourcedir {
 
 sub datadir {
     return $_[0]->[MYSQLD_DATADIR];
+}
+
+sub errorlog_pos {
+    return $_[0]->[MYSQLD_ERRORLOG_POS];
+}
+
+sub set_errorlog_pos {
+    $_[0]->[MYSQLD_ERRORLOG_POS] = $_[1];
 }
 
 sub setDatadir {
@@ -748,6 +772,7 @@ sub createMysqlBase  {
     my $command_end   = '';
     my $booterr       = $self->booterrorlog();
     $self->set_current_error_file($booterr);
+    $self->set_errorlog_pos(0);
 
     # Running
     #    push @$boot_options, "--log_error=$booterr"
@@ -840,7 +865,7 @@ sub createMysqlBase  {
     sigaction SIGALRM, new POSIX::SigAction sub {
         my $status = STATUS_SERVER_DEADLOCKED;
         say("ERROR: $who_am_i $alarm_msg");
-        my ($errorlog_status, $position) = $self->checkErrorLog(undef, $booterr);
+        my $errorlog_status =   $self->checkErrorLog(undef, $booterr);
         if (STATUS_OK != $errorlog_status) {
             if (STATUS_ENVIRONMENT_FAILURE == $errorlog_status) {
                 say("ERROR: $who_am_i Will crash the server and " .
@@ -872,7 +897,7 @@ sub createMysqlBase  {
     say("DEBUG: $who_am_i Reset alarm timeout.");
     alarm(0);
     $alarm_msg = '';
-    my ($errorlog_status, $position) = $self->checkErrorLog(undef, $booterr);
+    my $errorlog_status = $self->checkErrorLog(undef, $booterr);
     return $errorlog_status if STATUS_OK != $errorlog_status;
     if ($rc != 0) {
         my $status = STATUS_FAILURE;
@@ -951,6 +976,7 @@ sub startServer {
         say("ERROR: Will return STATUS_ALARM because of previous failure.");
         return $status;
     }
+    $self->set_errorlog_pos(0);
 
     if(0) { # Maybe needed in future.
         my $start_marker = "# [RQG] Before initiating a server start.";
@@ -2125,10 +2151,24 @@ sub stopServer {
     return $res;
 } # End of sub stopServer
 
+sub check_errorlog_and_return {
+
+    my ($self, $status) = @_;
+
+    my $errorlog_status =  $self->checkErrorLog(undef, undef);
+    if ($status < $errorlog_status) {
+        say("INFO: Raising the status from " . status2text($status) . " to " .
+            status2text($errorlog_status) . ".");
+        $status = $errorlog_status;
+    }
+    return $status;
+}
+
+
 sub checkDatabaseIntegrity {
 # checkDatabaseIntegrity needs to be executed without
-# - concurrent sessions running DDL/DML in some object (type is table or view) being in the same
-#   schema and having the same nameor kill random queries or sessions
+# - concurrent sessions running DDL/DML on some object (type is table or view) being in the same
+#   schema and having the same name or kill random queries or sessions
 # - busy replication repeating DDL when checking the slave
 # - concurrent sessions executing kill query or session of the checkDatabaseIntegrity runner
 # otherwise failures like
@@ -2201,10 +2241,10 @@ sub checkDatabaseIntegrity {
             say("ERROR: $who_am_i Helper Query ->" . $aux_sql . "<- failed with " .
                 "$aux_err : $aux_errstr . " . Basics::return_status_text($aux_status));
             $executor->disconnect();
-            $aux_status =  check_errorlog_and_return($aux_status);
+            $aux_status =  $self->check_errorlog_and_return($aux_status);
             return $aux_status, undef;
         } else {
-            $aux_status =  check_errorlog_and_return($aux_status);
+            $aux_status =  $self->check_errorlog_and_return($aux_status);
             if (STATUS_OK != $aux_status) {
                 $executor->disconnect();
                 return $aux_status, undef;
@@ -2212,29 +2252,6 @@ sub checkDatabaseIntegrity {
                 return STATUS_OK, $aux_result->data;
             }
         }
-    }
-
-    # Observation 2025-12
-    # A test fiddles with dynamic InnDB server variables. During the test run was for some not
-    # small time span some extreme CPU consumption of some perl process belonging to RQG observed.
-    # Obvious reason:
-    # The server error log became huge during the test. Checking that log all time from begin
-    # till end duplicates work which was already done.
-    # $ErrorLogPosition serves for memorizing till which position the server error log was checked.
-    # Checking only the chunk starting at $ErrorLogPosition till file end fixed the problem.
-    our $ErrorLogPosition =  0;
-    sub check_errorlog_and_return {
-        my ($status) = @_;
-
-        (my $errorlog_status, $ErrorLogPosition) =  $self->checkErrorLog(undef, undef,
-                                                                         $ErrorLogPosition);
-        $executor->disconnect() if STATUS_OK != $errorlog_status;
-        if ($status < $errorlog_status) {
-            say("INFO: Raising the status from " . status2text($status) . " to " .
-                status2text($errorlog_status) . ".");
-            $status = $errorlog_status;
-        }
-        return $status;
     }
 
     sub show_the_locks_per_table {
@@ -2390,18 +2407,24 @@ sub checkDatabaseIntegrity {
             my $errstr = $res_tables->errstr;
             $errstr =    "<undef>" if not defined $errstr;
             if (STATUS_SERVER_CRASHED == $status or STATUS_CRITICAL_FAILURE == $status) {
-                # If Lost connection + there should be no concurrent sessions killing our session.
+                # In case the connection was lost than the reason should not have been a
+                # concurrent session runnung KILL SESSION because the current routine should
+                # not been used during such phases of work!
+                $executor->disconnect();
                 say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err: $errstr");
                 say("ERROR: $who_am_i " . Basics::return_status_text($status));
-                return check_errorlog_and_return($status);
+                return $self->check_errorlog_and_return($status);
             }
             if (1462 == $err) {
                 # Recursive VIEW
                 say("INFO: $who_am_i Query ->" . $aux_query . "<- failed with to be tolerated " .
                     "$err: $errstr");
                 $status =       STATUS_OK;
-                $cel_status =   check_errorlog_and_return($status);
-                return $cel_status if STATUS_OK != $cel_status;
+                $cel_status =   $self->check_errorlog_and_return($status);
+                if (STATUS_OK != $cel_status) {
+                    $executor->disconnect();
+                    return $cel_status;
+                }
                 # "next" because any SQL which follows will fail with error 1462.
                 next;
             }
@@ -2411,11 +2434,14 @@ sub checkDatabaseIntegrity {
             say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err: $errstr");
             say("ERROR: $who_am_i Raising status to STATUS_DATABASE_CORRUPTION.");
             $executor->disconnect();
-            return check_errorlog_and_return(STATUS_DATABASE_CORRUPTION);
+            return $self->check_errorlog_and_return(STATUS_DATABASE_CORRUPTION);
         } else {
             say("DEBUG: $who_am_i Query ->" . $aux_query . "<- pass.") if $debug_here;
-            $cel_status =   check_errorlog_and_return($status);
-            return $cel_status if STATUS_OK != $cel_status;
+            $cel_status =   $self->check_errorlog_and_return($status);
+            if (STATUS_OK != $cel_status) {
+                $executor->disconnect();
+                return $cel_status;
+            }
         }
         if ($r_table_type eq "VIEW" or
             ($r_table_type eq "SYSTEM VIEW" and $r_engine eq "<undef>")) {
@@ -2459,8 +2485,11 @@ sub checkDatabaseIntegrity {
             if (STATUS_SKIP == $status) {
                 say("INFO: $who_am_i Query ->" . $aux_query . "<- harvested STATUS_SKIP");
                 $status =       STATUS_OK;
-                $cel_status =   check_errorlog_and_return($status);
-                return $cel_status if STATUS_OK != $cel_status;
+                $cel_status =   $self->check_errorlog_and_return($status);
+                if (STATUS_OK != $cel_status) {
+                    $executor->disconnect();
+                    return $cel_status;
+                }
             } elsif (STATUS_TRANSACTION_ERROR == $status) {
                 my $sl_status = show_the_locks_per_table($r_schema, $r_table);
                 say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
@@ -2482,15 +2511,18 @@ sub checkDatabaseIntegrity {
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with " .
                         "$err : $errstr " . Basics::return_status_text($status));
                     $executor->disconnect();
-                    return check_errorlog_and_return($status);
+                    return $self->check_errorlog_and_return($status);
                 }
             }
         } else {
             say("DEBUG: $who_am_i $aux_query : pass") if $debug_here;
             # No reason to analyse the result because that was already done by MySQL.pm and
             # we received some corresponding status.
-            $cel_status = check_errorlog_and_return($status);
-            return $cel_status if STATUS_OK != $cel_status;
+            $cel_status = $self->check_errorlog_and_return($status);
+            if (STATUS_OK != $cel_status) {
+                $executor->disconnect();
+                return $cel_status;
+            }
         }
         if ($r_table_type eq "VIEW" or $r_table_type eq "SYSTEM VIEW") {
             $aux_query = "CHECK VIEW " . $table_to_check;
@@ -2500,8 +2532,9 @@ sub checkDatabaseIntegrity {
                 if (STATUS_SKIP == $status) {
                     say("INFO: $who_am_i Query ->" . $aux_query . "<- harvested STATUS_SKIP");
                     $status = STATUS_OK;
-                    $cel_status = check_errorlog_and_return($status);
+                    $cel_status = $self->check_errorlog_and_return($status);
                     if (STATUS_OK != $cel_status) {
+                        $executor->disconnect();
                         return $cel_status;
                     } else {
                        # SELECTs will harvest an error. Hence "next"
@@ -2515,13 +2548,13 @@ sub checkDatabaseIntegrity {
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr " .
                         Basics::return_status_text($status));
                     $executor->disconnect();
-                    return check_errorlog_and_return($status);
+                    return $self->check_errorlog_and_return($status);
                 }
             } else {
                 say("DEBUG: $who_am_i $aux_query : pass") if $debug_here;
                 # No reason to analyse the result because that was already done by MySQL.pm and
                 # we received some corresponding status.
-                $cel_status = check_errorlog_and_return($status);
+                $cel_status = $self->check_errorlog_and_return($status);
                 return $cel_status if STATUS_OK != $cel_status;
             }
         }
@@ -2689,7 +2722,7 @@ sub checkDatabaseIntegrity {
                         # Illegal parameter data types %s and %s for operation '%s'
                         say("WARN: $msg_snip Will tolerate that.");
                         $status = STATUS_OK;
-                        $cel_status = check_errorlog_and_return($status);
+                        $cel_status = $self->check_errorlog_and_return($status);
                         return $cel_status if STATUS_OK != $cel_status;
                         next;
                     } elsif (1146 == $err) {
@@ -2702,17 +2735,17 @@ sub checkDatabaseIntegrity {
                         say("HINT: Are there concurrent sessions modifying data or needs some " .
                             "replication a sync?");
                         $executor->disconnect();
-                        return check_errorlog_and_return($status);
+                        return $self->check_errorlog_and_return($status);
                     } else {
                         my $status = STATUS_CRITICAL_FAILURE; # FIXME: Is that right?
                         say("ERROR: $msg_snip " . Basics::return_status_text($status));
                         $sth_rows->finish();
                         $executor->disconnect();
-                        return check_errorlog_and_return($status);
+                        return $self->check_errorlog_and_return($status);
                     }
                 } else {
                     say("DEBUG: $who_am_i Query ->" . $walk_query . "<- passed") if $debug_here;
-                    $cel_status = check_errorlog_and_return($status);
+                    $cel_status = $self->check_errorlog_and_return($status);
                     return $cel_status if STATUS_OK != $cel_status;
                 }
 
@@ -2744,7 +2777,7 @@ sub checkDatabaseIntegrity {
                     say(GenTest_e::Comparator::dumpDiff($least_result_obj, $most_result_obj));
                     $sth_rows->finish();
                     $executor->disconnect();
-                    return check_errorlog_and_return($status);
+                    return $self->check_errorlog_and_return($status);
                 }
             } # End of running all walk queries
             say("INFO: Walk queries for $r_schema . $r_table finished") if $debug_here;
@@ -2758,6 +2791,8 @@ sub checkDatabaseIntegrity {
             $aux_query = "ANALYZE TABLE " . $table_to_check;
             my $res_check = $executor->execute($aux_query);
             $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
+            # MLML maybe FIXME:
+            # check the error log first no matter what $status is
             if (STATUS_OK != $status) {
                 my $err    = $res_check->err;
                 $err = "<undef>" if not defined $err;
@@ -2766,26 +2801,26 @@ sub checkDatabaseIntegrity {
                 if (STATUS_SKIP == $status) {
                     say("INFO: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
                     $status = STATUS_OK;
-                    $cel_status = check_errorlog_and_return($status);
+                    $cel_status = $self->check_errorlog_and_return($status);
                     return $cel_status if STATUS_OK != $cel_status;
                 } elsif (STATUS_TRANSACTION_ERROR == $status) {
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
                     my $sl_status = show_the_locks_per_table($r_schema, $r_table);
                     $executor->disconnect();
                     $status = $sl_status if $status < $sl_status;
-                    return check_errorlog_and_return($status);
+                    return $self->check_errorlog_and_return($status);
                 } else {
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with  " .
                         "$err : $errstr . " . Basics::return_status_text($status));
                     $executor->disconnect();
-                    return check_errorlog_and_return($status);
+                    return $self->check_errorlog_and_return($status);
                 }
             } else {
                 say("DEBUG: $who_am_i $aux_query : pass") if $debug_here;
                 # FIXME:
                 # Maybe analyse the result already within the Executor like for
                 # CHECK TABLE.
-                $cel_status = check_errorlog_and_return($status);
+                $cel_status = $self->check_errorlog_and_return($status);
                 return $cel_status if STATUS_CRITICAL_FAILURE <= $cel_status;
             }
         }
@@ -2849,7 +2884,7 @@ sub checkDatabaseIntegrity {
                 } else {
                     say("INFO: $who_am_i Query ->" . $aux_query . "<- passed.");
                 }
-                my $cel_status =    check_errorlog_and_return($status);
+                my $cel_status =    $self->check_errorlog_and_return($status);
                 return $cel_status, $err, $errstr;
             }
 
@@ -2897,7 +2932,7 @@ sub checkDatabaseIntegrity {
                     my $sl_status = show_the_locks_per_table($r_schema, $r_table);
                     if (STATUS_OK != $sl_status) {
                         $executor->disconnect();
-                        return check_errorlog_and_return($sl_status);
+                        return $self->check_errorlog_and_return($sl_status);
                     }
 
                     # "Natural" problem observed 2023-06/07
@@ -3040,7 +3075,7 @@ sub checkDatabaseIntegrity {
                     say("ERROR: $who_am_i Query ->" . $aux_query .
                         "<- failed with $err : $errstr " . Basics::return_status_text($status));
                     $executor->disconnect();
-                    return check_errorlog_and_return($status);
+                    return $self->check_errorlog_and_return($status);
                 }
             } # End of handling STATUS_SEMANTIC_ERROR and STATUS_UNSUPPORTED
 
@@ -3049,7 +3084,7 @@ sub checkDatabaseIntegrity {
     } # End of loop over all tables (base tables and views)
 
     $executor->disconnect();
-    return check_errorlog_and_return($status);
+    return $self->check_errorlog_and_return($status);
 } # End of sub checkDatabaseIntegrity
 
 
@@ -3270,16 +3305,20 @@ sub checkErrorLog {
 #   In call of the sub $general_error_log needs to contain the corresponding value.
 #
 
-    my ($self, $marker, $general_error_log, $position)= @_;
+    my ($self, $marker, $general_error_log)= @_;
 
     my $who_am_i = Basics::who_am_i;
 
     my $basedir =           $self->basedir;
     $general_error_log =    $self->errorlog if not defined $general_error_log;
+    my $old_position =      $self->errorlog_pos;
 
-    (my $status, $position) = checkErrorLogBase($general_error_log, $basedir, $marker, $position);
+    my ($status, $position) = checkErrorLogBase($general_error_log, $basedir, $marker, $old_position);
+    $self->set_errorlog_pos($position);
+    say("DEBUG: $who_am_i Errorlog '$general_error_log' Position new: $position, old: $old_position");
+    # say("DEBUG: $who_am_i Returning status $status");
 
-    return $status, $position;
+    return $status;
 } # End sub checkErrorLog
 
 sub checkErrorLogBase {
@@ -3313,8 +3352,8 @@ sub checkErrorLogBase {
     }
     $position = 0 if not defined $position;
     say("INFO: $who_am_i Checking server error log ->" . $general_error_log .
-        "<- for important errors starting from " .
-        ($marker ? "marker $marker" : "<undef>") . " and " .
+        "<- for important errors starting from marker " .
+        ($marker ? $marker : "<undef>") . " and " .
         "position $position"); # if $debug_here;
 
     if (not open(ERRLOG, $general_error_log)) {
@@ -3389,7 +3428,7 @@ sub checkErrorLogBase {
     if (STATUS_DATABASE_CORRUPTION == $errorlog_status) {
         sayFile($general_error_log);
     }
-    say("DEBUG: $who_am_i Returning status ; $errorlog_status, position : $position"); # if $debug_here;
+    say("DEBUG: $who_am_i Returning status : $errorlog_status, position : $position"); # if $debug_here;
     return $errorlog_status, $position;
 } # End sub checkErrorLogBase
 
