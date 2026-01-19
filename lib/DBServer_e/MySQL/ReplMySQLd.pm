@@ -296,20 +296,12 @@ sub waitForSlaveSync {
     say("Master status $file/$pos. Waiting for slave to catch up...");
     $query = "SELECT MASTER_POS_WAIT('$file', $pos)";
     my $wait_result = $self->slave->dbh->selectrow_array($query);
-    # Experiment
-    $error = $self->slave->dbh->err();
-    if (defined $error and $error > 0) {
-        say("EROR: The query '$query' failed on slave with error: $error");
-        $self->slave->dbh->disconnect();
-        return STATUS_FAILURE;
-    }
     if (not defined $wait_result) {
         if ($self->slave->dbh) {
             $query = "SHOW SLAVE STATUS /* ReplMySQLd::waitForSlaveSync */";
             my @slave_status = $self->slave->dbh->selectrow_array(
                                       "SHOW SLAVE STATUS /* ReplMySQLd::waitForSlaveSync */");
             $error = $self->slave->dbh->err();
-            # Experiment
             if (defined $error and $error > 0) {
                 say("EROR: The query '$query' failed on slave with error: $error");
                 $self->slave->dbh->disconnect();
