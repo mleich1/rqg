@@ -223,7 +223,6 @@ our @corruption_patterns = (
     # 2024-05-08 17:35:11 0 [ERROR] InnoDB: Checksum mismatch in the first page of file .//undo006
     '\[ERROR\] InnoDB: Checksum mismatch in the first page of file ',
     '\[ERROR\] mariadbd: Can\'t find record in ',
-#   '\[ERROR\] mariadbd: Incorrect information in file: \'.{1,200}\.frm\'' ,
 
     '\[ERROR\] InnoDB: Failed to read page .{1,20} from file \'\.//undo.{1,10}\': Page read from tablespace is corrupted',
     '\[ERROR\] InnoDB: Duplicate FTS_DOC_ID value on table ',
@@ -257,6 +256,19 @@ our @corruption_patterns = (
     # ?? [ERROR] InnoDB: Summed data size 1859, returned by func 30316
     # ?? [ERROR] InnoDB: Apparent corruption in space 0 page 1460 of index `IBUF_DUMMY` of table `IBUF_DUMMY`
 );
+# Not yet fixed problem
+# There are messages about corruption which are caused by observing some bad state which is
+# - is intermediate only like MDEV-38074
+#   1. all is ok
+#   2. something like an ALTER gets started and impacted by something like a KILL QUERY/SESSION
+#      issued by some concurrent session causing a temporary bad state
+#   3. the server has finished its cleanup of the mess caused by 2. and all is ok again
+# - final
+#   like a single session has finished modifying data causing a permanent bad state
+# Basically only checkDatabaseIntegrity is allowed to to check for
+#   '\[ERROR\] mariadbd: Incorrect information in file: \'.{1,200}\.frm\''
+# after its own statements only. But it must omit all historic stuff.
+
 our @disk_full_patterns = (
     '(device full error|no space left on device)',
     '\[ERROR\] InnoDB: The InnoDB system tablespace ran out of space',
@@ -1281,7 +1293,7 @@ sub startServer {
             # $self->stop_server_for_debug(5, -11, 'mariadbd mysqld', 10);
             $start_time = time();
             $wait_end =   $start_time + $startup_timeout;
-            say("DEBUG: startup_timeout is $startup_timeout");
+            # say("DEBUG: startup_timeout is $startup_timeout");
             while (1) {
                 Time::HiRes::sleep($wait_time);
                 if (not kill(0, $pid)) {
@@ -1487,7 +1499,7 @@ sub startServer {
 
             # Strip the '"' away so that we do not get the '/bin/sh -c ....'.
             $command =~ s/"//g;
-            say("DEBUG: Server start command ->" . $command . "<-");
+            say("INFO: Server start command ->" . $command . "<-");
 
             # Reason for directing STDOUT and STDERR into $errorlog:
             # In case "rr" has something to tell or criticize than simply join that with the
@@ -3315,7 +3327,7 @@ sub checkErrorLog {
 
     my ($status, $position) = checkErrorLogBase($general_error_log, $basedir, $marker, $old_position);
     $self->set_errorlog_pos($position);
-    say("DEBUG: $who_am_i Errorlog '$general_error_log' Position new: $position, old: $old_position");
+    # say("DEBUG: $who_am_i Errorlog '$general_error_log' Position new: $position, old: $old_position");
     # say("DEBUG: $who_am_i Returning status $status");
 
     return $status;
