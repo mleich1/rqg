@@ -322,6 +322,8 @@ function run_make()
     echo -e "\nElapsed time for nice -19 make -j $PARALLEL: $RUNTIME\n"     | tee -a "$BLD_PROT"
     echo "#--------------------------------------------------------------"  | tee -a "$BLD_PROT"
 
+    chmod -R g+w "$OOS_DIR"
+
     set +e
     ls -ld sql/mysqld                                                2>&1   | tee -a "$BLD_PROT"
     ls -ld sql/mariadbd                                              2>&1   | tee -a "$BLD_PROT"
