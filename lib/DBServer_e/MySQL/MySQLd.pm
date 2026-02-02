@@ -265,9 +265,20 @@ our @corruption_patterns = (
 #   3. the server has finished its cleanup of the mess caused by 2. and all is ok again
 # - final
 #   like a single session has finished modifying data causing a permanent bad state
-# Basically only checkDatabaseIntegrity is allowed to to check for
+# Basically only checkDatabaseIntegrity is allowed to check for
 #   '\[ERROR\] mariadbd: Incorrect information in file: \'.{1,200}\.frm\''
 # after its own statements only. But it must omit all historic stuff.
+# Thinkable solution for checkDatabaseIntegrity
+# 1. Run checkErrlog (Matrix without problematic pattern)
+#    --> The position is updated.
+# 2. Add the problematic pattern to the Matrix
+#    Run a loop of
+#        SQL statement needed for checking
+#        checkErrlog (Matrix with problematic pattern)
+# 3. Restore the Matrix without problematic pattern
+our @corruption_patterns_extra = (
+    '\[ERROR\] mariadbd: Incorrect information in file: \'.{1,200}\.frm\''
+);
 
 our @disk_full_patterns = (
     '(device full error|no space left on device)',
@@ -277,27 +288,35 @@ our @disk_full_patterns = (
     '\[ERROR\] InnoDB: preallocating .{1,20} bytes for file .{1,300} failed with error 28',
 );
 
-
 our @pattern_matrix;
+our @pattern_matrix_general;
+our @pattern_matrix_extra;
 use constant NO_SPACE               => 'no_space';
 use constant CORRUPT                => 'corrupt';
 use constant SERVER_END             => 'end';
-use constant MATRIX_PATTERN_TYPE    => 0;
-use constant MATRIX_PATTERN         => 1;
 
 sub fill_pattern_matrix {
     foreach my $pattern (@disk_full_patterns) {
         my @rec = ( NO_SPACE, $pattern );
-        push @pattern_matrix, \@rec;
+        push @pattern_matrix_general, \@rec;
     }
     foreach my $pattern (@corruption_patterns) {
         my @rec = ( CORRUPT, $pattern );
-        push @pattern_matrix, \@rec;
+        push @pattern_matrix_general, \@rec;
     }
     foreach my $pattern (@end_line_patterns) {
         my @rec = ( SERVER_END, $pattern );
-        push @pattern_matrix, \@rec;
+        push @pattern_matrix_general, \@rec;
     }
+    @pattern_matrix_extra = @pattern_matrix_general;
+    foreach my $pattern (@corruption_patterns_extra) {
+        my @rec = ( CORRUPT, $pattern );
+        push @pattern_matrix_extra, \@rec;
+    }
+    @pattern_matrix = @pattern_matrix_general;
+    say('MLML: Size of @pattern_matrix_general: ' . @pattern_matrix_general);
+    say('MLML: Size of @pattern_matrix_extra: ' . @pattern_matrix_extra);
+    say('MLML: Size of @pattern_matrix: ' . @pattern_matrix);
 #   foreach my $rec_ref (@pattern_matrix) {
 #       my ( $pattern_type, $pattern) = @{$rec_ref};
 #       say("$rec_ref ->" . $pattern_type . '--' . $pattern . "<-");
@@ -2167,11 +2186,14 @@ sub check_errorlog_and_return {
 
     my ($self, $status) = @_;
 
-    my $errorlog_status =  $self->checkErrorLog(undef, undef);
-    if ($status < $errorlog_status) {
+    my $cel_status = $self->checkErrorLog(undef, undef);
+    if ($status < $cel_status) {
         say("INFO: Raising the status from " . status2text($status) . " to " .
-            status2text($errorlog_status) . ".");
-        $status = $errorlog_status;
+            status2text($cel_status) . ".");
+        $status = $cel_status;
+    }
+    if (STATUS_OK != $status) {
+        @pattern_matrix = @pattern_matrix_general;
     }
     return $status;
 }
@@ -2204,11 +2226,32 @@ sub checkDatabaseIntegrity {
 # 4. After finishing GenTest on main/master or slave.
 #    The RQG runner does that.
 #
-# Code uses GenTest_e::Executor.
-#
-# FIXME:
-# 1. Error log checking (sub checkErrorLog) should rather run after every SQL used here.
-# 2. Use an executor where possible (Walk queries?)
+# When and how to use
+# - GenTest_e::Executor ---> $executor->....
+#   When you
+#   - need a result set for processing it later
+#   - can harvest some error message where you need to decide if its some
+#     - real bug like a server crash
+#       Important:
+#       Run disconnect
+#       Correct $status in case its necessary before calling check_errorlog_and_return
+#       $<whatever>_status =  $self->check_errorlog_and_return($status);
+#     - possible weakness like a VIEW with recursion or missing base table
+#       Important:
+#       Set $status to STATUS_OK before calling check_errorlog_and_return
+#       $<whatever>_status = $self->check_errorlog_and_return($status);
+# - run_aux_sql
+#   When
+#   - you do not need a result set for processing it later
+#   - harvesting some status > 0 for the SQL means you have met a real (Server or RQG) bug
+#   Attention:
+#   run_aux_sql runs in case of some status > 0 for the SQL
+#   - disconnect
+#   - check_errorlog_and_return
+# for running SQL.
+# Attention:
+# check_errorlog_and_return runs in case of failure @pattern_matrix = @pattern_matrix_general.
+# But it does not "know" if we have some open session which should be maybe disconnected.
 #
     our $self = shift;
 
@@ -2232,6 +2275,19 @@ sub checkDatabaseIntegrity {
     $status =   $executor->init();
     return $status if $status != STATUS_OK;
     say("DEBUG: $who_am_i Connection got.") if $debug_here;
+
+    # Check the server error log for error patterns which cannot be caused by historic
+    # concurrency effects. Hereby we will reach the current end of the server error log.
+    @pattern_matrix = @pattern_matrix_general;
+    my $aux_status =  $self->check_errorlog_and_return($status);
+    if (STATUS_OK != $aux_status) {
+        $executor->disconnect();
+        return $aux_status, undef;
+    }
+    # Starting from here till end of the current routine we can now check for more
+    # error patterns because concurrent sessions should be harmless like
+    #     we run some ALTER here and some concurrent session kills our query or our session
+    @pattern_matrix = @pattern_matrix_extra;
 
     sub run_aux_sql {
     # Warnings:
@@ -2303,8 +2359,7 @@ sub checkDatabaseIntegrity {
                      "WHERE lock_table = '`$r_schema`.`$r_table`'";
         ($lock_check_status, $lock_check_data) = run_aux_sql ($aux_query);
         if (STATUS_OK != $lock_check_status) {
-            # run_aux_sql has already reported fails, checked the server error log and
-            # disconnected if necessary.
+            # run_aux_sql has already ...
             return $lock_check_status;
         } else {
             my $key_aux_ref = $lock_check_data;
@@ -2336,7 +2391,7 @@ sub checkDatabaseIntegrity {
     } # End sub show_the_locks_per_table
 
     # For experimenting
-    if (0) {
+    if (1) {
         say("WARN: $who_am_i CREATE tables and damaged views and some prepared XA command");
         my $executor1 = GenTest_e::Executor->newFromDSN($dsn);
         $executor1->setId($server_id);
@@ -2386,8 +2441,12 @@ sub checkDatabaseIntegrity {
                     "ORDER BY TABLE_SCHEMA, TABLE_NAME";
     ($status, my $res_databases_data) = run_aux_sql ($aux_query);
     if (STATUS_OK != $status) {
-        # run_aux_sql has already reported fails, checked the server error log and
-        # disconnected if necessary.
+        # run_aux_sql has already
+        # - reported fails of the SQL
+        # - checked the error log after the passing or failing SQL
+        # - run in case of any failure
+        #   - disconnect
+        #   - @pattern_matrix = @pattern_matrix_general
         return $status;
     }
 
@@ -2464,16 +2523,15 @@ sub checkDatabaseIntegrity {
             # 1347 : 'information_schema.ALL_PLUGINS' is not of type 'VIEW'
             ($status, my $res_tablesdata) = run_aux_sql ($aux_query);
             if (STATUS_OK != $status) {
+                # run_aux_sql has already ...
                 if (STATUS_SEMANTIC_ERROR == $status) {
                     # The list of tables is determined from the server data dictionary.
                     # Hence we have a diff between server and innodb data dictionary == corruption,
                     # some similar problem or a to be tolerated case which we need to handle here.
                     $status =   STATUS_DATABASE_CORRUPTION;
                     say("ERROR: $who_am_i Raising status to STATUS_DATABASE_CORRUPTION.");
-                    $executor->disconnect();
                 }
                 say("ERROR: $who_am_i " . Basics::return_status_text($status));
-                # run_aux_sql has already reported the fail ...
                 return $status;
             } else {
                 say("DEBUG: $who_am_i Query ->" . $aux_query . "<- pass.") if $debug_here;
@@ -2517,8 +2575,8 @@ sub checkDatabaseIntegrity {
                     # Try CHECK TABLE ... again
                     ($status, $data) = run_aux_sql ($aux_query);
                     # run_aux_sql has already reported the fail ...
-                    return $status if STATUS_OK != $status;
                     say("DEBUG: $who_am_i Query ->" . $aux_query . "<- passed") if $debug_here;
+                    return $status if STATUS_OK != $status;
                 } else {
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with " .
                         "$err : $errstr " . Basics::return_status_text($status));
@@ -2567,7 +2625,10 @@ sub checkDatabaseIntegrity {
                 # No reason to analyse the result because that was already done by MySQL.pm and
                 # we received some corresponding status.
                 $cel_status = $self->check_errorlog_and_return($status);
-                return $cel_status if STATUS_OK != $cel_status;
+                if (STATUS_OK != $cel_status) {
+                    $executor->disconnect();
+                    return $cel_status;
+                }
             }
         }
 
@@ -2633,7 +2694,9 @@ sub checkDatabaseIntegrity {
                          "WHERE table_schema = '$r_schema' and table_name = '$r_table'";
             ($status, my $res_indexes_data) = run_aux_sql ($aux_query);
             # run_aux_sql has already reported the fail ...
-            return $status if STATUS_OK != $status;
+            if (STATUS_OK != $status) {
+                return $status;
+            }
             say("DEBUG: $who_am_i $aux_query : pass") if $debug_here;
             my $key_ref1 = $res_indexes_data;
             foreach my $val (@$key_ref1) {
@@ -2735,7 +2798,9 @@ sub checkDatabaseIntegrity {
                         say("WARN: $msg_snip Will tolerate that.");
                         $status = STATUS_OK;
                         $cel_status = $self->check_errorlog_and_return($status);
-                        return $cel_status if STATUS_OK != $cel_status;
+                        if (STATUS_OK != $cel_status) {
+                            return $cel_status;
+                        }
                         next;
                     } elsif (1146 == $err) {
                         # Observed on slave (MariaDB replication with permanent sync)
@@ -2747,18 +2812,25 @@ sub checkDatabaseIntegrity {
                         say("HINT: Are there concurrent sessions modifying data or needs some " .
                             "replication a sync?");
                         $executor->disconnect();
-                        return $self->check_errorlog_and_return($status);
+                        $cel_status = $self->check_errorlog_and_return($status);
+                        if (STATUS_OK != $cel_status) {
+                            return $cel_status;
+                        }
                     } else {
                         my $status = STATUS_CRITICAL_FAILURE; # FIXME: Is that right?
                         say("ERROR: $msg_snip " . Basics::return_status_text($status));
                         $sth_rows->finish();
                         $executor->disconnect();
-                        return $self->check_errorlog_and_return($status);
+                        $cel_status = $self->check_errorlog_and_return($status);
+                        return $cel_status;
                     }
                 } else {
                     say("DEBUG: $who_am_i Query ->" . $walk_query . "<- passed") if $debug_here;
                     $cel_status = $self->check_errorlog_and_return($status);
-                    return $cel_status if STATUS_OK != $cel_status;
+                    if (STATUS_OK != $cel_status) {
+                        $executor->disconnect();
+                        return $cel_status;
+                    }
                 }
 
                 my $rows = $sth_rows->rows();
@@ -2789,7 +2861,10 @@ sub checkDatabaseIntegrity {
                     say(GenTest_e::Comparator::dumpDiff($least_result_obj, $most_result_obj));
                     $sth_rows->finish();
                     $executor->disconnect();
-                    return $self->check_errorlog_and_return($status);
+                    $cel_status = $self->check_errorlog_and_return($status);
+                    if (STATUS_OK != $cel_status) {
+                        return $cel_status;
+                    }
                 }
             } # End of running all walk queries
             say("INFO: Walk queries for $r_schema . $r_table finished") if $debug_here;
@@ -2803,8 +2878,6 @@ sub checkDatabaseIntegrity {
             $aux_query = "ANALYZE TABLE " . $table_to_check;
             my $res_check = $executor->execute($aux_query);
             $status = $res_check->status; # Might be STATUS_DATABASE_CORRUPTION
-            # MLML maybe FIXME:
-            # check the error log first no matter what $status is
             if (STATUS_OK != $status) {
                 my $err    = $res_check->err;
                 $err = "<undef>" if not defined $err;
@@ -2814,18 +2887,27 @@ sub checkDatabaseIntegrity {
                     say("INFO: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
                     $status = STATUS_OK;
                     $cel_status = $self->check_errorlog_and_return($status);
-                    return $cel_status if STATUS_OK != $cel_status;
+                    if (STATUS_OK != $cel_status) {
+                        $executor->disconnect();
+                        return $cel_status;
+                    }
                 } elsif (STATUS_TRANSACTION_ERROR == $status) {
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with $err : $errstr");
                     my $sl_status = show_the_locks_per_table($r_schema, $r_table);
                     $executor->disconnect();
                     $status = $sl_status if $status < $sl_status;
-                    return $self->check_errorlog_and_return($status);
+                    $cel_status = $self->check_errorlog_and_return($status);
+                    if (STATUS_OK != $cel_status) {
+                        return $cel_status;
+                    }
                 } else {
                     say("ERROR: $who_am_i Query ->" . $aux_query . "<- failed with  " .
                         "$err : $errstr . " . Basics::return_status_text($status));
                     $executor->disconnect();
-                    return $self->check_errorlog_and_return($status);
+                    $cel_status = $self->check_errorlog_and_return($status);
+                    if (STATUS_OK != $cel_status) {
+                        return $cel_status;
+                    }
                 }
             } else {
                 say("DEBUG: $who_am_i $aux_query : pass") if $debug_here;
@@ -2833,7 +2915,9 @@ sub checkDatabaseIntegrity {
                 # Maybe analyse the result already within the Executor like for
                 # CHECK TABLE.
                 $cel_status = $self->check_errorlog_and_return($status);
-                return $cel_status if STATUS_CRITICAL_FAILURE <= $cel_status;
+                if (STATUS_OK != $cel_status) {
+                    return $cel_status;
+                }
             }
         }
 
@@ -2896,6 +2980,7 @@ sub checkDatabaseIntegrity {
                 } else {
                     say("INFO: $who_am_i Query ->" . $aux_query . "<- passed.");
                 }
+                $status = STATUS_OK;
                 my $cel_status =    $self->check_errorlog_and_return($status);
                 return $cel_status, $err, $errstr;
             }
@@ -2924,7 +3009,9 @@ sub checkDatabaseIntegrity {
                     my $aux_query1 = 'SET @@session.unique_checks = 0, @@session.foreign_key_checks = 0';
                     ($status, my $res_data) = run_aux_sql ($aux_query1);
                     # run_aux_sql has already reported the fail ...
-                    return $status if STATUS_OK != $status;
+                    if (STATUS_OK != $status) {
+                        return $status;
+                    }
 
                     ($status, my $err, my $errstr) = try_alter_table_force;
                     if (STATUS_OK != $status) {
@@ -2937,7 +3024,9 @@ sub checkDatabaseIntegrity {
                                       '@@session.foreign_key_checks = @@global.foreign_key_checks';
                         ($status, $res_data) = run_aux_sql ($aux_query1);
                         # run_aux_sql has already reported the fail ...
-                        return $status if STATUS_OK != $status;
+                        if (STATUS_OK != $status) {
+                            return $status;
+                        }
                         say("INFO: $who_am_i ->" . $aux_query1 . "<- finally passed.");
                     }
                 } elsif (1205 == $err) {
@@ -3007,6 +3096,7 @@ sub checkDatabaseIntegrity {
                         } else {
                             say("INFO: $who_am_i It looks like the previous failing ALTER " .
                                 "is a bug.");
+                            $executor->disconnect();
                             return $status;
                         }
                     } else {
@@ -3016,8 +3106,8 @@ sub checkDatabaseIntegrity {
                         return STATUS_DATABASE_CORRUPTION;
                     }
                 } else {
-                    say("ERROR: $who_am_i $msg_snip is a bug or a case which to be handled in RQG.");
-                    # Should be not reachable
+                    say("ERROR: $who_am_i $msg_snip is a bug or a case which needs to be " .
+                        "handled in RQG.");
                     $executor->disconnect();
                     return STATUS_DATABASE_CORRUPTION;
                 }
@@ -3067,6 +3157,8 @@ sub checkDatabaseIntegrity {
                         ($status, my $res_data) = run_aux_sql ($aux_query14);
                         if (STATUS_OK != $status) {
                             # run_aux_sql has already reported the fail ...
+                            # Warning 1265    Data truncated for column 'col1' at row 1
+                            say("INFO: $who_am_i It looks like the previous failing ALTER is a bug.");
                             return $status;
                         }
 
@@ -3096,6 +3188,7 @@ sub checkDatabaseIntegrity {
     } # End of loop over all tables (base tables and views)
 
     $executor->disconnect();
+    @pattern_matrix = @pattern_matrix_general;
     return $self->check_errorlog_and_return($status);
 } # End of sub checkDatabaseIntegrity
 
