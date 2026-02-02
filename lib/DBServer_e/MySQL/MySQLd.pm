@@ -313,10 +313,10 @@ sub fill_pattern_matrix {
         my @rec = ( CORRUPT, $pattern );
         push @pattern_matrix_extra, \@rec;
     }
-    @pattern_matrix = @pattern_matrix_general;
-    say('MLML: Size of @pattern_matrix_general: ' . @pattern_matrix_general);
-    say('MLML: Size of @pattern_matrix_extra: ' . @pattern_matrix_extra);
-    say('MLML: Size of @pattern_matrix: ' . @pattern_matrix);
+#   @pattern_matrix = @pattern_matrix_general;
+#   say('DEBUG: Size of @pattern_matrix_general: ' . @pattern_matrix_general);
+#   say('DEBUG: Size of @pattern_matrix_extra: ' . @pattern_matrix_extra);
+#   say('DEBUG: Size of @pattern_matrix: ' . @pattern_matrix);
 #   foreach my $rec_ref (@pattern_matrix) {
 #       my ( $pattern_type, $pattern) = @{$rec_ref};
 #       say("$rec_ref ->" . $pattern_type . '--' . $pattern . "<-");
@@ -522,10 +522,10 @@ sub new {
     # }
     (my $ret, my $out) = Auxiliary::run_cmd("strings " . $self->[MYSQLD_MYSQLD] .
                                             " | grep autoshrink | wc -l");
-    say("DEBUG: Search for 'autoshrink': ret ->$ret<- , out ->$out<-");
+    # say("DEBUG: Search for 'autoshrink': ret ->$ret<- , out ->$out<-");
 
     if (0 != $ret or 0 == $out) {
-        # "autoshrink" was not found.
+        # "autoshrink" was not found in server binary.
         foreach (@{$self->[MYSQLD_SERVER_OPTIONS]}) {
             my $old_option = $_;
             if ($_ =~ s/:autoshrink//g) {
@@ -536,7 +536,7 @@ sub new {
             say("DEBUG: final_option: " . $server_option);
         }
     } else {
-        say("DEBUG: Search for 'autoshrink' was found.");
+        say("DEBUG: 'autoshrink' was found in server binary.");
     }
 
     if ($self->[MYSQLD_START_DIRTY]) {
@@ -3459,7 +3459,7 @@ sub checkErrorLogBase {
     say("INFO: $who_am_i Checking server error log ->" . $general_error_log .
         "<- for important errors starting from marker " .
         ($marker ? $marker : "<undef>") . " and " .
-        "position $position"); # if $debug_here;
+        "position $position") if $debug_here;
 
     if (not open(ERRLOG, $general_error_log)) {
         say("ERROR: Open file '$general_error_log' failed : $!");
