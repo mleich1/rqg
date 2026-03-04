@@ -24,7 +24,7 @@ The main components
    functionality around the parameter 'debug_server', testtool.
 2. The batch tool which manages to run concurrent RQG tests on the same testing
    box according to some config file is 'rqg_batch.pl'.
-   In case of using the the mode
+   In case of using the mode
    - 'Combinator' it runs some test campaign consisting of different RQG tests, including
      archiving of the remains of failing tests and aggregation of results.
      This replaces the older batch tools 'combinations.pl' and bughunt.pl'.
@@ -264,7 +264,8 @@ Preparations for using RQG, my batch tool and build scripts
      $rqg_fast_dir = '/dev/shm/rqg';
      $rqg_slow_dir = '/dev/shm/rqg_ext4';
   in <RQG install dir>/local.cfg than run
-     sudo <RQG install dir>/util/MK_EXT4_VAR.sh
+     (you need to be within the "sudo" group)
+     <RQG install dir>/util/MK_EXT4_VAR.sh
   which will generate
   - the directories '/dev/shm/rqg' and '/dev/shm/rqg_ext4'
   - some container file using 1/3 of the free space of the device where '/dev/shm'
