@@ -96,6 +96,41 @@ our $mariabackup =
   # check what happens in the region of "quite small redo log size" too.
   "--reporters=Mariabackup_linux --mysqld=--loose-innodb-log-file-size=200M ";
 
+our $mariabackup_incremental =
+  # Incremental backup testing using MariaBackup
+  # Creates full backup + incremental backups during test run, then prepares and restores
+  # Requires larger redo log size to accommodate backup operations during load
+  "--reporters=MariabackupIncremental_linux --mysqld=--loose-innodb-log-file-size=300M ";
+
+# Incremental backup with page compression - tests compressed page delta tracking
+# Note: innodb-compression-default requires file_per_table=1, must override combinations
+our $mariabackup_incr_compressed =
+  "--reporters=MariabackupIncremental_linux --mysqld=--loose-innodb-log-file-size=300M " .
+  "--mysqld=--loose-innodb-compression-default=ON --mysqld=--innodb-file-per-table=1 ";
+
+# Incremental backup with encryption - tests encrypted tablespace handling during backup/restore
+# Requires encryption_setup for key management plugin, and file_per_table=1 for encryption
+our $mariabackup_incr_encrypted =
+  "--reporters=MariabackupIncremental_linux --mysqld=--loose-innodb-log-file-size=300M " .
+  "--mysqld=--innodb-encrypt-tables=ON --mysqld=--innodb-encrypt-log=ON " .
+  "--mysqld=--innodb-file-per-table=1 " .
+  '--mysqld=--plugin-load-add=file_key_management.so --mysqld=--loose-file-key-management-filename=$RQG_HOME/conf/mariadb/encryption_keys.txt ';
+
+# Incremental backup with shared tablespace (file_per_table=OFF) - different delta tracking
+our $mariabackup_incr_shared =
+  "--reporters=MariabackupIncremental_linux --mysqld=--loose-innodb-log-file-size=300M " .
+  "--mysqld=--innodb-file-per-table=0 ";
+
+# Incremental backup with memory-mapped redo log ON - tests mmap'd log handling during backup
+our $mariabackup_incr_mmap_on =
+  "--reporters=MariabackupIncremental_linux --mysqld=--loose-innodb-log-file-size=300M " .
+  "--mysqld=--loose-innodb_log_file_mmap=ON ";
+
+# Incremental backup with memory-mapped redo log OFF - tests traditional log I/O during backup
+our $mariabackup_incr_mmap_off =
+  "--reporters=MariabackupIncremental_linux --mysqld=--loose-innodb-log-file-size=300M " .
+  "--mysqld=--loose-innodb_log_file_mmap=OFF ";
+
 our $duration = 300;
 our $grammars =
 [
@@ -224,6 +259,12 @@ our $grammars =
       "--redefine=conf/mariadb/modules/locks.yy                               $mariabackup "                                       ,
   "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_dml.yy    $mariabackup "                                       ,
   "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_fk_dml.yy $mariabackup "                                       ,
+  # DML only together with Mariabackup Incremental                                                                                  #
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy                               $mariabackup_incremental "                           ,
+  "$oltp_gendata --grammar=conf/mariadb/oltp-transactional.yy                 $mariabackup_incremental "                           ,
+  "$many_indexes_gendata --grammar=conf/engines/many_indexes.yy               $mariabackup_incremental "                           ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_dml.yy    $mariabackup_incremental "                           ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_fk_dml.yy $mariabackup_incremental "                           ,
   # DML only together with RestartConsistency                                                                                      #
   "$oltp_gendata --grammar=conf/mariadb/oltp.yy                               --reporters=RestartConsistency "                     ,
   "$oltp_gendata --grammar=conf/mariadb/oltp-transactional.yy                 --reporters=RestartConsistency "                     ,
@@ -242,6 +283,18 @@ our $grammars =
   "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_fk_dml.yy --reporters=CrashRecovery "                          ,
   # DDL+DML together with Mariabackup                                                                                              #
   "--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz $mariabackup "                                    ,
+  # DDL+DML together with Mariabackup Incremental                                                                                  #
+  "--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz $mariabackup_incremental "                        ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb.yy           $mariabackup_incremental "                        ,
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy   $mariabackup_incremental "                        ,
+  # NOTE: Compressed and encrypted incremental backup tests removed - they require file_per_table=1
+  # but combinations matrix can randomly apply file_per_table=0, causing conflicts.
+  # Run these separately if needed using $mariabackup_incr_compressed or $mariabackup_incr_encrypted.
+  # Incremental backup with shared tablespace (innodb_file_per_table=OFF)                                                          #
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy                                  $mariabackup_incr_shared "                        ,
+  # Incremental backup with memory-mapped redo log ON/OFF                                                                          #
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy                                  $mariabackup_incr_mmap_on "                       ,
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy                                  $mariabackup_incr_mmap_off "                      ,
 
   "$test_compression_encryption                         --mysqld=--loose-innodb-encryption-threads=1 "                             ,
   "$test_compression_encryption                         --mysqld=--loose-innodb-encryption-threads=7 "                             ,
