@@ -19,7 +19,7 @@
 package GenTest_e::Reporter::MariabackupIncremental_linux;
 
 ########################################################################
-# This Reporter is implemented by Saahil Alam during his time in MariaDB 
+#
 # Incremental backup reporter using MariaBackup
 #
 # This reporter performs incremental backups during the test run:
@@ -50,6 +50,7 @@ use IPC::Open3;
 use DBServer_e::MySQL::MySQLd;
 use POSIX;
 use File::Copy;
+use Local;
 
 use constant BACKUP_TIMEOUT  => 300;
 use constant PREPARE_TIMEOUT => 300;
@@ -71,6 +72,7 @@ my $connect_timeout;
 my $rr;
 my $rr_options;
 my $backup_prefix;
+my $prepare_prefix;  # Always uses rr when available (prepare doesn't use PMEM)
 my $source_server;
 my $clone_vardir;
 my $clone_server;
@@ -130,6 +132,7 @@ sub _init_variables {
     $mbackup_target = $vardir . '/backup';
     if (not defined $rr) {
         $backup_prefix = $no_rr_prefix;
+        $prepare_prefix = $no_rr_prefix;
     } else {
         $ENV{'_RR_TRACE_DIR'} = $clone_vardir . '/rr';
         my $dbdir = Local::get_dbdir();
@@ -139,6 +142,10 @@ sub _init_variables {
         } else {
             $backup_prefix = $rr_prefix;
         }
+        # Prepare phase ALWAYS uses rr when available - it doesn't use PMEM
+        # and crashes here need rr traces for debugging
+        $prepare_prefix = $rr_prefix;
+        say("INFO: $who_am_i mariabackup --prepare will run under rr for crash analysis");
     }
 
     $source_port = $rep->serverVariable('port');
@@ -171,7 +178,7 @@ sub init {
     # Create clone directory structure
     if (STATUS_OK != Auxiliary::make_dbs_dirs($clone_vardir)) {
         Basics::direct_to_stdout();
-        my $status = STATUS_ENVIRONMENT_FAILURE;
+        $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i Preparing storage structure failed. " .
             Basics::exit_status_text($status));
         exit $status;
@@ -225,7 +232,7 @@ sub _run_backup_manager {
         }
 
         say("DEBUG: $who_am_i Executing: $backup_cmd") if $script_debug;
-        system("$backup_cmd");
+        system("LD_LIBRARY_PATH=\$MSAN_LIBS:\$LD_LIBRARY_PATH $backup_cmd");
         my $res = $? >> 8;
         my $sig = $? & 127;
 
@@ -334,7 +341,10 @@ sub report {
 
     # Prepare full backup
     say("INFO: $who_am_i Preparing full backup (base)");
-    my $prepare_cmd = "$backup_prefix $backup_binary --prepare " .
+    # Set unique rr trace directory for this prepare operation
+    my $rr_trace_dir_0 = "$vardir/rr_prepare_0";
+    $ENV{'_RR_TRACE_DIR'} = $rr_trace_dir_0 if defined $rr;
+    my $prepare_cmd = "$prepare_prefix $backup_binary --prepare " .
                       "--skip-ssl --loose-disable-ssl-verify-server-cert " .
                       "--use-memory=$buffer_pool_size " .
                       "--innodb-file-io-threads=1 --target-dir=${mbackup_target}_0 " .
@@ -347,6 +357,7 @@ sub report {
     if ($res != 0 || $sig != 0) {
         sayError("$who_am_i Full backup prepare failed (exit=$res, signal=$sig)");
         sayFile("$vardir/mbackup_prepare_0.log");
+        say("INFO: $who_am_i rr trace saved at: $rr_trace_dir_0") if defined $rr;
         $status = STATUS_BACKUP_FAILURE;
         return $status;
     }
@@ -354,7 +365,10 @@ sub report {
     # Prepare incremental backups
     foreach my $b (1 .. $backup_count - 1) {
         say("INFO: $who_am_i Preparing incremental backup #$b");
-        $prepare_cmd = "$backup_prefix $backup_binary --prepare " .
+        # Set unique rr trace directory for each incremental prepare
+        my $rr_trace_dir = "$vardir/rr_prepare_$b";
+        $ENV{'_RR_TRACE_DIR'} = $rr_trace_dir if defined $rr;
+        $prepare_cmd = "$prepare_prefix $backup_binary --prepare " .
                        "--skip-ssl --loose-disable-ssl-verify-server-cert " .
                        "--use-memory=$buffer_pool_size " .
                        "--innodb-file-io-threads=1 --target-dir=${mbackup_target}_0 " .
@@ -368,6 +382,7 @@ sub report {
         if ($res != 0 || $sig != 0) {
             sayError("$who_am_i Incremental backup #$b prepare failed (exit=$res, signal=$sig)");
             sayFile("$vardir/mbackup_prepare_${b}.log");
+            say("INFO: $who_am_i rr trace saved at: $rr_trace_dir") if defined $rr;
             $status = STATUS_BACKUP_FAILURE;
             return $status;
         }
@@ -376,7 +391,10 @@ sub report {
     # Restore backup to clone datadir
     say("INFO: $who_am_i Restoring backup to $clone_datadir");
     system("rm -rf $clone_datadir");
-    my $restore_cmd = "$backup_binary --copy-back --skip-ssl --loose-disable-ssl-verify-server-cert " .
+    # Set rr trace directory for restore operation
+    my $rr_trace_dir_restore = "$vardir/rr_restore";
+    $ENV{'_RR_TRACE_DIR'} = $rr_trace_dir_restore if defined $rr;
+    my $restore_cmd = "$prepare_prefix $backup_binary --copy-back --skip-ssl --loose-disable-ssl-verify-server-cert " .
                       "--target-dir=${mbackup_target}_0 --datadir=$clone_datadir " .
                       ">$vardir/mbackup_restore.log 2>&1";
     say("DEBUG: $who_am_i $restore_cmd") if $script_debug;
@@ -387,9 +405,13 @@ sub report {
     if ($res != 0 || $sig != 0) {
         sayError("$who_am_i Backup restore failed (exit=$res, signal=$sig)");
         sayFile("$vardir/mbackup_restore.log");
+        say("INFO: $who_am_i rr trace saved at: $rr_trace_dir_restore") if defined $rr;
         $status = STATUS_BACKUP_FAILURE;
         return $status;
     }
+
+    # Reset rr trace directory for clone server
+    $ENV{'_RR_TRACE_DIR'} = $clone_vardir . '/rr' if defined $rr;
 
     # Start server on restored data
     say("INFO: $who_am_i Starting server on restored data");
