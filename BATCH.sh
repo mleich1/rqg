@@ -73,8 +73,8 @@ PROT="batch--""$CASE""--""$BASEDIR1_NAME"".prt"
 #   It is not recommended to set --stop_on_replay at all in the current script because BATCH.sh is
 #   used for QA production. Use REPLAY_BATCH.sh instead.
 #
-TRIALS=10000
-MAX_RUNTIME=27000
+TRIALS=13000
+MAX_RUNTIME=37000
 
 # There should be usually sufficient space in VARDIR for just a few fat core files caused by ASAN.
 # Already the RQG runner will take care that everything important inside his VARDIR will be

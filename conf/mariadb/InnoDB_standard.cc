@@ -331,6 +331,127 @@ our $grammars =
   "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy   $select_stability_rr "                            ,
   "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy $select_stability_ser "                             ,
 
+  # ============================================================================
+  # MDEV-37949: InnoDB Log Archive Testing
+  # ============================================================================
+  # Testing considerations from Marko (PR #4405):
+  # - Test all I/O combinations: PMEM, memory-mapped (innodb_log_file_mmap), pread/pwrite
+  # - Kill server and recover with innodb_log_recovery_target
+  # - innodb_log_recovery_start=12288 starts recovery from beginning of log history
+  #
+  # IMPORTANT CONSTRAINT: innodb_encrypt_log CANNOT be used with innodb_log_archive=ON
+  # From PR: "all --suite=encryption tests that use innodb_encrypt_log must be skipped
+  # when using innodb_log_archive. This is because the server would have to be
+  # reinitialized; we do not allow changing the format of an archived log on startup."
+  # Encryption + archive combination is only tested via innodb.log_file_size_online,encrypted
+  #
+  # Basic log archive with DML workload - no encryption - uses LogArchiveRecovery
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=4M " .
+      "--reporters=LogArchiveRecovery ",
+  # Log archive with memory-mapped I/O (innodb_log_file_mmap=ON)
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=4M " .
+      "--mysqld=--loose-innodb_log_file_mmap=ON --reporters=LogArchiveRecovery ",
+  # Log archive with mmap=OFF + LogArchiveRecovery (pread/pwrite with LSN recovery)
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=4M " .
+      "--mysqld=--loose-innodb_log_file_mmap=OFF --reporters=LogArchiveRecovery ",
+  # Heavy DDL with log archive (mmap=OFF for pread/pwrite path)
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=8M " .
+      "--mysqld=--loose-innodb_log_file_mmap=OFF --reporters=LogArchiveRecovery ",
+  # Log archive with many_indexes workload (mmap=ON path)
+  "$many_indexes_gendata --grammar=conf/engines/many_indexes.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=16M " .
+      "--mysqld=--loose-innodb_log_file_mmap=ON --reporters=LogArchiveRecovery ",
+  # Exact Marko MTR command pattern: archive + recovery-start + file-size + mmap combinations
+  # Pattern: --mysqld=--loose-innodb-log-{archive,recovery-start=12288,file-size=4m,file-mmap=OFF}
+  # NOTE: innodb_log_recovery_start=12288 forces every restart to replay from the very beginning
+  # (database creation). LogArchiveRecovery reporter OVERRIDES this to =0 for its crash recovery
+  # test, so it starts from the latest checkpoint instead. This tests both MTR-style behavior
+  # during normal operation AND targeted crash recovery.
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_recovery_start=12288 " .
+      "--mysqld=--loose-innodb_log_file_size=4M --mysqld=--loose-innodb_log_file_mmap=OFF " .
+      "--reporters=LogArchiveRecovery ",
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_recovery_start=12288 " .
+      "--mysqld=--loose-innodb_log_file_size=4M --mysqld=--loose-innodb_log_file_mmap=ON " .
+      "--reporters=LogArchiveRecovery ",
+  # PMEM path testing: When datadir is on /dev/shm (vardir_type=fast) and no mmap setting specified,
+  # PMEM path is used. Use --vardir_type=fast to enable this path.
+  # Note: Requires server built WITH_INNODB_PMEM=ON (default on Linux)
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_recovery_start=12288 " .
+      "--mysqld=--loose-innodb_log_file_size=4M " .
+      "--reporters=LogArchiveRecovery --vardir_type=fast ",
+  # Larger file sizes to test file rotation and checkpoint behavior
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=64M " .
+      "--reporters=LogArchiveRecovery ",
+  #
+  # ===== ADDITIONAL High-Stress Log Archive Tests =====
+  # INSTANT ADD COLUMN with log archive - HIGH CRASH PROBABILITY
+  "--gendata --vcols --views --grammar=conf/mariadb/instant_add.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=16M " .
+      "--reporters=LogArchiveRecovery,Deadlock,Backtrace ",
+  # INSTANT ADD with smaller log file to force more file rotations + mmap=OFF
+  "--gendata --vcols --grammar=conf/mariadb/instant_add.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=4M " .
+      "--mysqld=--loose-innodb_log_file_mmap=OFF --reporters=LogArchiveRecovery,Deadlock ",
+  # ALTER ONLINE with log archive - concurrent ALTER during archive toggle
+  "--grammar=conf/runtime/alter_online.yy --gendata=conf/runtime/alter_online.zz " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=16M " .
+      "--reporters=LogArchiveRecovery,Deadlock ",
+  # Partitions with log archive - metadata complexity + archiving
+  "--views --grammar=conf/mariadb/partitions_innodb.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=64M " .
+      "--reporters=LogArchiveRecovery,Deadlock ",
+  # Transactional OLTP workload with log archive
+  "$oltp_gendata --grammar=conf/mariadb/oltp-transactional.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=8M " .
+      "--reporters=LogArchiveRecovery ",
+  # Table stress NOCOPY variant - more production-like workload
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_nocopy1.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=16M " .
+      "--reporters=LogArchiveRecovery ",
+  # Table stress with FOREIGN KEYS + log archive
+  "$table_stress_gendata --grammar=conf/mariadb/table_stress_innodb_fk.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=32M " .
+      "--reporters=LogArchiveRecovery ",
+  # Engine stress - ultimate stress test with log archive
+  "--gendata=conf/engines/engine_stress.zz --views --grammar=conf/engines/engine_stress.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=128M " .
+      "--reporters=LogArchiveRecovery,Deadlock,Backtrace ",
+  # Full-Text Search with log archive - large log generation
+  "$full_text_gendata --grammar=conf/engines/innodb/full_text_search.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=32M " .
+      "--reporters=LogArchiveRecovery ",
+  # Very large log file (512M) - tests checkpoint history limits
+  "$oltp_gendata --grammar=conf/mariadb/oltp.yy " .
+      "--redefine=conf/mariadb/redefine_innodb_log_archive.yy " .
+      "--mysqld=--loose-innodb_log_archive=ON --mysqld=--loose-innodb_log_file_size=512M " .
+      "--reporters=LogArchiveRecovery ",
+
   # Most probably not relevant for InnoDB testing
   # "--grammar=conf/runtime/performance_schema.yy  --mysqld=--performance-schema --gendata-advanced --skip-gendata ",
   # "--grammar=conf/runtime/information_schema.yy --gendata-advanced --skip-gendata ",
@@ -783,6 +904,10 @@ $combinations = [ $grammars,
     ' --vardir_type=fast ',
     ' --vardir_type=fast ',
   ],
+  # NOTE: innodb_log_archive combinations removed from here because:
+  # 1. innodb_log_archive=ON is incompatible with Mariabackup_linux reporter
+  # 2. Dedicated log archive test entries (lines 291-344) already cover these scenarios
+  #    with appropriate reporters (LogArchiveRecovery, CrashRecovery)
 ];
 
 # Marko: (sentence is edited)
