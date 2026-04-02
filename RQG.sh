@@ -1,82 +1,124 @@
 #!/bin/bash
 
+# Typical use case
+# ----------------
+# Run a specific RQG test
+#
 # Please see this shell script rather as template how to call rqg.pl even though
 # it might be already in its current state sufficient for doing a lot around RQG.
 #
 
 export LANG=C
-
-USAGE="USAGE: $0 <Basedir>"
 CALL_LINE="$0 $*"
 
-# killall -9 perl ; killall -9 mysqld mariadbd ;  killall -9 rr
-# rm -rf /dev/shm/rqg*/* /dev/shm/var_* /data/rqg/*
+USAGE="USAGE: $0 <Basedir1 == path to MariaDB binaries> [<Basedir2>]"
+
+if [ ! -e "./util/rqg_lib.sh" ]
+then
+    echo "ERROR: The curren working directory '$PWD' does not contain some RQG install."
+    echo "       The required file './util/rqg_lib.sh' was not found."
+    exit 4
+fi
+
+set -e
+source util/rqg_lib.sh
 
 RQG_HOME=`pwd`
-RUNID=SINGLE_RUN
 
-# Path to MariaDB binaries
+# Path to MariaDB binaries for first server
 BASEDIR1="$1"
-if [ "$BASEDIR1" = "" ]
-then
-   echo "You need to assign a basedir == path to MariaDB binaries like '/Server_bin/bb-10.6-monty_debug_Og'"
-   echo "The call was ->$CALL_LINE<-"
-   echo $USAGE
-   exit
-fi
-if [ ! -d "$BASEDIR1" ]
-then
-   echo "BASEDIR1 '$BASEDIR1' does not exist or is not a directory."
-   exit
-fi
+check_basedir1
+BASEDIR1_NAME=`basename "$BASEDIR1"`
+
+# Path to MariaDB binaries for second server if required
 BASEDIR2="$2"
-if [ "$BASEDIR2" != "" ]
-then
-   if [ ! -d "$BASEDIR1" ]
-   then
-      echo "BASEDIR2 '$BASEDIR2' does not exist."
-      exit
-   else
-      BASEDIR2_SETTING="--basedir2=$BASEDIR2"
-   fi
-else
-   BASEDIR2_SETTING=""
-fi
+set_check_basedir2
 
 SQL_GRAMMAR="conf/mariadb/table_stress.sql"
 ZZ_GRAMMAR="conf/mariadb/table_stress.zz"
 YY_GRAMMAR="conf/mariadb/table_stress_innodb_basic.yy"
-
-export ASAN_OPTIONS=abort_on_error=1,disable_coredump=0
-
-# Warning: Up till today my RQG version is not capable to work well with Galera.
-export WSREP_PROVIDER=/usr/lib/libgalera_smm.so
-
-
-if [ "$ZZ_GRAMMAR" = "" ]
+if [ "$SQL_GRAMMAR" = "" ]
 then
-   echo "You need to assign a zz grammar "
+   echo "ERROR: You need to assign a sql grammar."
    echo "The call was ->$CALL_LINE<-"
    echo $USAGE
    exit
 fi
 if [ ! -e "$ZZ_GRAMMAR" ]
 then
-   echo "ZZ_GRAMMAR '$ZZ_GRAMMAR' does not exist."
+   echo "ERROR: SQL_GRAMMAR '$ZZ_GRAMMAR' does not exist."
+   exit
+fi
+if [ "$ZZ_GRAMMAR" = "" ]
+then
+   echo "ERROR: You need to assign a zz grammar."
+   echo "The call was ->$CALL_LINE<-"
+   echo $USAGE
+   exit
+fi
+if [ ! -e "$ZZ_GRAMMAR" ]
+then
+   echo "ERROR: ZZ_GRAMMAR '$ZZ_GRAMMAR' does not exist."
    exit
 fi
 if [ "$YY_GRAMMAR" = "" ]
 then
-   echo "You need to assign a yy grammar "
+   echo "ERROR: You need to assign a yy grammar."
    echo "The call was ->$CALL_LINE<-"
    echo $USAGE
    exit
 fi
 if [ ! -e "$YY_GRAMMAR" ]
 then
-   echo "YY_GRAMMAR '$YY_GRAMMAR' does not exist."
+   echo "ERROR: YY_GRAMMAR '$YY_GRAMMAR' does not exist."
    exit
 fi
+
+set +e
+# Radical Cleanup
+# killall -9 perl ; killall -9 mysqld mariadbd ;  killall -9 rr
+# rm -rf /dev/shm/rqg*/* /dev/shm/var_* /data/rqg/*
+#
+# Check if there is already some running MariaDB or MySQL server or test
+prevent_conflicts
+
+RUNID=SINGLE_RUN
+
+# Take care that we can get core files if running with ASAN
+# ---------------------------------------------------------
+# There should be at sufficient space for a few fat core files in the filesystem containing the
+# VARDIR at any time. The rqg_batch.pl ResourceControl will also prevent a VARDIR full.
+# If its not an ASAN build than this environment variable should be harmless anyway.
+export ASAN_OPTIONS=abort_on_error=1,disable_coredump=0
+echo "Have set "`env | grep ASAN`
+
+# Warning: Up till today my RQG version is not capable to work well with Galera.
+export WSREP_PROVIDER=/usr/lib/libgalera_smm.so
+
+# Options (Hint: Please take care that there must be a '\' at line end.)
+# ----------------------------------------------------------------------
+# 1. Debugging of rqg.pl
+#    Default: Minimal debug output.
+#    Assigning '_all_' causes maximum debug output.
+#    Warning: Significant more output of rqg.pl.
+# --script_debug=_all_                                                 \
+#
+# 2. Use "rr" (https://github.com/mozilla/rr/wiki/Usage) for tracing DB
+#    servers and other programs.
+#
+#    Ensure that "rr" will be invoked
+# --rr='rr record --chaos --wait'                                      \
+#    Ensure that "rr" will be not invoked
+# --rr=''                                                              \
+# or just remove the corresponding line from the call of rqg.pl.
+#
+# 3. SQL tracing within RQG (Client side tracing)
+#    Trace SQL's sent to the DB server
+# --sqltrace=Simple                                                    \
+#    Trace SQL's sent to the DB server and its response (error code only)
+# --sqltrace=MarkErrors                                                \
+#
+
 
 echo -e "$0: End of preparations. Will now start the test.\n\n"
 perl -w ./rqg.pl                                                                              \
@@ -118,8 +160,7 @@ $BASEDIR2_SETTING                                                               
 --querytimeout=30                                                                             \
 --threads=10                                                                                  \
 --vardir_type=fast                                                                            \
---rr=Extended                                                                                 \
---rr_options='--chaos --wait'                                                                 \
+--rr="rr record --chaos --wait"                                                               \
 --mask-level=0                                                                                \
 --mask=0                                                                                      \
 2>&1 | tee rqg.log

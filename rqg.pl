@@ -3,7 +3,7 @@
 # Copyright (c) 2010, 2012, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab
 # Copyright (C) 2016, 2022 MariaDB Corporation Ab
-# Copyright (C) 2023, 2025 MariaDB plc
+# Copyright (C) 2023, 2026 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -52,25 +52,25 @@ BEGIN {
               "RQG install.\n");
         exit 2;
     }
-    my $rqg_libdir = $rqg_home . '/lib';
+    my $rqg_libdir =    $rqg_home . '/lib';
     unshift @INC , $rqg_libdir;
     # print("# DEBUG: '$rqg_libdir' added to begin of \@INC\n");
-    $ENV{'RQG_HOME'} = $rqg_home;
+    $ENV{'RQG_HOME'} =  $rqg_home;
     print("# INFO: Top level directory of RQG calculated '$rqg_home'.\n"     .
           "# INFO: Environment variable 'RQG_HOME' set to '$rqg_home'.\n"    .
           "# INFO: Perl array variable \@INC adjusted to ->" . join("---", @INC) . "<-\n");
 }
 
-my $rqg_start_time = time();
+my $rqg_start_time =    time();
 
-my $start_cwd      = POSIX::getcwd();
+my $start_cwd =         POSIX::getcwd();
 
 # How many characters of each argument to a function to print.
 $Carp::MaxArgLen=  200;
 # How many arguments to each function to show. Btw. 8 is also the default.
 $Carp::MaxArgNums= 8;
 
-use constant RQG_RUNNER_VERSION  => 'Version 4.5.0 (2023-12)';
+use constant RQG_RUNNER_VERSION  => 'Version 5.0.0 (2026-03)';
 use constant STATUS_CONFIG_ERROR => 199;
 
 use strict;
@@ -130,7 +130,7 @@ my (@basedirs, @mysqld_options, @vardirs, @engine, @vcols, @views,
     $rows, $queries, $ps_protocol, $sqltrace,
     $varchar_len, $notnull, $short_column_names, $strict_fields,
     $max_gd_duration,
-    $valgrind, $valgrind_options, $rr, $rr_options, $wait_debugger,
+    $valgrind, $valgrind_options, $rr, $wait_debugger,
     $start_dirty, $build_thread,
     $logfile, $querytimeout,
     $freeze_time,
@@ -237,7 +237,6 @@ if (not GetOptions(
     'valgrind!'                   => \$valgrind,
     'valgrind_options=s'          => \$valgrind_options,
     'rr:s'                        => \$rr,
-    'rr_options=s'                => \$rr_options,
     'vcols:s'                     => \$vcols[0],
     'vcols1:s'                    => \$vcols[1],
     'vcols2:s'                    => \$vcols[2],
@@ -328,24 +327,24 @@ if (defined $minor_runid) {
     say("DEBUG: minor_runid : ->$minor_runid<-");
 }
 
+# Read local.cfg
+# 1. clean and generate some share of the required infrastructure if batch=0
+# 2. check some share of the infrastructure
+Local::check_and_set_local_config($major_runid, $minor_runid, $dbdir_type, $batch);
+
 # Do this first before calling routines which create directories or similar.
-my $status = Runtime::check_and_set_rr_valgrind ($rr, $rr_options, $valgrind, $valgrind_options, 0);
+my $status = Runtime::check_and_set_rr_valgrind ($rr, $valgrind, $valgrind_options, 0);
 if ($status != STATUS_OK) {
     say("The $0 arguments were ->" . join(" ", @ARGV_saved) . "<-");
     run_end($status);
 }
-$rr_options = Runtime::get_rr_options();
+$rr = Runtime::get_rr();
 my $rr_rules = Runtime::get_rr_rules;
 
 # Solution for compatibility with older config files where the parameter 'vardir_type' was used.
 if (not defined $dbdir_type) {
     $dbdir_type = $vardir_type;
 }
-
-# Read local.cfg
-# 1. clean and generate some share of the required infrastructure if batch=0
-# 2. check some share of the infrastructure
-Local::check_and_set_local_config($major_runid, $minor_runid, $dbdir_type, $batch);
 
 $workdir = Local::get_results_dir();
 # say("DEBUG: workdir ->" . $workdir . "<-");
@@ -447,13 +446,13 @@ $message = "# -------- Informations useful for bug reports ---------------------
            "# rqg.pl  : " . RQG_RUNNER_VERSION . "\n#\n" .
            "# $0 \\\n# " . join(" \\\n# ", @ARGV_saved) . "\n#--------\n";
 $message =~ s|$rqg_home|\$RQG_HOME|g;
-if ($rr) {
+if (defined $rr and Runtime::RR_OFF ne $rr) {
     my $rr_options_add = Local::get_rr_options_add;
     my $rqg_rr_add= Local::get_rqg_rr_add;
-    $message .= "# rqg_rr_add="     . $rqg_rr_add     . "\n" if $rqg_rr_add     ne '';
-    $message .= "# rr_options_add=" . $rr_options_add . "\n" if $rr_options_add ne '';
+    $message .= "# rqg_rr_add ->"     . $rqg_rr_add     . "<-\n" if $rqg_rr_add     ne '';
+    $message .= "# rr_options_add ->" . $rr_options_add . "<-\n" if $rr_options_add ne '';
 }
-$message .= "# vardir=$vardirs[0] fs_type=$dbdir_fs_type\n";
+$message .= "# vardir ->" . $vardirs[0] . "<- fs_type=$dbdir_fs_type\n";
 $message .= "\n";
 print($message);
 
@@ -1055,7 +1054,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                  valgrind            => $valgrind,
                  valgrind_options    => $valgrind_options,
                  rr                  => $rr,
-                 rr_options          => $rr_options,
                  general_log         => 1,
                  start_dirty         => $start_dirty, # This will not work for the first start. (vardir is empty)
                  use_gtid            => $use_gtid,
@@ -1109,7 +1107,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
         valgrind           => $valgrind,
         valgrind_options   => $valgrind_options,
         rr                 => $rr,
-        rr_options         => $rr_options,
         general_log        => 1,
         start_dirty        => $start_dirty,
         node_count         => length($galera),
@@ -1178,7 +1175,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                                     valgrind         => $valgrind,
                                     valgrind_options => $valgrind_options,
                                     rr               => $rr,
-                                    rr_options       => $rr_options,
                                     server_options   => $mysqld_options[0],
                                     general_log      => 1,
                                     config           => $cnf_array_ref,
@@ -1252,7 +1248,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                    valgrind          => $valgrind,
                    valgrind_options  => $valgrind_options,
                    rr                => $rr,
-                   rr_options        => $rr_options,
                    server_options    => $mysqld_options[1],
                    general_log       => 1,
                    config            => $cnf_array_ref,
@@ -1288,7 +1283,6 @@ if ((defined $rpl_mode and $rpl_mode ne Auxiliary::RQG_RPL_NONE) and
                             valgrind           => $valgrind,
                             valgrind_options   => $valgrind_options,
                             rr                 => $rr,
-                            rr_options         => $rr_options,
                             server_options     => $mysqld_options[$server_id],
                             general_log        => 1,
                             config             => $cnf_array_ref,
@@ -1422,7 +1416,6 @@ my $gentestProps = GenTest_e::Properties->new(
               'freeze_time',
               'valgrind',
               'rr',
-              'rr_options',
               'sqltrace',
               'querytimeout',
               'logfile',
@@ -1481,8 +1474,7 @@ $gentestProps->freeze_time($freeze_time) if defined $freeze_time;
 if ($valgrind) {
     $gentestProps->valgrind(1);
 }
-$gentestProps->rr($rr) if $rr;
-$gentestProps->rr_options($rr_options) if defined $rr_options;
+$gentestProps->rr($rr) if defined $rr;
 
 $gentestProps->property('ps-protocol',1) if $ps_protocol;
 $gentestProps->sqltrace($sqltrace) if defined $sqltrace;
@@ -2453,7 +2445,9 @@ $0 - Run a complete random query generation (RQG) test.
     --valgrind     : Start the DB server with valgrind, adjust timeouts to the use of valgrind
     --valgrind_options : Use these additional options for any start under valgrind
     --rr           : Start the DB server and mariabackup under rr including adjust timeouts to the use of rr
-    --rr_options   : Use these additional options for any start under rr
+                     Examples:
+                     --rr='rr record --chaos --wait'      # Run the DB server etc. under control of 'rr'.
+                     --rr=''                              # Do not run the DB server etc. under control of 'rr'.
     --wait-for-debugger: Pause and wait for keypress after server startup to allow attaching a debugger to the server process.
     --sqltrace     : Print all generated SQL statements (tracing before execution)
                      Optional: Specify

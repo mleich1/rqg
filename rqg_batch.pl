@@ -1,7 +1,7 @@
 #!/usr/bin/perl
 
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
-# Copyright (c) 2023 MariaDB plc
+# Copyright (c) 2023, 2026 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -178,7 +178,7 @@ my ($config_file, $basedir, $vardir, $trials, $duration, $grammar, $gendata,
     $parallel, $noshuffle, $workdir, $discard_logs, $max_rqg_runtime,
     $help, $help_simplifier, $help_combinator, $help_verdict, $help_rr, $help_archiving, $help_local,
     $help_rqg_home, $help_dbdir_type, $runner, $noarchiving,
-    $rr, $rr_options, $sqltrace,
+    $rr, $sqltrace,
     $dbdir_type, $vardir_type, $fast_vardir, $slow_vardir,
     $stop_on_replay, $script_debug_value, $runid, $threads, $type, $algorithm, $resource_control);
 
@@ -317,7 +317,6 @@ if (not GetOptions(
            'stop_on_replay:1'          => \$stop_on_replay,         # Swallowed and handled by rqg_batch
            'noarchiving'               => \$noarchiving,            # Swallowed and handled by rqg_batch
            'rr:s'                      => \$rr,                     # Swallowed and handled by rqg_batch
-           'rr_options=s'              => \$rr_options,             # Swallowed and handled by rqg_batch
            'sqltrace:s'                => \$sqltrace,               # Swallowed and handled by rqg_batch
 #          'threads=i'                 => \$threads,                # Pass through (@ARGV). Simplifier maybe needs that
            'discard_logs'              => \$discard_logs,           # Swallowed and handled by rqg_batch
@@ -421,17 +420,13 @@ Local::check_and_set_local_config(undef, undef, $dbdir_type, 2);
 # In case rr is invoked and local.cfg contains some defined value rr_options_add than
 # rqg.pl will pick the rr_options_add value and take care that its used.
 # == No need to do this here.
-my $status = Runtime::check_and_set_rr_valgrind ($rr, $rr_options, undef, undef, 1);
+my $status = Runtime::check_and_set_rr_valgrind ($rr, undef, undef, 1);
 if ($status != STATUS_OK) {
     say("The $0 arguments were ->" . join(" ", @ARGV_saved) . "<-");
     say("$0 will exit with exit status " . status2text($status) . "($status)");
     safe_exit($status);
 }
-$rr =         Runtime::get_rr();
-# Any $rr_options_add needs to be added when the cmd for the RQG runner gets defined.
-# get_rr_options returns a union of rr_options and rr_options_add.
-$rr_options = Runtime::get_rr_options();
-# say("DEBUG: rr_options ->" . $rr_options . "<-");
+$rr =   Runtime::get_rr();
 
 # FIXME:
 # Hard (apply no matter what duration is) or soft (adjust how?) border?
@@ -577,7 +572,7 @@ if (not defined $noarchiving) {
 }
 if ($noarchiving) {
     say("INFO: Archiving of data of interesting RQG runs is disabled.");
-    if (defined $rr) {
+    if (defined $rr and Runtime::RR_OFF ne $rr) {
         say("ERROR: 'rr' tracing without archiving is not supported.");
         $status = STATUS_ENVIRONMENT_FAILURE;
         safe_exit($status);
@@ -963,10 +958,8 @@ while($Batch::give_up <= 1) {
                 $command .= " --batch";
 
                 if (defined $rr) {
-                    $cl_end .= " --rr=" . $rr;
-                    if (defined $rr_options) {
-                        $cl_end .= " --rr_options='" . $rr_options ."'";
-                    }
+                    # $cl_end .= " --rr=" . $rr;
+                    $cl_end .= " --rr='" . $rr . "'";
                 }
 
                 $command .= $cl_end;
@@ -1003,6 +996,7 @@ while($Batch::give_up <= 1) {
                     "Memo2:   " . (defined $job[Batch::JOB_MEMO2] ? $job[Batch::JOB_MEMO2] : '<undef>') . "\n" .
                     "Memo3:   " . (defined $job[Batch::JOB_MEMO3] ? $job[Batch::JOB_MEMO3] : '<undef>') . "\n" .
                     "Cl_Snip: " . $command ;
+                say("DEBUG: rqg_batch.pl befor RQG start: Cl_Snip is ->" . $command . "<-");
                 if (STATUS_OK != Batch::append_string_to_file($rqg_job, $content . "\n")) {
                     say("ERROR when writing to $rqg_job");
                     $status = STATUS_ENVIRONMENT_FAILURE;

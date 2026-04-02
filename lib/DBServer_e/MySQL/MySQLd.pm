@@ -345,7 +345,6 @@ sub new {
                 'config'                => MYSQLD_CONFIG_CONTENTS,
                 'user'                  => MYSQLD_USER,
                 'rr'                    => MYSQLD_RR,
-                'rr_options'            => MYSQLD_RR_OPTIONS,
                 'id'                    => MYSQLD_SERVER_ID
     },@_);
 
@@ -589,10 +588,6 @@ sub setDatadir {
 
 sub set_rr {
     $_[0]->[MYSQLD_RR] = $_[1];
-}
-
-sub set_rr_options {
-    $_[0]->[MYSQLD_RR_OPTIONS] = $_[1];
 }
 
 sub vardir {
@@ -851,7 +846,7 @@ sub createMysqlBase  {
     close BOOT;
 
     my $rr = Runtime::get_rr();
-    if (defined $rr) {
+    if (defined $rr and Runtime::RR_OFF ne $rr) {
         # Experiments showed that the rr trace directory must exist in advance.
         my $rr_trace_dir = $self->vardir . '/rr';
         if (not -d $rr_trace_dir) {
@@ -863,8 +858,6 @@ sub createMysqlBase  {
             }
         }
         $ENV{'_RR_TRACE_DIR'} = $rr_trace_dir;
-        my $rr_options = Runtime::get_rr_options();
-        $rr_options =    '' if not defined $rr_options;
         # 1. ulimit -c 0
         #    because we do not want to waste space for core files we do not need if using rr.
         # 2. Maybe banal:
@@ -874,7 +867,7 @@ sub createMysqlBase  {
         #    commands might be decorated with rr event ids which some consuming command
         #    is unable to understand. Example: cat <bootstrap file> | ....
         $command_begin = "ulimit -c 0; " .  $command_begin .
-                         " rr record " . $rr_options . " ";
+                         $rr . " ";
         $command .= ' "--log_warnings=4" ' . Local::get_rqg_rr_add();
     }
 
@@ -1140,10 +1133,8 @@ sub startServer {
 
         my $rr_trace_dir;
         my $rr = Runtime::get_rr();
-        if (defined $rr) {
+        if (defined $rr and Runtime::RR_OFF ne $rr) {
             # The rqg runner has to check in advance that 'rr' is installed on the current box.
-            my $rr_options = Runtime::get_rr_options();
-            $rr_options =   '' if not defined $rr_options;
             $tool_startup = 10;
             $rr_trace_dir = $self->vardir . '/rr';
             if (not -d $rr_trace_dir) {
@@ -1155,12 +1146,11 @@ sub startServer {
                     return $status;
                 }
             }
-            $command = "rr record " . $rr_options . " $command";
-            # say("DEBUG: ---- 1 ->" . $rr_options . "<-");
+            $command = $rr . " $command";
             # say("DEBUG: ---- 2 ->" . $command . "<-");
         }
 
-        if (exists $ENV{'RUNNING_UNDER_RR'} or defined $rr) {
+        if (exists $ENV{'RUNNING_UNDER_RR'} or (defined $rr and Runtime::RR_OFF ne $rr)) {
             # rr tracing is already active ('RQG') or will become active for the calls of
             # certain binaries.
             # Having more events ('rr' point of view) could make debugging faster.
@@ -1506,7 +1496,7 @@ sub startServer {
             # And this is some serious wasting of resources. Hence we try to avoid this.
             # "ulimit -c 0" cannot be used because that would require invoking a shell.
             # Solution: Set the rlimit if BSD::Resource is available.
-            if (defined $rr and Local::bsd_resource) {
+            if (defined $rr and Runtime::RR_OFF ne $rr and Local::bsd_resource) {
                 # Docu: setrlimit() returns true on success and undef on failure.
                 if (not defined BSD::Resource::setrlimit('RLIMIT_CORE', 0, 0)) {
                     say("WARN: Setting the core file size via rlimit failed.");
@@ -3533,7 +3523,7 @@ sub checkErrorLogBase {
     if (STATUS_DATABASE_CORRUPTION == $errorlog_status) {
         sayFile($general_error_log);
     }
-    say("DEBUG: $who_am_i Returning status : $errorlog_status, position : $position"); # if $debug_here;
+    say("DEBUG: $who_am_i Returning status : $errorlog_status, position : $position") if $debug_here;
     return $errorlog_status, $position;
 } # End sub checkErrorLogBase
 
@@ -4059,7 +4049,7 @@ sub make_backtrace {
     # Auxiliary::print_ps_tree($$);
 
     my $rr = Runtime::get_rr();
-    if (defined $rr) {
+    if (defined $rr and Runtime::RR_OFF ne $rr) {
         # We try to generate a backtrace from the rr trace.
         $status = Auxiliary::make_rr_backtrace($vardir);
         if (STATUS_OK != $status) {

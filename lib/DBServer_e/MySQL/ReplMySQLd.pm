@@ -55,7 +55,6 @@ use constant REPLMYSQLD_CONFIG_CONTENTS     =>  16;
 use constant REPLMYSQLD_USER                =>  17;
 use constant REPLMYSQLD_NOSYNC              =>  18;
 use constant REPLMYSQLD_RR                  =>  19;
-use constant REPLMYSQLD_RR_OPTIONS          =>  20;
 
 sub new {
     my $class = shift;
@@ -79,7 +78,6 @@ sub new {
                                    'use_gtid'         => REPLMYSQLD_USE_GTID,
                                    'config'           => REPLMYSQLD_CONFIG_CONTENTS,
                                    'rr'               => REPLMYSQLD_RR,
-                                   'rr_options'       => REPLMYSQLD_RR_OPTIONS,
                                    'user'             => REPLMYSQLD_USER},@_);
 
     if (defined $self->[REPLMYSQLD_USE_GTID]
@@ -154,7 +152,6 @@ sub new {
                                      valgrind         => $self->[REPLMYSQLD_VALGRIND],
                                      valgrind_options => $self->[REPLMYSQLD_VALGRIND_OPTIONS],
                                      rr               => $self->[REPLMYSQLD_RR],
-                                     rr_options       => $self->[REPLMYSQLD_RR_OPTIONS],
                                      config           => $self->[REPLMYSQLD_CONFIG_CONTENTS],
                                      id               => 1,
                                      user             => $self->[REPLMYSQLD_USER]);
@@ -186,7 +183,6 @@ sub new {
                                      valgrind         => $self->[REPLMYSQLD_VALGRIND],
                                      valgrind_options => $self->[REPLMYSQLD_VALGRIND_OPTIONS],
                                      rr               => $self->[REPLMYSQLD_RR],
-                                     rr_options       => $self->[REPLMYSQLD_RR_OPTIONS],
                                      config           => $self->[REPLMYSQLD_CONFIG_CONTENTS],
                                      id               => 2,
                                      user             => $self->[REPLMYSQLD_USER]);

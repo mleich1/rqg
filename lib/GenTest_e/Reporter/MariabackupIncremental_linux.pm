@@ -70,7 +70,6 @@ my $backup_timeout;
 my $prepare_timeout;
 my $connect_timeout;
 my $rr;
-my $rr_options;
 my $backup_prefix;
 my $prepare_prefix;  # Always uses rr when available (prepare doesn't use PMEM)
 my $source_server;
@@ -120,11 +119,9 @@ sub _init_variables {
         if (defined $flush_method and '' ne $flush_method);
 
     $rr = Runtime::get_rr();
-    $rr_options = Runtime::get_rr_options();
-    $rr_options = '' if not defined $rr_options;
 
     my $no_rr_prefix = "exec ";
-    my $rr_prefix = "ulimit -c 0; exec rr record $rr_options ";
+    my $rr_prefix = "ulimit -c 0; exec $rr ";
 
     $source_server = $rep->properties->servers->[0];
     $vardir = $source_server->vardir();
@@ -311,7 +308,7 @@ sub report {
         }
     }
     say("INFO: $who_am_i Detected $backup_count backup(s) from filesystem");
-    
+
     say("INFO: $who_am_i Starting final verification with $backup_count backup(s)");
 
     # Need at least one backup (full) for verification
@@ -429,7 +426,6 @@ sub report {
         valgrind       => undef,
         valgrind_options => undef,
         rr             => $rr,
-        rr_options     => $rr_options,
         server_options => \@mysqld_options,
         general_log    => 1,
         config         => undef,

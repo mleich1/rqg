@@ -87,12 +87,11 @@ TRIALS=$(($NPROC * 12))
 # +  time for stopping the active RQG Workers + cleanup (usually less than 30 seconds)
 MAX_RUNTIME=72000
 
-# There should be usually sufficient space in VARDIR for just a few fat core files caused by ASAN.
-# Already the RQG runner will take care that everything important inside his VARDIR will be
-# saved in his WORKDIR and empty his VARDIR. rqg_batch.pl will empty the VARDIR of this RQG
-# runner again. So the space comsumption of a core is only temporary.
-# The rqg_batch.pl ResourceControl will also take care to avoid VARDIR full.
-# If its not an ASAN build than this environment variable is harmless anyway.
+# Take care that we can get core files if running with ASAN
+# ---------------------------------------------------------
+# There should be at sufficient space for a few fat core files in the filesystem containing the
+# VARDIR at any time. The rqg_batch.pl ResourceControl will also prevent a VARDIR full.
+# If its not an ASAN build than this environment variable should be harmless anyway.
 export ASAN_OPTIONS=abort_on_error=1,disable_coredump=0
 echo "Have set "`env | grep ASAN`
 
@@ -101,7 +100,7 @@ echo "Have set "`env | grep ASAN`
 GRAMMAR="$3"
 check_edit_optional_grammar
 
-rm -f $PROT
+rm -f "$PROT"
 
 set -o pipefail
 
@@ -187,31 +186,26 @@ set -o pipefail
 #       the likelihood to replay up till today never observed bugs becomes high enough.
 #       And than we would get some rr trace in addition.
 #
-#    Preserve the 'rr' traces of the bootstrap, server starts and mariabackup calls.
-# --rr                                                                 \
-#
-#    Recommended settings (Info taken from rr help)
-#    '--chaos' randomize scheduling decisions to try to reproduce bugs
-#    '--wait'  Wait for all child processes to exit, not just the initial process.
-# --rr_options='--chaos --wait'                                        \
-#
-#    rr_options required because of the hardware of the testing box like
-# --rr_options='--chaos --wait --microarch=\"Intel Skylake\"'          \
-#        Please becareful with the single and double quotes.
-#    should be rather set in the file local.cfg.
+#    Ensure that "rr" will be invoked
+# --rr='rr record --chaos --wait'                                      \
+#    Ensure that "rr" will be not invoked
+# --rr=''                                                              \
+#    Accept what the RQG Simplifier config file maybe dictates.
+# \
 #
 # 9. SQL tracing within RQG (Client side tracing)
 #    This makes mostly no sense for runs of the automatic simplifier.
 #    Hence its not assigned within the current script.
+#    Trace SQL's sent to the DB server
 # --sqltrace=Simple                                                    \
+#    Trace SQL's sent to the DB server and its response (error code only)
 # --sqltrace=MarkErrors                                                \
 #
 
 # perl -w -d:ptkdb ./rqg_batch.pl                                      \
 #
-
 # In case you distrust the rqg_batch.pl mechanics or the config file etc. than going with some
-# limited number of trials is often useful.
+# limited number of concurrent RQG runs and/or trials is often useful.
 # TRIALS=1
 # PARALLEL=1
 # TRIALS=2
@@ -222,19 +216,19 @@ set -o pipefail
 
 nohup perl -w ./rqg_batch.pl                                           \
 --type=RQG_Simplifier                                                  \
---parallel=$PARALLEL                                                   \
---basedir1=$BASEDIR1                                                   \
+--parallel=$MAX_PARALLEL                                               \
+--basedir1="$BASEDIR1"                                                 \
 $GRAMMAR_PART                                                          \
---config=$CONFIG                                                       \
+--config="$CONFIG"                                                     \
 --max_runtime=$MAX_RUNTIME                                             \
 --trials=$TRIALS                                                       \
 --noarchiving                                                          \
 --discard_logs                                                         \
 --no-mask                                                              \
 --script_debug=_nix_                                                   \
-> $PROT 2>&1 &
+> "$PROT" 2>&1 &
 
 # Avoid that "tail -f ..." starts before the file exists.
 wait_for_protocol
-tail -n 40 -f $PROT
+tail -n 40 -f "$PROT"
 

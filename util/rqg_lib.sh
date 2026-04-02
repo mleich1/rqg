@@ -24,7 +24,7 @@ USAGE1="The current working directory '$PWD' must contain some RQG install."
 USAGE1="$USAGE1\nAny maybe set variable RQG_HOME will get ignored."
 function set_combinator_usage()
 {
-    USAGE="USAGE: $0 <Config file for the RQG test Combinator (extension .cc)> <Basedir1 == path to MariaDB binaries> [<Basedir2>]"
+    USAGE="USAGE: $0 <Config file for the RQG test Combinator (extension .cfg or .cc)> <Basedir1 == path to MariaDB binaries> [<Basedir2>]"
     EXAMPLE="EXAMPLE: $0 conf/mariadb/InnoDB_standard.cc /Server_bin/bb-10.2-marko_asan_Og "
     USAGE="\n$USAGE\n\n$EXAMPLE\n\n$USAGE1"
 }
@@ -40,24 +40,24 @@ function check_simplifier_config()
 {
     if [ "$CONFIG" = "" ]
     then
-        echo "You need to assign a config file as first parameter."
+        echo "ERROR: You need to assign a config file as first parameter."
         echo "The call was -->$CALL_LINE<--"
         echo -e "$USAGE"
         exit 8
     fi
     if [ ! -e "$CONFIG" ]
     then
-       echo "The config file '$CONFIG' does not exist."
+       echo "ERROR: The config file '$CONFIG' does not exist."
        echo "The call was -->$CALL_LINE<--"
        echo -e "$USAGE"
        exit 8
     fi
 
-    CASE0=`basename $CONFIG`
-    CASE=`basename $CASE0 .cfg`
-    if [ $CASE = $CASE0 ]
+    CASE0=`basename "$CONFIG"`
+    CASE=`basename "$CASE0" .cfg`
+    if [ "$CASE" = "$CASE0" ]
     then
-        echo "The config file must have the extension .cfg)."
+        echo "ERROR: The config file must have the extension .cfg)."
         echo "The call was -->$CALL_LINE<--"
         echo -e "$USAGE"
         exit 8
@@ -68,27 +68,45 @@ function check_combinator_config()
 {
     if [ "$CONFIG" = "" ]
     then
-        echo "You need to assign a config file as first parameter."
+        echo
+        echo "ERROR: You need to assign a config file as first parameter."
+        echo
         echo "The call was -->$CALL_LINE<--"
         echo -e "$USAGE"
         exit 8
     fi
     if [ ! -e "$CONFIG" ]
     then
-       echo "The config file '$CONFIG' does not exist."
-       echo "The call was -->$CALL_LINE<--"
-       echo -e "$USAGE"
-       exit 8
-    fi
-
-    CASE0=`basename $CONFIG`
-    CASE=`basename $CASE0 .cc`
-    if [ $CASE = $CASE0 ]
-    then
-        echo "The config file must have the must have the extension .cc."
+        echo
+        echo "ERROR: The config file '$CONFIG' does not exist."
+        echo
         echo "The call was -->$CALL_LINE<--"
         echo -e "$USAGE"
         exit 8
+    fi
+
+    CASE0=`basename "$CONFIG"`
+    CASE1=`basename "$CASE0" .cc`
+    CASE2=`basename "$CASE0" .cfg`
+    if [ "$CASE1" == "$CASE0" ]
+    then
+        # Its not cc
+        echo "$CASE0 equals $CASE1"
+        if [ "$CASE2" == "$CASE0" ]
+        then 
+            echo "$CASE0 equals $CASE1"
+            # Its not cfg
+            echo
+            echo "ERROR: The config file must have the extension .cfg or .cc."
+            echo
+            echo "The call was -->$CALL_LINE<--"
+            echo -e "$USAGE"
+            exit 8
+        else
+            CASE="$CASE2"
+        fi
+    else
+        CASE="$CASE1"
     fi
 }
 
@@ -96,14 +114,14 @@ function check_basedir1()
 {
     if [ "$BASEDIR1" = "" ]
     then
-        echo "You need to assign a basedir (path to MariaDB binaries) as second parameter."
+        echo "ERROR: You need to assign a basedir (path to MariaDB binaries) as second parameter."
         echo "The call was -->$CALL_LINE<--"
         echo -e "$USAGE"
         exit 8
     fi
     if [ ! -d "$BASEDIR1" ]
     then
-        echo "BASEDIR1 '$BASEDIR1' does not exist or is not a directory."
+        echo "ERROR: BASEDIR1 '$BASEDIR1' does not exist or is not a directory."
         exit 8
     fi
 }
@@ -117,7 +135,7 @@ function set_check_basedir2()
     fi
     if [ ! -d "$BASEDIR2" ]
     then
-        echo "BASEDIR2 '$BASEDIR2' does not exist or is not a directory."
+        echo "ERROR: BASEDIR2 '$BASEDIR2' does not exist or is not a directory."
         exit 8
     fi
 }
@@ -128,7 +146,7 @@ function check_edit_optional_grammar()
     then
         if [ ! -f "$GRAMMAR" ]
         then
-            echo "The RQG grammar '$GRAMMAR' does not exist or is not a plain file."
+            echo "ERROR: The RQG grammar '$GRAMMAR' does not exist or is not a plain file."
             echo "The call was -->$CALL_LINE<--"
             echo -e "$USAGE"
             exit 8
@@ -213,7 +231,7 @@ function set_parallel()
     # Per experience:
     # More general load on the testing box raises the likelihood to find or replay a
     # concurrency bug.
-    # PARALLEL should limit the maximum number of concurrent RQG runs in order to
+    # MAX_PARALLEL should limit the maximum number of concurrent RQG runs in order to
     # - avoid OS limits        and
     # - avoid that
     #   - colleagues logged into the testing box and most probably running rr replay
@@ -234,19 +252,20 @@ function set_parallel()
        # Old
        #    PARALLEL=$((8 * $NPROC / 10))
        # New
-       PARALLEL=$(($NPROC - $GUEST_ON_BOX - 2))
+       MAX_PARALLEL=$(($NPROC - $GUEST_ON_BOX - 2))
     else
-       PARALLEL=$(($NPROC * 3))
+       MAX_PARALLEL=$(($NPROC * 3))
     fi
-    # If $PARALLEL > ~270 than we get trouble with some resources especially ports.
-    if [ $PARALLEL -gt 270 ]
+    # If $MAX_PARALLEL > ~270 than we get trouble with some resources especially ports.
+    if [ $MAX_PARALLEL -gt 270 ]
     then
-       PARALLEL=270
+       MAX_PARALLEL=270
     fi
 }
 
 function wait_for_protocol()
 {
+    # echo "PROT ->""$PROT""<-"
     STATE=2
     NUM=0
     while [ $STATE -eq 2 ]
@@ -257,7 +276,7 @@ function wait_for_protocol()
     then
         STATE=1
     fi
-    if [ -f $PROT ]
+    if [ -f "$PROT" ]
     then
         STATE=0
     fi

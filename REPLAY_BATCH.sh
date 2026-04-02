@@ -1,107 +1,99 @@
 #!/bin/bash
 
-# Please see this shell script rather as template how to call rqg_batch.pl even though
-# it might be already in its current state sufficient for doing a lot around RQG.
+# Typical use case
+# ----------------
+# You know of one specific bad effect and want to know wether it can be
+# replayed on certain MariaDB binaries or seems to be absent.
+# Step 1:
+# Make a copy of the config file of the testing campaign where the problem
+# was frequent replayed.
+#     cp <replaying campaign>.cfg <whatever>.cfg
+# Step 2:
+# Search within Verdict_tmp.cfg and/or verdict_general.cfg for the definition
+# of the error you want to replay.
+# Let's assume its
+#     [ 'CR-2216', '(mariadbd|mysqld): .{1,300}rem0rec\.cc:.{1,10}: void rec_init_offsets.{1,100}: Assertion \`index->is_instant\(\)\' failed..+RESULT: The RQG run ended with status STATUS_RECOVERY_FAILURE' ],
+# Jump within <whatever>.cfg  to the following section
+#
+#     $statuses_replay =
+#     [
+#       # [ 'STATUS_ANY_ERROR' ],
+#     ];
+#
+#     $patterns_replay =
+#     [
+#       # [ 'Import_1', '#3  <signal handler called>.{1,300}#4  .{1,20}in ha_innobase::discard_or_import_tablespace' ],
+#     ];
+# and modify it to
+#     $statuses_replay =
+#     [
+#         [ 'STATUS_RECOVERY_FAILURE' ],
+#     ];
+#
+#     $patterns_replay =
+#     [
+#       [ 'CR-2216', '(mariadbd|mysqld): .{1,300}rem0rec\.cc:.{1,10}: void rec_init_offsets.{1,100}: Assertion \`index->is_instant\(\)\' failed..+RESULT: The RQG run ended with status STATUS_RECOVERY_FAILURE' ],
+#     ];
+# Step 3(optional):
+# Edit <whatever>.cfg and remove all variants where you are roughly sure that
+# they will be never able to replay the bad effect.
+#     Example: The bad effect requires a Scenario with intentional kill of the
+#              server and try a restart => The reporter CrashRecovery is required.
 #
 
 export LANG=C
-
-  USAGE="USAGE: $0 <Config file for the RQG test Combinator> <Basedir1 == path to MariaDB binaries> [<Basedir2>] "
-EXAMPLE="EXAMPLE: $0 conf/mariadb/InnoDB_standard.cc /Server_bin/bb-10.2-marko_asan_Og "
-USAGE="\n$USAGE\n\n$EXAMPLE\n"
 CALL_LINE="$0 $*"
 
-# Config file for rqg_batch.pl containing various settings for the RQG+server+InnoDB etc.
-# including settings for avoiding open bugs.
-# Template: conf/mariadb/InnoDB_standard.cc
-CONFIG=$1
-if [ "$CONFIG" = "" ]
+# set -x
+
+if [ ! -e "./util/rqg_lib.sh" ]
 then
-   echo "You need to assign a config file for the RQG test Combinator as first parameter."
-   echo "The call was ->$CALL_LINE<-"
-   echo -e "$USAGE"
-   exit
-fi
-if [ ! -e "$CONFIG" ]
-then
-   echo "The config file for the RQG test Combinator '$CONFIG' does not exist."
-   echo "The call was ->$CALL_LINE<-"
-   echo -e "$USAGE"
-   exit
+    echo "ERROR: The curren working directory '$PWD' does not contain some RQG install."
+    echo "       The required file './util/rqg_lib.sh' was not found."
+    exit 4
 fi
 
-CASE0=`basename $CONFIG`
-CASE=`basename $CASE0 .cc`
-if [ $CASE = $CASE0 ]
-then
-   echo "You need to assign a Combinator config file (extension .cc)."
-   echo "The call was ->$CALL_LINE<-"
-   echo -e "$USAGE"
-   exit
-fi
+set -e
+source util/rqg_lib.sh
 
+set_combinator_usage
 
-# Path to MariaDB binaries
+# Config file for rqg_batch.pl containing
+# - various settings for the RQG+server+InnoDB etc.
+# - tests to be executed
+# Example: conf/mariadb/InnoDB_standard.cc
+CONFIG="$1"
+check_combinator_config
+
+# Path to MariaDB binaries for first server
 BASEDIR1="$2"
-if [ "$BASEDIR1" = "" ]
-then
-   echo "You need to assign a basedir (path to MariaDB binaries) as second parameter."
-   echo "The call was ->$CALL_LINE<-"
-   echo -e "$USAGE"
-   exit
-fi
-if [ ! -d "$BASEDIR1" ]
-then
-   echo "BASEDIR1 '$BASEDIR1' does not exist or is not a directory."
-   exit
-fi
+check_basedir1
 BASEDIR1_NAME=`basename "$BASEDIR1"`
+
+# Path to MariaDB binaries for second server if required
 BASEDIR2="$3"
-if [ "$BASEDIR2" = "" ]
-then
-   echo "Setting basedir2 = basedir1"
-   BASEDIR2="$BASEDIR1"
-fi
-if [ ! -d "$BASEDIR2" ]
-then
-   echo "BASEDIR2 '$BASEDIR2' does not exist or is not a directory."
-   exit
-fi
+set_check_basedir2
+
+set +e
+# Check if there is already some running MariaDB or MySQL server or test
+prevent_conflicts
+# Calculate the maximum number of concurrent RQG tests
+set_parallel
 
 PROT="replay_batch--""$CASE""--""$BASEDIR1_NAME"".prt"
 
-# Go with heavy load in case the rqg_batch.pl ResourceControl allows it.
-# The rqg_batch.pl ResourceControl should be capable to avoid trouble with resources.
-# Per experience:
-# More general load on the testing raises the likelihood to find or replay a
-# concurrency bug.
-NPROC=`nproc`
-GUEST_ON_BOX=`who | egrep -v "$USER|root" | wc -l`
-echo "Number of guests logged into the box: $GUEST_ON_BOX"
-# GUEST_ON_BOX=0
-if [ $GUEST_ON_BOX -gt 0 ]
-then
-   # Colleagues are on the box and most probably running rr replay.
-   # So do not raise the load too much.
-   PARALLEL=$((8 * $NPROC / 10))
-else
-   PARALLEL=$(($NPROC * 3))
-fi
-# If $PARALLEL > ~270 than we get trouble with some resources.
-if [ $PARALLEL -gt 270 ]
-then
-   PARALLEL=270
-fi
-set +e
-
-# The size of a testing campaign is controlled by up to five limiters.
-# --------------------------------------------------------------------
+# The size of a testing campaign is controlled by many limiters.
+# --------------------------------------------------------------
 # - the "exit" file   last_batch_workdir/exit
 #   This file does not exist after rqg_batch.pl was called.
 #   But as soon that file gets created by the user or similar rqg_batch.pl will stop all RQG runs.
 # - a function in lib/Batch.pm
-#   Abort of testing as soon as some quota of failing tests gets exceeded.
-#   Focus: Bad Combinator config or tests, defect in code of RQG or tools, exceptional bad DB server
+#   In order to avoid some significant waisting of resources abort of testing as soon as some quota
+#   of failing tests gets exceeded.
+#   Typical reasons for such an early abort are:
+#   - Bad Combinator config file or tests
+#   - exceptional faulty DB server
+#   - defect in code of RQG or tools
 # - Stop of testing as soon the elapsed runtime of testing campaign exceeds the value assigned to
 #   --max_runtime or the default of 432000 (in seconds) = 5 days
 #   We set "--max_runtime=$MAX_RUNTIME" in the current script.
@@ -114,58 +106,40 @@ set +e
 #   Regular means: Not stopped by rqg_batch.pl because of whatever internal reason.
 #   Focus: Bad Combinator config or tests, defect in code of RQG or tools, exceptional bad DB server
 #          and experiments
-# - Stop of testing as soon as n RQG runs finished with the verdict 'replay' if
-#   --stop_on_replay=<n> is set.
-#   We set "--stop_on_replay=30" --> n = 30 in the current script.
+# - Stop of testing as soon as n RQG runs finished with the verdict 'replay'.
+#   --stop_on_replay=<n>
+#   We set "--stop_on_replay=1" in the current script.
 #
-TRIALS=10000
-MAX_RUNTIME=27000
+TRIALS=13000
+MAX_RUNTIME=37000
 
-
-# Only one temporary 'God' (rqg_batch.pl vs. concurrent MTR, single RQG or whatever) on testing box
-# -------------------------------------------------------------------------------------------------
-# Countermeasures to prevent certain errors caused by the environment at test campaign runtime like
-# 1. Clash of tests on the same resources (vardir, ports -> MTR_BUILD_THREAD, maybe even files)
-#        current rqg_batch run ---- other ongoing rqg_batch run
-#        current rqg_batch run ---- ongoing MTR run
-# 2. The current test campaign suffers maybe sooner or later from important filesystems full etc.
-#
-# Testing tool | Programs            | Standard locations
-# -------------+---------------------+---------------------------
-# rqg_batch.pl | perl, mysqld,   rr  | /dev/shm/rqg*/* /data/rqg/*
-# MTR          | perl, mariadbd, rr  | /dev/shm/var*
-#
-killall -9 perl mysqld mariadbd rr
-rm -rf /dev/shm/rqg*/* /dev/shm/var* /data/rqg/*
-
-# There should be usually sufficient space in VARDIR for just a few fat core files caused by ASAN.
-# Already the RQG runner will take care that everything important inside his VARDIR will be
-# saved in his WORKDIR and empty his VARDIR. rqg_batch.pl will empty the VARDIR of this RQG
-# runner again. So the space comsumption of a core is only temporary.
-# The rqg_batch.pl ResourceControl will also take care to avoid VARDIR full.
-# If its not an ASAN build than this environment variable is harmless anyway.
+# Take care that we can get core files if running with ASAN
+# ---------------------------------------------------------
+# There should be at sufficient space for a few fat core files in the filesystem containing the
+# VARDIR at any time. The rqg_batch.pl ResourceControl will also prevent a VARDIR full.
+# If its not an ASAN build than this environment variable should be harmless anyway.
 export ASAN_OPTIONS=abort_on_error=1,disable_coredump=0
 echo "Have set "`env | grep ASAN`
 
-rm -f $PROT
+rm -f "$PROT"
 
 set -o pipefail
-# Options
-# -------
-# 0. Please take care that there must be a '\' at line end.
-#
-# 1. Remove the logs of RQG runs achieving STATUS_OK/verdict 'ignore_*'.
+
+# Options (Hint: Please take care that there must be a '\' at line end.)
+# ----------------------------------------------------------------------
+# 1. Remove the logs of RQG test runs achieving STATUS_OK/verdict 'ignore_*'.
 #    Their stuff grammar/datadir was not archived and is already thrown away.
 #    So basically:
 #    Do not assign '--discard_logs' in case you want to see logs of RQG runs which achieved
-#    the verdict 'ignore_*' (blacklist match or STATUS_OK or stopped by rqg_batch.pl)
+#    the verdict 'ignore_*' (blacklist match or STATUS_OK or stopped by rqg_batch.pl).
+#    The current scripts sets '--discard_logs'.
 # --discard_logs                                                       \
 #
-# 2. Per default the data (data dir of server, core etc.) of some RQG replaying or being at least
-#    of interest gets archived.
+# 2. Per default of rqg_batch.pl the data (data dir of server, core etc.) of some RQG test
+#    replaying a problem or being at least of interest gets archived.
 #    In case you do not want that archiving than you can disable it.
-#    But thats is rather suitable for runs of the test simplifier only.
-#    rr tracing enabled requires that archiving is not disabled.
+#    But that is rather suitable for runs of the test simplifier only.
+#    Please note that rr tracing enabled requires that archiving is not disabled.
 # --noarchiving                                                        \
 #
 # 3. Do not abort if hitting Perl errors or STATUS_ENVIRONMENT_FAILURE. IMHO some rather
@@ -178,7 +152,7 @@ set -o pipefail
 #    Warning: Significant more output of especially rqg_batch.pl and partially rqg.pl.
 # --script_debug=_all_                                                 \
 #
-# 5. "--no-mask", but not "--mask" or "--mask_level", could be assigned to combinations.pl
+# 5. "--no-mask", but neither "--mask" nor "--mask_level", could be assigned to combinations.pl
 #    in command line. combinations.pl had also the default to apply some masking except some other
 #    one was assigned in the config file.
 #    Hence assigning "--no-mask" to combinations.pl was required in order to switch any masking off.
@@ -203,93 +177,61 @@ set -o pipefail
 # --dryrun=replay                                                      \
 #
 # 7. rqg_batch stops immediate all RQG runner if reaching the assigned number of replays
+#    This requires that the combinator config file contains a definition of what is a replay.
+#    It is a rare used feature.
 #    Stop after the first replay
 # --stop_on_replay                                                     \
 #    Stop after the n'th replay
 # --stop_on_replay=<n>                                                 \
+#    We go here with  --stop_on_replay=1.
 #
 # 8. Use "rr" (https://github.com/mozilla/rr/wiki/Usage) for tracing DB servers and other
 #    programs.
 #
-#    Preserve the 'rr' traces of the bootstrap, server starts and mariabackup calls.
-# --rr                                                                 \
+#    It is possible to assign within the RQG Combinator config file
+#    - if rr should be invoked
+#    - which rr_options should be set.
+#    Example: conf/mariadb/InnoDB_standard.cc
+#    - 67% of all tests invoke "rr", 33% of all tests go without "rr"
+#    - 50% of the tests invoking "rr" go with the rr_options='--chaos --wait'
+#      50% of the tests invoking "rr" go with the rr_options='--wait'
+#    A high fraction of other config files do this too.
 #
-#    RECOMMENDATION:
-#    Assign within
-#    - the RQG Batch config file when rr should be invoked including rr options which
-#      are independent of the testing box
-#      Please be aware that some increasing number of such config files already do this.
-#    - rr options which are dependent of the testing box
-#         Example: --microarch="Intel Skylake"
-#      in local.cfg
-#    '--chaos' randomize scheduling decisions to try to reproduce bugs
-#    '--wait'  Wait for all child processes to exit, not just the initial process.
-# --rr_options='--chaos --wait'                                        \
+#    This behaviour can be overridden in the following way:
 #
-#    "rr" checks which CPU is used in your box.
-#    In case your version of "rr" is too old or your CPU is too new than the check might fail
-#    and cause that the call of 'rr' fails.
-#    Example:
-#    Box having "Intel Skylake" CPU's, "rr" version 4 contains the string "Intel Skylake" but
-#    claims to have met some unknown CPU.
-#    Please becareful with the single and double quotes.
-# --rr_options='--chaos --wait --microarch=\"Intel Skylake\"'          \
+#    Ensure that "rr" will be invoked
+# --rr='rr record --chaos --wait'                                      \
+#    Ensure that "rr" will be not invoked
+# --rr=''                                                              \
+#    Accept what the RQG Combinator config file maybe dictates.
+# \
+# "rr" tracing reduces the throughput significant and might prevent to replay
+# certain bugs.
 #
 # 9. SQL tracing within RQG (Client side tracing)
+#    Trace SQL's sent to the DB server
 # --sqltrace=Simple                                                    \
-#
-#
-
-# perl -w -d:ptkdb ./rqg_batch.pl                                      \
-#
-
-# In case you distrust the rqg_batch.pl mechanics or the config file etc. than going with some
-# limited number of trials is often useful.
-# TRIALS=1
-# PARALLEL=1
-# TRIALS=2
-# PARALLEL=2
-# TRIALS=3
-# PARALLEL=2
+#    Trace SQL's sent to the DB server and its response (error code only)
+# --sqltrace=MarkErrors                                                \
+# SQL tracing reduces the throughput.
 #
 
 nohup perl -w ./rqg_batch.pl                                           \
 --type=Combinator                                                      \
---parallel=$PARALLEL                                                   \
---basedir1=$BASEDIR1                                                   \
---basedir2=$BASEDIR2                                                   \
---config=$CONFIG                                                       \
+--parallel=$MAX_PARALLEL                                               \
+--basedir1="$BASEDIR1"                                                 \
+--basedir2="$BASEDIR2"                                                 \
+--config="$CONFIG"                                                     \
 --max_runtime=$MAX_RUNTIME                                             \
 --trials=$TRIALS                                                       \
---stop_on_replay=30                                                    \
+--stop_on_replay=1                                                     \
 --discard_logs                                                         \
 --no-mask                                                              \
+--rr=''                                                                \
 --script_debug=_nix_                                                   \
-> $PROT 2>&1 &
+> "$PROT" 2>&1 &
 
 # Avoid that "tail -f ..." starts before the file exists.
-STATE=2
-NUM=0
-while [ $STATE -eq 2 ]
-do
-   sleep 0.1
-   NUM=$(($NUM + 1))
-   if [ $NUM -gt 20 ]
-   then
-      STATE=1
-   fi
-   if [ -f $PROT ]
-   then
-      STATE=0
-   fi
-done
-
-if [ $STATE -eq 1 ]
-then
-   echo "ERROR: Most probably in RQG mechanics or setup."
-   echo "ERROR: The (expected) protocol file '$PROT' did not show up"
-   exit 4
-fi
-
-tail -n 40 -f $PROT
+wait_for_protocol
+tail -n 40 -f "$PROT"
 

@@ -784,10 +784,10 @@ $combinations = [ $grammars,
     #
     # The settings --rr_options='--wait' and --rr_options='--chaos --wait' do not significant
     # differ regarding the fraction of most probably false server hangs.
-    " --rr=Extended --rr_options='--wait' ",
-    " --rr=Extended --rr_options='--chaos --wait' ",
+    " --rr='rr record --wait' ",
+    " --rr='rr record --chaos --wait' ",
     # Coverage for libaio or liburing.
-    " --mysqld=--innodb_use_native_aio=1 ",
+    " -rr='' --mysqld=--innodb_use_native_aio=1 ",
   ],
   [
     # Default Value: OFF

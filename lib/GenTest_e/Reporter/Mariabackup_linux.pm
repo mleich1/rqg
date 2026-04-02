@@ -1,5 +1,5 @@
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
-# Copyright (c) 2023, 2025 MariaDB plc
+# Copyright (c) 2023, 2026 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -119,7 +119,6 @@ my $prepare_timeout;
 my $connect_timeout;
 my $backup_prt;
 my $rr;
-my $rr_options;
 my $backup_backup_prefix;
 my $backup_prepare_prefix;
 my $source_server;
@@ -182,16 +181,12 @@ sub init {
     $backup_binary .= '--innodb_flush_method="' . $flush_method . '" '
         if (defined $flush_method and '' ne $flush_method);
 
-    my $dbdir =       Local::get_dbdir();
+    my $dbdir = Local::get_dbdir();
 
-    $rr =          Runtime::get_rr();
-    $rr_options =  Runtime::get_rr_options();
-    if (not defined $rr_options) {
-        $rr_options = '';
-    }
+    $rr =       Runtime::get_rr();
 
     my $no_rr_prefix =  "exec ";
-    my $rr_prefix =     "ulimit -c 0; exec rr record $rr_options ";
+    my $rr_prefix =     "ulimit -c 0; exec $rr ";
 
     # Access data about the first server
     $source_server = $reporter->properties->servers->[0];
@@ -201,7 +196,7 @@ sub init {
     if (not defined $rr) {
         $backup_backup_prefix =     $no_rr_prefix;
         $backup_prepare_prefix =    $no_rr_prefix;
-    } else {
+    } elsif (Runtime::RR_OFF ne $rr) {
         $ENV{'_RR_TRACE_DIR'} =     $clone_vardir . '/rr';
         $backup_prepare_prefix =    $rr_prefix;
         if ($dbdir =~ /^\/dev\/shm\/rqg\//) {
@@ -218,8 +213,6 @@ sub init {
     $clone_port  =  $source_port + 4;
     $datadir =      $reporter->serverVariable('datadir');
     $datadir =~ s{[\\/]$}{}sgio;
-
-
 
     $clone_datadir = $clone_vardir . "/data";
 
@@ -742,7 +735,6 @@ sub monitor {
                             valgrind           => undef,
                             valgrind_options   => undef,
                             rr                 => $rr,
-                            rr_options         => $rr_options,
                             server_options     => \@mysqld_options,
                             general_log        => 1,
                             config             => undef,
