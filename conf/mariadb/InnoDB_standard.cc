@@ -787,7 +787,7 @@ $combinations = [ $grammars,
     " --rr='rr record --wait' ",
     " --rr='rr record --chaos --wait' ",
     # Coverage for libaio or liburing.
-    " -rr='' --mysqld=--innodb_use_native_aio=1 ",
+    " --rr='' --mysqld=--innodb_use_native_aio=1 ",
   ],
   [
     # Default Value: OFF
