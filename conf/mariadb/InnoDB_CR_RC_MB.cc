@@ -190,7 +190,7 @@ our $grammars =
 #     --sqltrace=MarkErrors
 #
 
-# Reason for not writing '--reporters=Backtrace,ErrorLog,Deadlock':
+# Reason for not writing '--reporters=ErrorLog,Deadlock':
 # Current RQG requires using either
 #   --reporters=<list> ... but never --reporters=... again
 # or
@@ -375,6 +375,25 @@ $combinations = [ $grammars,
     '',
   ],
   [
+    # innodb_log_buffer_size (2025)
+    #    Global, not dynamic, Block size: 4096
+    #    Default Value: 16777216 (16MB)
+    #    Range: 262144 to 2147479552 (256KB to 2GB - 4K) (>= MariaDB 10.11.8)
+    #    Range: 262144 to 18446744073709551615 (<= MariaDB 10.11.7)
+    # We try here 2M because I harvested an assert when trying a non default value first time.
+    ' --mysqld=--innodb_log_buffer_size=2M ',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+    '',
+  ],
+  [
     ' --redefine=conf/mariadb/redefine_checks_off.yy ',
     '',
     '',
@@ -432,9 +451,13 @@ $combinations = [ $grammars,
     ' ',
   ],
   [
+    # mleich 2025-08:
+    # Per experience with the current set of tests and the test simplifier most bugs have the
+    # highest replay likelihood with the number of "worker" threads in the range between 3 to 6.
     ' --threads=1  ',
     ' --threads=2  ',
-    ' --threads=9  ',
+    ' --threads=3  ',
+    ' --threads=6  ',
     ' --threads=9  ',
     ' --threads=33 ',
   ],
@@ -462,7 +485,7 @@ $combinations = [ $grammars,
     #   Otherwise already bootstrap fails.
     #   Needing such an assignment is a property specific to the testing box.
     #   So rather set this in local.cfg variable $rqg_slow_dbdir_rr_add.
-    # - used and certain gdb related server settings do not make much sense
+    # - used and combined with certain gdb related server settings do not make much sense
     #   -> set --mysqld=--loose-gdb --mysqld=--loose-debug-gdb
     # Recommendations:
     # - Generate/adjust the file local.cfg to do what is required by
@@ -479,10 +502,10 @@ $combinations = [ $grammars,
     #
     # The settings --rr_options='--wait' and --rr_options='--chaos --wait' do not significant
     # differ regarding the fraction of most probably false server hangs.
-    " --rr=Extended --rr_options='--wait' ",
-    " --rr=Extended --rr_options='--chaos --wait' ",
+    " --rr='rr record --wait' ",
+    " --rr='rr record --chaos --wait' ",
     # Coverage for libaio or liburing.
-    " --mysqld=--innodb_use_native_aio=1 ",
+    " --rr='' --mysqld=--innodb_use_native_aio=1 ",
   ],
   [
     # Default Value: OFF
@@ -491,26 +514,26 @@ $combinations = [ $grammars,
     ' --mysqld=--innodb_undo_log_truncate=OFF ',
     ' --mysqld=--innodb_undo_log_truncate=ON ',
   ],
-  [
-    # innodb_change_buffering
-    # Scope: Global     Dynamic: Yes
-    # Data Type: enumeration (>= MariaDB 10.3.7), string (<= MariaDB 10.3.6)
-    # Default Value:
-    #   >= MariaDB 10.5.15, MariaDB 10.6.7, MariaDB 10.7.3, MariaDB 10.8.2: none
-    #   <= MariaDB 10.5.14, MariaDB 10.6.6, MariaDB 10.7.2, MariaDB 10.8.1: all
-    # Valid Values: inserts, none, deletes, purges, changes, all
-    # Deprecated: MariaDB 10.9.0 Removed: MariaDB 11.0.0
-    # There were many serious bugs if innodb_change_buffering values != 'none'.
-    '',
-    '',
-    '',
-    ' --mysqld=--loose_innodb_change_buffering=inserts ',
-    ' --mysqld=--loose_innodb_change_buffering=none ',
-    ' --mysqld=--loose_innodb_change_buffering=deletes ',
-    ' --mysqld=--loose_innodb_change_buffering=purges ',
-    ' --mysqld=--loose_innodb_change_buffering=changes ',
-    ' --mysqld=--loose_innodb_change_buffering=all ',
-  ],
+# [
+#   # innodb_change_buffering
+#   # Scope: Global     Dynamic: Yes
+#   # Data Type: enumeration (>= MariaDB 10.3.7), string (<= MariaDB 10.3.6)
+#   # Default Value:
+#   #   >= MariaDB 10.5.15, MariaDB 10.6.7, MariaDB 10.7.3, MariaDB 10.8.2: none
+#   #   <= MariaDB 10.5.14, MariaDB 10.6.6, MariaDB 10.7.2, MariaDB 10.8.1: all
+#   # Valid Values: inserts, none, deletes, purges, changes, all
+#   # Deprecated: MariaDB 10.9.0 Removed: MariaDB 11.0.0
+#   # There were many serious bugs if innodb_change_buffering values != 'none'.
+#   '',
+#   '',
+#   '',
+#   ' --mysqld=--loose_innodb_change_buffering=inserts ',
+#   ' --mysqld=--loose_innodb_change_buffering=none ',
+#   ' --mysqld=--loose_innodb_change_buffering=deletes ',
+#   ' --mysqld=--loose_innodb_change_buffering=purges ',
+#   ' --mysqld=--loose_innodb_change_buffering=changes ',
+#   ' --mysqld=--loose_innodb_change_buffering=all ',
+# ],
   [
     # Global, not dynamic
     # Default Value: 3 (>= MariaDB 11.0), 0 (<= MariaDB 10.11)
