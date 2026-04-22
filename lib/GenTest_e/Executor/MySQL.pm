@@ -1,7 +1,7 @@
 # Copyright (c) 2008, 2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013 Monty Program Ab.
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
-# Copyright (c) 2023, 2025 MariaDB plc
+# Copyright (c) 2023, 2026 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -716,6 +716,7 @@ my %err2type = (
 
     # ER_SERVER_LOST not found in 10.3. There is a CR_SERVER_LOST only.
     ER_SERVER_LOST()                                    => STATUS_SERVER_CRASHED,
+    CR_SERVER_LOST()                                    => STATUS_SERVER_CRASHED,
     ER_SERVER_LOST_EXTENDED()                           => STATUS_SERVER_CRASHED,
     ER_SERVER_SHUTDOWN()                                => STATUS_SERVER_KILLED,
     ER_SEQUENCE_INVALID_DATA()                          => STATUS_SEMANTIC_ERROR,
@@ -1749,17 +1750,20 @@ sub execute {
                     #     or similar (a sequence gets handled as special table)
                     #
                     # checkDatabaseIntegrity within MySQLd.pm picks only existing views and base
-                    # tables. This is ensured by running before or after GenTest. 
+                    # tables. This is ensured by running before or after GenTest.
                     # But nevertheless the CHECK ... could fail because some other
-                    # - base table/view/sequence used by the base table/view to be checked might be missing 
+                    # - base table/view/sequence used by the base table/view to be checked might be missing
                     if ((# The semantic error Table/View to be checked does no more or did never exist
                          # has to be accepted.
                          $ct_Msg_text =~ /Table \'$ct_table\' doesn\'t exist/ and
                          'checkDatabaseIntegrity' ne $executor->role             ) or
+                        ($ct_Msg_text =~ /Can\'t open table/ and
+                         'checkDatabaseIntegrity' ne $executor->role             ) or
                         ($ct_Msg_text =~ /Deadlock found when trying to get lock/) or
                         ($ct_Msg_text =~ /Lock wait timeout exceeded/)             or
                         ($ct_Msg_text =~ /Table .{1,200} was not locked with LOCK TABLES/) or
-                        ($ct_Msg_text =~ /Query execution was interrupted/)          ) {
+                        ($ct_Msg_text =~ /Query execution was interrupted/)        or
+                        ($ct_Msg_text =~ /Query was interrupted/)  ) {
                         say("INFO: Executor: For query '" . $query . "' most likely legitimate '" .
                             $line . "' observed. Will return STATUS_SKIP.");
                         return GenTest_e::Result->new(
@@ -1821,7 +1825,7 @@ sub execute {
                             $ct_Msg_text =~ /InnoDB: Clustered index record with stale history/  or
                             $ct_Msg_text =~ /InnoDB: Clustered index record not found for index/ or
                             $ct_Msg_text =~ /Function or expression .{1,200} cannot be used in the GENERATED ALWAYS .{1,200}/ or
-                            $ct_Msg_text =~ /Expression depends on the \@\@sql_mode .{1,30}/     or 
+                            $ct_Msg_text =~ /Expression depends on the \@\@sql_mode .{1,30}/     or
                             $ct_Msg_text =~ /Sequence .{1,200} has run out/          )
                         {
                             say("DEBUG: Executor: For query '" . $query . "' harmless '" . $line . "' observed.")
