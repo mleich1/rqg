@@ -1,6 +1,6 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
 # Copyright (C) 2022 MariaDB Corporation Ab.
-# Copyright (C) 2023 MariaDB plc
+# Copyright (C) 2023, 2026 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -91,6 +91,11 @@
 # 8. Observed:
 #    First CHECK TABLE with no error ($err) and result set says all ok.
 #    Second CHECK TABLE with no error ($err) and result set says that the query was interruptet.
+# 9. We could harvest
+#    - STATUS_SKIP (~= query was not executed) in case the executor gives up
+#      because the intended duration of the GenTest_e phase is already exceeded.
+#    or
+#    - STATUS_SKIP_RELOOP (~= query or session was killed)
 #
 
 package GenTest_e::Validator::SelectStability;
@@ -107,8 +112,8 @@ use GenTest_e::Result;
 use GenTest_e::Validator;
 use Time::HiRes;
 
-my $who_am_i =   "Validator 'SelectStability':";
-my $debug_here = 0;
+my $who_am_i =      "Validator 'SelectStability':";
+my $debug_here =    0;
 
 sub validate {
     my ($validator, $executors, $results) = @_;
@@ -120,15 +125,20 @@ sub validate {
     my $orig_data =   $orig_result->data();
     my $orig_status = $orig_result->status();
     my $orig_info =   result_info($orig_result);
-    say("DEBUG: $who_am_i " . $orig_info) if $debug_here;
+    say("DEBUG: $who_am_i First query " . $orig_info) if $debug_here;
 
     # We could harvest STATUS_SKIP in case the executor gives up because the planned duration
     # of the GenTest_e phase is exceeded. I am unsure if the validator would be than called at all.
-    if (STATUS_SKIP == $orig_status) {
+    if (STATUS_SKIP == $orig_status or STATUS_SKIP_RELOOP == $orig_status) {
         my $status = STATUS_OK;
-        say("DEBUG: $who_am_i STATUS_SKIP got in first query. " .
+        say("DEBUG: $who_am_i $orig_status got in first query. " .
             Basics::return_status_text($status)) if $debug_here;
         return $status;
+    } elsif (STATUS_SERVER_CRASHED == $orig_status) {
+        my $status = STATUS_CRITICAL_FAILURE;
+        return $status;
+    } else {
+        return $orig_status;
     }
 
     # SET TRANSACTION ISOLATION LEVEL changes the ISOLATION LEVEL for the next transaction A.
@@ -207,17 +217,17 @@ sub validate {
         return $status;
     }
 
-    my $aux_query =  'SELECT @@autocommit /* Validator */';
-    my $aux_result = $executor->execute($aux_query);
-    my $aux_err =    $aux_result->err();
-    my $aux_data =   $aux_result->data();
-    my $aux_status = $aux_result->status();
-    my $aux_info =   result_info($aux_result);
+    my $aux_query =     'SELECT @@autocommit /* Validator */';
+    my $aux_result =    $executor->execute($aux_query);
+    my $aux_err =       $aux_result->err();
+    my $aux_data =      $aux_result->data();
+    my $aux_status =    $aux_result->status();
+    my $aux_info =      result_info($aux_result);
     say("DEBUG: $who_am_i " . $aux_info) if $debug_here;
 
     if (STATUS_OK != $aux_status) {
         my $msg_snip = "DEBUG: $who_am_i ->" . $aux_query . "<- harvested status $aux_status. ";
-        if      (STATUS_SKIP == $aux_status) {
+        if      (STATUS_SKIP == $aux_status or STATUS_SKIP_RELOOP == $aux_status) {
             my $status = STATUS_OK;
             say($msg_snip . Basics::return_status_text($status)) if $debug_here;
             return $status;
@@ -269,22 +279,19 @@ sub validate {
         # The repeated query contains than two marker like
         #     /* E_R Thread3 QNO 3 CON_ID 17 */  /* E_R Thread3 QNO 4 CON_ID 17 */
 
-        # We could harvest STATUS_SKIP (~= query was not executed) in case the executor gives up
-        # because the intended duration of the GenTest_e phase is already exceeded.
-        # Its a bit unclear if the validator would be than called at all.
-        if (STATUS_SKIP == $new_result->status()) {
+        my $new_status = $new_result->status();
+        if (STATUS_SKIP == $new_status or STATUS_SKIP_RELOOP == $new_status) {
             my $status = STATUS_OK;
-            say("DEBUG: $who_am_i Repeated query ->" . $orig_query . "<- got STATUS_SKIP. " .
+            say("DEBUG: $who_am_i Repeated query ->" . $orig_query . "<- got status $new_status . " .
                 Basics::return_status_text($status)) if $debug_here;
             return $status;
         }
 
         my $new_err =    $new_result->err();
         my $new_data =   $new_result->data();
-        my $new_status = $new_result->status();
         my $new_info =   result_info($new_result);
 
-        say("DEBUG: $who_am_i " . $new_info) if $debug_here;
+        say("DEBUG: $who_am_i Repeated query " . $new_info) if $debug_here;
         if (defined $new_err) {
             if (1317 == $new_err or   # ER_QUERY_INTERRUPTED
                 1205 == $new_err or   # ER_LOCK_WAIT_TIMEOUT: Lock wait timeout exceeded

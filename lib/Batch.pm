@@ -1,5 +1,5 @@
 #  Copyright (c) 2018, 2022 MariaDB Corporation Ab.
-#  Copyright (c) 2023, 2025 MariaDB plc
+#  Copyright (c) 2023, 2026 MariaDB plc
 #  Use is subject to license terms.
 #
 #  This program is free software; you can redistribute it and/or modify
@@ -913,9 +913,9 @@ sub check_resources {
                 $return_status   = STATUS_FAILURE;
             } else {
                 if ($active_workers + 1 <= $workers_mid) {
-                    # This should be non critical.
-                    $no_raise_before = $current_time + $delay;
-                    $return_status   = STATUS_OK;
+                    # This should be not that critical.
+                    $no_raise_before =  $current_time + $delay;
+                    $return_status =    STATUS_OK;
                 } else {
                     # $active_workers + 1 > $workers_mid
                     # Should we raise $workers_mid by 1?
