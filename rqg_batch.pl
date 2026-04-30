@@ -1085,7 +1085,6 @@ while($Batch::give_up <= 1) {
                     # -------------------------------
                     # 2>&1 at command end ensures that we do not pollute the output of rqg_batch.pl
                     # with the verdict output.
-                    # 'rqg_matching.log' will be archived if archiving not disabled.
                     $command = "perl $rqg_home/verdict.pl --workdir=$rqg_workdir > " .
                                "$rqg_workdir/rqg_matching.log 2>&1";
                     $command = Auxiliary::prepare_command_for_system($command);
@@ -1104,6 +1103,7 @@ while($Batch::give_up <= 1) {
                     } else {
                         say("DEBUG: $who_am_i ->"   . $command . "<- exited with value " .
                             ($? >> 8)) if Auxiliary::script_debug("W2");
+                            unlink("$rqg_workdir/rqg_matching.log");
                     }
 
                     my ($verdict, $extra_info) = Verdict::get_rqg_verdict($rqg_workdir);
