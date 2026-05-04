@@ -1,5 +1,5 @@
 #  Copyright (c) 2018 - 2022 MariaDB Corporation Ab.
-#  Copyright (c) 2023 - 2025 MariaDB plc
+#  Copyright (c) 2023 - 2026 MariaDB plc
 #  Use is subject to license terms.
 #
 #  This program is free software; you can redistribute it and/or modify
@@ -68,8 +68,8 @@ use constant SPACE_FREE     => 10000;
 use constant SPACE_USED     => 500;
 #
 # Maximum storage space in MB required in vardir by a core (ASAN Build).
-#    ASAN build   core ~ 2000 MB , rare also 2900 MB
-#    debug build  core ~  900 MB , rare also 1800 MB
+#    ASAN build   core ~ 2000 MB , rare up to 2900 MB
+#    debug build  core ~  900 MB , rare up to 1800 MB
 use constant SPACE_CORE     => 3000;
 # Maximum share of RQG runs where an end with core is assumed.
 use constant SHARE_CORE     => 0.1;
@@ -626,12 +626,21 @@ sub report {
     # - one additional RQG worker would get started.
     # - from the now running RQG workers
     #   - two crash with core and the remaining like average
-    #   - two had nearly no space consumption but reach maximum of (average,SPACE_USED).
+    #   - three had nearly no space consumption but reach maximum of (average,SPACE_USED).
     if ($worker_active > 0) {
         $vd_K = (2 + ($worker_active - 1) * SHARE_CORE) * SPACE_CORE;
         my $space_estimation = $vardir_consumed / $worker_active;
         $space_estimation = SPACE_USED if $space_estimation < SPACE_USED;
-        $vd_K = $vd_K + 2 * $space_estimation;
+        # Observation 2026-04-30:
+        # 2026-04-30T13:44:56 223 , ... = load_increase
+        # 2026-04-30T13:44:56 224 , ... = load_keep K1
+        # 2026-04-30T13:45:05 224 , ... = load_keep K1
+        # 2026-04-30T13:45:06 224 , ... = load_decrease D1
+        # 2026-04-30T13:45:06 224 , ... = load_decrease D1
+        # 2026-04-30T13:45:06 221 , ... = load_keep K1
+        # The distance between LOAD_KEEP and LOAD_DECREASE seems to be to small.
+        # Therefore the factor is increased to 3.
+        $vd_K = $vd_K + 3 * $space_estimation;
     } else {
         $vd_K = SPACE_CORE + SPACE_USED;
     }

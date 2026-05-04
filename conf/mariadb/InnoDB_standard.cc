@@ -1,5 +1,5 @@
 # Copyright (C) 2019, 2022 MariaDB corporation Ab. All rights reserved.
-# Copyright (C) 2023, 2025 MariaDB plc All rights reserved.
+# Copyright (C) 2023, 2026 MariaDB plc All rights reserved.
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify

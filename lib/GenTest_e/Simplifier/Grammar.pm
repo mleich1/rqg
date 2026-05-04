@@ -887,7 +887,7 @@ sub analyze_all_rules {
         #   - thread<number>* and <number> bigger than number of threads assigned ($threads)
         #   or
         #   - we have thread<number><pattern> with <number> covering the full range 1..$threads
-        # Suche rules well be deleted.
+        # Such rules will be deleted.
         # As consequence the already stored RULE_REFERENCED of other rules might become outdated
         # (too big) and we need to recompute and maybe delete more.
         # Hence whenever we have deleted a rule $run_all_again gets set to 1.
