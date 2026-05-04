@@ -1,4 +1,4 @@
-# Copyright (C) 2025 MariaDB plc
+# Copyright (C) 2025, 2026 MariaDB plc
 #
 # redefine_innodb_log_archive.yy
 # This grammar is written by Saahil Alam during his time in MariaDB
@@ -111,10 +111,11 @@ log_file_size_value:
     67108864     |  # 64M
     134217728    |  # 128M
     268435456    |  # 256M
-    536870912    |  # 512M
-    1073741824   |  # 1G
-    2147483648   |  # 2G
-    4294967295   ;  # 4G-1 - maximum when archive=ON
+    536870912    ;  # 512M
+# Disabled because RQG batch ResourceControl aborted a to high fraction of tests.
+#   1073741824   |  # 1G
+#   2147483648   |  # 2G
+#   4294967295   ;  # 4G-1 - maximum when archive=ON
 
 # Generate significant redo log activity
 log_archive_heavy_dml:
