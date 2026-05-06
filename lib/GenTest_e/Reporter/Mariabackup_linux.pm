@@ -193,7 +193,7 @@ sub init {
 
     $clone_vardir  = $source_server->vardir()  . "_clone";
     $backup_prt =   "$clone_vardir/backup.prt";
-    if (not defined $rr) {
+    if (not defined $rr or '' eq $rr) {
         $backup_backup_prefix =     $no_rr_prefix;
         $backup_prepare_prefix =    $no_rr_prefix;
     } elsif (Runtime::RR_OFF ne $rr) {
