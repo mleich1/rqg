@@ -2029,7 +2029,24 @@ sub stopServer {
     # Get the actual size of the server error log.
     my $file_to_read     = $errorlog;
     my @filestats        = stat($file_to_read);
-    my $file_size_before = $filestats[7];
+    my $file_size_before;
+    if (@filestats) {
+        $file_size_before = $filestats[7];
+    } else {
+        $res = STATUS_INTERNAL_ERROR;
+        # Most likely a serious bug in RQG like
+        #   - the server never started up far enough to create the log, or
+        #   - some other component (cleanup, parallel reaper) removed it, or
+        #   - $errorlog is computed wrong for this code path.
+        # Less likely a "Marauder" within the current environment like
+        #   - delete files
+        #   - change ownships
+        Carp::cluck("ERROR: $who_am_i Server error log '$file_to_read' is not stat-able " .
+            "before shutdown attempt: $!.");
+        say("ERROR: $who_am_i " . Basics::return_status_text($res));
+        $file_size_before = 0;
+        return $res;
+    }
     # say("DEBUG: $who_am_i Server error log '$errorlog' size before shutdown attempt : " .
     #     "$file_size_before");
     # system("ps -elf | grep mysqld");
@@ -2111,8 +2128,22 @@ sub stopServer {
     }
 
     if ($check_shutdown) {
-        my @filestats = stat($file_to_read);
-        my $file_size_after = $filestats[7];
+        # Get the actual size of the server error log.
+        my $file_to_read     = $errorlog;
+        my @filestats        = stat($file_to_read);
+        my $file_size_after;
+        if (@filestats) {
+            $file_size_after = $filestats[7];
+        } else {
+            $res = STATUS_INTERNAL_ERROR;
+            # Same reasoning as for $file_size_before above.
+            Carp::cluck("ERROR: $who_am_i Server error log '$file_to_read' is not stat-able " .
+                "after shutdown attempt: $!.");
+            say("ERROR: $who_am_i " . Basics::return_status_text($res));
+            $file_size_before = 0;
+            return $res;
+        }
+
         # say("DEBUG: Server error log '$errorlog' size after shutdown attempt : $file_size_after");
         if ($file_size_after == $file_size_before) {
             my $offset = 10000;
@@ -2272,7 +2303,7 @@ sub checkDatabaseIntegrity {
     my $aux_status =  $self->check_errorlog_and_return($status);
     if (STATUS_OK != $aux_status) {
         $executor->disconnect();
-        return $aux_status, undef;
+        return $aux_status;
     }
     # Starting from here till end of the current routine we can now check for more
     # error patterns because concurrent sessions should be harmless like
@@ -2381,7 +2412,7 @@ sub checkDatabaseIntegrity {
     } # End sub show_the_locks_per_table
 
     # For experimenting
-    if (1) {
+    if (0) {
         say("WARN: $who_am_i CREATE tables and damaged views and some prepared XA command");
         my $executor1 = GenTest_e::Executor->newFromDSN($dsn);
         $executor1->setId($server_id);
@@ -3644,7 +3675,7 @@ sub _find {
 #       $paths .= join(",", map {"'" . $base . "/" . $_ ."'"} @$subdir) . ",";
 #   }
 #   my $names = join(" or ", @names );
-#   Carp::confess("ERROR: Cannot find '$names' in $paths");
+#   Carp::cluck("ERROR: Cannot find '$names' in $paths");
 }
 
 sub dsn {
@@ -3993,7 +4024,10 @@ sub make_backtrace {
 
     my $who_am_i =  Basics::who_am_i;
     my $server_id = $self->server_id();
-    $who_am_i .=    " server[" . $server_id . "]";
+    if (not defined $server_id) {
+        Carp::cluck("INTERNAL_ERROR: \$server_id is not defined.");
+    }
+    $who_am_i .=    " server[" . ($server_id // '?') . "]";
 
     my $rqg_homedir = Local::get_rqg_home();
     # For testing:

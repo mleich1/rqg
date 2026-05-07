@@ -1898,12 +1898,15 @@ my $stop_status = stopServers($final_result);
 if ($stop_status != STATUS_OK) {
     # stopServer has probably made a backtrace.
     # Are ther missing cases.
-    say("ERROR: Stopping the server(s) failed with status $stop_status.");
+    # say("ERROR: Stopping the server(s) failed with status $stop_status.");
+    say("ERROR: Stopping the server(s) failed with status " . status2text($stop_status) .
+        "($stop_status).");
     say("       Server already no more running or no reaction on admin shutdown or ...");
     if ($final_result > STATUS_CRITICAL_FAILURE) {
         say("INFO: The current status is already high enough. So it will be not modified.");
     } else {
-        say("INFO: Raising status from " . $final_result . " to " . $stop_status);
+        say("INFO: Raising status from " . status2text($final_result) . "($final_result) to " .
+            status2text($stop_status) . "($stop_status).");
         $final_result = $stop_status;
     }
 }
