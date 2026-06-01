@@ -9,7 +9,9 @@
 // Single log:  rqg_verdict --dump=D --log=L         (prints say-style verdict line)
 // Many logs:   rqg_verdict --dump=D --logs=LISTFILE  (one "<log>\t<line>" per log)
 
-#define _GNU_SOURCE
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE   // for memmem; guarded since the toolchain may predefine it
+#endif
 #define PCRE2_CODE_UNIT_WIDTH 8
 #include <pcre2.h>
 #include <cstdio>
