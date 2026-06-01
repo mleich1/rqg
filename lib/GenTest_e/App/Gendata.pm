@@ -1,7 +1,7 @@
 # Copyright (C) 2009, 2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
-# Copyright (c) 2023 MariaDB plc
+# Copyright (c) 2023, 2026 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -109,7 +109,7 @@ sub new {
     if (not defined $self->[GD_VARCHAR_LENGTH]) {
         # gendata.pl says
         # --varchar-length: maximum length of strings (default 1)
-        # So lets do that here and get rid of the risk to catch perl warnings abaout
+        # So lets do that here and get rid of the risk to catch perl warnings about
         # uninitialized variables which hold the value for varchar-length.
         $self->[GD_VARCHAR_LENGTH] = 1;
     }
@@ -415,8 +415,10 @@ sub run {
             $field_copy[FIELD_TYPE] .= ' (1)';
         }
 
-        $field_copy[FIELD_CHARSET] = "/*+mysql: CHARACTER SET ".$field_copy[FIELD_CHARSET]."*/" if defined $field_copy[FIELD_CHARSET] and $field_copy[FIELD_CHARSET] ne '';
-        $field_copy[FIELD_COLLATION] = "/*mysql: COLLATE ".$field_copy[FIELD_COLLATION]."*/" if defined $field_copy[FIELD_COLLATION] and $field_copy[FIELD_COLLATION] ne '';
+        $field_copy[FIELD_CHARSET] = "/*+mysql: CHARACTER SET ".$field_copy[FIELD_CHARSET]."*/"
+            if (defined $field_copy[FIELD_CHARSET] and $field_copy[FIELD_CHARSET] ne '');
+        $field_copy[FIELD_COLLATION] = "/*mysql: COLLATE ".$field_copy[FIELD_COLLATION]."*/"
+            if (defined $field_copy[FIELD_COLLATION] and $field_copy[FIELD_COLLATION] ne '');
 
         my $key_len;
 
@@ -481,26 +483,31 @@ sub run {
 
             # We don't want duplicate table names in case all parameters that affect the name are the same
             if ($tnames{$table_name}) {
-                $table_name .= '_'.(++$tnames{$table_name});
+                $table_name .= '_' . (++$tnames{$table_name});
             } else {
                 $tnames{$table_name} = 1;
             }
 
             if (
-                (uc($table_copy[TABLE_ENGINE]) eq 'MYISAM') ||
-                ($table_copy[TABLE_ENGINE] eq '')
+                (defined $table_copy[TABLE_ENGINE] and uc($table_copy[TABLE_ENGINE]) eq 'MYISAM') ||
+                (defined $table_copy[TABLE_ENGINE] and $table_copy[TABLE_ENGINE] eq '')
                 ) {
                 push @myisam_tables, $table_name;
             }
 
-            $table->[TABLE_NAME] = $table_name;
+            $table->[TABLE_NAME] =  $table_name;
         }
 
-        $table_copy[TABLE_ENGINE] = "ENGINE=".$table_copy[TABLE_ENGINE] if $table_copy[TABLE_ENGINE] ne '';
-        $table_copy[TABLE_ROW_FORMAT] = "ROW_FORMAT=".$table_copy[TABLE_ROW_FORMAT] if $table_copy[TABLE_ROW_FORMAT] ne '';
-        $table_copy[TABLE_CHARSET] = "CHARACTER SET ".$table_copy[TABLE_CHARSET] if $table_copy[TABLE_CHARSET] ne '';
-        $table_copy[TABLE_COLLATION] = "COLLATE ".$table_copy[TABLE_COLLATION] if $table_copy[TABLE_COLLATION] ne '';
-        $table_copy[TABLE_PARTITION] = "/*!50100 PARTITION BY ".$table_copy[TABLE_PARTITION]." */" if $table_copy[TABLE_PARTITION] ne '';
+        $table_copy[TABLE_ENGINE] =     "ENGINE=" . $table_copy[TABLE_ENGINE]
+            if (defined $table_copy[TABLE_ENGINE]    and $table_copy[TABLE_ENGINE] ne '');
+        $table_copy[TABLE_ROW_FORMAT] = "ROW_FORMAT=" . $table_copy[TABLE_ROW_FORMAT]
+            if (defined $table_copy[TABLE_ROW_FORMAT] and $table_copy[TABLE_ROW_FORMAT] ne '');
+        $table_copy[TABLE_CHARSET] =    "CHARACTER SET " . $table_copy[TABLE_CHARSET]
+            if (defined $table_copy[TABLE_CHARSET] and $table_copy[TABLE_CHARSET] ne '');
+        $table_copy[TABLE_COLLATION] =  "COLLATE " . $table_copy[TABLE_COLLATION]
+            if (defined $table_copy[TABLE_COLLATION] and $table_copy[TABLE_COLLATION] ne '');
+        $table_copy[TABLE_PARTITION] =  "/*!50100 PARTITION BY " . $table_copy[TABLE_PARTITION]." */"
+            if (defined $table_copy[TABLE_PARTITION] and $table_copy[TABLE_PARTITION] ne '');
 
         delete $table_copy[TABLE_ROW];	# Do not include number of rows in the CREATE TABLE
         delete $table_copy[TABLE_PK];	# Do not include PK definition at the end of CREATE TABLE
