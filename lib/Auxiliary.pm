@@ -3309,7 +3309,7 @@ sub clean_workdir {
 
 
 sub make_dbs_dirs {
-# Build the infrastructure (storage area) required for on DB server.
+# Build the infrastructure (storage area) required for one DB server.
     my ($vardir) = @_;
 
     # say("DEBUG: In make_dbs_dirs for ->$vardir<-");
