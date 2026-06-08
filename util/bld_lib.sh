@@ -1,6 +1,6 @@
 #!/bin/bash
 # Copyright (C) 2021, 2022 MariaDB Corporation Ab.
-# Copyright (C) 2023, 2024 MariaDB plc
+# Copyright (C) 2023, 2026 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -18,6 +18,8 @@
 # USA
 
 # Library with functions used during Build of MariaDB for use in InnoDB RQG testing
+
+set -x
 
 function set_parallel()
 {
@@ -274,6 +276,15 @@ function check_environment()
     fi
     echo "git checkout storage/innobase/include/ut0new.h" >> "$CHECKOUT_LST"
 
+    #    Avoid abort of rr when meeting code of sql_backup and /dev/shm
+    SQL_BACKUP_RR_PATCH="$GENERAL_SOURCE_DIR""/sql_backup-rr.patch"
+    if [ ! -f "$SQL_BACKUP_RR_PATCH" ]
+    then
+        echo "No plain file '$SQL_BACKUP_RR_PATCH' found."
+        exit 4
+    fi
+    echo "git checkout sql/sql_backup.cc" >> "$CHECKOUT_LST"
+
     cp "$CHECKOUT_LST" "$CHECKOUT_LST".res
     sort -u "$CHECKOUT_LST" > "$CHECKOUT_LST"".usrt"
     mv "$CHECKOUT_LST"".usrt" "$CHECKOUT_LST"
@@ -509,6 +520,7 @@ function patch_for_testing()
 
     cd "$SOURCE_DIR"
 
+set -e
     # Try to reduce the amount of fake hangs if rr invoked.
     patch -lp1 < "$RR_HANG_PATCH"
     RC=$?
@@ -550,6 +562,16 @@ function patch_for_testing()
     fi
     echo "4. '$BP_IN_CORE_PATCH' applied"
 
-    # git status       gets printed by other function later
+    #    Avoid abort of rr when meeting code of sql_backup and /dev/shm
+    SQL_BACKUP_RR_PATCH="$GENERAL_SOURCE_DIR""/sql_backup-rr.patch"
+    patch -lp1 < "$SQL_BACKUP_RR_PATCH"
+    RC=$?
+    if [ $RC -gt 0 ]
+    then
+        echo "ERROR: Applying '$SQL_BACKUP_RR_PATCH' failed."
+        cond_exit
+    fi
+    echo "5. '$SQL_BACKUP_RR_PATCH' applied"
 
+set +e
 }
