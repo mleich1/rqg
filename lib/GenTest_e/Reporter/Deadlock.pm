@@ -1,6 +1,6 @@
 # Copyright (c) 2008, 2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2018, 2022 MariaDB Coporation Ab.
-# Copyright (c) 2023, 2025 MariaDB plc
+# Copyright (c) 2023, 2026 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -700,6 +700,7 @@ sub inspect_processlist {
         # Concept:
         # 1. Check first if the server process is gone.
         # 2. Set the alarm_msg for deadlock/freeze before setting the alarm.
+        alarm (0);
         if (STATUS_OK != server_dead($reporter)) {
             exit STATUS_SERVER_CRASHED;
         }
