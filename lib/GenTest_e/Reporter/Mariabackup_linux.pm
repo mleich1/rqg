@@ -311,8 +311,8 @@ sub monitor {
     # Useful because we should not go below the minimal innodb_buffer_pool_size.
     my $innodb_buffer_pool_size = $reporter->serverVariable('innodb_buffer_pool_size');
 
-    # We make a backup of $clone_datadir within $rqg_backup_dir because in case of failure we
-    # need these files not modified by mariabackup --prepare.
+    # We will make a backup of $clone_datadir within $rqg_backup_dir later because in case
+    # of failure we need these files not modified by mariabackup --prepare.
     our $rqg_backup_dir = $clone_vardir . '/fbackup';
     # We let the copy operation create the directory $rqg_backup_dir later.
     my $source_port    = $reporter->serverVariable('port');
