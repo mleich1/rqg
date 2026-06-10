@@ -185,27 +185,24 @@ sub init {
 
     $rr =       Runtime::get_rr();
 
-    my $no_rr_prefix =  "exec ";
-    my $rr_prefix =     "ulimit -c 0; exec $rr ";
-
     # Access data about the first server
     $source_server = $reporter->properties->servers->[0];
 
     $clone_vardir  = $source_server->vardir()  . "_clone";
     $backup_prt =   "$clone_vardir/backup.prt";
-    if (not defined $rr or '' eq $rr) {
-        $backup_backup_prefix =     $no_rr_prefix;
-        $backup_prepare_prefix =    $no_rr_prefix;
+    if (not defined $rr or Runtime::RR_OFF eq $rr) {
+        $backup_backup_prefix =     "exec ";
+        $backup_prepare_prefix =    "exec ";
     } elsif (Runtime::RR_OFF ne $rr) {
         $ENV{'_RR_TRACE_DIR'} =     $clone_vardir . '/rr';
-        $backup_prepare_prefix =    $rr_prefix;
+        $backup_prepare_prefix =    "ulimit -c 0; exec $rr ";
         if ($dbdir =~ /^\/dev\/shm\/rqg\//) {
             # Per standardlayout "/dev/shm/rqg" is a directory but not a mount point.
             say("INFO: Running mariabackup --backup not under rr because the DB server runs " .
                 "on fake PMEM (/dev/shm).");
-            $backup_backup_prefix = $no_rr_prefix;
+            $backup_backup_prefix = "exec ";
         } else {
-            $backup_backup_prefix = $rr_prefix;
+            $backup_backup_prefix = "ulimit -c 0; exec $rr ";
         }
     }
 
@@ -383,7 +380,6 @@ sub monitor {
             $clone_server->killServer();
             remove_clone_dbs_dirs($clone_vardir);
         } elsif (-e $backup_prt) {
-     #  if (-e $backup_prt) {
             my $mb_pid = Auxiliary::get_string_after_pattern($backup_prt,
                          "Starting Mariabackup as process ");
             if (not defined $mb_pid or '' eq $mb_pid) {
