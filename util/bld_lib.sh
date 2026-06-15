@@ -278,12 +278,15 @@ function check_environment()
 
     #    Avoid abort of rr when meeting code of sql_backup and /dev/shm
     SQL_BACKUP_RR_PATCH="$GENERAL_SOURCE_DIR""/sql_backup-rr.patch"
-    if [ ! -f "$SQL_BACKUP_RR_PATCH" ]
+    if [ -f sql/sql_backup.cc ]
     then
-        echo "No plain file '$SQL_BACKUP_RR_PATCH' found."
-        exit 4
+        if [ ! -f "$SQL_BACKUP_RR_PATCH" ]
+        then
+            echo "No plain file '$SQL_BACKUP_RR_PATCH' found."
+            exit 4
+        fi
+        echo "git checkout sql/sql_backup.cc" >> "$CHECKOUT_LST"
     fi
-    echo "git checkout sql/sql_backup.cc" >> "$CHECKOUT_LST"
 
     cp "$CHECKOUT_LST" "$CHECKOUT_LST".res
     sort -u "$CHECKOUT_LST" > "$CHECKOUT_LST"".usrt"
@@ -491,6 +494,10 @@ function install_till_end()
     check_1st "$INSTALL_PREFIX"
     grep 'MariaDB Version' "$BLD_PROT" | sort -u                            | tee -a "$SHORT_PROT"
 
+    # Hint:
+    # The souce directory might contain useful sub directories like scripts , tests etc.
+    # which could be written direct to the install directory too.
+
     archiving
     mv "$BLD_PROT" "$INSTALL_PREFIX"
 
@@ -563,15 +570,18 @@ set -e
     echo "4. '$BP_IN_CORE_PATCH' applied"
 
     #    Avoid abort of rr when meeting code of sql_backup and /dev/shm
-    SQL_BACKUP_RR_PATCH="$GENERAL_SOURCE_DIR""/sql_backup-rr.patch"
-    patch -lp1 < "$SQL_BACKUP_RR_PATCH"
-    RC=$?
-    if [ $RC -gt 0 ]
+    if [ -f sql/sql_backup.cc ]
     then
-        echo "ERROR: Applying '$SQL_BACKUP_RR_PATCH' failed."
-        cond_exit
+        SQL_BACKUP_RR_PATCH="$GENERAL_SOURCE_DIR""/sql_backup-rr.patch"
+        patch -lp1 < "$SQL_BACKUP_RR_PATCH"
+        RC=$?
+        if [ $RC -gt 0 ]
+        then
+            echo "ERROR: Applying '$SQL_BACKUP_RR_PATCH' failed."
+            cond_exit
+        fi
+        echo "5. '$SQL_BACKUP_RR_PATCH' applied"
     fi
-    echo "5. '$SQL_BACKUP_RR_PATCH' applied"
 
 set +e
 }
