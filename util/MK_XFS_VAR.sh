@@ -15,7 +15,7 @@ then
     exit 4
 fi
 CONTAINER="$BASE_FS""/container"
-VARDIR_FS="$BASE_FS""/rqg_ext4"
+VARDIR_FS="$BASE_FS""/rqg_xfs"
 
 sudo umount "$CONTAINER"
 sudo umount "$VARDIR_FS"
@@ -111,9 +111,7 @@ echo "SPACE_AVAIL ->$SPACE_AVAIL<- SPACE_PLANNED ->$SPACE_PLANNED<- (all in KB)"
 # Make the file $CONTAINER big enough for keeping the internal structures of
 # a filesystem with the planned size.
 sudo fallocate -l "$SPACE_PLANNED""K" "$CONTAINER"
-# -m0                 0% reserved blocks for root
-# -O ^has_journal     Disable journaling
-sudo mkfs.ext4 -m0 -O ^has_journal -j "$CONTAINER"
+sudo mkfs.xfs "$CONTAINER"
 
 sudo mount "$CONTAINER" "$VARDIR_FS"
 sudo chown $USER "$VARDIR_FS" "$CONTAINER"
