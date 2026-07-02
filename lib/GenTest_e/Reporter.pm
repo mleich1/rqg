@@ -1,6 +1,6 @@
 # Copyright (c) 2008, 2012 Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2018, 2022 MariaDB Corporation Ab.
-# Copyright (c) 2023, 2025 MariaDB plc
+# Copyright (c) 2023, 2026 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -225,6 +225,8 @@ sub new {
         # Look for the server error log above the datadir.
         $errorlog = File::Basename::dirname($reporter->serverVariable('datadir')) . "/mysql.err";
     }
+    # Auxiliary::describe_object($errorlog);
+
     if (-e $errorlog) {
         # Unclear if after some minor cleanup needed
         $reporter->[REPORTER_SERVER_INFO]->{'errorlog'} = $errorlog;
