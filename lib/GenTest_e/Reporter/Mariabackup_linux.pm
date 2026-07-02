@@ -449,7 +449,8 @@ sub monitor {
             say("ERROR: $who_am_i Helper Query ->" . $aux_query . "<- failed with " .
                 "$aux_err : $aux_errstr . " . Basics::return_status_text($aux_status));
             $executor->disconnect();
-            exit $aux_status;
+            # Return because the caller should kill the maybe running mariabackup.
+            return $aux_status;
         }
         my $key_aux_ref = $aux_result->data;
         if (0 == scalar(@$key_aux_ref)) {
