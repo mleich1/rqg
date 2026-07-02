@@ -674,34 +674,11 @@ sub direct_to_file {
                 "Will exit with status " . status2text($status) . "($status)");
             exit $status;
         }
+        $| = 1;
         $current_direction = "FILE";
         return $status;
     } else {
-        # say("WARN: Outputdirection is already $current_direction.");
-        # Reporter having their own protocol file and starting server switch between
-        # the output files.
-        if (not -e $output_file) {
-            $status = STATUS_ENVIRONMENT_FAILURE;
-            Carp::cluck("ERROR: The output_file '$output_file' does not exist.");
-            return $status;
-        }
-        close($stdout_save);
-        close($stderr_save);
-        if (not open(STDOUT, ">>", $output_file)) {
-            $status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
-                "Will exit with status " . status2text($status) . "($status)");
-            exit $status;
-        }
-        # Redirect STDERR to the log of the RQG run.
-        if (not open(STDERR, ">>", $output_file)) {
-            $status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
-                "Will exit with status " . status2text($status) . "($status)");
-            exit $status;
-        }
-        $current_direction = "FILE";
-        return $status;
+        say("WARN: Outputdirection is already $current_direction.");
     }
 
 }
@@ -714,19 +691,19 @@ sub direct_to_stdout {
     if ("FILE" eq $current_direction) {
         if (not defined $stdout_save or not $stderr_save) {
             $status = STATUS_INTERNAL_ERROR;
-            say("INTERNAL ERROR: $who_am_i If ever running 'direct_to_stdout' " .
+            Carp::cluck("INTERNAL ERROR: $who_am_i If ever running 'direct_to_stdout' " .
                 "than there must have been a 'direct_to_file' prior.");
             exit $status;
         }
         if (not open(STDOUT, ">&" , $stdout_save)) {
             $status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
+            Carp::cluck("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
                 "Will exit with status " . status2text($status) . "($status)");
             exit $status;
         }
         if (not open(STDERR, ">&" , $stderr_save)) {
             $status = STATUS_ENVIRONMENT_FAILURE;
-            say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
+            Carp::cluck("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
                 "Will exit with status " . status2text($status) . "($status)");
             exit $status;
         }
@@ -737,7 +714,6 @@ sub direct_to_stdout {
         $| = 1;
         $current_direction = "STDOUT";
     } else {
-        say("WARN: Outputdirection is already $current_direction.");
         Carp::cluck("WARN: Outputdirection is already $current_direction.");
     }
 
