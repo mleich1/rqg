@@ -198,7 +198,7 @@ sub init {
         $backup_prepare_prefix =    "ulimit -c 0; exec $rr ";
         if ($dbdir =~ /^\/dev\/shm\/rqg\//) {
             # Per standardlayout "/dev/shm/rqg" is a directory but not a mount point.
-            say("INFO: Running mariabackup --backup not under rr because the DB server runs " .
+            say("INFO: $who_am_i Running mariabackup --backup not under rr because the DB server runs " .
                 "on fake PMEM (/dev/shm).");
             $backup_backup_prefix = "exec ";
         } else {
@@ -240,7 +240,7 @@ sub monitor {
     # This is the index of the first server == source server!
     my $server_id = 0;
 
-    $reporter->init if not defined $prepare_timeout;
+    $reporter->init if not defined $backup_timeout;
     # say("DEBUG: $who_am_i Endtime: " . $reporter->testEnd()) if $script_debug;
     #
 
@@ -256,14 +256,20 @@ sub monitor {
     }
 
     # It is quite likely that we will need a connection to the source DB server later.
-    our $dsn =       $reporter->dsn();
+    our $dsn =      $reporter->dsn();
     our $executor = GenTest_e::Executor->newFromDSN($dsn);
     $executor->setId(1);
     $executor->setRole("Mariabackup");
     $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_REPORTER);
     # This will perform the connect and set max_statement_time = 0.
     $status = $executor->init();
-    return $status if STATUS_OK != $status;
+    if (STATUS_OK != $status) {
+        Basics::direct_to_stdout();
+        say("ERROR: $who_am_i The initialization of the Executor failed with status $status.");
+        return $status;
+    } else {
+        say("INFO: $who_am_i The Executor was initialized.");
+    }
 
     my $basedir = $source_server->basedir();
 
@@ -271,7 +277,7 @@ sub monitor {
     if (STATUS_OK != Basics::make_file($reporter_prt, undef)) {
         $status = STATUS_FAILURE;
         $executor->disconnect();
-        say("ERROR: Will return STATUS_ALARM because of previous failure.");
+        say("ERROR: $who_am_i Will return STATUS_ALARM because of previous failure.");
         return $status;
     }
     Basics::direct_to_file($reporter_prt);
@@ -441,6 +447,7 @@ sub monitor {
                             "WHERE LOCK_TYPE = 'Backup lock'";
         my $aux_result =    $executor->execute($aux_query);
         my $aux_status =    $aux_result->status;
+        $aux_status = STATUS_CRITICAL_FAILURE if not defined $aux_status;
         if (STATUS_OK != $aux_status) {
             my $aux_err =       $aux_result->err;
             $aux_err    =       "<undef>" if not defined $aux_err;
@@ -461,7 +468,7 @@ sub monitor {
             $executor->disconnect();
             return $aux_result;
         } else {
-            say("DEBUG: METADATA_LOCK_INFO thread_id<->lock_mode<->lock_duration<->lock_type");
+            say("DEBUG: $who_am_i METADATA_LOCK_INFO thread_id<->lock_mode<->lock_duration<->lock_type");
             foreach my $lock_check_val (@$key_aux_ref) {
                 my $r_thread_id =     $lock_check_val->[0];
                 say("INFO: $who_am_i The thread_id $r_thread_id holds a backup lock. " .
@@ -530,14 +537,14 @@ sub monitor {
     }
 
     $alarm_timeout = $backup_timeout;
-    say("Executing backup: $backup_backup_cmd");
+    say("INFO: $who_am_i Executing backup: $backup_backup_cmd");
     $alarm_msg =  "Backup operation did not finish in " . $alarm_timeout . "s.";
     my $res;
     {
         my $th_status;
         alarm ($alarm_timeout);
         local $SIG{TERM} =  sub { $th_status = TERM_handler ;
-                                  say("DEBUG: TERM_handler th_status : $th_status")};
+                                  say("DEBUG: $who_am_i TERM_handler th_status : $th_status")};
         # Code for revealing that the TERM_handler gets used at all.
         #     my $my_pid = $$;
         #     system("(set -x; sleep 3; kill -15 $my_pid; sleep 1) 2>/tmp/out &");
@@ -590,6 +597,7 @@ sub monitor {
         my $aux_query =     'SET @aux = 1';
         my $aux_result =    $executor->execute($aux_query);
         my $aux_status =    $aux_result->status;
+        $aux_status = STATUS_CRITICAL_FAILURE if not defined $aux_status;
         if (STATUS_OK != $aux_status) {
             my $aux_err =       $aux_result->err;
             $aux_err    =       "<undef>" if not defined $aux_err;
@@ -645,7 +653,7 @@ sub monitor {
             Basics::exit_status_text($status));
         exit $status;
     };
-    # say("DEBUG: abspath to FBackup stuff ->" . Cwd::abs_path($rqg_backup_dir . "/data") . "<-");
+    # say("DEBUG: $who_am_i abspath to FBackup stuff ->" . Cwd::abs_path($rqg_backup_dir . "/data") . "<-");
 
     # mariabckup --prepare is ahead
     if ($reporter->testEnd() <= time() + 10) {
@@ -659,11 +667,11 @@ sub monitor {
 #   # system("ls -ld " . $clone_datadir . "/ib_logfile*");
 #   my $backup_prepare_cmd = $backup_prepare_prefix . " $backup_binary --port=$clone_port " .
 #                            "--prepare --target-dir=$clone_datadir > $backup_prt 2>&1";
-    say("Executing prepare: $backup_prepare_cmd");
+    say("INFO: $who_am_i Executing prepare: $backup_prepare_cmd");
     $alarm_msg =  "Prepare operation did not finish in " . $alarm_timeout . "s.";
     {
         my $th_status;
-        local $SIG{TERM} =  sub { $th_status = TERM_handler ; say("DEBUG: TERM_handler th_status : $th_status")};
+        local $SIG{TERM} =  sub { $th_status = TERM_handler ; say("DEBUG: $who_am_i TERM_handler th_status : $th_status")};
         alarm ($prepare_timeout);
         system("$backup_prepare_cmd");
         $res = $?;
@@ -715,7 +723,7 @@ sub monitor {
     # push @mysqld_options, "--crap";
 
     my $th_status;
-    local $SIG{TERM} =  sub { $th_status = TERM_handler ; say("DEBUG: TERM_handler th_status : $th_status")};
+    local $SIG{TERM} =  sub { $th_status = TERM_handler ; say("DEBUG: $who_am_i TERM_handler th_status : $th_status")};
 
     # Let routines from lib/DBServer_e/MySQL/MySQLd.pm do as much of the job as possible.
     # I hope that this will work on WIN.
@@ -742,8 +750,8 @@ sub monitor {
     $clone_err =     $clone_server->errorlog();
 
     # system("ls -ld " . $clone_datadir . "/ib_logfile*");
-    say("INFO: Attempt to start a DB server on the cloned data.");
-    say("INFO: Per Marko messages like InnoDB: 1 transaction(s) which must be rolled etc. " .
+    say("INFO: $who_am_i Attempt to start a DB server on the cloned data.");
+    say("INFO: $who_am_i Per Marko messages like InnoDB: 1 transaction(s) which must be rolled etc. " .
         "are normal. MB prepare is not allowed to do rollbacks.");
     $status = $clone_server->startServer();
     if ($status != STATUS_OK) {
@@ -753,6 +761,7 @@ sub monitor {
             #     $th_status == STATUS_OK --> return STATUS_OK (== $th_status)
             #     $th_status != STATUS_OK --> return $th_status
             Basics::direct_to_stdout();
+            say("INFO: $who_am_i SIGTERM received. Will return status $th_status");
             return $th_status;
         } else {
             Basics::direct_to_stdout();

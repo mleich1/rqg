@@ -674,11 +674,34 @@ sub direct_to_file {
                 "Will exit with status " . status2text($status) . "($status)");
             exit $status;
         }
-        $| = 1;
         $current_direction = "FILE";
         return $status;
     } else {
-        say("WARN: Outputdirection is already $current_direction.");
+        # say("WARN: Outputdirection is already $current_direction.");
+        # Reporter having their own protocol file and starting server switch between
+        # the output files.
+        if (not -e $output_file) {
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            Carp::cluck("ERROR: The output_file '$output_file' does not exist.");
+            return $status;
+        }
+        close($stdout_save);
+        close($stderr_save);
+        if (not open(STDOUT, ">>", $output_file)) {
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i : Opening STDOUT failed with '$!' " .
+                "Will exit with status " . status2text($status) . "($status)");
+            exit $status;
+        }
+        # Redirect STDERR to the log of the RQG run.
+        if (not open(STDERR, ">>", $output_file)) {
+            $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i : Opening STDERR failed with '$!' " .
+                "Will exit with status " . status2text($status) . "($status)");
+            exit $status;
+        }
+        $current_direction = "FILE";
+        return $status;
     }
 
 }
