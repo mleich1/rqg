@@ -106,6 +106,7 @@ function check_environment()
 {
     # The code of these plugins gets pulled when cloning the tree.
     # The settings below will prevent pulling the changes on "git fetch".
+    git config --global submodule.storage/duckdb.update none
     git config --global submodule.storage/rocksdb.update none
     git config --global submodule.storage/columnstore.update none
     git config --global submodule.storage/xpand.update none
@@ -121,6 +122,7 @@ function check_environment()
     git config -f .gitmodules submodule.wsrep-lib.shallow true
     git config -f .gitmodules submodule.libmariadb.shallow true
     git config -f .gitmodules submodule.extra/wolfssl/wolfssl.shallow true
+    git config -f .gitmodules submodule.storage/duckdb/rocksdb.shallow true
     git config -f .gitmodules submodule.storage/rocksdb/rocksdb.shallow true
     git config -f .gitmodules submodule.storage/maria/libmarias3.shallow true
     git config -f .gitmodules submodule.storage/columnstore/columnstore.shallow true
