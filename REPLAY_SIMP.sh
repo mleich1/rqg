@@ -92,6 +92,10 @@ MAX_RUNTIME=7200
 # If its not an ASAN build than this environment variable should be harmless anyway.
 export ASAN_OPTIONS=abort_on_error=1,disable_coredump=0
 echo "Have set "`env | grep ASAN`
+# Harmless on non-MSAN builds. Disables use-after-dtor poisoning, which is
+# reused across the plugin dlopen/dlclose loop and yields false positives.
+export MSAN_OPTIONS=poison_in_dtor=0
+echo "Have set "`env | grep MSAN`
 
 # If an YY grammar was assigned than check it and offer it for editing
 # Optional YY grammar
