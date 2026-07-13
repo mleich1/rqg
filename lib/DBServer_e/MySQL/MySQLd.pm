@@ -134,7 +134,10 @@ use constant DEFAULT_SHUTDOWN_TIMEOUT            => 180;
 use constant DEFAULT_TERM_TIMEOUT                => 120;
 # Maximum timespan between time of fork of auxiliary process + acceptable start time of some
 # tool (rr etc. if needed at all) and the pid getting printed into the server error log.
-use constant DEFAULT_PID_SEEN_TIMEOUT            => 60;
+# Observation 2026-07:
+# Running testing campaign, debug build with MSAN, the failing test runs without rr
+# The server start on backupped data needed 61s.
+use constant DEFAULT_PID_SEEN_TIMEOUT            => 180;
 # Maximum timespan between the pid getting printed into the server error log
 # and the message about the server being connectable.
 use constant DEFAULT_STARTUP_TIMEOUT             => 600;
@@ -1570,6 +1573,7 @@ sub startServer {
         # What is ensured:
         # The server is running, connectable, SQL pulling variables worked.
         # Hence other SQL with correct syntax should work too.
+        say("INFO: $who_am_i " . Basics::return_status_text($status));
         return STATUS_OK;
     }
 } # End sub startServer
