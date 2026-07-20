@@ -20,10 +20,6 @@ package GenTest_e::Reporter::Mariabackup3_linux;
 # The reporter is a derivate of Mariabackup_linux.pm.
 # Mariabackup3_linux.pm uses the server-side backup functionality introduced by MDEV-14992.
 
-#
-# This RQG reporter is currently only a prototype.
-#
-
 require Exporter;
 @ISA = qw(GenTest_e::Reporter);
 
@@ -95,36 +91,6 @@ sub init {
         " backup: $backup_timeout");
     # Basics::direct_to_stdout();
 
-#   $client_basedir = $reporter->serverInfo('client_bindir');
-#   # Replace maybe by use of Auxiliary::find_file_at_places like in rqg_batch.pl
-#   # mariabackup could be in bin too.
-#   $backup_binary = "$client_basedir" . "/mariadb-backup";
-#   if (not -e $backup_binary) {
-#       $backup_binary = "$client_basedir" . "/mariabackup";
-#   }
-#   if (not -e $backup_binary) {
-#       $status = STATUS_ENVIRONMENT_FAILURE;
-#       say("ERROR: $who_am_i Calculated mariabackup binary '$backup_binary' not found. " .
-#           Basics::exit_status_text($status));
-#       exit $status;
-#   }
-
-#   # --log-innodb-page-corruption
-#   #       Continue backup if innodb corrupted pages are found. The pages are logged in
-#   #       innodb_corrupted_pages and backup is finished with error.
-#   #       --prepare will try to fix corrupted pages. If innodb_corrupted_pages exists after
-#   #       --prepare in base backup directory, backup still contains corrupted pages and
-#   #       can not be considered as consistent.
-#   #       --log-innodb-page-corruption just gives more detailed information.
-#   $backup_binary .= " --skip-ssl-verify-server-cert --host=127.0.0.1 --user=root --password=''" .
-#                     " --log-innodb-page-corruption ";
-
-#   my $flush_method    = $reporter->serverVariable('innodb_flush_method');
-#   # Reading the flush_method that way could harvest ''.
-#   # But when assigning that later mariabackup/mariadb will abort (10.2).
-#   $backup_binary .= '--innodb_flush_method="' . $flush_method . '" '
-#       if (defined $flush_method and '' ne $flush_method);
-
     my $dbdir = Local::get_dbdir();
 
     $rr =       Runtime::get_rr();
@@ -133,22 +99,6 @@ sub init {
     $source_server = $reporter->properties->servers->[0];
 
     $clone_vardir  = $source_server->vardir()  . "_clone";
-#   $backup_prt =   "$clone_vardir/backup.prt";
-#   if (not defined $rr or Runtime::RR_OFF eq $rr) {
-#       $backup_backup_prefix =     "exec ";
-#       $backup_prepare_prefix =    "exec ";
-#   } elsif (Runtime::RR_OFF ne $rr) {
-#       $ENV{'_RR_TRACE_DIR'} =     $clone_vardir . '/rr';
-#       $backup_prepare_prefix =    "ulimit -c 0; exec $rr ";
-#       if ($dbdir =~ /^\/dev\/shm\/rqg\//) {
-#           # Per standardlayout "/dev/shm/rqg" is a directory but not a mount point.
-#           say("INFO: $who_am_i Running mariabackup --backup not under rr because the DB server runs " .
-#               "on fake PMEM (/dev/shm).");
-#           $backup_backup_prefix = "exec ";
-#       } else {
-#           $backup_backup_prefix = "ulimit -c 0; exec $rr ";
-#       }
-#   }
 
     $source_port =  $reporter->serverVariable('port');
     $clone_port  =  $source_port + 4;
@@ -157,18 +107,6 @@ sub init {
 
     $clone_datadir = $clone_vardir . "/data";
 
-    # A DB server under high load can write a huge amount of committed changes per time unit.
-    # In case that exceeds the read speed of Mariabackup serious than we need to increase the
-    # innodb_log_file_size in order to prevent that mariabackup --backup fails.
-    # Observation 2022-07:
-    # The DB server writes to /dev/shm/<somewhere> and mariabackup --backup reads from there.
-    # The PMEM emulation used in the server writes gives the DB server some serious speed advantage
-    # causing a lot trouble.
-#   $backup_backup_cmd =    "$backup_backup_prefix $backup_binary --port=$source_port --backup " .
-#                           "--datadir=$datadir --target-dir=$clone_datadir " .
-#                           "--log-copy-interval=1 > $backup_prt 2>&1";
-#   $backup_prepare_cmd =    $backup_prepare_prefix . " $backup_binary --port=$clone_port " .
-#                            "--prepare --target-dir=$clone_datadir > $backup_prt 2>&1";
 }
 
 sub monitor {
@@ -196,15 +134,7 @@ sub monitor {
     # This is the index of the first server == source server!
     my $server_id = 0;
 
-    unlink($reporter_prt);
-    if (STATUS_OK != Basics::make_file($reporter_prt, "$who_am_i Running with pid $$")) {
-        $status = STATUS_ENVIRONMENT_FAILURE;
-        say("ERROR: Will return STATUS_ENVIRONMENT_FAILURE because of previous failure.");
-        return $status;
-    }
-    Basics::direct_to_file($reporter_prt);
-
-    $reporter->init; # if not defined $backup_timeout;
+    $reporter->init if not defined $backup_timeout;
     # say("DEBUG: $who_am_i Endtime: " . $reporter->testEnd()) if $script_debug;
     #
 
@@ -219,7 +149,6 @@ sub monitor {
         return $status;
     }
 
-    # It is quite likely that we will need a connection to the source DB server later.
     our $dsn =      $reporter->dsn();
     our $executor = GenTest_e::Executor->newFromDSN($dsn);
     $executor->setId(1);
@@ -227,9 +156,24 @@ sub monitor {
     $executor->setTask(GenTest_e::Executor::EXECUTOR_TASK_REPORTER);
     # This will perform the connect and set max_statement_time = 0.
     $status = $executor->init();
-    return $status if STATUS_OK != $status;
+    if (STATUS_OK != $status) {
+        Basics::direct_to_stdout();
+        say("ERROR: $who_am_i The initialization of the Executor failed with status $status.");
+        return $status;
+    } else {
+        say("INFO: $who_am_i The Executor was initialized.");
+    }
 
     my $basedir = $source_server->basedir();
+
+    unlink($reporter_prt);
+    if (STATUS_OK != Basics::make_file($reporter_prt, undef)) {
+        $status = STATUS_FAILURE;
+        $executor->disconnect();
+        say("ERROR: $who_am_i Will return STATUS_ALARM because of previous failure.");
+        return $status;
+    }
+    Basics::direct_to_file($reporter_prt);
 
     # Take over the settings for the first server and modify them if needed.
     @mysqld_options = @{$reporter->properties->servers->[0]->getServerOptions};
@@ -291,47 +235,12 @@ sub monitor {
     my $plugins       =         $reporter->serverPlugins();
     my ($version)     =         ($reporter->serverVariable('version') =~ /^(\d+\.\d+)\./);
 
-    if (not osWindows()) {
-    # Fake PMEM exists since MDEV-14425 in 10.8.
-    # Mariabackup --backup with mmap (used on fake PMEM == /dev/shm) and rr cannot work.
-    # If needing some rr trace than the following patch will help
-    #
-    # diff --git a/storage/innobase/log/log0log.cc b/storage/innobase/log/log0log.cc
-    # index 69ee386293f..c6ad406f313 100644
-    # --- a/storage/innobase/log/log0log.cc
-    # +++ b/storage/innobase/log/log0log.cc
-    # @@ -219,7 +219,7 @@ void log_t::attach(log_file_t file, os_offset_t size)
-    #        my_mmap(0, size_t(size),
-    #                srv_read_only_mode ? PROT_READ : PROT_READ | PROT_WRITE,
-    #                MAP_SHARED_VALIDATE | MAP_SYNC, log.m_file, 0);
-    # -#ifdef __linux__
-    # +#ifdef MLEICH1
-    #      if (ptr == MAP_FAILED)
-    #      {
-    #        struct stat st;
-    #
-    # The patch above is not used in QA "production".
-    # In order to be on the safe side we just do not assign the innodb-use-native-aio value which
-    # is used by the running server.
-    #   $backup_binary .= " --innodb-use-native-aio=$innodb_use_native_aio ";
-    }
-
-    # Per Marko (2024-09)
-    # In case of 10.11-MDEV-34062 and "mariadb-backup --backup" runs under "rr record" than
-    # --innodb-log-file-mmap=OFF needs to be set in order to avoid the known rr -- mmap problem.
-    # I guess this applies to
-    # - higher MariaDB versions (Support of --innodb-log-file-mmap required)    and
-    # - datadir is subdir of /dev/shm/
-    # only.
-    # We just stick to no "mariadb-backup --backup" under "rr" in case we run in /dev/shm/rqg/*.
-
     sub TERM_handler {
         sleep 1;
         my $status = STATUS_OK;
         say("INFO: $who_am_i SIGTERM caught. Will return later STATUS_OK.");
         $executor->disconnect() if defined $executor;
-        $clone_err =     $clone_server->errorlog;
-        if (-e $clone_err) {
+        if (defined $clone_server and -e  $clone_server->errorlog) {
             say("INFO: $who_am_i Will kill the server running on backupped data.");
             $clone_server->killServer();
             remove_clone_dbs_dirs($clone_vardir);
@@ -341,11 +250,7 @@ sub monitor {
         exit $status;
     }
 
-    # For experimenting:
-    # $backup_binary = "not_exists ";
-    # my $backup_backup_cmd = "$backup_binary --port=$source_port --hickup " .
-
-    # Mariabackup could hang.
+    # BACKUP SERVER could hang.
     my $alarm_msg =     '';
     my $alarm_timeout = 0;
 
@@ -396,51 +301,8 @@ sub monitor {
     }
 
     sigaction SIGALRM, new POSIX::SigAction sub {
-#       Basics::direct_to_stdout();
         say("INFO: $who_am_i $alarm_msg");
-#       my $mb_pid = Auxiliary::get_string_after_pattern($backup_prt,
-#                    "Starting Mariabackup as process ");
-#       if (not defined $mb_pid or '' eq $mb_pid) {
-#           $status = STATUS_ENVIRONMENT_FAILURE;
-#           say("ERROR: $who_am_i Unable to determine the pid of mariabackup. " .
-#               "Maybe the patch backup_pid_print.patch was not applied.");
-#               # or in theory: Mariabackup hangs before writing the "Starting Mariabackup".
-#           say(Basics::exit_status_text($status));
-#           sayFile($backup_prt);
-#           $executor->disconnect();
-#           exit $status;
-#       }
-        # FIXME: MDEV-33914
-        # 1. Generate a list of all sessions holding the backup lock.
-        # 2. If the list is empty report a failure, send SIGSEGV and return STATUS_BACKUP_FAILURE.
-        # 3. If the list has more than one member, which should never happen and was never
-        #    observed by me, send SIGSEGV and return STATUS_ENVIRONMENT_FAILURE.
-        # 4. Abort if none holds a backup lock or ...
-        # 5. KILL SOFT CONNECTION <member of the list>.
-        # Other solution:
-        # Support a rule "thread<n>_end". That could run lifting locks etc.
-        # Disadvantage:
-        # The caller of that could be killed earlier or the call fails because of kill query
-        # or timeout or ...
         my $return =    get_METADATA_LOCK_INFO;
-        # 6. In case mariabackup ... finishes within some grace period go on.
-        #    If not report a failure, send SIGSEGV and return STATUS_BACKUP_FAILURE.
-#       my $found =     0;
-#       my $end_time =  time() + 90;
-#       while(1) {
-#          $found = Auxiliary::search_in_file($backup_prt, '\[00\] .{1,22} completed OK\!');
-#          last if $found;
-#          last if $end_time <= time();
-#          sleep 1;
-#       }
-
-#       if (not $found) {
-#           say("INFO: $who_am_i Send SIGSEGV to pid $mb_pid running mariabackup");
-#           kill 'SEGV' => $mb_pid;
-#           Basics::direct_to_file($reporter_prt);
-#           $status = STATUS_BACKUP_FAILURE;
-#           exit $status;
-#       }
         Basics::direct_to_stdout();
         sayFile($reporter_prt);
         $status = STATUS_BACKUP_FAILURE;
@@ -457,7 +319,8 @@ sub monitor {
     }
 
     $alarm_timeout = $backup_timeout;
-    my $aux_query =  "BACKUP SERVER TO '$clone_datadir'";
+    # my $aux_query =  "BACKUP SERVER TO '$clone_datadir' CONCURRENT 2";
+      my $aux_query =  "BACKUP SERVER TO '$clone_datadir'";
     say("$who_am_i Executing backup statement: ->$aux_query<-");
     $alarm_msg =  "Backup operation did not finish in " . $alarm_timeout . "s.";
     {
@@ -467,33 +330,34 @@ sub monitor {
         alarm ($alarm_timeout);
 
         # For testing
+        # say("INFO: $who_am_i Testing the impact of SIGTERM");
+        # system("kill -15 $$");
+        # say("INFO: $who_am_i Sent SIGTERM to own process.");
+        # sleep 2;
+
+        # For testing
+        # say("INFO: $who_am_i Testing the impact of exceeding the alarm timeout");
         # alarm (1);
+        # sleep 2;
+        # say("INFO: $who_am_i After exceeding the alarm timeout");
+
+        # For testing
+        # say("INFO: $who_am_i Testing the impact of no more running source server");
+        # my $server = $reporter->properties->servers->[0];
+        # $server->crashServer();
+        # say("INFO: $who_am_i After SIGKILL the source server");
         # sleep 2;
 
         my $aux_result =    $executor->execute($aux_query);
         alarm (0);
-        return $th_status if defined $th_status;
-        my $aux_status =    $aux_result->status;
-        $aux_status = STATUS_CRITICAL_FAILURE if not defined $aux_status;
-        if (STATUS_OK != $aux_status) {
-            my $aux_err =       $aux_result->err;
-            $aux_err    =       "<undef>" if not defined $aux_err;
-            my $aux_errstr =    $aux_result->errstr;
-            $aux_errstr =       "<undef>" if not defined $aux_errstr;
-            say("ERROR: $who_am_i Helper Query ->" . $aux_query . "<- on source server failed " .
-                "with $aux_err : $aux_errstr . " . Basics::return_status_text($aux_status));
-            $executor->disconnect();
-            return $aux_status;
+
+        # The reporter(manager) was asked to terminate.
+        # It is intentional that the protocol of the reporter gets not deleted.
+        if (defined $th_status) {
+            remove_clone_dbs_dirs($clone_vardir);
+            return STATUS_OK;
         }
-    }
 
-
-    if (STATUS_OK != $status) {
-
-        # It is quite likely that the source DB server does no more react because of
-        # crash, server freeze or similar.
-        my $aux_query =     'SET @aux = 1';
-        my $aux_result =    $executor->execute($aux_query);
         my $aux_status =    $aux_result->status;
         $aux_status = STATUS_CRITICAL_FAILURE if not defined $aux_status;
         if (STATUS_OK != $aux_status) {
@@ -501,49 +365,39 @@ sub monitor {
             $aux_err    =       "<undef>" if not defined $aux_err;
             my $aux_errstr =    $aux_result->errstr;
             $aux_errstr =       "<undef>" if not defined $aux_errstr;
-            say("ERROR: $who_am_i Helper Query ->" . $aux_query . "<- on source server failed " .
-                "with $aux_err : $aux_errstr . " . Basics::return_status_text($aux_status));
-        } else {
             $executor->disconnect();
+            say("ERROR: $who_am_i Helper Query ->" . $aux_query . "<- on source server failed " .
+                "with $aux_err : $aux_errstr . status : $aux_status");
+            # return $aux_status;
+            # Syntax failure (1064) -> $aux_status == 21 which is treated as
             Basics::direct_to_stdout();
-            $status = STATUS_BACKUP_FAILURE;
+            say("INFO: $who_am_i Backup returned a failure. The command output is around end of " .
+                "'$reporter_prt'.");
+            sayFile($reporter_prt);
+            remove_clone_dbs_dirs($clone_vardir);
+            if ($aux_status >= STATUS_CRITICAL_FAILURE) {
+                say("ERROR: The status is too bad. " . Basics::exit_status_text($aux_status));
+                exit $aux_status;
+            } else {
+                if (1064 == $aux_err) {
+                    $aux_status = STATUS_BACKUP_FAILURE;
+                    say("ERROR: The error harvested is too bad. " . Basics::exit_status_text($aux_status));
+                    exit $aux_status;
+                } elsif (1213 == $aux_err) {
+                    $aux_status = STATUS_OK;
+                    say("INFO: The deadlock harvested has to be tolerated. " . Basics::return_status_text($aux_status));
+                    return $aux_status;
+                } elsif (1205 == $aux_err) {
+                    $aux_status = STATUS_OK;
+                    say("INFO: Exceeding the lock wait timeout has to be tolerated. " . Basics::return_status_text($aux_status));
+                    return $aux_status;
+                } else {
+                    $aux_status = STATUS_BACKUP_FAILURE;
+                    say("ERROR: The error harvested is too bad. " . Basics::exit_status_text($aux_status));
+                    exit $aux_status;
+                }
+            }
         }
-        $executor->disconnect();
-        Basics::direct_to_stdout();
-        say("ERROR: $who_am_i Backup returned a failure. The command output is around end of " .
-            "'$reporter_prt'. " . Basics::exit_status_text($status));
-        sayFile($reporter_prt);
-        exit $aux_status;
-    }
-
-    # Mariabackup --backup could report something like
-    # ... | [00] 2021-03-24 17:48:10 Copying ./test/oltp1.ibd to /dev/shm/vardir/1616598218/209/1_clone/data/test/oltp1.new
-    # ... | [00] 2021-03-24 17:48:10 Database page corruption detected at page 1, retrying...
-    # ....
-    # Error: failed to read page after 10 retries. File ./test/oltp1.ibd seems to be corrupted.
-    # ...
-    # [00] 2021-03-24 17:48:23 completed OK!
-    # and give exit code 0.
-    # In QA I cannot live with that alone.
-    my $found = Auxiliary::search_in_file($reporter_prt,
-                                          'Error: failed to read page after 10 retries. ' .
-                                          'File .{1,200} seems to be corrupted.');
-    if (not defined $found) {
-        # Technical problems!
-        $status = STATUS_ENVIRONMENT_FAILURE;
-        Basics::direct_to_stdout();
-        say("FATAL ERROR: $who_am_i \$found is undef. " . Basics::exit_status_text($status));
-        exit $status;
-    } elsif ($found) {
-        Basics::direct_to_stdout();
-        $status = STATUS_BACKUP_FAILURE;
-        say("INFO: $who_am_i corrupted file detected. " . Basics::exit_status_text($status));
-        sayFile($reporter_prt);
-        # Wait some time because I fear that rr is just writing the trace.
-        sleep 100;
-        exit $status;
-    } else {
-        # Nothing to do
     }
 
     if (STATUS_OK != Basics::copy_dir_to_newdir($clone_datadir, $rqg_backup_dir . "/data")) {
@@ -563,38 +417,6 @@ sub monitor {
         say("INFO: $who_am_i Endtime is nearly exceeded. " . Basics::exit_status_text($status));
         return $status;
     }
-
-#   # system("ls -ld " . $clone_datadir . "/ib_logfile*");
-#   my $backup_prepare_cmd = $backup_prepare_prefix . " $backup_binary --port=$clone_port " .
-#                            "--prepare --target-dir=$clone_datadir > $backup_prt 2>&1";
-#   say("$who_am_i Executing prepare: $backup_prepare_cmd");
-#   $alarm_msg =  "Prepare operation did not finish in " . $alarm_timeout . "s.";
-#   {
-#       my $th_status;
-#       local $SIG{TERM} =  sub { $th_status = TERM_handler ; say("DEBUG: TERM_handler th_status : $th_status")};
-#       alarm ($prepare_timeout);
-#       system("$backup_prepare_cmd");
-#       $res = $?;
-#       alarm (0);
-#       return $th_status if defined $th_status;
-#   }
-#   sayFile($backup_prt);
-#   if ($res != 0) {
-#       Basics::direct_to_stdout();
-#       $status = STATUS_BACKUP_FAILURE;
-#       say("ERROR: $who_am_i First prepare returned $res. The command output is around end of " .
-#           "'$reporter_prt'. " . Basics::exit_status_text($status));
-#       # Wait some time because I fear that rr ist just writing the trace.
-#       # sleep 100;
-#       if (defined Runtime::get_rr()) {
-#           # We try to generate a backtrace from the rr trace.
-#           Auxiliary::make_rr_backtrace($clone_vardir);
-#       }
-#       sayFile($reporter_prt);
-#       exit $status;
-#   }
-#   unlink($backup_prt);
-#   # system("ls -ld " . $clone_datadir . "/ib_logfile*");
 
     # Start on backupped data is ahead
     if ($reporter->testEnd() <= time() + 15) {
@@ -659,6 +481,7 @@ sub monitor {
             #     $th_status == STATUS_OK --> return STATUS_OK (== $th_status)
             #     $th_status != STATUS_OK --> return $th_status
             Basics::direct_to_stdout();
+            say("INFO: $who_am_i SIGTERM received. Will return status $th_status");
             return $th_status;
         } else {
             Basics::direct_to_stdout();
@@ -671,6 +494,7 @@ sub monitor {
             exit $status;
         }
     }
+    say("INFO: Server start on the cloned data passed.");
 
     # Certain checks are ahead
     if ($reporter->testEnd() <= time() + 10) {
