@@ -243,11 +243,12 @@ sub monitor {
         if (defined $clone_server and -e  $clone_server->errorlog) {
             say("INFO: $who_am_i Will kill the server running on backupped data.");
             $clone_server->killServer();
-            remove_clone_dbs_dirs($clone_vardir);
         }
+        remove_clone_dbs_dirs($clone_vardir);
+        # It is intentional that the protocol of the reporter gets not deleted.
         Basics::direct_to_stdout();
-        say("INFO: $who_am_i " . Basics::exit_status_text($status));
-        exit $status;
+        say("INFO: $who_am_i " . Basics::return_status_text($status));
+        return $status;
     }
 
     # BACKUP SERVER could hang.
@@ -261,11 +262,12 @@ sub monitor {
         my $aux_result =    $executor->execute($aux_query);
         my $aux_status =    $aux_result->status;
         $aux_status = STATUS_CRITICAL_FAILURE if not defined $aux_status;
+        my $aux_err =       $aux_result->err;
+        $aux_err    =       "<undef>" if not defined $aux_err;
+        my $aux_errstr =    $aux_result->errstr;
+        $aux_errstr =       "<undef>" if not defined $aux_errstr;
+
         if (STATUS_OK != $aux_status) {
-            my $aux_err =       $aux_result->err;
-            $aux_err    =       "<undef>" if not defined $aux_err;
-            my $aux_errstr =    $aux_result->errstr;
-            $aux_errstr =       "<undef>" if not defined $aux_errstr;
             $executor->disconnect();
             say("ERROR: $who_am_i Helper Query ->" . $aux_query . "<- failed with " .
                 "$aux_err : $aux_errstr . " . Basics::return_status_text($aux_status));
@@ -274,10 +276,6 @@ sub monitor {
         }
         my $key_aux_ref = $aux_result->data;
         if (not defined $key_aux_ref) {
-            my $aux_err =       $aux_result->err;
-            $aux_err    =       "<undef>" if not defined $aux_err;
-            my $aux_errstr =    $aux_result->errstr;
-            $aux_errstr =       "<undef>" if not defined $aux_errstr;
             $executor->disconnect();
             $aux_status = STATUS_CRITICAL_FAILURE;
             say("ERROR: $who_am_i Helper Query ->" . $aux_query . "<- harvested " .
@@ -318,11 +316,12 @@ sub monitor {
         return $status;
     }
 
-    $alarm_timeout = $backup_timeout;
-    # my $aux_query =  "BACKUP SERVER TO '$clone_datadir' CONCURRENT 2";
-      my $aux_query =  "BACKUP SERVER TO '$clone_datadir'";
-    say("$who_am_i Executing backup statement: ->$aux_query<-");
-    $alarm_msg =  "Backup operation did not finish in " . $alarm_timeout . "s.";
+      my $aux_query =  "BACKUP SERVER TO '$clone_datadir' 2 CONCURRENT";
+    # my $aux_query =  "BACKUP SERVER TO '$clone_datadir'";
+
+    $alarm_timeout =   $backup_timeout;
+    $alarm_msg =       "Backup operation did not finish in " . $alarm_timeout . "s.";
+    say("INFO: $who_am_i Executing backup statement: ->$aux_query<-");
     {
         my $th_status;
         local $SIG{TERM} =  sub { $th_status = TERM_handler ;
@@ -330,35 +329,37 @@ sub monitor {
         alarm ($alarm_timeout);
 
         # For testing
-        # say("INFO: $who_am_i Testing the impact of SIGTERM");
-        # system("kill -15 $$");
-        # say("INFO: $who_am_i Sent SIGTERM to own process.");
-        # sleep 2;
-
-        # For testing
-        # say("INFO: $who_am_i Testing the impact of exceeding the alarm timeout");
-        # alarm (1);
-        # sleep 2;
-        # say("INFO: $who_am_i After exceeding the alarm timeout");
-
-        # For testing
-        # say("INFO: $who_am_i Testing the impact of no more running source server");
-        # my $server = $reporter->properties->servers->[0];
-        # $server->crashServer();
-        # say("INFO: $who_am_i After SIGKILL the source server");
-        # sleep 2;
+        #============
+        if (0) {
+            say("INFO: $who_am_i Testing the impact of SIGTERM");
+            my $my_pid = $$;
+            system("(set -x; sleep 3; kill -15 $my_pid; sleep 1) 2>/tmp/out &");
+            # system("kill -15 $$");
+            say("INFO: $who_am_i Sent SIGTERM to own process.");
+            sleep 2;
+        }
+        #----------
+        if (0) {
+            say("INFO: $who_am_i Testing the impact of exceeding the alarm timeout");
+            alarm (1);
+            sleep 2;
+            say("INFO: $who_am_i After exceeding the alarm timeout");
+        }
+        #----------
+        if (0) {
+            say("INFO: $who_am_i Testing the impact of no more running source server");
+            my $server = $reporter->properties->servers->[0];
+            $server->crashServer();
+            say("INFO: $who_am_i After SIGKILL the source server");
+            sleep 2;
+        }
 
         my $aux_result =    $executor->execute($aux_query);
         alarm (0);
-
-        # The reporter(manager) was asked to terminate.
-        # It is intentional that the protocol of the reporter gets not deleted.
-        if (defined $th_status) {
-            remove_clone_dbs_dirs($clone_vardir);
-            return STATUS_OK;
-        }
+        return $th_status if defined $th_status;
 
         my $aux_status =    $aux_result->status;
+
         $aux_status = STATUS_CRITICAL_FAILURE if not defined $aux_status;
         if (STATUS_OK != $aux_status) {
             my $aux_err =       $aux_result->err;
@@ -366,10 +367,9 @@ sub monitor {
             my $aux_errstr =    $aux_result->errstr;
             $aux_errstr =       "<undef>" if not defined $aux_errstr;
             $executor->disconnect();
-            say("ERROR: $who_am_i Helper Query ->" . $aux_query . "<- on source server failed " .
-                "with $aux_err : $aux_errstr . status : $aux_status");
-            # return $aux_status;
-            # Syntax failure (1064) -> $aux_status == 21 which is treated as
+            my $message = "ERROR: $who_am_i Helper Query ->" . $aux_query . "<- on source server failed " .
+                "with $aux_err : $aux_errstr . status : $aux_status";
+            say($message);
             Basics::direct_to_stdout();
             say("INFO: $who_am_i Backup returned a failure. The command output is around end of " .
                 "'$reporter_prt'.");
@@ -379,23 +379,43 @@ sub monitor {
                 say("ERROR: The status is too bad. " . Basics::exit_status_text($aux_status));
                 exit $aux_status;
             } else {
-                if (1064 == $aux_err) {
-                    $aux_status = STATUS_BACKUP_FAILURE;
-                    say("ERROR: The error harvested is too bad. " . Basics::exit_status_text($aux_status));
-                    exit $aux_status;
-                } elsif (1213 == $aux_err) {
-                    $aux_status = STATUS_OK;
-                    say("INFO: The deadlock harvested has to be tolerated. " . Basics::return_status_text($aux_status));
-                    return $aux_status;
-                } elsif (1205 == $aux_err) {
-                    $aux_status = STATUS_OK;
-                    say("INFO: Exceeding the lock wait timeout has to be tolerated. " . Basics::return_status_text($aux_status));
-                    return $aux_status;
-                } else {
-                    $aux_status = STATUS_BACKUP_FAILURE;
-                    say("ERROR: The error harvested is too bad. " . Basics::exit_status_text($aux_status));
-                    exit $aux_status;
+                # Messsage written by wrapper to STDOUT
+                # ERROR 1221 (HY000) at line 1: SET GLOBAL innodb_log_file_size is in progress
+                # Message composed here
+                # ERROR: ..... failed with 1221 : SET GLOBAL innodb_log_file_size is in progress . status : 22
+                my @tolerated_patterns = (
+                    '1969.{1,50}: Query was interrupted: execution time limit \d+\.\d+ sec exceeded',
+                    '1205.{1,50}: Lock wait timeout exceeded; try restarting transaction',
+                    '1213.{1,50}: Deadlock found when trying to get lock; try restarting transaction',
+                    '1221.{1,50}: SET GLOBAL innodb_log_file_size is in progress',
+                );
+                foreach my $pattern (@tolerated_patterns) {
+                    my $found = 0;
+                    $found = 1 if $message =~ /$pattern/;
+                    if (not defined $found) {
+                        # Technical problems!
+                        $status = STATUS_ENVIRONMENT_FAILURE;
+                        say("FATAL ERROR: $who_am_i \$found is undef. " .
+                            Basics::exit_status_text($status));
+                $executor->disconnect();
+                        exit $status;
+                    } elsif ($found) {
+                        $status = STATUS_OK;
+                        say("INFO: $who_am_i BACKUP SERVER failed with perl pattern '$pattern'. " .
+                            "Not a bug. " . Basics::return_status_text($status) . " later.");
+                        sayFile($reporter_prt);
+                        remove_clone_dbs_dirs($clone_vardir);
+                $executor->disconnect();
+                        # No immediate retry of backing up the server because the other reporters should
+                        # get a chance to do their tasks too.
+                        return $status;
+                    } else {
+                        # Nothing to do
+                    }
                 }
+                $aux_status = STATUS_BACKUP_FAILURE;
+                say("ERROR: The error harvested is too bad. " . Basics::exit_status_text($aux_status));
+                exit $aux_status;
             }
         }
     }
