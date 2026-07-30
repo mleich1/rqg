@@ -131,6 +131,19 @@ our $mariabackup =
 #   "--reporters=MariabackupIncremental_linux --mysqld=--loose-innodb-log-file-size=300M " .
 #   "--mysqld=--loose-innodb_log_file_mmap=OFF ";
 
+# Incompatibility rules
+# ---------------------
+# A combination is built by picking one entry per section. Certain entries must not meet each
+# other. If a generated combination contains the first string than all occurrences of the
+# second string get removed from it.
+#
+# SET GLOBAL innodb_log_file_size (MDEV-27812) rebuilds the redo log file. Mariabackup reads
+# that file during '--backup' and fails if it gets replaced in the middle.
+our $incompatible =
+[
+  [ '--reporters=Mariabackup' , '--redefine=conf/mariadb/redefine_innodb_log_size_dynamic.yy' ] ,
+];
+
 our $duration = 300;
 our $grammars =
 [

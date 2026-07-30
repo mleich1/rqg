@@ -134,6 +134,13 @@ use constant ORDER_PROPERTY3        => 4;
 
 our $combinations; # Otherwise the 'eval' in the sub 'init' makes trouble.
 
+# Optional list of incompatibility rules from the config file.
+# Format: [ [ '<trigger>' , '<victim>' ] , ... ]
+# If a generated combination contains the trigger than all occurrences of the victim get
+# removed from it. This allows to keep an option in the combinations matrix even though it
+# must not be combined with certain entries of another section.
+our $incompatible; # Otherwise the 'eval' in the sub 'init' makes trouble.
+
 # Maximum number of regular finished RQG runs (!= stopped)
 my $trials;
 # Maximum number of left over to be regular finished trials
@@ -559,6 +566,35 @@ sub doExhaustive {
 
 ## ----------------------------------------------------
 
+# Apply the incompatibility rules of the config file to one generated combination.
+sub enforce_incompatible {
+
+    my ($command, $comb_counter) = @_;
+    my $who_am_i = Basics::who_am_i();
+
+    return $command if not defined $incompatible;
+
+    foreach my $rule (@$incompatible) {
+        if (2 != scalar @$rule) {
+            my $status = STATUS_ENVIRONMENT_FAILURE;
+            say("ERROR: $who_am_i An element of '\$incompatible' does not consist of exact " .
+                "two elements. ->" . join('<-->', @$rule) . "<- " .
+                Basics::exit_status_text($status));
+            Batch::emergency_exit($status);
+        }
+        my ($trigger, $victim) = @$rule;
+        next if $command !~ m{\Q$trigger\E};
+        next if $command !~ m{\Q$victim\E};
+        $command =~ s{\Q$victim\E}{}sg;
+        say("INFO: $who_am_i Combination $comb_counter contains '$trigger'. Hence the " .
+            "incompatible '$victim' was removed.");
+    }
+    return $command;
+
+} # End of enforce_incompatible
+
+## ----------------------------------------------------
+
 sub doCombination {
 
     my ($comb_counter, $comb_str, $comment) = @_;
@@ -569,6 +605,8 @@ sub doCombination {
 
     # Remove especially the \n.
     $command =~ s{[\t\r\n]}{ }sgio;
+
+    $command = enforce_incompatible($command, $comb_counter);
 
     if ($command ne '') {
         $next_comb_id++;
