@@ -153,6 +153,7 @@ use constant DEFAULT_SERVER_KILL_TIMEOUT         => 30;
 use constant DEFAULT_SERVER_ABRT_TIMEOUT         => 60;
 
 our @end_line_patterns = (
+    'Aborting',
     'Assertion',
     '^Aborted$',
     'core dumped',
@@ -4126,7 +4127,8 @@ sub make_backtrace {
 
     $max_end_time = $start_time + $wait_timeout;
     my $pid =       $self->serverpid();
-    while (not defined $core and Time::HiRes::time() < $max_end_time) {
+    my $found =     0;
+    while (not defined $core and not $found and Time::HiRes::time() < $max_end_time) {
         sleep 1;
         $core = <$datadir/core*>;
         if (defined $core) {
@@ -4144,11 +4146,18 @@ sub make_backtrace {
                 }
             }
         }
+        $found = Auxiliary::search_in_file($error_log, '\[ERROR\] Aborting');
     }
     if (not defined $core) {
         $status = STATUS_SERVER_CRASHED;
-        say("INFO: $who_am_i Even after $wait_timeout" . "s waiting no core file with expected " .
-            "name found. " . Basics::return_status_text($status));
+        my $message_part;
+        if ($found) {
+            $message_part = "INFO: $who_am_i No core file to be expected. ";
+        } else {
+            $message_part = "INFO: $who_am_i Even after $wait_timeout" .
+                            "s waiting no core file found. ";
+        }
+        say($message_part . Basics::return_status_text($status));
         say("INFO: $who_am_i ------------------------------ End");
         return $status;
     }
