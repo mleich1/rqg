@@ -127,8 +127,9 @@ use ResourceControl;
 #    set WORKER_END will be set to the current timestamp
 #
 
-# Name of the convenience symlink if symlinking supported by OS
-use constant BATCH_RESULT_SYMLINK    => 'last_result_dir';
+# Names of the convenience symlinks if symlinking supported by OS
+use constant BATCH_RESULT_SYMLINK       => 'last_result_dir';
+use constant BATCH_PREV_RESULT_SYMLINK  => 'previous_result_dir';
 
 my $command_line= "$0 ".join(" ", @ARGV);
 my @ARGV_saved = @ARGV;
@@ -455,13 +456,20 @@ foreach my $i (1..3) {
 
 # Convenience feature
 # -------------------
-# Make a symlink so that the last work/resultdir used by some tool performing multiple RQG runs like
-#    combinations.pl, bughunt.pl, simplify_grammar.pl
-# is easier found.
+# Make symlinks so that directories of the last testing campaigns are easier found.
 # Creating the symlink might fail on some OS (see perlport) but should not abort our run.
-my $symlink = $Local::rqg_home . "/" . BATCH_RESULT_SYMLINK;
-unlink($symlink);
-my $symlink_exists = eval { symlink($Local::results_dir, $symlink) ; 1 };
+my $symlink =       $Local::rqg_home . "/" . BATCH_RESULT_SYMLINK;
+my $prev_symlink =  $Local::rqg_home . "/" . BATCH_PREV_RESULT_SYMLINK;
+if (-e $prev_symlink) {
+    unlink($prev_symlink);
+}
+if (-e $symlink) {
+    # if (STATUS_OK != Basics::rename_dir($symlink, $prev_symlink)) {
+    if (STATUS_OK != Basics::rename_dir($symlink, $prev_symlink)) {
+         $status = STATUS_ENVIRONMENT_FAILURE;
+         safe_exit($status);
+    }
+}
 
 # $workdir, $vardir are the "general" work/var directories of rqg_batch.pl run.
 $workdir = Local::get_results_dir();
