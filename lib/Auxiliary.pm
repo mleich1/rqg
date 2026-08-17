@@ -1,5 +1,5 @@
 #  Copyright (c) 2018, 2022 MariaDB Corporation Ab.
-#  Copyright (c) 2023, 2025 MariaDB plc
+#  Copyright (c) 2023, 2026 MariaDB plc
 #
 #  This program is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -1670,8 +1670,7 @@ sub report_max_sizes {
 
 sub describe_object {
     my ($object) = @_;
-    system ("ls -ld $object");
-    my $line = "DEBUG: object '$object' is";
+    my $line = "DEBUG: object '$object' is a";
     if ($object eq '.' or $object eq '..') {
         $line .= " point object.";
     } else {
@@ -1684,6 +1683,7 @@ sub describe_object {
         } else {
             $line .= " no symlink/file/directory";
         }
+        $line .= " absolute path ->" . Cwd::abs_path($object) . "<- located on";
         $line .= " " . get_fs_type($object);
     }
     say($line . ".");
@@ -1700,6 +1700,7 @@ sub archive_results {
         say("ERROR: $who_am_i RQG workdir '$workdir' is missing or not a directory.");
         return STATUS_FAILURE;
     }
+
     # /data/results/1649954330/1
     # say("DEBUG: Processing workdir '$workdir'");
     if (not opendir(TOPDIR, $workdir)) {
@@ -1708,6 +1709,7 @@ sub archive_results {
     }
     # Move the rr trace directories to their final position.
     while( (my $object = readdir(TOPDIR))) {
+        # say("DEBUG: Inspecting object ->" . $object . "<-");
         my $more_object = $workdir . "/" . $object;
         # describe_object($more_object);
         if ($object eq '.' or $object eq '..') {
@@ -1718,6 +1720,7 @@ sub archive_results {
         if (-d $more_object) {
             # say("DEBUG: '$more_object' is directory.");
         } else {
+            # say("DEBUG: '$more_object' is not a directory.");
             next;
         }
 
@@ -1743,6 +1746,8 @@ sub archive_results {
                 # File::Path::rmtree($abs_object);
                 # system("ls -ld $more_subobject $abs_object");
                 # system("find $more_subobject");
+            } else {
+                # say("DEBUG: subobject ignored '$more_subobject'");
             }
 
         }
@@ -2928,7 +2933,7 @@ sub get_fs_type {
     my ($whatever_file) = @_;
     my $fs_type;
     if (not -e $whatever_file) {
-        say("INTERNAL ERROR: Whatever file '$whatever_file' does not exist.");
+        Carp::cluck("INTERNAL ERROR: Whatever file '$whatever_file' does not exist.");
         my $status = STATUS_INTERNAL_ERROR;
         safe_exit($status);
     }
@@ -3332,44 +3337,51 @@ sub make_dbs_dirs {
         return STATUS_FAILURE;
     }
 
-    # Storage area for objects like
-    # - mysql.err , mysql.log, boot.log,
-    # - rr traces and backups of files/directories
-    # All time tmpfs or similar. Hence $dbdir_fast can already exist. ?????????
+    # Storage area for DB server related objects.
+    # In case they get written by the DB server process than they get physically stored here.
+    # Otherwise symlinks might point to their physical storage location.
+    my $dbdir = Local::get_dbdir() . "/" . $name_for_dbs;
+#   if (not -d $dbdir) {
+        if (STATUS_OK != Basics::make_dir($dbdir)) {
+            return STATUS_FAILURE;
+        }
+#   }
+    describe_object($dbdir);
+    if (STATUS_OK != Basics::symlink_dir($dbdir, $vardir)) {
+        return STATUS_INTERNAL_ERROR;
+    }
+    describe_object($dbdir);
+    describe_object($vardir);
+
+    # Storage area for DB server related objects which do not get written by the server process.
+    #   rr traces, backups of files/directories, maybe files written by RQG reporters
     my $dbdir_fast = Local::get_rqg_fast_dir . "/" . $name_for_dbs;
     if (STATUS_OK != Basics::conditional_make_dir($dbdir_fast)) {
         return STATUS_FAILURE;
     }
-    if (STATUS_OK != Basics::symlink_dir($dbdir_fast, $vardir)) {
-        return STATUS_INTERNAL_ERROR;
-    }
-    foreach my $sub_dir ("/rr", "/fbackup") {
+    # describe_object($dbdir_fast);
+    foreach my $sub_dir ("/rr", "/fbackup", "/mbackup") {
         my $extra_dir = $dbdir_fast . $sub_dir;
         if (STATUS_OK != Basics::make_dir($extra_dir)) {
             return STATUS_FAILURE;
         }
-    }
-
-    # Storage area for objects like
-    # data and tmp dir of the dbserver
-    my $dbdir = Local::get_dbdir() . "/" . $name_for_dbs;
-    if (not -d $dbdir) {
-        if (STATUS_OK != Basics::make_dir($dbdir)) {
-            return STATUS_FAILURE;
-        }
-    }
-    foreach my $sub_dir ("/data", "/tmp") {
-        my $extra_dir = $dbdir . $sub_dir;
-        if (STATUS_OK != Basics::make_dir($extra_dir)) {
-            return STATUS_FAILURE;
-        }
-        my $symlink = $vardir . $sub_dir;
-        if (not -d $symlink) {
-            if (STATUS_OK != Basics::symlink_dir($extra_dir, $symlink)) {
+        # describe_object($extra_dir);
+        if (not -e $vardir . $sub_dir) {
+            if (STATUS_OK != Basics::symlink_dir($extra_dir, $vardir . $sub_dir)) {
                 return STATUS_INTERNAL_ERROR;
             }
         }
+        describe_object($extra_dir);
     }
+    # describe_object($vardir);
+    foreach my $sub_dir ("/data", "/tmp") {
+        my $extra_dir = $vardir . $sub_dir;
+        if (STATUS_OK != Basics::make_dir($extra_dir)) {
+            return STATUS_FAILURE;
+        }
+        describe_object($extra_dir);
+    }
+    # system("ls -ld $vardir/*");
 
     return STATUS_OK;
 }
