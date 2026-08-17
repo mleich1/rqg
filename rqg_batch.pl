@@ -456,26 +456,15 @@ foreach my $i (1..3) {
 
 # Convenience feature
 # -------------------
-# Make symlinks so that directories of the last testing campaigns are easier found.
+# Make a symlink so that the directory of the last testing campaign is easier found.
 # Creating the symlink might fail on some OS (see perlport) but should not abort our run.
-my $symlink =       $Local::rqg_home . "/" . BATCH_RESULT_SYMLINK;
-my $prev_symlink =  $Local::rqg_home . "/" . BATCH_PREV_RESULT_SYMLINK;
-# system("sync; ls -ld $prev_symlink $symlink");
-if (-e $prev_symlink) {
-    unlink($prev_symlink);
-}
-if (-e $symlink) {
-    if (STATUS_OK != Basics::rename_dir($symlink, $prev_symlink)) {
-         $status = STATUS_ENVIRONMENT_FAILURE;
-         safe_exit($status);
-    }
-}
+my $symlink = $Local::rqg_home . "/" . BATCH_RESULT_SYMLINK;
+unlink($symlink);
 my $symlink_exists = eval { symlink($Local::results_dir, $symlink) ; 1 };
-# system("sync; ls -ld $prev_symlink $symlink");
 
 # $workdir, $vardir are the "general" work/var directories of rqg_batch.pl run.
 $workdir = Local::get_results_dir();
-# say("DEBUG: $workdir "); # with runid
+  say("DEBUG: The workdir is '$workdir'."); # with runid
 
 my $bin_arch_dir = Local::get_binarch_dir();
 
