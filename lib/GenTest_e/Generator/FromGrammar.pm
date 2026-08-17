@@ -1,7 +1,7 @@
 # Copyright (C) 2008-2009 Sun Microsystems, Inc. All rights reserved.
 # Copyright (c) 2013, Monty Program Ab.
 # Copyright (c) 2018-2021 MariaDB Corporation Ab.
-# Copyright (c) 2023-2024 MariaDB plc
+# Copyright (c) 2023-2026 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -461,6 +461,7 @@ sub next {
 					} elsif (($item eq '_field_int_indexed') || ($item eq '_field_int_key')) {
 						my $fields_int_indexed = $executors->[0]->metaColumnsDataIndexType('int','indexed',$last_table, $last_database);
                         $last_field = $prng->arrayElement($fields_int_indexed);
+                        $last_field = 'not_existing_field_int_indexed' if not defined $last_field;
 						$item = '`'.$last_field.'`';
 					} elsif ($item eq '_field_char') {
 						my $fields_char = $executors->[0]->metaColumnsDataType('char',$last_table, $last_database);
