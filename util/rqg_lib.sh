@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (C) 2025 MariaDB plc
+# Copyright (C) 2025, 2026 MariaDB plc
 # Use is subject to license terms.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -221,6 +221,8 @@ function prevent_conflicts()
     if [ $FOUND -eq 1 ]
     then
         exit 2
+    else
+        rm -rf /dev/shm/rqg*/* /dev/shm/var* /data/rqg/*
     fi
 }
 
