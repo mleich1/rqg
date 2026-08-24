@@ -153,7 +153,7 @@ sub init {
 
     $client_basedir = $reporter->serverInfo('client_bindir');
     # Replace maybe by use of Auxiliary::find_file_at_places like in rqg_batch.pl
-    $backup_binary = "$client_basedir" . "/../scripts/mariabackup/mariadb-backup-server.sh";
+    $backup_binary = "$client_basedir" . "/../scripts/mariadb-backup-server.sh";
     if (not -e $backup_binary) {
         $status = STATUS_ENVIRONMENT_FAILURE;
         say("ERROR: $who_am_i Calculated mariabackup binary '$backup_binary' not found. " .
@@ -259,7 +259,7 @@ sub monitor {
     return STATUS_OK if $last_call + 15 > time();
     $last_call = time();
 
-    # mariabckup --backup is ahead
+    # backup per wrapper is ahead
     if ($reporter->testEnd() <= time() + 10) {
         $status = STATUS_OK;
         say("INFO: $who_am_i Endtime is nearly exceeded. " . Basics::return_status_text($status));
@@ -386,28 +386,34 @@ sub monitor {
     # only.
     # We just stick to no "mariadb-backup --backup" under "rr" in case we run in /dev/shm/rqg/*.
 
+    our $clone_server_running = 0;
     sub TERM_handler {
         # Thinkable scenario:
         # 1. TERM_handler is activated.
-        # 2. mariabackup ... was called.
+        # 2. mariabackup --prepare or <wrapper> --prepare or <start server on backupped data>
+        #    was called.
         # 3. SIGTERM arrives
-        # 4. mariabackup has not yet written its pid into $backup_prt.
-        # 5. TERM_handler does not find the pid of mariabackup for killing.
+        # 4. The process of the program called in 2. has not yet written its pid into
+        #    $backup_prt (mariabackup/<wrapper> --prepare) or mysql.err(server start)
+        # 5. TERM_handler does not find the pid of the process for killing.
         #    Solution: Let TERM_handler wait a bit.
-        # 6. mariabackup survives and might be an obstacle for the current or new started tests
-        #    till it gives up or gets killed by other RQG components.
+        # 6. In case the process survives than it might be an obstacle for the current or new
+        #    started tests till it gives up or gets killed by other RQG components.
         sleep 1;
         my $status = STATUS_OK;
         say("INFO: $who_am_i SIGTERM caught. Will return later STATUS_OK.");
         $executor->disconnect() if defined $executor;
-        if (defined $clone_server and -e $clone_server->errorlog) {
+        if ($clone_server_running != 0) {
+            # Use the fastest method which is SIGKILL and SIGTERM which leads to
+            # some regular shutdown.
             say("INFO: $who_am_i Will kill the server running on backupped data.");
             $clone_server->killServer();
+            remove_clone_dbs_dirs($clone_vardir);
+            # It is intentional that the protocol of the reporter gets not deleted.
+            $clone_server_running = 0;
         }
-        remove_clone_dbs_dirs($clone_vardir);
-        Basics::direct_to_stdout();
-        say("INFO: $who_am_i " . Basics::return_status_text($status));
-        return $status;
+        # return $status;
+        exit $status;
     }
 
     # For experimenting:
@@ -417,26 +423,6 @@ sub monitor {
     # Mariabackup could hang.
     my $alarm_msg =     '';
     my $alarm_timeout = 0;
-
-    # 1. Observation 2021-12
-    # mariabackup --backup is running.
-    # The reporter gets alarmed because a timeout was exceeded and aborts.
-    # The RQG runner aborts.
-    # The RQG worker generates a verdict and tries to make some archive.
-    # tar protests because reporter_prt changed during archiving.
-    # Reason:
-    # Output redirection leads to mariabackup writing into reporter_prt.
-    # And there is some mariabackup process alive though it should not.
-    #    (Coarse grained) solution:
-    #    The RQG worker has his own processgroup. He kills his processgroup
-    #    before finishing.
-    # 2. Observation 2024-01
-    #    mariabackup --backup is unable to finish because some innodb log resizing
-    #    happened. The timeout gets exceeded, the reporter exits and the RQG
-    #    test finishes. But the mariabackup process remains running.
-    #    (Fine grained) solution:
-    #    The reporter determines the id of the process running mariabackup --backup
-    #    and kills it.
 
     # For testing by constructing a session holding BACKUP STAGE START:
     if(0) {
@@ -561,7 +547,7 @@ sub monitor {
 
         # For testing
         #============
-        if (1) {
+        if (0) {
             say("INFO: $who_am_i Testing the impact of SIGTERM");
             my $my_pid = $$;
             system("(set -x; sleep 3; kill -15 $my_pid; sleep 1) 2>/tmp/out &");
@@ -644,14 +630,16 @@ sub monitor {
         my $aux_query =     'SET @aux = 1';
         my $aux_result =    $executor->execute($aux_query);
         my $aux_status =    $aux_result->status;
+
+        $aux_status = STATUS_CRITICAL_FAILURE if not defined $aux_status;
         if (STATUS_OK != $aux_status) {
             my $aux_err =       $aux_result->err;
             $aux_err    =       "<undef>" if not defined $aux_err;
             my $aux_errstr =    $aux_result->errstr;
             $aux_errstr =       "<undef>" if not defined $aux_errstr;
+            $executor->disconnect();
             say("ERROR: $who_am_i Helper Query ->" . $aux_query . "<- on source server failed " .
                 "with $aux_err : $aux_errstr . " . Basics::return_status_text($aux_status));
-            $executor->disconnect();
             exit $aux_status;
         }
         $executor->disconnect();
@@ -739,15 +727,6 @@ sub monitor {
     unlink($backup_prt);
     # system("ls -ld " . $clone_datadir . "/ib_logfile*");
 
-    # Start on backupped data is ahead
-    if ($reporter->testEnd() <= time() + 15) {
-        $status = STATUS_OK;
-        Basics::direct_to_stdout();
-        remove_clone_dbs_dirs($clone_vardir);
-        say("INFO: $who_am_i Endtime is nearly exceeded. " . Basics::return_status_text($status));
-        return $status;
-    }
-
     # Probably not needed because the checker might set that too.
     push @mysqld_options, '--loose-max-statement-time=0';
     # Probably not needed but maybe safer
@@ -792,7 +771,16 @@ sub monitor {
     my $server_name =   "server[$name]";
     $clone_err =     $clone_server->errorlog();
 
-    # system("ls -ld " . $clone_datadir . "/ib_logfile*");
+    # Start on backupped data is ahead
+    # Sum of timespans for start + kill
+    if ($reporter->testEnd() <= time() + 10) {
+        $status = STATUS_OK;
+        Basics::direct_to_stdout();
+        remove_clone_dbs_dirs($clone_vardir);
+        say("INFO: $who_am_i Endtime is nearly exceeded. " . Basics::return_status_text($status));
+        return $status;
+    }
+
     say("INFO: Attempt to start a DB server on the cloned data.");
     $status = $clone_server->startServer();
     if ($status != STATUS_OK) {
@@ -815,10 +803,12 @@ sub monitor {
             exit $status;
         }
     }
+    $clone_server_running = 1;
     say("INFO: Server start on the cloned data passed.");
 
-    # Certain checks are ahead
-    if ($reporter->testEnd() <= time() + 10) {
+    # Certain consistency checks are ahead
+    # Sum of timespans for consistency check + kill
+    if ($reporter->testEnd() <= time() + 23) {
         $status = STATUS_OK;
         Basics::direct_to_stdout();
         $clone_server->killServer();
@@ -857,7 +847,8 @@ sub monitor {
     say("INFO: The clone $server_name has pid " . $clone_server->serverpid() .
         " and is connectable.");
 
-    if ($reporter->testEnd() <= time() + 5) {
+    # Sum of timespans for consistency check + kill
+    if ($reporter->testEnd() <= time() + 22) {
         $clone_dbh->disconnect();
         $status =   STATUS_OK;
         Basics::direct_to_stdout();
@@ -874,7 +865,7 @@ sub monitor {
 
     my $databases = $clone_dbh->selectcol_arrayref("SHOW DATABASES");
     foreach my $database (@$databases) {
-        if ($reporter->testEnd() <= time() + 5) {
+        if ($reporter->testEnd() <= time() + 13) {
             $clone_dbh->disconnect();
             $status =   STATUS_OK;
             Basics::direct_to_stdout();
@@ -895,6 +886,15 @@ sub monitor {
 
             # Should not do CHECK etc., and especially ALTER, on a view
             next if $tables{$table} eq 'VIEW';
+            if ($reporter->testEnd() <= time() + 6) {
+                $clone_dbh->disconnect();
+                $status =   STATUS_OK;
+                Basics::direct_to_stdout();
+                $clone_server->killServer();
+                remove_clone_dbs_dirs($clone_vardir);
+                say("INFO: $who_am_i Endtime is nearly exceeded. " . Basics::return_status_text($status));
+                return $status;
+            }
             my $sql = "CHECK TABLE `$database`.`$table` EXTENDED";
             $clone_dbh->do($sql);
             # 1178 is ER_CHECK_NOT_IMPLEMENTED
@@ -931,7 +931,18 @@ sub monitor {
     }
     say("INFO: $who_am_i The tables in the schemas (except information_schema, " .
         "performance_schema) of the cloned server did not look corrupt.");
+
     $clone_dbh->disconnect();
+
+    # timespan for shutdown
+    if ($reporter->testEnd() <= time() + 5) {
+        $status =   STATUS_OK;
+        Basics::direct_to_stdout();
+        $clone_server->killServer();
+        remove_clone_dbs_dirs($clone_vardir);
+        say("INFO: $who_am_i Endtime is nearly exceeded. " . Basics::return_status_text($status));
+        return $status;
+    }
 
     # FIXME:
     # Add dumping (mysqldump) all object definitions.
@@ -941,30 +952,34 @@ sub monitor {
 
     # Going with stopServer (first shutdown attempt, SIGKILL maybe later) is intentional.
     # I can at least imagine that some server on backupped data can be started, passes checks
-    # but is otherwise somehow damaged. And these damages become maybe visible when having
-    # - heavy DML+DDL including some runtime of more than 60s which we do not have here
-    # - a "friendly" shutdown
-    $status = $clone_server->stopServer();
-    if (STATUS_OK != $status) {
+    # but is otherwise somehow damaged.
+    if($clone_server_running != 0) {
+        $status = $clone_server->stopServer();
+        # stopServer tries regular shutdown first. If that fails it escalates to SIGKILL.
+        if (STATUS_OK != $status) {
+            Basics::direct_to_stdout();
+            $status = STATUS_BACKUP_FAILURE;
+            say("ERROR: $who_am_i Shutdown of DB server on cloned data made trouble.");
+            sayFile($clone_err);
+            sayFile($reporter_prt);
+            say("ERROR: $who_am_i " . Basics::return_status_text($status));
+            $clone_server_running = 0;
+            return $status;
+        } else {
+            remove_clone_dbs_dirs($clone_vardir);
+            system("find $clone_vardir -follow") if $script_debug;
+            Basics::direct_to_stdout();
+            # Even if the backup operation was successful the protocol should be rather not deleted.
+            # Maybe it contains warnings or error messages RQG currently does not care about.
+            # unlink ($reporter_prt);
+            say("INFO: $who_am_i Pass");
+            return STATUS_OK;
+        }
+    } else {
         Basics::direct_to_stdout();
-        $status = STATUS_BACKUP_FAILURE;
-        say("ERROR: $who_am_i Shutdown of DB server on cloned data made trouble. ".
-            "Hence trying to kill it and return STATUS_BACKUP_FAILURE later.");
-        my $throw_away_status = $clone_server->killServer();
-        sayFile($clone_err);
-        sayFile($reporter_prt);
-        say("ERROR: $who_am_i " . Basics::return_status_text($status));
-        return $status;
+        say("INFO: $who_am_i Pass till SIGTERM arrival.");
+        return STATUS_OK;
     }
-    remove_clone_dbs_dirs($clone_vardir);
-    system("find $clone_vardir -follow") if $script_debug;
-    Basics::direct_to_stdout();
-    # Even if the backup operation was successful the protocol should be rather not deleted.
-    # Maybe it contains warnings or error messages RQG currently does not care about.
-    # unlink ($reporter_prt);
-    say("INFO: $who_am_i Pass");
-
-    return STATUS_OK;
 }
 
 sub type {
