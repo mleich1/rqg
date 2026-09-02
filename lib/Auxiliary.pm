@@ -2733,6 +2733,16 @@ sub make_rr_backtrace {
         system('bash -c "set -o pipefail; '. $command .'"');
         say("INFO: $who_am_i ---------------------------- Begin");
         sayFile($backtrace);
+        # A replay without any frame had no last event to work on because the server has exited
+        # without crashing. Report that explicit because the gdb output alone describes only the
+        # inability of 'rr' and is hereby misleading. The trace is kept because its earlier
+        # events may explain that exit.
+        my $frame_found = search_in_file($backtrace, '^#0');
+        if (defined $frame_found and not $frame_found) {
+            say("INFO: $who_am_i No backtrace from the last event of the rr trace possible. " .
+                "The server has most probably exited without crashing. The rr trace in " .
+                "'$rr_trace_dir' is kept for inspection of the earlier events.");
+        }
         $status = STATUS_SERVER_CRASHED;
         say("INFO: $who_am_i ------------------------------ End");
         return $status;
