@@ -1,0 +1,273 @@
+List of ideas for fixes and improvements   2026-09
+==================================================
+
+1. Once the RQG reporters Mariabackup*_linux are a bit matured try to unify all routines checking
+   the consistency of some database in some way.
+   Points needing to be considered:
+   1. Will there be
+      a) concurrent sessions changing data
+         Example: A RQG reporter makes consistency checks during the phase GenTest.
+         - Objects found via SELECTs within the information_schema like databases, views,
+           base tables, triggers, indexes, columns of tables etc. might get dropped, renamed or
+           have a modified layout milliseconds later.
+         - IMHO ANALIZE/OPTIMIZE TABLE/ALTER TABLE FORCE should be rather done by one or
+           several of the concurrent sessions changing data anyway.
+      or
+      b) no concurrent sessions changing data
+         Example: The RQG runner makes consistency checks between the phases GenData and GenTest
+                  or after GenTest.
+         Important points:
+         - Views definitions could be logically rotten because some base table was deleted
+           or similar.
+         - Repetitions of some SELECT can give different result sets in case of system tables
+           containing data about the history of statements or service operations (purge etc.)
+           executed.
+         - Service operations (purge etc.) might be capable to cause that the checking
+           statement fails with deadlock or whatever timeout exceeded.
+         - IMHO in the current situation ANALIZE/OPTIMIZE TABLE/ALTER TABLE FORCE should be
+           rather run now.
+      ?
+   2. Views definitions could be logically rotten because some base table was dropped or renamed 
+      or similar.
+   3. max_statement_time of the session running the checks needs to be big enough.
+      Otherwise for example a CHECK TABLE/ALTER TABLE ... FORCE on a huge table might fail because
+      of exceeding that timeout.
+   4. We need to be aware that
+      - the optimizer might be buggy
+      - CHECK TABLE ... EXTENDED might be less thorough than we wish
+      - metadata about tables might be corrupt
+      - system views and tables, whatever information_schema content might be rotten
+      Hence any mabe additional but maybe logically redundant looking way to detect a corruption
+      is welcome.
+      == The current mixup of try to
+      - read the definition of any table and view.
+      - read the content of any existing table or view in various ways like the "walk queries".
+      - run CHECK TABLE ... EXTENDED, CHECK VIEW ... for any existing table and view
+      - run ANALYSE/OPTIMISE ...,  ALTER TABLE ... FORCE for any existing user defined table 
+      should be preserved.
+
+
+2. Extend the RQG test simplifier by simplification of all data generated during the gendata phase.
+   Raw idea:
+   2.1 New simplification phase "gendata_dump".
+       Start as many tests as possible in parallel. Take care that these tests run with different
+       values assigned to the parameter seed. All these tests have to run some mysqldump between
+       the end of the gendata and the begin of the gentest phase.
+       As soon as one test replays all concurrent tests get stopped.
+       The mysqldump file of the replaying test will be used for all future runs.
+       Advantage of using some dump before the gentest phase:
+       It does not matter how the initial data
+          zz grammar, sql file, simple gendata, gendata_advanced
+       were generated.
+   2.2 New simplification phase "gendata_simp" where the gendata_dump gets shrinked.
+       The algorithm proposed by Andreas Zeller
+           Try to remove bigger chunks of the SQLs first.
+           Cut in half chunk size when having no success.
+       might be less effective than with MTR based tests who replays a bug.
+       We can go with concurrent tests using different big slices like
+       first half, second half, first qarter, second quarter, third quarter, fourth quarter,
+       ...
+       As soon as one test replays all concurrent tests get stopped.
+       The mysqldump file of the replaying test will be used for all future runs.
+       We also need to take into account that we might try to replay some concurrency bug.
+       Hence repeated attempts might make sense.
+   I would place these two new phases between "thread_reduce" and "grammar_clone" because
+   I guess that attacking the yy grammar and the number of threads earlier leads to shorter
+   overall simplification runtime.
+
+3. Maybe have some RQG component which generates a second version of the final grammar.
+
+   Example:
+   The simplification phase "grammar_clone" causes grammars to look like
+       __clone__1: SELECT * FROM t1;
+       __clone__2: UPDATE t2 SET col1 = 13;
+       __clone__3: SELECT * FROM t1;
+       __clone__4: UPDATE t2 SET col1 = 13;
+    
+       thread1: __clone__1 |
+                __clone__2 ;
+       
+       thread2: __clone__3 |
+                __clone__4 ;
+
+   But when starting a manual grammar simplification some logical equivalent grammar like
+
+       thread1: SELECT * FROM t1 |
+                UPDATE t2 SET col1 = 13 ;
+
+       thread2: SELECT * FROM t1 |
+                UPDATE t2 SET col1 = 13 ;
+   
+4. Maybe (I caught that failure only once.) fix
+      pluto:/data/RQG_NEW$ ./util/SUMMARY_fast.sh /data/results/1787226415
+   delivering
+      ...
+      STATUS_SERVER_DEADLOCKED--iof10--fk_ddl--version        /data/results/1787226415/002284/rqg.log    <Archive deleted>
+      STAUP_FAILURE--NMB-2460--rr--RR-Silent-crash-ignore        /data/results/1787226415/000061/rqg.log    <Archive deleted>
+      STAlog        /data/results/1787226415/000452/rqg.log    <Archive deleted>
+      STS_BACKUP_FAILURE--NMB-2460--rr--RR-Silent-crash-ignore        /data/results/1787226415/001557/rqg.log    <Archive deleted>
+      Verdict: /data/results/1787226415/005325/rqg.log        /data/results/1787226415/006601/rqg.log    <Archive deleted>
+
+
+
+
+
+Ideas before 2025-05
+====================
+   1. Add maybe the option to not remove components of rules which contain the keywords DROP,
+      TRUNCATE or DELETE.
+      Background:
+      - As soon as we remove such components we are non rare faced with some serious growth of the
+        storage space consumption which is counter productive in many aspects
+        1. It might cause some OS breakdown in case of placing the vardir on a filesystem of type
+           tmpfs as long as we have no load/resource control mechanism which prevents trouble.
+        2. Especially without but also with a load/resource control mechanism we are faced with
+           that the current MariaDB and also MySQL the server tend to assert with
+              InnoDB error 28 (no space on disk)
+           and the debugger analyzing the core file (reporter Backtrace) reports frequent
+              BFD: Warning: .....data/core is truncated:
+                            expected core file size >= 959647744, found: 55398400.
+           I have no fixed opinion regarding if its better to assert with core or to make something
+           like an emergency shutdown of the server without core.
+           Even a clever RQG resource control and emergency shutdowns cannot prevent that maybe
+           even one RQG test with one server consumes all available storage space.
+           And the result of the test is of no value.
+      - The simplifier produces grammars which are capable to replay but start to need to require
+        far way more test runs.
+        Example:
+        Assume that some assert happens during CREATE TABLE <not yet existing table> meeting certain
+        concurrent SQL. The simplifier will detect that some corresponding DROP TABLE <sample table>
+        is not required for replaying the assert. Hence it will shrink the DROP away.
+        But that leads to the following change in properties to replay
+        1. The average runtime of replaying runs decreases negligible.
+        2. We need serious more replay attempts because we either replay with some extreme short
+           RQG run or never in this run no matter how long it lasts because after some one and only
+           passing CREATE TABLE any future CREATE TABLE will fail because that table already exists.
+      I think already since some time about
+      - first phase A of simplification:
+        "Do not attack SQL containing DROP (schema, table, key, trigger, .... ) or DELETE at all.
+        Final result of this phase is grammar a.
+        Warning regarding how to do that:
+        Filtering out simplifications like "remove from rule X the component DROP ..." is not
+        sufficient because we could also have "remove from X the component c" and c contains
+        the rule Y which contains the DROP.
+        Idea: Compare parent P<m> grammar to potentional tried grammar T<n> regarding the amount
+              of DROP and DELETE. In case there are less in T<n> than T<n> removed some.
+        Problem: Case insensitive drop as Rule name or just word of statement.
+                 But I assume extreme perfection in this case is not required.
+      - later phase B:
+        Take grammar a and attack DROP/DELETE but check for any shrinked grammar which replays if
+        the likelihood to replay has dropped. If yes, than revert this simplification.
+        Final result of this phase is grammar b.
+      - later phase C or somehow joined with B:
+        Take grammar b and now attack DROP/DELETE too.
+        Final result of this phase is grammar c.
+      How to use these grammars later:
+      - ignore or drop grammar a. Depending on point of view either grammar b or c is better.
+      - Present the bug fixer grammar c as example which SQL the bug needs
+      - From now on use grammar c for any replay attempt. Its the most efficient.
+      Some prototype code exists but I am not convinced of it.
+   5. The first step within the grammar simplification process is:
+      Try to replay with the original YY grammar and give up in case that goal was not achieved.
+      Handle this amount of trials better if required.
+-- Improve RQG components like reporters and validators as soon as I am forced to use them and
+   meet trouble.
+   This might sound banal but per my experience many parts of RQG are the opposite of well prepared
+   for meeting the rough conditions of tests invoking KILL QUERY up till KILL <session> and
+   that even on some heavy loaded testing box.
+-- Ugly observation (2018-08)
+   During grammar simplification range_access.yy shows some disastrous runtime behaviour.
+   After quite short runtime the perl processes for the threads consumed more memory than
+   the DB server. I guess this problem is caused by the "stack" feature of RQG.
+   No idea who will fix that problem.
+-- Describe the work flow from
+   1. bug hunting with RQG tests (rqg_batch.pl with cc config file)
+   2. grammar simplification for one or more of the bugs found in 1.
+   3. How to develop based on 2. some final replay testcase which is maybe MTR based.
+-- Implement several optional "strangler" which cause that some ongoing simplifications attempt
+   is stopped in case it is extreme likely that we will get no more a replay with this one.
+   Criterions:
+   - up till now elapsed RQG/MTR runtime (one tool call running a campaign of tests)
+   - up till now elapsed runtime for a RQG/MTR test executed by a Worker within a tool
+   - actual size of output
+   Maintain a fifo with n elements whenever a replay was achieved.
+   Compute a value giving a > 85% percentil and use that as upper limit for the next to be
+   started RQG/MTR run. Stop that run as soon as that limit was exceeded and maybe charge into
+   the fifo a value like limit * 1.01.
+-- Ideas for some improved mysqltest simplifier
+   Some first note:
+   The algorithm (--> Andreas Zeller) of the current mysqltest simplifier is extreme efficient
+   but lacks support for parallelization.
+   I am aware that 2. is in some points maybe less efficient but supports parallelization.
+   1. Try with parallel=1 and repeat=1.
+      In case that fails than there might be two reasons
+      a) the search pattern is wrong
+      b) unknown but per more than one time observation going with
+         - repeat > 1 helped sometimes but often not
+         - In all cases where repeat > 1 helped a doubling of the test code helped too.
+         My guess: It was a problem in InnoDB purge.
+         The original test was derived from some rqg_batch run and that probably
+         - generates per RQG worker -> server more log than per MTR worker -> server
+         - runs more SQL -> need more time than in MTR
+         - runs with more parallel CPU load on testing box  SQL -> need more time than in MTR
+         So whatever criterion purge uses for deciding to become active, there is sufficient
+         in RQG but not in the derived MTR Test.
+      So if no replay
+      -  Try with doubled script code.
+      -  Try with quadrupled script code.
+      If even this does not replay than give up.
+   2. When having some "base" test
+      Set $parallel to user defined value or the default `nproc`.
+      Set $dividor = $parallel.
+      $replay_in_round = 1;
+      Loop (if 1 == $replay_in_round)
+          $replay_in_round = 0;
+          Add x empty lines to the last replaying script so that  no of lines MOD dividor = 0.
+          Make dividor derivates
+              First derivat = Last replayer with the first 1/dividor lines removed.
+              Last  derivat = Last replayer with the last  1/dividor lines removed at end.
+              Naming of tests: SD_<iteration with left side zeros>-<1 till dividor>
+          Loop as long as (combine with "and")
+              - no replay achieved
+              - $dividor < 2 * number of line in replaying test
+                Goal: The ~ last round should be : Attack any single code line in test.
+              ./mtr --parallel=$parallel ... --do-test=SD_<iteration with left zeros>
+              If replay
+              - YES: Catch the name of the test and declare it to be the last replaying script.
+                Delete all other non replaying scripts SD_<iteration with left zeros>_...
+                $replay_in_round = 1;
+                (perl) last    (*)
+              - NO: $dividor = 2 * $dividor
+                (perl) last
+      -----------------------------------------------------------------------------
+      Problems(test it out):
+          Is it possible to identify the replaying test with 100% accuracy?
+          V1.test == V2.test with content
+          --disable_abort_on_error
+          CREATE TABLE t1 (col1 INT);
+          A result file does not exist.
+          We get a pass no matter how many repeats I run.
+   3. Try competing
+      -filters
+       - failing statements removed
+       - SHOW
+       - SELECT
+       - ???
+      - test setups which make the run faster
+        - no warnings
+        - fast shutdown
+        - ......
+- new simplification_phase
+  grammar_disarm ?
+  Have a configurable list of keywords like XA, FOREIGN KEY, references, ... ordered
+  by how much it would be appreciated that this feature is not required for replaying
+  some bad effect.
+  Make order ids along that list.
+  Have in the derivate grammar that keyword mangled or the rule component mangled or
+  the rule component set to '' because the generated statement will be most probably
+  rotten anyway.
+
+--dryrun=... works quite incomplete because best_grammar.yy is not fully maintained.
+- The combination TEMPORARY TABLE -- CHECK TABLE is nowhere or too rare tested.
+
+
