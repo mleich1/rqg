@@ -60,22 +60,40 @@ List of ideas for fixes and improvements   2026-09
           zz grammar, sql file, simple gendata, gendata_advanced
        were generated.
    2.2 New simplification phase "gendata_simp" where the gendata_dump gets shrinked.
-       The algorithm proposed by Andreas Zeller
-           Try to remove bigger chunks of the SQLs first.
-           Cut in half chunk size when having no success.
-       might be less effective than with MTR based tests who replays a bug.
-       We can go with concurrent tests using different big slices like
-       first half, second half, first qarter, second quarter, third quarter, fourth quarter,
-       ...
-       As soon as one test replays all concurrent tests get stopped.
-       The mysqldump file of the replaying test will be used for all future runs.
-       We also need to take into account that we might try to replay some concurrency bug.
-       Hence repeated attempts might make sense.
+       Use the same concept like in the phase "grammar_simp".
+       There is a "parent SQL stream" which is a copy of the SQL stream used in the last test run
+       which replayed the problem. All proposals of further shrinked streams get generated from
+       the actual "parent SQL stream".
+       As long as
+       - the resource consumption on the testing box is not critical
+         otherwise just wait till the resource consumption has become non critical
+       - there is no replay of the problem with some SQL stream which is smaller than the actual
+         parent SQL stream
+         otherwise stop all currently ongoing RQG runs using a SQL stream which is not smaller
+         than the SQL stream of the last replayer, copy the SQL stream of the replaying run
+         over the "parent SQL stream", reset the divisor to 1 and go on
+       - the divisor is now equal or bigger than two times the number of lines in the
+         "parent SQL stream" and go on
+       - we have not exceeded more than number of lines non replaying tests since the last replay
+         otherwise we have reached the end
+       generate a proposal for a shrinked derivate of the "parent SQL stream" and start a test
+       using that.
+       How should the shrinked derivate be generated:
+          Lets assume the "parent SQL stream" consists of 128 lines, one SQL statement per line
+       Try to remove the lines
+       Divisor | List of possible attempts to remove lines
+       --------+------------------------------------------------------------
+             1 | 1-128
+             2 | 1-64 , 33-96, 65-128
+             4 | 1-32 , 17-48, 33-64, 49-80, 65-96, 81-112, 97-128
+             8 | 1-16 , 9-24, 17-32, 25-40, 33-48, 41-56, 49-64, 57-72, ....
+
    I would place these two new phases between "thread_reduce" and "grammar_clone" because
    I guess that attacking the yy grammar and the number of threads earlier leads to shorter
    overall simplification runtime.
 
-3. Maybe have some RQG component which generates a second version of the final grammar.
+3. Maybe have some RQG component which generates a second version of the final grammar of
+   a grammar simplification.
 
    Example:
    The simplification phase "grammar_clone" causes grammars to look like
@@ -97,6 +115,8 @@ List of ideas for fixes and improvements   2026-09
 
        thread2: SELECT * FROM t1 |
                 UPDATE t2 SET col1 = 13 ;
+
+   is more comfortable.
    
 4. Maybe (I caught that failure only once.) fix
       pluto:/data/RQG_NEW$ ./util/SUMMARY_fast.sh /data/results/1787226415
@@ -107,8 +127,6 @@ List of ideas for fixes and improvements   2026-09
       STAlog        /data/results/1787226415/000452/rqg.log    <Archive deleted>
       STS_BACKUP_FAILURE--NMB-2460--rr--RR-Silent-crash-ignore        /data/results/1787226415/001557/rqg.log    <Archive deleted>
       Verdict: /data/results/1787226415/005325/rqg.log        /data/results/1787226415/006601/rqg.log    <Archive deleted>
-
-
 
 
 
