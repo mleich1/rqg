@@ -583,13 +583,13 @@ sub report {
     my $rd_D;
     my $sd_D;
     # Bad scenario assumed:
-    # - one worker and the estimated fraction of the remaining worker die with core.
-    # - one worker had nearly no space consumption but reaches maximum of (average,SPACE_USED).
+    # - two worker and the estimated fraction of the remaining worker die with core.
+    # - two worker had nearly no space consumption but reach now maximum of (average,SPACE_USED).
     if ($worker_active > 0) {
-        $vd_D = (1 + ($worker_active - 1) * SHARE_CORE)  * SPACE_CORE;
+        $vd_D = (2 + ($worker_active - 1) * SHARE_CORE)  * SPACE_CORE;
         my $space_estimation = $vardir_consumed / $worker_active;
         $space_estimation = SPACE_USED if $space_estimation < SPACE_USED;
-        $vd_D = $vd_D + $space_estimation;
+        $vd_D = $vd_D + 2 * $space_estimation;
     } else {
         $vd_D = 0;
     }
@@ -625,10 +625,10 @@ sub report {
     # Bad scenario assumed:
     # - one additional RQG worker would get started.
     # - from the now running RQG workers
-    #   - two crash with core and the remaining like average
+    #   - three crash with core and the remaining like average
     #   - three had nearly no space consumption but reach maximum of (average,SPACE_USED).
     if ($worker_active > 0) {
-        $vd_K = (2 + ($worker_active - 1) * SHARE_CORE) * SPACE_CORE;
+        $vd_K = (3 + ($worker_active - 1) * SHARE_CORE) * SPACE_CORE;
         my $space_estimation = $vardir_consumed / $worker_active;
         $space_estimation = SPACE_USED if $space_estimation < SPACE_USED;
         # Observation 2026-04-30:
