@@ -46,7 +46,6 @@ List of ideas for fixes and improvements   2026-09
       - run ANALYSE/OPTIMISE ...,  ALTER TABLE ... FORCE for any existing user defined table 
       should be preserved.
 
-
 2. Extend the RQG test simplifier by simplification of all data generated during the gendata phase.
    Raw idea:
    2.1 New simplification phase "gendata_dump".
@@ -64,6 +63,10 @@ List of ideas for fixes and improvements   2026-09
        There is a "parent SQL stream" which is a copy of the SQL stream used in the last test run
        which replayed the problem. All proposals of further shrinked streams get generated from
        the actual "parent SQL stream".
+       For that purpose the RQG test call has to be transformed like
+           Remove any gendata related option and add
+                  --skip-gendata --gendata_sql=<derivate of parent SQL stream>
+
        As long as
        - the resource consumption on the testing box is not critical
          otherwise just wait till the resource consumption has become non critical
@@ -87,6 +90,38 @@ List of ideas for fixes and improvements   2026-09
              2 | 1-64 , 33-96, 65-128
              4 | 1-32 , 17-48, 33-64, 49-80, 65-96, 81-112, 97-128
              8 | 1-16 , 9-24, 17-32, 25-40, 33-48, 41-56, 49-64, 57-72, ....
+
+       To be fixed problem:
+           Loading the SQL file aborts in case one of the statements fails.
+
+           Example:
+
+           CREATE TABLE `t1` (
+              `k` int(10) unsigned NOT NULL DEFAULT 0,
+              `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+              `c` char(120) NOT NULL DEFAULT '',
+              `pad` char(60) NOT NULL DEFAULT '',
+              PRIMARY KEY (`id`),
+              KEY `k` (`k`)
+           ) ENGINE=InnoDB AUTO_INCREMENT=1001 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+           /*!40101 SET character_set_client = @saved_cs_client */;
+           SET @OLD_AUTOCOMMIT=@@AUTOCOMMIT, @@AUTOCOMMIT=0;
+           INSERT INTO `t1` VALUES (382468096,1,'rwmgirfqfiux','look');
+           INSERT INTO `t1` VALUES (196673536,2,'h','s');
+           INSERT INTO `t1` VALUES (346226688,3,'and','w');
+           ....
+
+           Even if we have the luck that the complete CREATE TABLE and some of the INSERTs get
+           removed its quite likely that many tests will abort because INSERTs fail because of
+           missing table.
+
+           Possible solutions:
+           a) The RQG runner 'rqg.pl' should honor some option "--force" by no more insisting
+              that all SQL statements pass.
+           b) The simplifier attacks only the INSERTs.
+              Disadvantages:
+              - Slight limitation of what the simplifier could achieve
+              - The implementation is a bit more complicated than a).
 
    I would place these two new phases between "thread_reduce" and "grammar_clone" because
    I guess that attacking the yy grammar and the number of threads earlier leads to shorter
@@ -117,7 +152,7 @@ List of ideas for fixes and improvements   2026-09
                 UPDATE t2 SET col1 = 13 ;
 
    is more comfortable.
-   
+
 4. Maybe (I caught that failure only once.) fix
       pluto:/data/RQG_NEW$ ./util/SUMMARY_fast.sh /data/results/1787226415
    delivering
