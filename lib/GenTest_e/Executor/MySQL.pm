@@ -1763,6 +1763,7 @@ sub execute {
                         ($ct_Msg_text =~ /Lock wait timeout exceeded/)             or
                         ($ct_Msg_text =~ /Table .{1,200} was not locked with LOCK TABLES/) or
                         ($ct_Msg_text =~ /Query execution was interrupted/)        or
+                        ($ct_Msg_text =~ /Can\'t execute the command as you have a BACKUP STAGE active/) or
                         ($ct_Msg_text =~ /Query was interrupted/)  ) {
                         say("INFO: Executor: For query '" . $query . "' most likely legitimate '" .
                             $line . "' observed. Will return STATUS_SKIP.");
