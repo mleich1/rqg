@@ -278,16 +278,40 @@ function check_environment()
     fi
     echo "git checkout storage/innobase/include/ut0new.h" >> "$CHECKOUT_LST"
 
-    #    Avoid abort of rr when meeting code of sql_backup and /dev/shm
-    SQL_BACKUP_RR_PATCH="$GENERAL_SOURCE_DIR""/sql_backup-rr.patch"
-    if [ -f sql/sql_backup.cc ]
+#   #    Avoid abort of rr when meeting code of sql_backup and /dev/shm
+#   SQL_BACKUP_RR_PATCH="$GENERAL_SOURCE_DIR""/sql_backup-rr.patch"
+#   if [ -f sql/sql_backup.cc ]
+#   then
+#       if [ ! -f "$SQL_BACKUP_RR_PATCH" ]
+#       then
+#           echo "No plain file '$SQL_BACKUP_RR_PATCH' found."
+#           exit 4
+#       fi
+#       echo "git checkout sql/sql_backup.cc" >> "$CHECKOUT_LST"
+#   fi
+
+#   BACKUP_RR_PATCH="$GENERAL_SOURCE_DIR""/backup_rr.patch"
+#   if [ -f storage/innobase/handler/backup_innodb.cc ]
+#   then
+#       if [ ! -f "$BACKUP_RR_PATCH" ]
+#       then
+#           echo "No plain file '$BACKUP_RR_PATCH' found."
+#           exit 4
+#       fi
+#       echo "git checkout storage/innobase/handler/backup_innodb.cc" >> "$CHECKOUT_LST"
+#   fi
+
+    # backup_rr1.patch just seems to be a duplicate version of backup_rr.patch
+    # with more actual addresses etc.
+    BACKUP_RR1_PATCH="$GENERAL_SOURCE_DIR""/backup_rr1.patch"
+    if [ -f storage/innobase/handler/backup_innodb.cc ]
     then
-        if [ ! -f "$SQL_BACKUP_RR_PATCH" ]
+        if [ ! -f "$BACKUP_RR1_PATCH" ]
         then
-            echo "No plain file '$SQL_BACKUP_RR_PATCH' found."
+            echo "No plain file '$BACKUP_RR1_PATCH' found."
             exit 4
         fi
-        echo "git checkout sql/sql_backup.cc" >> "$CHECKOUT_LST"
+        echo "git checkout storage/innobase/handler/backup_innodb.cc" >> "$CHECKOUT_LST"
     fi
 
     cp "$CHECKOUT_LST" "$CHECKOUT_LST".res
@@ -489,6 +513,17 @@ function install_till_end()
     rm -rf "$INSTALL_PREFIX"
     make install                                                     2>&1   | tee -a "$BLD_PROT"
 
+    BACKUP_WRAPPER="$SOURCE_DIR""/extra/mariabackup/scripts/mariadb-backup-server.sh"
+    if [ -f "$BACKUP_WRAPPER" ]
+    then
+        cp "$BACKUP_WRAPPER" "$INSTALL_PREFIX""/scripts"
+    fi
+    STREAM_WRAPPER="$SOURCE_DIR""/extra/mariabackup/scripts/mbstream-server.sh"
+    if [ -f "$BACKUP_WRAPPER" ]
+    then
+        cp "$STREAM_WRAPPER" "$INSTALL_PREFIX""/scripts"
+    fi
+
     # Without the following chmod successing builds by other group members will fail during the
     # install because overwriting of some files in $INSTALL_PREFIX/include is not allowed.
     # My guess: rm -rf did not delete everything.
@@ -571,18 +606,45 @@ set -e
     fi
     echo "4. '$BP_IN_CORE_PATCH' applied"
 
-    #    Avoid abort of rr when meeting code of sql_backup and /dev/shm
-    if [ -f sql/sql_backup.cc ]
+#   #    Avoid abort of rr when meeting code of sql_backup and /dev/shm
+#   if [ -f sql/sql_backup.cc ]
+#   then
+#       SQL_BACKUP_RR_PATCH="$GENERAL_SOURCE_DIR""/sql_backup-rr.patch"
+#       patch -lp1 < "$SQL_BACKUP_RR_PATCH"
+#       RC=$?
+#       if [ $RC -gt 0 ]
+#       then
+#           echo "ERROR: Applying '$SQL_BACKUP_RR_PATCH' failed."
+#           cond_exit
+#       fi
+#       echo "5. '$SQL_BACKUP_RR_PATCH' applied"
+#   fi
+
+    #    Avoid https://github.com/rr-debugger/rr/issues/4059
+#   if [ -f storage/innobase/handler/backup_innodb.cc ]
+#   then
+#       BACKUP_RR_PATCH="$GENERAL_SOURCE_DIR""/backup_rr.patch"
+#       patch -lp1 < "$BACKUP_RR_PATCH"
+#       RC=$?
+#       if [ $RC -gt 0 ]
+#       then
+#           echo "ERROR: Applying '$BACKUP_RR_PATCH' failed."
+#           cond_exit
+#       fi
+#       echo "6. '$BACKUP_RR_PATCH' applied"
+#   fi
+
+    if [ -f storage/innobase/handler/backup_innodb.cc ]
     then
-        SQL_BACKUP_RR_PATCH="$GENERAL_SOURCE_DIR""/sql_backup-rr.patch"
-        patch -lp1 < "$SQL_BACKUP_RR_PATCH"
+        BACKUP_RR1_PATCH="$GENERAL_SOURCE_DIR""/backup_rr1.patch"
+        patch -lp1 < "$BACKUP_RR1_PATCH"
         RC=$?
         if [ $RC -gt 0 ]
         then
-            echo "ERROR: Applying '$SQL_BACKUP_RR_PATCH' failed."
+            echo "ERROR: Applying '$BACKUP_RR1_PATCH' failed."
             cond_exit
         fi
-        echo "5. '$SQL_BACKUP_RR_PATCH' applied"
+        echo "7. '$BACKUP_RR1_PATCH' applied"
     fi
 
 set +e

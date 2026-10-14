@@ -1,0 +1,13 @@
+diff --git a/storage/innobase/handler/backup_innodb.cc b/storage/innobase/handler/backup_innodb.cc
+index 40055df6738..fa28711ccf0 100644
+--- a/storage/innobase/handler/backup_innodb.cc
++++ b/storage/innobase/handler/backup_innodb.cc
+@@ -1979,7 +1979,7 @@ int InnoDB_backup::copy_file_shortcut_try(int dst, fil_node_t *node,
+                                           uint32_t final_limit,
+                                           buf_page_t **blocks) noexcept
+ {
+-# if 0
++# if 1
+   return 1; // work around https://github.com/rr-debugger/rr/issues/4059
+ # endif
+   const uint32_t BACKUP_BATCH_SIZE{innodb_backup.ctx.BACKUP_BATCH_SIZE};
