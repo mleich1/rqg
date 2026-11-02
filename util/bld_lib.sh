@@ -301,18 +301,18 @@ function check_environment()
 #       echo "git checkout storage/innobase/handler/backup_innodb.cc" >> "$CHECKOUT_LST"
 #   fi
 
-    # backup_rr1.patch just seems to be a duplicate version of backup_rr.patch
-    # with more actual addresses etc.
-    BACKUP_RR1_PATCH="$GENERAL_SOURCE_DIR""/backup_rr1.patch"
-    if [ -f storage/innobase/handler/backup_innodb.cc ]
-    then
-        if [ ! -f "$BACKUP_RR1_PATCH" ]
-        then
-            echo "No plain file '$BACKUP_RR1_PATCH' found."
-            exit 4
-        fi
-        echo "git checkout storage/innobase/handler/backup_innodb.cc" >> "$CHECKOUT_LST"
-    fi
+#   # backup_rr1.patch just seems to be a duplicate version of backup_rr.patch
+#   # with more actual addresses etc.
+#   BACKUP_RR1_PATCH="$GENERAL_SOURCE_DIR""/backup_rr1.patch"
+#   if [ -f storage/innobase/handler/backup_innodb.cc ]
+#   then
+#       if [ ! -f "$BACKUP_RR1_PATCH" ]
+#       then
+#           echo "No plain file '$BACKUP_RR1_PATCH' found."
+#           exit 4
+#       fi
+#       echo "git checkout storage/innobase/handler/backup_innodb.cc" >> "$CHECKOUT_LST"
+#   fi
 
     cp "$CHECKOUT_LST" "$CHECKOUT_LST".res
     sort -u "$CHECKOUT_LST" > "$CHECKOUT_LST"".usrt"
@@ -634,18 +634,18 @@ set -e
 #       echo "6. '$BACKUP_RR_PATCH' applied"
 #   fi
 
-    if [ -f storage/innobase/handler/backup_innodb.cc ]
-    then
-        BACKUP_RR1_PATCH="$GENERAL_SOURCE_DIR""/backup_rr1.patch"
-        patch -lp1 < "$BACKUP_RR1_PATCH"
-        RC=$?
-        if [ $RC -gt 0 ]
-        then
-            echo "ERROR: Applying '$BACKUP_RR1_PATCH' failed."
-            cond_exit
-        fi
-        echo "7. '$BACKUP_RR1_PATCH' applied"
-    fi
+#   if [ -f storage/innobase/handler/backup_innodb.cc ]
+#   then
+#       BACKUP_RR1_PATCH="$GENERAL_SOURCE_DIR""/backup_rr1.patch"
+#       patch -lp1 < "$BACKUP_RR1_PATCH"
+#       RC=$?
+#       if [ $RC -gt 0 ]
+#       then
+#           echo "ERROR: Applying '$BACKUP_RR1_PATCH' failed."
+#           cond_exit
+#       fi
+#       echo "7. '$BACKUP_RR1_PATCH' applied"
+#   fi
 
 set +e
 }
